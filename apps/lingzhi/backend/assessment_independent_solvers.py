@@ -7,6 +7,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 import math
 import operator
+import re
+import json
 from typing import Any, Callable
 from dynamic_array_solver import public_dynamic_array_inputs, solve_dynamic_array_potential
 
@@ -71,6 +73,11 @@ class IndependentSolverRegistry:
             return None
         if not isinstance(contract, dict):
             return None
+        kind = str(contract.get("kind") or "")
+        if kind == "numeric_expression" and not _numeric_contract_is_public(public_question_spec, contract):
+            return None
+        if kind == "state_operations" and not _state_contract_is_public(public_question_spec, contract):
+            return None
         solver = self._solvers.get(str(contract.get("kind") or ""))
         if solver is None:
             return None
@@ -90,6 +97,36 @@ class IndependentSolverRegistry:
         if not _complete_solution(result):
             return None
         return deepcopy(result)
+
+
+def _numeric_contract_is_public(spec: dict, contract: dict) -> bool:
+    text = str((spec.get("task") or {}).get("rendered_text") or "")
+    if len(text) > 320 or len(str(contract.get("expression") or "")) > 200:
+        return False
+    text = text.replace("$", "").replace("−", "-").replace("×", "*").replace("÷", "/")
+    match = re.fullmatch(
+        r"\s*(?:(?:请)?(?:计算|求值|求出)|calculate|evaluate)?\s*([0-9.()+*/%\-\s]+?)"
+        r"(?:的值|的结果)?\s*(?:[，,;；]\s*(?:单位|unit)\s*([A-Za-z%°µ]+))?[。.!?？]?\s*",
+        text, re.IGNORECASE,
+    )
+    if not match or str(contract.get("unit") or "") != (match[2] or ""):
+        return False
+    try:
+        return ast.dump(ast.parse(match[1].strip(), mode="eval")) == ast.dump(ast.parse(str(contract.get("expression") or ""), mode="eval"))
+    except (SyntaxError, ValueError, TypeError):
+        return False
+
+
+def _state_contract_is_public(spec: dict, contract: dict) -> bool:
+    text = str((spec.get("stimulus") or {}).get("rendered_text") or "")
+    expected = {key: contract.get(key) for key in ("initial_state", "operations")}
+    for block in re.findall(r"```json\s*\n([\s\S]*?)```", text):
+        try:
+            if json.loads(block) == expected:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
 
 
 def _solve_numeric_expression(

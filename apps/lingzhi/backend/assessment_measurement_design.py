@@ -441,7 +441,7 @@ def normalize_assignment_observation(plan: dict, strategy: dict) -> dict:
 
 def evidence_recovery_action(codes: list[str], *, validation_passed: bool) -> str:
     """Retry the responsible artifact, never a specific point or answer."""
-    failures = set(codes) - {"INDEPENDENT_EVIDENCE_UNVERIFIED", "SEMANTIC_REVIEW_FAILED"}
+    failures = set(codes) - {"INDEPENDENT_EVIDENCE_UNVERIFIED", "SEMANTIC_REVIEW_FAILED", "QUALITY_DIMENSION_BELOW_MINIMUM", "FINAL_SOLUTION_REVIEW_MISSING", "VALIDATION_FAILED"}
     if not validation_passed or not failures:
         return "author"
     if failures <= {

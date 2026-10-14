@@ -37,6 +37,9 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
+from assessment_solution_protocol import (
+    SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, review_solution_payload, attest_final_solution_review,
+)
 from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
     attach_measurement_designs, candidate_from_measurement_design, evidence_recovery_action, measurement_design_prompt,
@@ -76,7 +79,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v27"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v28"
 
 
 def _out_tokens(limit: int) -> int:
@@ -918,12 +921,7 @@ class _SemanticEvaluationBatcher:
             "question_spec": deepcopy(
                 contract["question_spec"]
             ),
-            "independent_solution": {
-                **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                "checks": deepcopy(
-                    independent.get("checks") or []
-                ),
-            },
+            "independent_solution": review_solution_payload(contract, independent),
             "objective": deepcopy(objective),
             "slot": deepcopy(slot),
         }
@@ -1114,12 +1112,7 @@ class _SemanticEvaluationBatcher:
             call=lambda: _call_model_method(
                 evaluator,
                 deepcopy(contract["question_spec"]),
-                {
-                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                    "checks": deepcopy(
-                        independent.get("checks") or []
-                    ),
-                },
+                review_solution_payload(contract, independent),
                 deepcopy(objective),
                 deepcopy(slot),
                 call_policy=resolved_call_policy,
@@ -2343,6 +2336,7 @@ class AssessmentGenerationOrchestrator:
                     generation_policy.max_model_solve_calls_per_question
                 ),
             }
+            artifact_history: list[dict[str, Any]] = []
             for attempt_index in range(
                 generation_policy.max_generation_attempts
             ):
@@ -2621,6 +2615,22 @@ class AssessmentGenerationOrchestrator:
                 if slot.get("assessment_binding_schema"):
                     contract.update(assessment_binding(slot))
                     stamp_evidence_admission(contract, semantic_report)
+                artifact_history.append({
+                    "attempt": attempt_index + 1, "action": next_action,
+                    "candidate": deepcopy(candidate),
+                    "independent_solution": deepcopy(independent),
+                    "delivery_solution": review_solution_payload(contract, independent)["delivery_solution"],
+                    "review": deepcopy(semantic_report),
+                })
+                # Answers stay in the existing private solution boundary.
+                contract["solution_envelope"]["generation_artifact_history"] = deepcopy(artifact_history)
+                item_audit["artifact_refs"] = [
+                    {"attempt": row["attempt"], "action": row["action"],
+                     "candidate_hash": stable_hash(row["candidate"]),
+                     "independent_hash": stable_hash(row["independent_solution"]),
+                     "delivery_hash": stable_hash(row["delivery_solution"])}
+                    for row in artifact_history
+                ]
                 async with quality_lock:
                     quality = evaluate_question_contract_quality(
                         contract,
@@ -2705,7 +2715,7 @@ class AssessmentGenerationOrchestrator:
                 recovery = evidence_recovery_action(
                     [str(i.get("code") or "") for i in quality.get("issues") or []],
                     validation_passed=validation.get("passed") is True,
-                ) if slot.get("assessment_binding_schema") else "author"
+                )
                 if recovery in {"review", "solve"}:
                     next_action = recovery
                     item_audit["attempts"][-1]["next_action"] = recovery
@@ -3021,6 +3031,23 @@ class AssessmentGenerationOrchestrator:
         audit: dict[str, Any],
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
     ) -> dict[str, Any]:
+        expected_hash = delivery_hash(contract)
+        report = await self._review_solution(
+            contract, independent=independent, objective=objective, slot=slot,
+            audit=audit, semantic_batcher=semantic_batcher,
+        )
+        return attest_final_solution_review(contract, report, expected_hash)
+
+    async def _review_solution(
+        self,
+        contract: dict[str, Any],
+        *,
+        independent: dict[str, Any],
+        objective: dict[str, Any],
+        slot: dict[str, Any],
+        audit: dict[str, Any],
+        semantic_batcher: _SemanticEvaluationBatcher | None = None,
+    ) -> dict[str, Any]:
         validation = contract.get("solution_validation") or {}
         preflight = contract.get("semantic_preflight") or {}
         reviewer_triggered = should_run_semantic_review(
@@ -3101,12 +3128,7 @@ class AssessmentGenerationOrchestrator:
             batch_size=1,
             call=lambda: evaluator(
                 deepcopy(contract["question_spec"]),
-                {
-                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                    "checks": deepcopy(
-                        independent.get("checks") or []
-                    ),
-                },
+                review_solution_payload(contract, independent),
                 deepcopy(objective),
                 deepcopy(slot),
             ),
@@ -4141,6 +4163,13 @@ def _apply_independent_validation(
         and not risk_contract.get("requires_teacher_review")
     )
     passed = bool(validation.get("passed"))
+    open_answer = validation.get("validation_mode") in OPEN_VALIDATORS
+    if open_answer:
+        solution = contract["solution_envelope"]
+        solution["author_answer_proposal"] = deepcopy(solution.get("canonical_answer"))
+        solution["canonical_answer"] = deepcopy(independent.get("answer"))
+        contract["solution_protocol"] = {"schema_version": SOLUTION_PROTOCOL, "accepted": False, "resolution": "pending_review"}
+        solution["final_solution_review"] = contract["solution_protocol"]
     auto_publish = passed and deterministic and risk_low
     issue_code = validation.get("issue_code")
     issues = (
@@ -4162,6 +4191,7 @@ def _apply_independent_validation(
     )
     _attach_learner_worked_solution(contract, independent)
     contract["solution_envelope"]["independent_solution_record"] = {
+        **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "checks", "option_analysis", "common_errors")},
         "answer_hash": stable_hash(
             independent.get("answer"),
             prefix="ians_",
@@ -4175,11 +4205,11 @@ def _apply_independent_validation(
     _refresh_solution_revision_id(contract)
     contract["solution_validation"] = {
         "schema_version": "solution_validation_report_v1",
-        "passed": passed,
+        "passed": passed and not open_answer,
         "status": (
             "passed"
             if auto_publish
-            else "needs_review"
+            else "pending_semantic_review" if open_answer else "needs_review"
         ),
         "validation_mode": validation.get("validation_mode"),
         "deterministic": deterministic,
@@ -4190,7 +4220,7 @@ def _apply_independent_validation(
             "schema": True,
             "solution_revision": True,
             "answer_executable": True,
-            "independent_agreement": passed,
+            "independent_agreement": None if open_answer else passed,
         },
         "validator_result": deepcopy(validation),
     }
@@ -4215,7 +4245,7 @@ def _attach_learner_worked_solution(
         for option in question_spec.get("options") or []
         if isinstance(option, dict) and option.get("id")
     ]
-    if worked_solution_is_complete(
+    if not contract.get("solution_protocol") and worked_solution_is_complete(
         solution,
         option_ids=option_ids,
     ):
@@ -4243,6 +4273,11 @@ def _attach_learner_worked_solution(
         "option_analysis": deepcopy(option_analysis),
         "common_errors": deepcopy(common_errors),
     }
+    if contract.get("solution_protocol"):
+        # Keep one complete source, even when it is incomplete and must fail.
+        # Never fill missing solver evidence with pieces of the author answer.
+        solution["worked_solution"] = independent_worked
+        return
     if worked_solution_is_complete(
         {**solution, "worked_solution": independent_worked}, option_ids=option_ids,
     ):
@@ -4292,7 +4327,7 @@ def _refresh_solution_revision_id(
     solution_payload = {
         key: value
         for key, value in solution.items()
-        if key != "solution_revision_id"
+        if key not in {"solution_revision_id", "final_solution_review", "generation_artifact_history"}
     }
     revision_id = stable_hash(
         {
@@ -5841,6 +5876,13 @@ def _review_witness_schema(target_statement: str = "") -> dict:
 
 def _semantic_review_directive() -> str:
     return (
+        "Review delivery_solution as the exact proposed student-facing answer, explanation and grading contract. "
+        "Check its canonical_answer, worked_solution summary, every step, final_answer and rubric against the public question. "
+        "author_answer_proposal is an untrusted author draft, not ground truth. The independent solve was completed blind. "
+        "Accept the independently derived delivery only when its full reasoning is supported; do not force agreement with an incorrect author draft. "
+        "A correct final value does not excuse a wrong explanation. Identify whether a defect belongs to the question, solution or review. "
+        "Given initial values, data layout and necessary mathematical definitions are not answer leakage by themselves. "
+        "Require actual disclosure of the tested conclusion or solving rule. For non-choice tasks keep option_audit empty. "
         "Return ONE final, internally consistent report, never deliberation, self-correction or alternate drafts. "
         "First complete the factual option audit and observation trace; then set all final flags and scores from them. "
         "Keep evidence to at most three factual sentences of 60 Chinese characters each, and trace under 160 characters. "

@@ -185,6 +185,7 @@ def test_local_numeric_solver_uses_only_public_solver_contract() -> None:
     registry = IndependentSolverRegistry.with_builtin_solvers()
 
     solution = registry.solve({
+        "task": {"rendered_text": "计算20-8，单位kJ。"},
         "input_contract": {"mode": "numeric_unit"},
         "solver_contract": {
             "kind": "numeric_expression",
@@ -249,6 +250,7 @@ def test_local_solver_returns_none_on_unparsable_expression() -> None:
             "expression": "150 - 60",
             "unit": "J",
         },
+        "task": {"rendered_text": "计算150-60，单位J。"},
     })["answer"] == {"value": 90, "unit": "J"}
 
 

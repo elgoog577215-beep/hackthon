@@ -74,6 +74,7 @@ from question_bank_rebuild_runtime import (
     configure_question_bank_rebuild_runtime,
 )
 from solution_contracts import project_solution_spec
+from assessment_solution_protocol import final_solution_review_valid
 from storage import storage
 from storage_utils import save_course_compat
 from teacher_course_space import teacher_course_space_repository
@@ -628,7 +629,7 @@ def _published_practice_levels_by_node(
             or item.get("lifecycle_status") != "approved"
             or item.get("generation_status") != "published"
             or quality.get("schema_version")
-            not in {"question_quality_report_v2", QUESTION_QUALITY_SCHEMA}
+            not in {"question_quality_report_v2", "question_quality_report_v3", QUESTION_QUALITY_SCHEMA}
             or quality.get("passed") is not True
         ):
             continue
@@ -2581,6 +2582,10 @@ def _require_complete_generation(
     course: dict[str, Any],
 ) -> None:
     """Fail before persistence when any planned slot was discarded."""
+    for node_contracts in (course.get("_assessment_generated_contracts") or {}).values():
+        for contract in node_contracts.values():
+            if not final_solution_review_valid(contract):
+                raise RuntimeError("final_solution_review_missing_or_stale")
     audit = course.get("_assessment_generation_audit") or {}
     items = audit.get("items") or []
     planned_count = int(audit.get("planned_item_count") or 0)

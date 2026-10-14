@@ -82,3 +82,47 @@ def test_calculator_only_accepts_the_expression_asked_in_the_public_task():
     assert registry.solve(spec)["answer"] == {"value": 12, "unit": "kJ"}
     spec["solver_contract"]["expression"] = "20+8"
     assert registry.solve(spec) is None
+
+
+def test_incomplete_independent_work_is_not_filled_from_the_authors_explanation():
+    from assessment_solution_protocol import final_solution_review_valid
+    contract, independent, validation = example()
+    contract["solution_envelope"]["worked_solution"] = {
+        "summary": "原作者声称结果为8且提供了完整但错误的过程。", "steps": ["把2+3+1+5错误地相加成8。"],
+        "final_answer": {"conclusion": 8}, "checks": ["作者自查"]}
+    independent["work"] = []
+    _apply_independent_validation(contract, validation, independent)
+    assert contract["solution_envelope"]["worked_solution"]["steps"] == []
+    assert not final_solution_review_valid(contract)
+
+
+async def test_batch_review_uses_the_same_complete_delivery_payload():
+    from assessment_orchestrator import _SemanticEvaluationBatcher
+    from assessment_solution_protocol import final_solution_review_valid
+    contract, independent, validation = example()
+    _apply_independent_validation(contract, validation, independent)
+    captured = []
+    class BatchReviewer:
+        async def evaluate_candidate_batch(self, items):
+            captured.extend(deepcopy(items))
+            return {item["slot_id"]: {"passed": True, "solution_consistent": True, "confidence": 1.,
+                                      "issues": [], "dimensions": {}} for item in items}
+    audit = {"semantic_evaluation_calls": 0, "batch_semantic_evaluation_calls": 0}
+    model = BatchReviewer()
+    batcher = _SemanticEvaluationBatcher(model=model, audit=audit, max_batch_size=1)
+    await AssessmentGenerationOrchestrator(model=model)._semantic_report(
+        contract, independent=independent, objective={}, slot={"slot_id": "s1"}, audit=audit, semantic_batcher=batcher)
+    assert captured[0]["independent_solution"]["delivery_solution"]["worked_solution"]["final_answer"] == {"conclusion": 11}
+    assert final_solution_review_valid(contract)
+
+
+async def test_publication_rejects_a_reviewed_question_mutated_after_acceptance():
+    import pytest
+    from assessment_solution_protocol import attest_final_solution_review, delivery_hash
+    from routers.question_bank import _require_complete_generation
+    contract, independent, validation = example()
+    _apply_independent_validation(contract, validation, independent)
+    attest_final_solution_review(contract, {"passed": True, "solution_consistent": True, "confidence": 1.}, delivery_hash(contract))
+    contract["question_spec"]["task"]["rendered_text"] = "Changed question after review"
+    with pytest.raises(RuntimeError, match="final_solution_review"):
+        _require_complete_generation({"_assessment_generated_contracts": {"node": {"practice": contract}}})

@@ -2400,7 +2400,7 @@ def _generated_course_items(
             if (
                 isinstance(generated_quality, dict)
                 and generated_quality.get("schema_version")
-                in {"question_quality_report_v2", QUESTION_QUALITY_SCHEMA}
+                in {"question_quality_report_v2", "question_quality_report_v3", QUESTION_QUALITY_SCHEMA}
             ):
                 item["quality_report"] = {
                     **deepcopy(generated_quality),
