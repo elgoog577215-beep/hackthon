@@ -6,7 +6,7 @@
     </div>
 
     <div
-        v-if="courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
+        v-if="flatNodes.length > 0 && courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
         class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
@@ -361,29 +361,16 @@
       
       <!-- Mobile Notes Drawer moved to end -->
 
-      <!-- Empty Selection Guide -->
-      <div v-else-if="!courseStore.currentCourseId" class="flex flex-col items-center justify-center h-full text-slate-400 animate-in fade-in zoom-in duration-500">
-          <div class="w-32 h-32 bg-slate-50 rounded-full flex items-center justify-center mb-6 shadow-inner relative overflow-hidden">
-              <div class="absolute inset-0 bg-gradient-to-tr from-slate-100 to-transparent opacity-50"></div>
-              <el-icon :size="48" class="opacity-30 text-slate-500"><Notebook /></el-icon>
-          </div>
-          <h3 class="text-xl font-bold text-slate-600 mb-2">开始您的学习之旅</h3>
-          <p class="text-sm font-medium opacity-60">请从左侧选择一个课程或章节开始阅读</p>
-      </div>
-      
-      <!-- Loading State -->
-      <div v-else-if="isGenerationPreview" class="generation-empty-state">
-          <LoaderCircle :size="22" class="generation-empty-state__spin" />
-          <div>
-              <strong>{{ t('courseGeneration.workspace.preparing', '正在准备课程结构') }}</strong>
-              <span>{{ t('courseGeneration.workspace.contentWillAppear', '目录与正文会随着真实生成结果逐步出现') }}</span>
-          </div>
-      </div>
-
-      <div v-else class="flex flex-col items-center justify-center h-64 gap-4">
-          <div class="w-12 h-12 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin"></div>
-          <p class="text-sm text-slate-500 font-medium animate-pulse">正在加载精彩内容...</p>
-      </div>
+      <CourseReadingState
+          v-else
+          :loading="courseStore.loading"
+          :error="courseStore.courseLoadError"
+          :course-selected="Boolean(courseStore.currentCourseId)"
+          :teacher-preview="props.teacherPreview"
+          :generation-preview="isGenerationPreview"
+          @retry="emit('retryLoad')"
+          @return-workbench="emit('returnWorkbench')"
+      />
 
     </div>
 
@@ -404,6 +391,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
+import CourseReadingState from './CourseReadingState.vue'
 import type { StudyRequest } from '../types/study-dialogue'
 import { useNoteStore } from '../stores/notes'
 import { createInlineRecordPersistence } from '../composables/inline-record-persistence'
@@ -414,7 +402,7 @@ import CourseNode from './CourseNode.vue'
 import { isLessonNavigation, structuralLessonAliases } from '../utils/course-navigation'
 import InlineAnnotationLayer from './InlineAnnotationLayer.vue'
 import InlineRecordPopover from './InlineRecordPopover.vue'
-import { Download, Notebook, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
+import { Download, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
@@ -440,6 +428,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'retryLoad'): void
+  (e: 'returnWorkbench'): void
   (e: 'studyDialogue', payload: StudyRequest): void
   (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
   (e: 'startPractice', node: any, taskRevisionId?: string): void
@@ -2456,12 +2446,6 @@ defineExpose({
 </script>
 
 <style scoped>
-.generation-empty-state { height:260px; display:flex; align-items:center; justify-content:center; gap:13px; color:var(--lz-text-muted); }
-.generation-empty-state__spin { flex:0 0 auto; color:var(--lz-brand); animation:generation-empty-spin .9s linear infinite; }
-.generation-empty-state div { min-width:0; display:flex; flex-direction:column; gap:3px; }
-.generation-empty-state strong { color:var(--lz-text-strong); font-size:13px; }
-.generation-empty-state span { font-size:11px; }
-@keyframes generation-empty-spin { to { transform:rotate(360deg); } }
 .record-later-option {
     min-height: 30px;
     border-radius: 6px;

@@ -5435,6 +5435,18 @@
     }
   },
   "courseWorkspace": {
+    "readingState": {
+      "loading": "正在加载课程内容…",
+      "failed": "课程加载失败",
+      "failedHelp": "暂时无法读取课程内容，请重新加载。",
+      "retry": "重新加载",
+      "previewEmpty": "暂无可试读的讲义",
+      "previewEmptyHelp": "这门课程还没有可试读的讲义内容，请返回备课工作台准备讲义。",
+      "empty": "暂无可阅读内容",
+      "emptyHelp": "这门课程目前没有可阅读内容。",
+      "selectCourse": "开始您的学习之旅",
+      "selectCourseHelp": "请从左侧选择一个课程或章节开始阅读"
+    },
     "backToTop": "回到正文顶部",
     "navigation": "课程工作区",
     "openCourseTree": "打开课程目录",

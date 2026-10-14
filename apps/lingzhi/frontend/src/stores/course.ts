@@ -19,6 +19,7 @@ import { type CourseGenerationOptions } from '@/shared/prompt-config'
 import { useNoteStore } from './notes'
 import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
+import { toAppError } from '../utils/app-error'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
 import {
@@ -165,6 +166,7 @@ export const useCourseStore = defineStore('course', {
     currentGenerationQualityReport: null as Record<string, unknown> | null,
     currentTeachingPlan: null as CourseTeachingPlanProjection | null,
     loading: false,
+    courseLoadError: null as string | null,
     courseListError: null as string | null,
 
     // --- Annotations（fetchCourseAnnotations 桥接 Notes 系统） ---
@@ -371,6 +373,7 @@ export const useCourseStore = defineStore('course', {
         projection: CourseProjection = 'published',
     ) {
         const loadVersion = ++this.courseLoadVersion
+        this.courseLoadError = null
         this.loading = loading
         this.currentCourseId = courseId
         this.currentCourseProjection = projection
@@ -400,7 +403,9 @@ export const useCourseStore = defineStore('course', {
 
         try {
             if (options.teacherTrial) {
-                const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher'))
+                const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher', {
+                    silentError: options.silentError,
+                }))
                 if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
                 this.teacherPreviewSnapshot = data
                 this.applyCourseDocumentEnvelope({
@@ -517,7 +522,10 @@ export const useCourseStore = defineStore('course', {
         } catch (error) {
             if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
             logger.error(error)
-            if (!options.silentError) ElMessage.error('加载课程失败')
+            this.courseLoadError = toAppError(error, {
+                fallback: t('courseWorkspace.readingState.failedHelp', '暂时无法读取课程内容，请重新加载。'),
+            }).summary
+            if (!options.silentError) ElMessage.error(t('courseWorkspace.readingState.failed', '课程加载失败'))
             this.currentCourseId = ''
             this.currentNode = null
             this.currentCourseVersionId = ''
@@ -534,7 +542,7 @@ export const useCourseStore = defineStore('course', {
             genStore.generationStatus = 'idle'
             genStore.generationProgress = 0
         } finally {
-            if (this.currentCourseId === courseId && this.courseLoadVersion === loadVersion) {
+            if (this.courseLoadVersion === loadVersion) {
                 this.loading = false
             }
         }
