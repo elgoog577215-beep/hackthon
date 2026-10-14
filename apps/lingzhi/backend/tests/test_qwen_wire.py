@@ -11,7 +11,7 @@ from qwen_wire import QwenCompatibleAsyncHttpxClient, encode_qwen_chat_body
     'Directory.CreateDirectory(Path.GetDirectoryName(savePath));',
     '红黑树、跳表、B+树\n```cpp\nnode->left = child;\n```\n\\[h=\\log n\\] 🧪 "quote"',
     '完整教学内容' * 12000,
-])
+], ids=['code', 'unicode', 'long'])
 def test_wire_encoding_preserves_all_message_text_and_generation_options(text):
     payload = {'model': 'qwen3.8-27b', 'messages': [
         {'role': 'system', 'content': '原教学目标不删减'},
@@ -35,9 +35,9 @@ async def test_sdk_uses_safe_json_bytes_with_correct_length_and_unchanged_author
     async def handler(request):
         captured.append(request)
         return httpx.Response(200, headers={'Content-Type': 'text/event-stream'}, content=(
-            'data: {"id":"one","object":"chat.completion.chunk","model":"qwen3.8-27b",'
-            '"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n'
-            'data: [DONE]\n\n').encode())
+            b'data: {"id":"one","object":"chat.completion.chunk","model":"qwen3.8-27b",'
+            b'"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n'
+            b'data: [DONE]\n\n'))
     client = AsyncOpenAI(api_key='test-key', base_url='http://provider.test/v1',
         http_client=QwenCompatibleAsyncHttpxClient(transport=httpx.MockTransport(handler)))
     messages = [{'role': 'user', 'content': 'Directory.CreateDirectory(Path.GetDirectoryName(savePath));中文🧪'}]
