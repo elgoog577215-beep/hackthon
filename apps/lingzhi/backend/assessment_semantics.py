@@ -16,7 +16,7 @@ from course_versioning import stable_hash
 from question_evidence_guard import evidence_findings
 
 QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v2"
-SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v1"
+SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v2"
 
 SEMANTIC_HARD_CODES = {
     "QUESTION_TYPE_SEMANTIC_MISMATCH",
@@ -46,6 +46,10 @@ _CONCEPT_ONLY_RE = re.compile(
     r"(核心思想|主要作用|最佳体现|最能体现|概念|原则|优势|目的|"
     r"which\s+(?:statement|option).*(?:best|correct)|main\s+(?:idea|purpose))",
     re.IGNORECASE,
+)
+_TREE_STATE_REQUEST_RE = re.compile(
+    r"(?:画出|列出|写出|给出|描述|标出|确定)[^。；\n]{0,60}"
+    r"(?:根节点|左右子树|树形结构|父子关系|路径深度)",
 )
 _ERROR_PREMISE_RE = re.compile(
     r"(找出|指出|定位|诊断|修复|问题所在|错误|缺陷|bug|debug|"
@@ -596,7 +600,9 @@ def evaluate_question_semantic_preflight(
                 "轨迹核验题缺少可核验的代码、状态或执行结论。",
             ))
     elif question_type == "state_trace_transfer":
-        has_observable = bool(_OUTPUT_ACTION_RE.search(prompt))
+        has_observable = bool(
+            _OUTPUT_ACTION_RE.search(prompt) or _TREE_STATE_REQUEST_RE.search(task)
+        )
         checks["observable_state_transfer"] = has_observable
         if not has_observable:
             issues.append(_issue(

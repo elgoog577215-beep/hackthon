@@ -685,6 +685,38 @@ def test_full_rebuild_publishes_each_chapter_atomically(
     )
 
 
+def test_selected_lecture_generates_and_publishes_only_its_sections(monkeypatch, tmp_path):
+    course = _two_chapter_course()
+    for number, node in enumerate(course["nodes"], 1):
+        node["parent_node_id"] = f"L1-{number}"
+    course["nodes"].extend([
+        {"node_id": "L1-1", "node_level": 1, "node_name": "第一讲"},
+        {"node_id": "L1-2", "node_level": 1, "node_name": "第二讲"},
+    ])
+    orchestrator = DeterministicAssessmentOrchestrator()
+    client, repository = _client(monkeypatch, tmp_path, course=course, orchestrator=orchestrator)
+    repository.save_bundle("course-api", build_question_bank(course))
+    before = repository.load_bundle("course-api")
+    other_items = [item for item in before["items"] if item["node_id"] == "node-1"]
+    created = client.post("/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"}, json={
+            "request_id": "selected-lecture-publication", "scope": "nodes",
+            "node_ids": ["L1-2"], "mode": "full", "resume_existing": False,
+        })
+    assert created.status_code == 202, created.text
+    status = client.get(created.json()["status_url"], headers={"X-User-Id": "teacher-1"})
+    assert status.json()["status"] == "completed", status.text
+    assert orchestrator.requested_node_ids == [["node-2"]]
+    active = repository.load_bundle("course-api")
+    assert [item for item in active["items"] if item["node_id"] == "node-1"] == other_items
+    generated = [item for item in active["items"]
+                 if item["node_id"] == "node-2" and item.get("assessment_role") != "coverage_task"]
+    assert len(generated) == 3
+    assert active["generation_audit"]["published_item_count"] == 3
+    assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all(item["quality_report"]["passed"] for item in generated)
+
+
 def test_node_rebuild_publishes_each_selected_chapter_atomically(
     monkeypatch,
     tmp_path,
@@ -1114,6 +1146,61 @@ def test_failed_chapter_scoped_retry_closes_course_checkpoint(
         "node-1",
         "node-2",
     ]
+
+
+def test_scoped_resume_only_generates_missing_slot_and_preserves_published_revisions(monkeypatch, tmp_path):
+    client, repository = _client(monkeypatch, tmp_path,
+        orchestrator=DeterministicAssessmentOrchestrator(fail_node_id="node-1", fail_practice_level="objective_practice"))
+    def start(request_id):
+        response = client.post("/api/courses/course-api/question-bank/rebuild",
+            headers={"X-User-Id": "teacher-1"}, json={
+                "request_id": request_id, "scope": "nodes", "node_ids": ["node-1"],
+                "mode": "incremental", "resume_existing": True,
+            })
+        assert response.status_code == 202
+        return client.get(response.json()["status_url"], headers={"X-User-Id": "teacher-1"}).json()
+
+    assert start("scoped-partial-first")["status"] == "failed"
+    before = deepcopy(repository.load_bundle("course-api"))
+    published = [i for i in before["items"] if i.get("assessment_role") == "practice"]
+    assert len(published) == 2
+    assert not repository.course_storage.course.get("question_bank_chapter_rebuild")
+    worker = DeterministicAssessmentOrchestrator()
+    monkeypatch.setattr(question_bank, "assessment_generation_orchestrator", worker)
+    assert start("scoped-partial-retry")["status"] == "completed"
+    assert worker.requested_practice_levels == [{"node-1": ["objective_practice"]}]
+    after = repository.load_bundle("course-api")
+    for item in published:
+        assert next(i for i in after["items"] if i["revision_id"] == item["revision_id"]) == item
+        sid = item["solution_revision_id"]
+        assert after["solution_envelopes"][sid] == before["solution_envelopes"][sid]
+    assert len([i for i in after["items"] if i.get("assessment_role") == "practice"]) == 3
+    worker.requested_node_ids.clear()
+    assert start("scoped-already-complete")["status"] == "completed"
+    assert worker.requested_node_ids == []
+
+
+def test_truncation_message_preserves_successes_and_does_not_claim_outage():
+    message = question_bank._failed_chapters_message([{"error_code": "assessment_output_truncated"}])
+    assert "长度上限" in message
+    assert "已发布" in message
+    assert "缺失" in message
+    assert "不可用" not in message
+    assert "本轮未形成" not in message
+
+
+def test_saved_questions_are_revalidated_with_their_own_frozen_slot(monkeypatch, tmp_path):
+    client, repository = _client(monkeypatch, tmp_path)
+    _rebuild(client, "original-frozen-slot")
+    bundle = deepcopy(repository.load_bundle("course-api"))
+    for node in bundle["assessment_blueprint"]["nodes"]:
+        for slot in node["slots"]:
+            slot["input_contract"] = {"mode": "structured_fields", "fields": [
+                {"field_id": "new_contract", "required": True, "kind": "rich_text"},
+            ]}
+    assert question_bank._published_practice_levels_by_node(_course(), bundle) == {
+        "node-1": {"concept_check", "objective_practice", "mastery_check"},
+    }
 
 
 def test_failed_chapter_message_distinguishes_provider_failure():

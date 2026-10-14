@@ -101,6 +101,10 @@ class PracticeGrader(AIBase):
             result["mastery_eligible"] = False
             result["evidence_strength"] = "invalid"
             result["evidence_exclusion_reason"] = "independent_evidence_unverified_or_changed"
+        elif question.get("knowledge_binding_schema") == "question_knowledge_binding_v2" and not question.get("assessment_binding_schema"):
+            result["mastery_eligible"] = False
+            result["evidence_strength"] = "invalid"
+            result["evidence_exclusion_reason"] = "knowledge_binding_requires_measurement_review"
         return result
 
     @staticmethod

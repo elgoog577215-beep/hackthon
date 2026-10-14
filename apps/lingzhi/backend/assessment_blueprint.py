@@ -21,7 +21,7 @@ from assessment_semantics import semantics_for_question_type
 from knowledge_assessment import atomic_baseline, atomic_slots, slot_key, ATOMIC_ASSESSMENT_SCHEMA
 
 
-ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v3"
+ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v6"
 REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v2"
 INPUT_CONTRACT_SCHEMA = "input_contract_v2"
 
@@ -145,6 +145,25 @@ _PROGRAMMING_CONCEPTUAL_SIGNALS = (
     "reference count",
     "event loop",
 )
+
+
+def _programming_target_recipe(objective: dict[str, Any], index: int) -> dict[str, str] | None:
+    """Match the same primary knowledge used by the frozen design brief."""
+    knowledge = [str(value).strip() for value in objective.get("knowledge") or [] if str(value).strip()]
+    target = (knowledge[index % len(knowledge)] if knowledge else str(objective.get("objective") or "")).casefold()
+    if any(word in target for word in ("实现", "调试", "编写", "implement", "debug")):
+        return None
+    if any(word in target for word in ("期望", "均摊", "摊还", "势函数", "复杂度", "概率", "渐近", "成本增量", "核算", "expected", "amortized", "complexity", "probabil")):
+        recipe = _slot("symbolic_derivation", "structured_fields", "expert_rubric_validator",
+                       "structured_application" if index == 1 else "symbolic_derivation")
+        recipe["selection_reason"] = "quantitative_analysis_objective"
+        return recipe
+    if any(word in target for word in ("测试集设计", "鲁棒性", "基准测试", "测试套件", "可复现", "工程报告", "选型", "权衡", "缓存不友好", "缓存局部性", "内存局部性", "遍历模式", "reproducib", "benchmark", "test design")):
+        recipe = _slot("constrained_decision", "structured_fields", "expert_rubric_validator",
+                       "structured_application" if index == 1 else "scenario_deliverable")
+        recipe["selection_reason"] = "engineering_evidence_objective"
+        return recipe
+    return None
 
 
 def _programming_mastery_recipe(
@@ -282,6 +301,8 @@ def compile_course_assessment_blueprint(
                         supported_runner_language
                     ),
                 )
+            if family == "programming_engineering" and practice_level != "concept_check":
+                recipe = _programming_target_recipe(objective, index) or recipe
             if (
                 recipe.get("input_mode") == "code"
                 and supported_runner_language
@@ -656,7 +677,11 @@ def input_contract_for_slot(
             _field("text", "rich_text", "完整作答", True),
         ]
     else:
-        contract["fields"] = _structured_fields_for_family(family)
+        evidence_family = {
+            "quantitative_analysis_objective": "math_formal",
+            "engineering_evidence_objective": "general",
+        }.get(str(slot.get("selection_reason") or ""), family)
+        contract["fields"] = _structured_fields_for_family(evidence_family)
     return contract
 
 

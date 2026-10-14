@@ -403,6 +403,18 @@ def revise_question_bank_item(
     previous_revision = str(item.get("revision_id") or "")
     for field, value in patch.items():
         item[field] = deepcopy(value)
+    if item.get("knowledge_binding") and set(patch).intersection({
+        "prompt", "subquestions", "options", "deliverable", "input_materials",
+        "constraints", "course_knowledge_refs", "question_type", "reference_concepts",
+    }):
+        item["knowledge_binding"] = {
+            **item["knowledge_binding"], "status": "unbound", "knowledge_ids": [],
+            "knowledge_revision_refs": {},
+        }
+        item["course_knowledge_refs"] = []
+        item["course_skill_refs"] = []
+        item["course_misconception_refs"] = []
+        item["course_mastery_refs"] = []
     item["parent_revision_id"] = previous_revision
     item["edited_by"] = str(editor_id)[:200]
     item["edited_at"] = _now()
@@ -4234,6 +4246,18 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         ),
         "question_bank_item_revision_id": item.get("revision_id"),
     }
+    binding = item.get("knowledge_binding") or {}
+    if binding.get("schema_version") == "question_knowledge_binding_v2":
+        ids = list(binding.get("knowledge_ids") or []) if binding.get("status") == "bound" else []
+        task.update(
+            knowledge_binding_schema=binding["schema_version"],
+            knowledge_binding_status=binding.get("status"),
+            primary_knowledge_ids=ids,
+            concept_ids=ids,
+            course_knowledge_refs=ids,
+            knowledge_revision_refs=deepcopy(binding.get("knowledge_revision_refs") or {}),
+            knowledge_baseline_revision=binding.get("knowledge_baseline_revision"),
+        )
     task["practice_contract_revision_id"] = stable_hash(
         {
             "input": task["input_contract"],

@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from ai_base import AIProviderRequestError
+from ai_base import AIProviderRequestError, AIResponseTruncated
 from assessment_orchestrator import (
     ASSESSMENT_PROMPT_TEMPLATE_VERSION,
     AssessmentGenerationOrchestrator,
@@ -623,7 +623,7 @@ async def test_prepared_contracts_drive_diverse_question_bank_items():
     assert "method_coverage" in bundle["reference_package"]
     assert bundle["assessment_blueprint"][
         "schema_version"
-    ] == "course_assessment_blueprint_v3"
+    ] == "course_assessment_blueprint_v6"
 
 
 async def test_malformed_nested_candidate_is_regenerated_not_discarded():
@@ -715,6 +715,41 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
         }
         for contracts in prepared["_assessment_generated_contracts"].values()
     )
+
+
+@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 8192), ("rich_text", 8192), ("code", 12288)])
+async def test_independent_solver_reserves_full_explanation_budget_without_thinking(monkeypatch, mode, budget):
+    monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setenv("AI_THINKING_ENABLED", "false")
+    model = UniversalAssessmentModel()
+    captured = {}
+
+    async def call(prompt, **kwargs):
+        captured.update(kwargs)
+        return '{"answer": "valid", "work": []}'
+
+    monkeypatch.setattr(model, "_call_llm", call)
+    spec = {"input_contract": {"mode": mode}}
+    await model.solve_candidate(spec, call_policy=resolve_assessment_generation_policy("complete").call_policy("solve", spec))
+    assert captured["max_tokens"] == budget
+    assert captured["reject_truncated"] is True
+    assert captured["enable_thinking"] is False
+
+
+async def test_solver_truncation_has_its_own_failure_classification():
+    class TruncatedSolver(RepairingModel):
+        async def solve_candidate(self, public_question_spec):
+            raise AIResponseTruncated("max_tokens=3072, finish_reason=length")
+
+    events = []
+    await AssessmentGenerationOrchestrator(model=TruncatedSolver()).prepare_course(
+        _course(), node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["objective_practice"]},
+        on_chapter_complete=events.append,
+    )
+    assert events[0]["error_code"] == "assessment_output_truncated"
+    assert "长度上限" in events[0]["error_message"]
+    assert "不可用" not in events[0]["error_message"]
 
 
 async def test_provider_quota_fallback_is_not_auto_published():
@@ -1359,6 +1394,33 @@ def test_repair_prompts_preserve_non_choice_input_contract() -> None:
 
     assert "结构化作答题：options 必须为空数组" in single
     assert "结构化作答题：options 必须为空数组" in batch
+
+
+def test_every_repair_keeps_public_length_and_answer_separation_constraints():
+    context = {"assessment_slot": {"input_mode": "structured_fields"}}
+    report = {"issues": [{"code": "QUESTION_TYPE_SEMANTIC_MISMATCH"}]}
+    for prompt in [_repair_prompt(context, {}, report), _batch_repair_prompt([{
+        "slot_id": "one", "context": context, "candidate": {}, "quality_report": report,
+    }])]:
+        assert "task.rendered_text最多300个字符" in prompt
+        assert "英文、公式、标点和换行均计数" in prompt
+        assert "不得在题面注释或提示中给出待考公式" in prompt
+
+
+def test_quality_failure_message_names_only_current_failed_questions():
+    from assessment_orchestrator import _question_quality_failure_message
+    message = _question_quality_failure_message([
+        {"practice_level": "concept_check", "final_decision": "publish", "attempts": []},
+        {"practice_level": "objective_practice", "final_decision": "discard", "attempts": [
+            {"issue_codes": ["TASK_TOO_LONG"]},
+            {"issue_codes": ["SEMANTIC_REVIEW_FAILED", "ANSWER_RULE_DISCLOSED"]},
+        ]},
+        {"practice_level": "mastery_check", "final_decision": "discard", "attempts": [{"issue_codes": ["TASK_TOO_LONG"]}]},
+    ])
+    assert "应用题：题面提示泄露待考规则" in message
+    assert "迁移题：任务说明超过300字符" in message
+    assert "概念题" not in message
+    assert "已发布题目保留" in message
 
 
 async def test_complete_profile_keeps_repairs_bounded():

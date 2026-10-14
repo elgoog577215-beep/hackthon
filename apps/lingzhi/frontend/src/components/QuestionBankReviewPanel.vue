@@ -98,6 +98,13 @@
         </button>
       </nav>
     </header>
+    <QuestionKnowledgeBinding
+      v-if="workspaceMode === 'bank' && items.length && bundleRevisionId"
+      :course-id="courseId"
+      :bundle-revision="bundleRevisionId"
+      :generation-active="rebuilding"
+      @updated="load"
+    />
     <div class="question-bank-document-surface">
     <div class="question-bank-workspace-body">
     <QuestionBankImportWorkspace
@@ -661,7 +668,7 @@
             </nav>
           </header>
 
-          <div class="question-reader__scroll">
+          <div class="question-reader__scroll" tabindex="0" role="region" :aria-label="t('questionBank.readingRegion', '题目内容与解析')">
             <section class="question-sheet">
               <div class="question-sheet__meta">
                 <span>{{ questionTypeLabel(selectedQuestion) }}</span>
@@ -911,7 +918,9 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
+import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
 import http, { teacherReadRequestConfig } from '@/utils/http'
+import { toAppError } from '@/utils/app-error'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
 import { createUuid } from '@/utils/client-id'
@@ -1141,6 +1150,16 @@ const scopeNodeIds = computed(() => {
 const generationScopeReady = computed(() => (
   generationScope.value === 'course' || scopeNodeIds.value.length > 0
 ))
+// The UI counts/selects lectures; generation consumes their content nodes.
+// Send explicit content IDs so existing workers can serve a newly loaded UI.
+const generationNodeIds = computed(() => {
+  if (generationScope.value === 'current') return scopeNodeIds.value
+  return [...new Set(scopeNodeIds.value.flatMap(nodeId => {
+    const chapter = chapterOptions.value.find(item => item.node_id === nodeId)
+    const sections = chapter?.node_ids.filter(id => id !== nodeId) || []
+    return sections.length ? sections : [nodeId]
+  }))]
+})
 const selectedScopeSummary = computed(() => {
   const count = scopeNodeIds.value.length
   return count
@@ -1518,7 +1537,7 @@ const rebuildHeadline = computed(() => {
   if (status === 'failed') {
     return t(
       'questionBank.regenerateFailed',
-      '重新生成失败，当前有效题库保持不变',
+      '题目生成未完成，已发布题目继续有效',
     )
   }
   return t(
@@ -1833,6 +1852,7 @@ async function recoverActiveRebuild() {
           'questionBank.rebuildFailed',
           '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
         )
+        await load()
       } else {
         rebuildErrorMessage.value = t(
           'questionBank.rebuildProgressRecoveryFailed',
@@ -1937,7 +1957,7 @@ function startGeneration() {
   if (!generationScopeReady.value) return
   const nodeIds = generationScope.value === 'course'
     ? undefined
-    : scopeNodeIds.value
+    : generationNodeIds.value
   return rebuild(
     nodeIds,
     questionBankMissing.value ? false : keepPublished.value,
@@ -1987,7 +2007,7 @@ async function requestAiCandidate(value: string) {
     candidate_id: createUuid(),
     base_bundle_revision_id: bundleRevisionId.value,
     scope,
-    node_ids: scope === 'nodes' ? [...scopeNodeIds.value] : [],
+    node_ids: scope === 'nodes' ? [...generationNodeIds.value] : [],
     material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
     mode: keepPublished.value ? 'incremental' : 'full',
@@ -2088,10 +2108,9 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
     if (!controller.signal.aborted && props.courseId === courseId) await load()
   } catch (error: any) {
     if (controller.signal.aborted || props.courseId !== courseId || isAbortError(error)) return
-    rebuildErrorMessage.value = error?.message || t(
-      'questionBank.rebuildFailed',
-      '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
-    )
+    rebuildErrorMessage.value = toAppError(error, {
+      fallback: t('questionBank.rebuildFailed', '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。'),
+    }).summary
     const latestJob = rebuildJob.value as QuestionBankRebuildJob | null
     rebuildJob.value = error?.job || {
       job_id: 'local-rebuild-error',
@@ -2101,6 +2120,9 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
       message: latestJob?.message,
       status_url: '',
     }
+    // A failed job may already have published valid individual questions.
+    // Reconcile from the bank even when the remaining questions failed.
+    if (error?.job) await load()
   } finally {
     if (rebuildAbortController === controller) {
       rebuildAbortController = null
@@ -2349,7 +2371,11 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 </script>
 
 <style scoped>
-.question-bank-panel { container-type:inline-size; container-name:question-bank; height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
+.question-bank-panel { container-type:inline-size; container-name:question-bank; height:calc(100vh - 128px); min-height:500px; display:flex; flex-direction:column; gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
+.question-bank-page-heading { flex:0 0 auto; }
+.question-bank-panel > .knowledge-binding { flex:0 1 auto; min-height:0; max-height:50%; overflow:auto; }
+.question-bank-panel > .knowledge-binding :deep(fieldset) { max-height:none; overflow:visible; }
+.question-bank-document-surface { flex:1 1 0; }
 .question-bank-page-heading { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 2px; }
 .question-bank-page-identity { min-width:0; display:flex; align-items:center; gap:10px; }
 .question-bank-page-identity>strong { min-width:0; overflow:hidden; color:#202a3d; font-size:18px; font-weight:760; line-height:1.35; letter-spacing:-.015em; text-overflow:ellipsis; white-space:nowrap; }
@@ -2369,7 +2395,10 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-workspace-actions .question-bank-ai-action { border-color:transparent; color:#5552c8; background:transparent; }
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
 .question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 260px; }
-.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-template-rows:max-content minmax(0,1fr); overflow:hidden; background:#fff; }
+.question-bank-workspace-main { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:#fff; }
+.question-bank-panel.is-bank .question-review-workspace { flex:1 1 0; }
+.question-bank-panel.is-bank .question-quality-details { flex:0 1 auto; max-height:45%; overflow:auto; }
+.question-bank-panel.is-bank .question-bank-panel__refresh-error { flex:0 0 auto; }
 .question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
@@ -2380,7 +2409,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-empty-state .question-bank-empty-import { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .question-bank-empty-state button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-panel.is-import .question-bank-workspace-body { display:block; }
-.question-bank-panel.is-generate .question-bank-workspace-main { grid-template-rows:repeat(3,max-content) minmax(620px,1fr); align-content:start; gap:14px; overflow:auto; padding:18px 20px 20px; }
+.question-bank-panel.is-generate .question-bank-workspace-main { display:grid; grid-template-rows:repeat(3,max-content) minmax(620px,1fr); align-content:start; gap:14px; overflow:auto; padding:18px 20px 20px; }
 .question-bank-panel.is-generate .question-review-workspace { min-height:620px; border:1px solid #dfe5ee; }
 .question-bank-panel.is-generate .question-bank-workspace-side :deep(.reference-tray) { min-height:100%; border:0; border-radius:0; box-shadow:none; }
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
@@ -2580,6 +2609,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-reader__header nav button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-reader__header nav button:disabled { opacity:.3; cursor:not-allowed; }
 .question-reader__scroll { min-height:0; overflow:auto; padding:24px 28px 40px; scrollbar-width:thin; scrollbar-color:#cbd3df transparent; }
+.question-reader__scroll:focus-visible { outline:2px solid #6366f1; outline-offset:-2px; }
 .question-sheet,.question-answer-panel,.question-generation-audit,.question-review-decision { width:min(760px,100%); margin:0 auto; }
 .question-sheet { overflow:hidden; border:1px solid #dfe5ed; border-radius:13px; background:#fff; box-shadow:0 10px 28px rgba(30,41,59,.07); }
 .question-sheet__meta { min-height:43px; display:flex; align-items:center; flex-wrap:wrap; gap:7px 14px; padding:0 22px; border-bottom:1px solid #edf0f4; color:#748095; font-size:10px; }

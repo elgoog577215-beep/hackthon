@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -117,6 +118,7 @@ async def _request(repository_service, question="什么是线性相关？", **ex
 
     class _Request:
         headers = {"X-User-Id": "u1"}
+        state = SimpleNamespace()
 
     response = await assistant_router.ask_question_events(request, _Request())
     return response.body_iterator

@@ -81,7 +81,7 @@ def test_eight_subject_families_compile_diverse_generation_blueprints(
 
     slots = blueprint["nodes"][0]["slots"]
     assert blueprint["schema_version"] == (
-        "course_assessment_blueprint_v3"
+        "course_assessment_blueprint_v6"
     )
     assert len(slots) == 3
     assert len({slot["input_mode"] for slot in slots}) >= 2
@@ -163,6 +163,45 @@ def test_math_variable_language_does_not_become_experiment_plan():
     assert mastery_slot["validation_mode"] == (
         "expert_rubric_validator"
     )
+
+
+def test_algorithm_analysis_uses_derivation_questions_for_analytical_knowledge():
+    course = _course("programming_engineering")
+    course["nodes"][0].update({
+        "node_name": "随机化数据结构的性能分析",
+        "learning_objective": "推导开放寻址探测次数和随机搜索树期望深度",
+        "key_points": ["指示变量法", "开放寻址哈希表的期望探测次数推导", "随机搜索树的期望深度"],
+    })
+    slots = compile_course_assessment_blueprint(course)["nodes"][0]["slots"]
+    assert [s["question_type"] for s in slots] == ["selected_response", "structured_application", "symbolic_derivation"]
+    assert all(s["input_mode"] == "structured_fields" for s in slots[1:])
+    assert all(s["validation_mode"] == "expert_rubric_validator" for s in slots[1:])
+
+
+def test_mixed_programming_node_routes_by_each_slot_knowledge_not_whole_chapter():
+    course = _course("programming_engineering")
+    course["nodes"][0].update({
+        "learning_objective": "实现哈希表并推导性能界限",
+        "key_points": ["哈希表", "哈希表插入实现", "哈希表均摊复杂度证明"],
+    })
+    slots = compile_course_assessment_blueprint(course)["nodes"][0]["slots"]
+    assert slots[1]["question_type"] == "debugging_trace"
+    assert slots[2]["question_type"] == "symbolic_derivation"
+
+
+@pytest.mark.parametrize(("knowledge", "expected_type", "expected_fields"), [
+    ("势函数合法性判据", "symbolic_derivation", ["premises", "derivation", "conclusion"]),
+    ("混合结构的空间与维护成本增量核算", "symbolic_derivation", ["premises", "derivation", "conclusion"]),
+    ("基于Zipf分布的鲁棒性测试集设计", "scenario_deliverable", ["answer", "evidence", "result_check"]),
+    ("工程报告的数据可复现性规范", "scenario_deliverable", ["answer", "evidence", "result_check"]),
+    ("缓存不友好的遍历模式", "scenario_deliverable", ["answer", "evidence", "result_check"]),
+])
+def test_programming_evidence_shape_matches_mathematical_or_engineering_target(knowledge, expected_type, expected_fields):
+    course = _course("programming_engineering")
+    course["nodes"][0]["key_points"] = ["基本概念", "具体操作", knowledge]
+    slot = compile_course_assessment_blueprint(course)["nodes"][0]["slots"][2]
+    assert slot["question_type"] == expected_type
+    assert [f["field_id"] for f in slot["input_contract"]["fields"]] == expected_fields
 
 
 def test_programming_blueprint_is_not_all_implementation_tasks():

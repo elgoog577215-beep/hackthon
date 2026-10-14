@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import math
 import operator
 from typing import Any, Callable
+from dynamic_array_solver import public_dynamic_array_inputs, solve_dynamic_array_potential
 
 
 LocalSolver = Callable[[dict[str, Any]], dict[str, Any] | None]
@@ -39,6 +40,7 @@ class IndependentSolverRegistry:
         registry = cls()
         registry.register("numeric_expression", _solve_numeric_expression)
         registry.register("state_operations", _solve_state_operations)
+        registry.register("dynamic_array_potential", solve_dynamic_array_potential)
         return registry
 
     def kinds(self) -> tuple[str, ...]:
@@ -62,6 +64,11 @@ class IndependentSolverRegistry:
         public_question_spec: dict[str, Any],
     ) -> dict[str, Any] | None:
         contract = public_question_spec.get("solver_contract") or {}
+        public_inputs = public_dynamic_array_inputs(public_question_spec)
+        if public_inputs is not None:
+            contract = {"kind": "dynamic_array_potential", **public_inputs}
+        elif isinstance(contract, dict) and contract.get("kind") == "dynamic_array_potential":
+            return None
         if not isinstance(contract, dict):
             return None
         solver = self._solvers.get(str(contract.get("kind") or ""))

@@ -110,6 +110,91 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+class KnowledgeBindingRequest(BaseModel):
+    mode: Literal["auto", "manual"] = "auto"
+    expected_bundle_revision_id: str = Field(min_length=1, max_length=200)
+    knowledge_baseline_revision: str = Field(min_length=1, max_length=200)
+    revision_id: str = Field(default="", max_length=200)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
+    retry_pending: bool = False
+    revision_ids: list[str] | None = Field(default=None, max_length=8)
+
+
+async def _owned_binding_course(course_id: str, actor: str) -> dict:
+    course = await get_course_or_404(course_id)
+    if course.get("owner_id") != actor:
+        raise HTTPException(404, detail={"code": "question_bank_unavailable"})
+    return course
+
+
+def _binding_bundle(course_id: str) -> dict:
+    bundle = question_bank_repository.load_bundle(course_id)
+    if not bundle:
+        raise HTTPException(404, detail={"code": "question_bank_not_built"})
+    return bundle
+
+
+@router.get("/knowledge-bindings")
+async def get_question_knowledge_bindings(
+    course_id: str, x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    from question_bank_knowledge import binding_view
+
+    course = await _owned_binding_course(course_id, require_user_id(x_user_id))
+    bundle = _binding_bundle(course_id)
+    return {**binding_view(course, bundle), "can_edit": True}
+
+
+@router.post("/knowledge-bindings")
+async def update_question_knowledge_bindings(
+    course_id: str, payload: KnowledgeBindingRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    from question_bank_knowledge import bind_questions, binding_view
+
+    actor = require_user_id(x_user_id)
+    course = await _owned_binding_course(course_id, actor)
+    bundle = _binding_bundle(course_id)
+
+    def check_current(latest_course: dict, latest_bundle: dict) -> None:
+        _require_expected_revision(latest_bundle, payload.expected_bundle_revision_id)
+        if (latest_course.get("course_knowledge_base") or {}).get("revision_id") != payload.knowledge_baseline_revision:
+            raise HTTPException(409, detail={"code": "knowledge_baseline_changed"})
+        if question_bank_rebuild_job_repository.active_for_course(course_id):
+            raise HTTPException(409, detail={"code": "question_bank_generation_active"})
+
+    check_current(course, bundle)
+    if not binding_view(course, bundle)["tree_ready"]:
+        raise HTTPException(409, detail={"code": "knowledge_tree_required"})
+    try:
+        updated = await bind_questions(
+            course, bundle, mode=payload.mode, revision_id=payload.revision_id,
+            knowledge_ids=payload.knowledge_ids, retry_pending=payload.retry_pending,
+            revision_ids=payload.revision_ids,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "question_revision_missing"}) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "knowledge_binding_invalid"}) from exc
+    except Exception as exc:
+        # Provider responses may contain endpoint information; never send them to the browser.
+        raise HTTPException(503, detail={"code": "knowledge_binding_unavailable"}) from exc
+    latest_course = await _owned_binding_course(course_id, actor)
+    check_current(latest_course, _binding_bundle(course_id))
+    if updated.get("bundle_revision_id") != bundle.get("bundle_revision_id"):
+        stored = question_bank_repository.save_bundle(course_id, updated, activate=False)
+        try:
+            question_bank_repository.activate_bundle(
+                course_id, stored["bundle_revision_id"],
+                expected_current_revision_id=payload.expected_bundle_revision_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, detail={"code": "question_bank_changed"}) from exc
+    else:
+        stored = bundle
+    return {**binding_view(latest_course, stored), "can_edit": True}
+
+
 async def _question_bank_course(course_id: str) -> dict[str, Any]:
     """Project a generated teacher course without exposing drafts globally.
 
@@ -512,17 +597,11 @@ _PRACTICE_LEVELS = {
 }
 
 
-def _modern_published_chapter_node_ids(
+def _published_practice_levels_by_node(
     course: dict[str, Any],
     bundle: dict[str, Any] | None,
-) -> set[str]:
-    """Infer chapters already replaced by a complete v2 question set.
-
-    Some courses started their migration before chapter checkpoints were
-    introduced.  The active bundle is authoritative in that case: a chapter
-    counts only when all three practice slots are published and have passed
-    the v2 quality gate.
-    """
+) -> dict[str, set[str]]:
+    """Revalidate saved practice slots without requiring a course checkpoint."""
 
     course_node_ids = {
         str(node.get("node_id") or "")
@@ -537,7 +616,7 @@ def _modern_published_chapter_node_ids(
     if atomic_baseline(course):
         current = compile_course_assessment_blueprint(course)
         if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
-            return set()
+            return {}
     solutions = (bundle or {}).get("solution_envelopes") or {}
     levels_by_node: dict[str, set[str]] = {}
     for item in (bundle or {}).get("items") or []:
@@ -565,7 +644,7 @@ def _modern_published_chapter_node_ids(
             node_id=node_id,
             practice_level=level,
         )
-        if assessment_slot:
+        if assessment_slot and not hydrated.get("assessment_slot"):
             hydrated["assessment_slot"] = assessment_slot
         solution = solutions.get(
             str(item.get("solution_revision_id") or "")
@@ -589,9 +668,17 @@ def _modern_published_chapter_node_ids(
             continue
         levels = set(item_slot_keys(item)) & set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
         levels_by_node.setdefault(node_id, set()).update(levels)
+    return levels_by_node
+
+
+def _modern_published_chapter_node_ids(
+    course: dict[str, Any],
+    bundle: dict[str, Any] | None,
+) -> set[str]:
+    expected_keys = slot_keys_by_node((bundle or {}).get("assessment_blueprint") or {})
     return {
         node_id
-        for node_id, levels in levels_by_node.items()
+        for node_id, levels in _published_practice_levels_by_node(course, bundle).items()
         if levels and levels == set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
     }
 
@@ -779,6 +866,50 @@ def _generation_summary(
     }
 
 
+def _resolve_rebuild_node_ids(course: dict[str, Any], requested: list[str]) -> list[str]:
+    """Expand teacher lectures to their direct assessment content nodes.
+
+    Keep explicit level-two requests supported for knowledge and retry flows.
+    Resolve the whole selection before starting a job so a missing/empty
+    lecture cannot silently shrink the requested scope or trigger a full run.
+    """
+    nodes = {
+        str(node.get("node_id") or ""): node
+        for node in course.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_id")
+    }
+    unknown = [node_id for node_id in requested if (
+        node_id not in nodes or int(nodes[node_id].get("node_level") or 1) not in {1, 2}
+    )]
+    if unknown:
+        raise HTTPException(status_code=422, detail={
+            "code": "question_bank_rebuild_nodes_unknown",
+            "message": "所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。",
+            "node_ids": unknown,
+        })
+    resolved: set[str] = set()
+    empty_lessons: list[str] = []
+    for node_id in requested:
+        if int(nodes[node_id].get("node_level") or 1) == 2:
+            resolved.add(node_id)
+            continue
+        sections = {
+            child_id for child_id, node in nodes.items()
+            if int(node.get("node_level") or 1) == 2
+            and str(node.get("parent_node_id") or "") == node_id
+        }
+        if not sections:
+            empty_lessons.append(node_id)
+        resolved.update(sections)
+    if empty_lessons:
+        raise HTTPException(status_code=422, detail={
+            "code": "question_bank_rebuild_lessons_empty",
+            "message": "所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。",
+            "node_ids": empty_lessons,
+        })
+    return sorted(resolved)
+
+
 @router.post("/rebuild", status_code=status.HTTP_202_ACCEPTED)
 async def rebuild_question_bank(
     course_id: str,
@@ -790,6 +921,8 @@ async def rebuild_question_bank(
 ) -> dict[str, Any]:
     actor_id = require_user_id(x_user_id)
     course = await _question_bank_course(course_id)
+    if payload.scope == "nodes":
+        payload.node_ids = _resolve_rebuild_node_ids(course, payload.node_ids)
     _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
         course_id,
@@ -807,25 +940,11 @@ async def rebuild_question_bank(
                 status_code=422,
                 detail={
                     "code": "question_bank_materials_unknown",
+                    "message": "所选出题资料已不可用，请刷新资料列表并重新选择。",
                     "material_asset_ids": unknown_material_ids,
                 },
             )
-    if payload.scope == "nodes":
-        known_node_ids = {
-            str(node.get("node_id") or "")
-            for node in course.get("nodes") or []
-            if int(node.get("node_level") or 1) == 2
-        }
-        unknown = sorted(set(payload.node_ids) - known_node_ids)
-        if unknown:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "question_bank_rebuild_nodes_unknown",
-                    "node_ids": unknown,
-                },
-            )
-    elif payload.scope == "items":
+    if payload.scope == "items":
         bundle = _require_bundle(course)
         payload.revision_ids = expand_question_atomic_revisions(
             bundle,
@@ -1355,6 +1474,11 @@ def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
         "ai_provider_empty_response",
         "ai_provider_processing_failed",
     }
+    if "assessment_output_truncated" in codes:
+        return (
+            "题目生成或校验输出达到长度上限，未完成题目已停止；"
+            "已发布题目保留，可仅补生成缺失题目。"
+        )
     if "formal_runner_unavailable" in codes:
         return (
             "代码验证服务不可用，代码实现题未发布；"
@@ -1370,6 +1494,10 @@ def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
             "部分章节因模型服务或质量检查未完成；"
             "已发布章节保持生效，失败章节继续使用旧题"
         )
+    details = [str(item.get("error_message") or "") for item in failed_chapters
+               if item.get("error_code") == "chapter_quality_failed" and item.get("error_message")]
+    if details:
+        return "；".join(dict.fromkeys(details))
     return (
         "部分章节未通过质量门；已发布章节保持生效，"
         "失败章节继续使用旧题"
@@ -1699,6 +1827,17 @@ async def _execute_question_bank_rebuild(
     }
     for node_id in published_node_ids:
         published_practice_levels_by_node[node_id] = set(planned_slot_keys.get(node_id, []))
+    preserve_saved_slots = (
+        payload.scope == "nodes" and payload.mode == "incremental"
+        and payload.resume_existing and not payload.knowledge_ids
+    )
+    if preserve_saved_slots:
+        saved_slots = _published_practice_levels_by_node(course_for_bank, previous)
+        for node_id in campaign_node_ids:
+            settled = saved_slots.get(node_id, set()) & set(planned_slot_keys.get(node_id, []))
+            published_practice_levels_by_node[node_id] = settled
+            if settled and settled == set(planned_slot_keys.get(node_id, [])):
+                published_node_ids.add(node_id)
     resumed_item_count = sum(len(v) for v in published_practice_levels_by_node.values())
     campaign_id = (
         str(checkpoint.get("campaign_id") or "")
@@ -1735,7 +1874,7 @@ async def _execute_question_bank_rebuild(
                 ]
                 for node_id in target_node_ids or []
             }
-            if resumable_checkpoint or repairs_course_checkpoint
+            if resumable_checkpoint or repairs_course_checkpoint or preserve_saved_slots
             else None
         )
     )
@@ -2154,7 +2293,7 @@ async def _execute_question_bank_rebuild(
 
     heartbeat_task = asyncio.create_task(persist_generation_heartbeat())
     try:
-        course_for_bank = await _prepare_course_compat(
+        course_for_bank = course_for_bank if chapter_publication_enabled and not target_node_ids else await _prepare_course_compat(
             assessment_generation_orchestrator,
             course_for_bank,
             node_ids=target_node_ids,

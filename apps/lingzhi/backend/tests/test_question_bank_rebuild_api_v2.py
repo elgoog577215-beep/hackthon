@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -46,8 +48,8 @@ def test_rebuild_worker_count_is_bounded(monkeypatch):
     assert question_bank._configured_rebuild_worker_count() == 1
 
 
-def _client(monkeypatch, tmp_path):
-    course = {
+def _client(monkeypatch, tmp_path, course=None):
+    course = course or {
         "course_id": "course-jobs",
         "course_name": "跨学科课程",
         "nodes": [{
@@ -84,6 +86,54 @@ def _client(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(question_bank.router, prefix="/api")
     return TestClient(app), jobs, executor
+
+
+def _lecture_course():
+    return {"course_id": "course-jobs", "nodes": [
+        {"node_id": "L1-1", "node_level": 1},
+        {"node_id": "L1-2", "node_level": 1},
+        {"node_id": "L1-3", "node_level": 1},
+        {"node_id": "section-a", "node_level": 2, "parent_node_id": "L1-1"},
+        {"node_id": "section-b", "node_level": 2, "parent_node_id": "L1-2"},
+        {"node_id": "section-c", "node_level": 2, "parent_node_id": "L1-2"},
+        {"node_id": "detail", "node_level": 3, "parent_node_id": "section-b"},
+    ]}
+
+
+@pytest.mark.parametrize(("requested", "expected"), [
+    (["L1-2"], ["section-b", "section-c"]),
+    (["L1-1", "L1-2"], ["section-a", "section-b", "section-c"]),
+    (["L1-2", "section-b", "L1-2"], ["section-b", "section-c"]),
+    (["section-c"], ["section-c"]),
+])
+def test_rebuild_resolves_selected_lectures_to_content_nodes(monkeypatch, tmp_path, requested, expected):
+    client, _, executor = _client(monkeypatch, tmp_path, _lecture_course())
+    response = client.post("/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"}, json={
+            "request_id": "selected-lecture-request", "scope": "nodes",
+            "node_ids": requested, "mode": "incremental",
+        })
+    assert response.status_code == 202, response.text
+    assert response.json()["scope"] == "nodes"
+    assert response.json()["node_ids"] == expected
+    assert executor.submissions[0]["payload"]["node_ids"] == expected
+
+
+@pytest.mark.parametrize(("requested", "code", "message"), [
+    (["L1-2", "missing"], "question_bank_rebuild_nodes_unknown", "重新选择"),
+    (["L1-2", "L1-3"], "question_bank_rebuild_lessons_empty", "补全"),
+    (["detail"], "question_bank_rebuild_nodes_unknown", "重新选择"),
+])
+def test_invalid_lecture_scope_has_actionable_error_and_starts_no_job(monkeypatch, tmp_path, requested, code, message):
+    client, _, executor = _client(monkeypatch, tmp_path, _lecture_course())
+    response = client.post("/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"}, json={
+            "request_id": "invalid-lecture-request", "scope": "nodes", "node_ids": requested,
+        })
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == code
+    assert message in response.json()["detail"]["message"]
+    assert not executor.submissions
 
 
 def test_rebuild_executor_reuses_one_event_loop_across_jobs(

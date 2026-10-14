@@ -939,7 +939,10 @@
             </details>
             <p v-if="contextFailureJob?.error?.recovery_action" class="generation-recovery__guidance">{{ t(`courseWorkbench.recovery.${contextFailureJob.error.recovery_action}`) }}</p>
           </section>
-          <p v-if="showCourseIssueSummary" class="production-issue-detail" data-testid="production-issue-detail">{{ activeProductionIssueSummary }}</p>
+          <section v-if="scriptFailure" class="script-failure-guidance" data-testid="script-failure-guidance" aria-live="polite">
+            <button v-if="scriptFailure.canReviewPlan" type="button" @click="requestStageChange('lesson')">{{ t('courseWorkbench.scriptFailure.openPlan', '查看本讲教案') }}</button>
+          </section>
+          <p v-if="showCourseIssueSummary && !scriptFailure" class="production-issue-detail" data-testid="production-issue-detail">{{ activeStage === 'script' ? t('courseWorkbench.scriptFailure.stageIssue', '部分讲义尚未完成，请切换到未完成的讲次查看处理建议。') : activeProductionIssueSummary }}</p>
         </div>
         <div class="context-pane-heading__actions" :class="{ 'is-paired': contextPhase === 'during' }" :aria-busy="recoveryStarting">
           <template v-if="pptContext">
@@ -1177,7 +1180,7 @@ import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.v
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
-import { hasRetainedStaleScript, hasScriptPreviewContent, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
+import { hasRetainedStaleScript, hasScriptPreviewContent, scriptFailurePresentation, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import PptWorkspace from './PptWorkspace.vue'
@@ -2350,6 +2353,7 @@ const lessonStreamSegments = computed(() => {
     : []
 })
 const scriptJob = computed(() => currentJobForLesson(selectedLessonId.value, 'script'))
+const scriptFailure = computed(() => activeStage.value === 'script' ? scriptFailurePresentation(scriptJob.value) : null)
 const scriptStreamJob = computed(() => currentLessonStreamJob(scriptJob.value, 'script'))
 const selectedScriptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'script'))
 const scriptGenerationActive = computed(() => selectedScriptProduction.value
@@ -2461,11 +2465,12 @@ const scriptBatchCompletedCount = computed(() => productionState.value
   : scriptBatchJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
 const scriptBatchActiveCount = computed(() => productionState.value?.stages.script.counts.generating
   ?? scriptBatchJobs.value.filter(job => job.status === 'running').length)
-const scriptBatchError = computed(() => String(
-  productionState.value
-    ? productionState.value.stages.script.issues.find(issue => Boolean(issue.task_id))?.summary || ''
-    : [...scriptBatchJobs.value].reverse().find(job => job.status === 'failed')?.error?.message || '',
-))
+const scriptBatchError = computed(() => {
+  const failed = [...scriptBatchJobs.value].reverse().find(job => job.status === 'failed')
+  if (failed) return scriptGenerationPresentation(failed).detail
+  return productionState.value?.stages.script.issues.some(issue => Boolean(issue.task_id))
+    ? t('courseWorkbench.scriptFailure.stageIssue', '部分讲义尚未完成，请切换到未完成的讲次查看处理建议。') : ''
+})
 const scriptBatchLaunchVisible = computed(() => (
   activeStage.value === 'script'
   && (scriptBatchRecoveryAvailable.value || scriptBatchGenerateAvailable.value || scriptBatchRegenerateAvailable.value)
@@ -2500,14 +2505,14 @@ const lessonOutlineVisible = computed(() => {
   return activeStage.value === 'ppt'
 })
 const effectiveScriptGenerationError = computed(() => String(
-  productionState.value
+  scriptJob.value?.status === 'failed'
+    ? scriptGenerationPresentation(scriptJob.value).detail
+    : productionState.value
     ? selectedScriptProduction.value?.issues[0]?.summary || ''
     : selectedLesson.value?.script?.ready
     ? ''
     : scriptJob.value?.status === 'cancelled'
     ? ''
-    : scriptJob.value?.status === 'failed'
-    ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
 const lessonBatchStartErrorPresentation = computed(() => (
@@ -2897,7 +2902,7 @@ const showCourseIssueSummary = computed(() => Boolean(
   !pptContext.value && activeProductionIssue.value && !['generating', 'paused'].includes(referenceWorkflowState.value),
 ))
 const hasContextNotices = computed(() => Boolean(
-  showCourseIssueSummary.value || contextErrorPresentation.value || contextFailureVisible.value,
+  showCourseIssueSummary.value || contextErrorPresentation.value || contextFailureVisible.value || scriptFailure.value,
 ))
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (pptContext.value) return pptContext.value.phase
@@ -2960,8 +2965,8 @@ const contextStatusLabel = computed(() => {
 const contextStatusDetail = computed(() => {
   if (pptContext.value) return pptContext.value.detail
   if (activeStage.value === 'script' && ['failed', 'paused'].includes(String(scriptJob.value?.status || ''))) {
-    return [scriptJob.value?.status === 'failed' ? scriptJob.value?.error?.message : '', scriptGenerationPresentation(scriptJob.value).detail,
-      referenceWorkflowCanResume.value ? t('courseWorkbench.scriptDocument.progress.continueRemaining') : '',
+    return [scriptGenerationPresentation(scriptJob.value).detail,
+      scriptJob.value?.status === 'paused' && referenceWorkflowCanResume.value ? t('courseWorkbench.scriptDocument.progress.continueRemaining') : '',
     ].filter(Boolean).join(' ')
   }
   if (aiCollaborationOpen.value) return t('courseWorkbench.contextPane.aiInProgress', '正在处理本次 AI 修改')
@@ -5116,6 +5121,7 @@ onBeforeUnmount(() => {
 .generation-recovery ul{margin:8px 0 0;padding-left:18px;display:grid;gap:6px}
 .recovery-input{display:grid;gap:8px;margin-bottom:16px;font-size:15px}.recovery-input textarea{padding:10px;border:1px solid #cbd2de;border-radius:8px;font:inherit;line-height:1.6}.recovery-input textarea:focus-visible{outline:2px solid #5559a8;outline-offset:2px}
 .context-pane-notices{grid-column:1/-1;min-width:0;display:grid;gap:12px;margin-left:28px}
+.script-failure-guidance button{min-height:36px;padding:7px 10px;border:1px solid #d8dee8;border-radius:7px;color:#526077;background:#fff;font:inherit;font-size:15px;cursor:pointer}
 .context-pane-notices .workbench-error{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;display:block}
 .context-pane-notices :deep(.app-error-notice__icon){display:none}
 .context-pane-notices :deep(.app-error-notice strong){color:#a83c49;font-size:15px;line-height:1.6}

@@ -174,6 +174,17 @@ describe('QuestionBankReviewPanel', () => {
     })
   })
 
+  it('allows keyboard users to focus the question reading region and scroll its full contents', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' }, attachTo: document.body })
+    await flushPromises()
+    const reader = wrapper.get('.question-reader__scroll')
+    expect(reader.attributes('tabindex')).toBe('0')
+    expect(reader.attributes('aria-label')).toBeTruthy()
+    ;(reader.element as HTMLElement).focus()
+    expect(document.activeElement).toBe(reader.element)
+    wrapper.unmount()
+  })
+
   it('用同一个课程题库外壳承载管理、导入和 AI 生成任务', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
@@ -709,6 +720,83 @@ describe('QuestionBankReviewPanel', () => {
     )
   })
 
+  it('shows the actionable scope error beside the failed generation', async () => {
+    runQuestionBankRebuild.mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'Request failed with status code 422',
+      config: { method: 'post', url: '/api/courses/course-1/question-bank/rebuild' },
+      response: { status: 422, data: { detail: { code: 'question_bank_rebuild_nodes_unknown' } } },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['L1-2'] },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('重新选择')
+    expect(wrapper.text()).not.toContain('Request failed with status code 422')
+  })
+
+  it.each(['custom', 'range'])('expands %s lectures to content IDs for existing servers without changing the lecture count', async (scope) => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1', initialWorkspaceMode: 'generate',
+        chapterOptions: [
+          { node_id: 'L1-1', node_ids: ['L1-1', 'L2-1-1'], number: 1, title: '第一讲' },
+          { node_id: 'L1-2', node_ids: ['L1-2', 'L2-2-1', 'L2-2-2'], number: 2, title: '第二讲' },
+          { node_id: 'L1-3', node_ids: ['L1-3', 'L2-3-1'], number: 3, title: '第三讲' },
+        ],
+      },
+    })
+    await flushPromises()
+    await wrapper.get(`[data-testid="question-scope-${scope}"] input`).setValue(true)
+    if (scope === 'custom') {
+      await wrapper.get('[data-testid="question-scope-node-L1-2"]').setValue(true)
+      expect(wrapper.text()).toContain('已选择 1 个讲次')
+    } else {
+      await wrapper.get('[data-testid="question-scope-range-start"]').setValue('L1-2')
+      await wrapper.get('[data-testid="question-scope-range-end"]').setValue('L1-3')
+    }
+    const expected = scope === 'custom' ? ['L2-2-1', 'L2-2-2'] : ['L2-2-1', 'L2-2-2', 'L2-3-1']
+    const candidate = await (wrapper.vm as any).requestAiCandidate('按所选讲次生成')
+    expect(candidate.node_ids).toEqual(expected)
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      scope: 'nodes', node_ids: expected,
+    }), expect.any(Object))
+  })
+
+  it.each([false, true])('reads published partial results when generation fails (recovery=%s)', async (recover) => {
+    let bankReads = 0
+    get.mockImplementation(async (url: string) => {
+      if (!url.endsWith('/question-bank')) return { data: {} }
+      bankReads += 1
+      return { data: { items: bankReads > 1 ? [{
+        item_id: 'partial-one', revision_id: 'partial-revision', node_id: 'section-2',
+        prompt: '已通过校验并保存的均摊分析题', lifecycle_status: 'approved',
+        assessment_role: 'practice', risk_flags: [], quality_report: { passed: true },
+      }] : [] } }
+    })
+    const failure = Object.assign(new Error('部分题目未通过质量检查'), { job: {
+      job_id: 'partial-job', status: 'failed', progress: 59, status_url: '/jobs/partial-job',
+      stage_details: { chapter_status: 'partial', settled_practice_levels: ['concept_check'] },
+    } })
+    if (recover) resumeQuestionBankRebuild.mockRejectedValueOnce(failure)
+    else runQuestionBankRebuild.mockRejectedValueOnce(failure)
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['section-2'] },
+    })
+    await flushPromises()
+    if (!recover) {
+      await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+      await flushPromises()
+    }
+    expect(wrapper.text()).toContain('已通过校验并保存的均摊分析题')
+    expect(wrapper.text()).toContain('题目生成未完成，已发布题目继续有效')
+    expect(wrapper.text()).not.toContain('没有符合条件的题目')
+  })
+
   it('按连续章节范围生成题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {
@@ -1003,7 +1091,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(progress.get('[data-testid="question-progress-details"]').element.tagName).toBe('DETAILS')
     expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('48')
     expect(progress.text()).toContain(
-      '重新生成失败，当前有效题库保持不变',
+      '题目生成未完成，已发布题目继续有效',
     )
     expect(progress.text()).toContain('模型服务暂时不可用')
     runQuestionBankRebuild.mockResolvedValueOnce({
