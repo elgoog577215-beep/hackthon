@@ -99,7 +99,7 @@ function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseB
 }
 
 describe('SideAIPanel', () => {
-  it('restores all three selected-text prompts even in an existing conversation, without sending or replacing a draft', async () => {
+  it('restores selected-text prompts including diagrams even in an existing conversation, without sending or replacing a draft', async () => {
     const wrapper = mountPanel([{message_id:'old',role:'assistant',content:'已有回答'} as any], '', undefined, undefined, 'learner', [], false, true)
     await flushPromises()
     const ai = useAITeacherStore(), send = vi.spyOn(ai, 'sendMessage').mockResolvedValue()
@@ -107,30 +107,34 @@ describe('SideAIPanel', () => {
     await wrapper.get('textarea').setValue('我的未发送问题')
     await wrapper.setProps({ quoteText:'这是第二讲的选区', quoteNodeId:'node-2', quoteAnchor:{block_id:'b2',block_revision_id:'rev2'}, entrypoint:'selection' })
     expect(wrapper.get('.context-quote').text()).toContain('这是第二讲的选区')
-    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['换一种讲法','给个例子','检查我是否理解'])
+    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['换一种讲法','给个例子','检查我是否理解','画个图理解'])
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('我的未发送问题')
     expect(send).not.toHaveBeenCalled()
     await wrapper.findAll('.selection-quick-actions button')[1]!.trigger('click')
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('引用的这段内容')
     expect(send).not.toHaveBeenCalled()
+    await wrapper.findAll('.selection-quick-actions button')[3]!.trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('画一张清晰的图')
+    expect(send).not.toHaveBeenCalled()
     await wrapper.get('.send-button').trigger('click')
     await flushPromises()
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({selection:'这是第二讲的选区',entrypoint:'selection',contextRef:expect.objectContaining({content_anchor:{block_id:'b2',block_revision_id:'rev2'}})}))
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({question:expect.stringContaining('图'),selection:'这是第二讲的选区',entrypoint:'selection',contextRef:expect.objectContaining({content_anchor:{block_id:'b2',block_revision_id:'rev2'}})}))
     await wrapper.get('.context-quote button').trigger('click')
     expect(wrapper.find('.selection-quick-actions').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('shows the three English quote prompts in a floating panel and waits for an explicit send', async () => {
+  it('shows the English quote prompts including diagrams in a floating panel and waits for an explicit send', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ok:true,json:async()=>enMessages})))
     await setLocale('en')
     const wrapper = mountPanel([], 'Quoted definition')
     await flushPromises()
     const send = vi.spyOn(useAITeacherStore(), 'sendMessage').mockResolvedValue()
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
-    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['Explain differently','Give an example','Check my understanding'])
-    await wrapper.findAll('.selection-quick-actions button')[2]!.trigger('click')
-    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('quoted passage')
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(4)
+    expect(wrapper.findAll('.selection-quick-actions button').map(button=>button.text())).toEqual(['Explain differently','Give an example','Check my understanding','Help me with a diagram'])
+    await wrapper.findAll('.selection-quick-actions button')[3]!.trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('Draw a clear diagram')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('passage I quoted')
     expect(send).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -152,7 +156,7 @@ describe('SideAIPanel', () => {
     expect(create).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
     expect(workspace.draft).toBe('未保存整理稿')
-    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(3)
+    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(4)
     await wrapper.get('.conversation-rail-toggle').trigger('click')
     await wrapper.findAll('.conversation-row__select').find(button=>button.text().includes('笔记'))!.trigger('click')
     await flushPromises()
@@ -162,7 +166,7 @@ describe('SideAIPanel', () => {
     await wrapper.setProps({quoteText:'再次选中的讲义',quoteAnchor:{block_id:'b3'}})
     await flushPromises()
     expect(ai.currentConversationId).toBe('conversation-1')
-    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(3)
+    expect(wrapper.findAll('.selection-quick-actions button')).toHaveLength(4)
     wrapper.unmount()
   })
 
@@ -234,8 +238,8 @@ describe('SideAIPanel', () => {
     const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
     await flushPromises()
     const send = vi.spyOn(useAITeacherStore(), 'sendMessage').mockResolvedValue()
-    await wrapper.get('.quick-actions button').trigger('click')
-    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toContain('解释')
+    await wrapper.findAll('.quick-actions button').find(button=>button.text()==='画个图理解')!.trigger('click')
+    expect((wrapper.get('.composer-box textarea').element as HTMLTextAreaElement).value).toContain('图帮我理解当前内容')
     expect(send).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -342,7 +346,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.context-line').text()).toContain('向量空间与线性相关')
     expect(wrapper.find('.context-evidence').text()).toContain('有限证据')
     expect(wrapper.find('.context-quote').text()).toContain('线性无关')
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(4)
     expect(wrapper.get('.ai-teacher-header-context').text()).toContain('联网检索')
     expect(wrapper.text()).not.toContain('解释下一步')
 
@@ -594,7 +598,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-fullscreen')
     expect(wrapper.find('.ai-teacher-backdrop').exists()).toBe(false)
     expect(wrapper.find('.ai-teacher-surface').exists()).toBe(true)
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(4)
   })
 
   it('当前内容通过统一课程方案生成、审阅并应用', async () => {

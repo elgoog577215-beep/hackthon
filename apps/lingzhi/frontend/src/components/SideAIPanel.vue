@@ -562,7 +562,7 @@
           <span class="empty-mark"><MessageSquareText :size="22" /></span>
           <strong>{{ assistantEmptyTitle }}</strong>
           <p>{{ assistantEmptyDescription }}</p>
-          <div v-if="!quoteVisible" class="quick-actions">
+          <div v-if="!quoteVisible" class="quick-actions" :class="{ 'learner-quick-actions': !isTeacherMode }">
             <button v-for="item in quickPrompts" :key="item.prompt" type="button" :disabled="composerDisabled || aiStore.loadingConversations" @click="sendPrompt(item.prompt)">
               <component :is="item.icon" :size="14" />
               {{ item.label }}
@@ -750,6 +750,7 @@ import {
   LocateFixed,
   LoaderCircle,
   MessageSquareText,
+  Network,
   Plus,
   Quote,
   RotateCcw,
@@ -1070,6 +1071,13 @@ const quickPrompts = computed(() => isTeacherMode.value
         icon: LocateFixed,
         label: t('courseWorkspace.aiTeacher.quickCheck', '检查我是否理解'),
         prompt: quoteVisible.value ? t('courseWorkspace.aiTeacher.quickCheckQuotePrompt', '请用一个小问题检查我是否理解引用的这段内容，先不要给答案。') : t('courseWorkspace.aiTeacher.quickCheckPrompt', '请先用一个小问题检查我是否真正理解当前内容，不要直接给答案。'),
+      },
+      {
+        icon: Network,
+        label: t('courseWorkspace.aiTeacher.quickDiagram', '画个图理解'),
+        prompt: quoteVisible.value
+          ? t('courseWorkspace.aiTeacher.quickDiagramQuotePrompt', '请画一张清晰的图帮我理解引用的这段内容，突出关键概念、关系或步骤，并简要说明怎么看这张图。请直接给出图解。')
+          : t('courseWorkspace.aiTeacher.quickDiagramPrompt', '请画一张清晰的图帮我理解当前内容，突出关键概念、关系或步骤，并简要说明怎么看这张图。请直接给出图解。'),
       },
     ])
 
@@ -2189,7 +2197,8 @@ onUnmounted(() => {
 .quick-actions { width:min(620px,100%); display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin:8px auto 0; }
 .quick-actions button { min-width: 0; min-height: 37px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 6px; border: 1px solid #e0e7ff; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(255,255,255,.92); font-size: 9px; line-height: 1.25; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .quick-actions button:hover { transform: translateY(-1px); border-color: #c4b5fd; color: var(--lz-brand-strong); background: #f5f3ff; }
-.selection-quick-actions button { font-size:15px; line-height:1.5; }
+.selection-quick-actions,.learner-quick-actions { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.selection-quick-actions button,.learner-quick-actions button { font-size:15px; line-height:1.5; }
 .context-quote p { font-size:15px; }
 .composer-status,.offline-notice { width:min(900px,100%); display: flex; align-items: center; gap: 6px; margin:0 auto 7px; font-size: 9px; }
 .composer-status { color: var(--lz-brand); }
