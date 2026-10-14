@@ -455,6 +455,41 @@ md.use(linkAttributes, {
   }
 });
 
+/** Repair only the failing single-letter command at an indexed variable, when
+ * that variable is already established in this expression. Valid LaTeX gets
+ * the first render unchanged; unknown commands and text accents stay intact. */
+const repairIndexedVariableEscape = (source: string, error: unknown): string | null => {
+    const failure = error as Partial<{ name: string; rawMessage: string; position: number }> | null;
+    if (failure?.name !== 'ParseError' || typeof failure.rawMessage !== 'string'
+        || typeof failure.position !== 'number') return null;
+    const command = failure.rawMessage.match(/^Expected group as argument to '\\([A-Za-z])'$/)?.[1]
+        || failure.rawMessage.match(/^Undefined control sequence: \\([A-Za-z])$/)?.[1];
+    if (!command) return null;
+    const start = failure.rawMessage.startsWith('Undefined') ? failure.position : failure.position - 2;
+    if (start < 0 || source[start - 1] === '\\'
+        || source.slice(start, start + 2) !== `\\${command}`
+        || !/^[_^](?:[A-Za-z0-9]|\{)/.test(source.slice(start + 2))) return null;
+
+    // Ignore prose inside text/operator groups as both a repair target and a
+    // variable witness. Keep offsets stable for KaTeX's error position.
+    const math = source.split('');
+    for (let cursor = 0; cursor < source.length;) {
+        if (source[cursor] !== '\\') { cursor++; continue; }
+        const macro = source.slice(cursor).match(/^\\([A-Za-z]+)\*?\s*\{/);
+        if (macro?.[1] && MATH_TEXT_COMMANDS.has(macro[1])) {
+            const group = readBalancedLatexGroup(source, cursor + macro[0].length - 1);
+            if (group) { math.fill(' ', cursor, group.end); cursor = group.end; continue; }
+        }
+        cursor += 2;
+    }
+    const mathOnly = math.join('');
+    if (mathOnly.slice(start, start + 2) !== `\\${command}`) return null;
+    const indexed = new RegExp(`(?<![A-Za-z\\\\])${command}(?=[_^])`);
+    const styled = new RegExp(`\\\\(?:mathbf|vec|boldsymbol|mathit|mathrm|mathsf|mathbb|mathcal)\\s*\\{\\s*${command}\\s*\\}`);
+    if (!indexed.test(mathOnly) && !styled.test(mathOnly)) return null;
+    return source.slice(0, start) + source.slice(start + 1);
+};
+
 const renderMathContent = (content: string, displayMode: boolean) => {
     try {
         let cleanedContent = content.trim();
@@ -468,13 +503,23 @@ const renderMathContent = (content: string, displayMode: boolean) => {
         cleanedContent = cleanedContent.replace(doubledCommandRe, '\\');
         cleanedContent = normalizeMathSubscripts(cleanedContent);
 
-        return katex.renderToString(cleanedContent, {
-            throwOnError: true,
-            displayMode,
-            output: 'html',
-            strict: false,
-            trust: true
-        });
+        // These are bounded local parser attempts, never model calls or writes
+        // to the saved formula. Preserve the original source on any other error.
+        for (let repairs = 0; ; repairs++) {
+            try {
+                return katex.renderToString(cleanedContent, {
+                    throwOnError: true,
+                    displayMode,
+                    output: 'html',
+                    strict: false,
+                    trust: true
+                });
+            } catch (error) {
+                const repaired = repairs < 16 ? repairIndexedVariableEscape(cleanedContent, error) : null;
+                if (repaired === null) throw error;
+                cleanedContent = repaired;
+            }
+        }
     } catch (error) {
         // Still degrade to readable source — a blank formula is worse than an
         // ugly one — but no longer silently: the failure is now countable and
