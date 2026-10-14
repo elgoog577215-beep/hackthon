@@ -266,3 +266,26 @@ def test_retargeting_generated_atomic_question_requires_new_review():
     updated = asyncio.run(bind_questions(course(), original, mode='manual', revision_id='r1', knowledge_ids=['k2']))
     assert updated['items'][0]['lifecycle_status'] == 'needs_review'
     assert updated['items'][0]['primary_knowledge_ids'] == ['k2']
+
+
+def test_auto_out_of_tree_lecture_stays_pending_without_provider_call():
+    current = course()
+    current['nodes'] = [{'node_id': 'n1'}, {'node_id': 'n2'}]
+    original = bank()
+    original['items'][0]['node_id'] = 'n2'
+    async def unexpected(*args):
+        pytest.fail('Questions outside the adopted knowledge scope must not call the provider')
+    updated = asyncio.run(bind_questions(current, original, matcher=unexpected))
+    assert binding_view(current, updated)['counts']['pending'] == 1
+
+
+def test_auto_scopes_legacy_child_node_to_its_lecture_atoms():
+    current = course()
+    current['nodes'] = [{'node_id': 'lecture'}, {'node_id': 'n1', 'parent_node_id': 'lecture'}, {'node_id': 'other'}]
+    current['course_knowledge_base']['knowledge_points'][0]['section_refs'] = ['lecture']
+    current['course_knowledge_base']['knowledge_points'][1]['section_refs'] = ['other']
+    async def scoped(items, points):
+        assert [p['knowledge_id'] for p in points] == ['k1']
+        return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .95, 'reason': '直接检查整除', 'evidence': '-7 / 2'}]
+    updated = asyncio.run(bind_questions(current, bank(), matcher=scoped))
+    assert binding_view(current, updated)['counts']['bound'] == 1
