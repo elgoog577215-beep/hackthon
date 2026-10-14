@@ -45,6 +45,21 @@ def test_open_solution_graph_uses_the_same_independent_derivation():
     assert solution["solution_graph"]["steps"][0]["check"] == "11"
 
 
+def test_public_preflight_defers_answer_evidence_until_the_solution_exists():
+    from assessment_semantics import evaluate_question_semantic_preflight
+    contract = {"question_type": "debugging_trace", "question_spec": {
+        "stimulus": {"rendered_text": "```c\nint f(int x) { return x - 1; }\n```"},
+        "task": {"rendered_text": "f应返回x加1，定位错误并修复、复验。"}},
+        "solution_envelope": {"validation_mode": "expert_rubric_validator", "canonical_answer": "待独立求解"}}
+    public = evaluate_question_semantic_preflight(contract, require_solution_evidence=False)
+    assert public["passed"]
+    complete = evaluate_question_semantic_preflight(contract)
+    assert not complete["passed"], "deferral must not bypass the final evidence check"
+    contract["solution_envelope"]["canonical_answer"] = "错误位置为return：原因是减法。修复为return x + 1；复验x=2得到3。"
+    contract["solution_envelope"]["solution_graph"] = {"steps": [{"step_id": "s1", "action": "修复并复验", "check": "3"}]}
+    assert evaluate_question_semantic_preflight(contract)["passed"]
+
+
 async def test_review_sees_exact_deliverable_and_its_attestation_expires_after_mutation():
     from assessment_solution_protocol import final_solution_review_valid
     contract, independent, validation = example()
