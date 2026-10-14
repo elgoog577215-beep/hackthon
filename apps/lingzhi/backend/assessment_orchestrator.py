@@ -3436,6 +3436,8 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "MATERIAL_BINDING_INVALID": "题目材料不足或未参与求解",
         "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
         "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
+        "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
+        "INDEPENDENT_EVIDENCE_UNVERIFIED": "独立解答缺少可核对的推导依据",
         "independent_solution_mismatch": "独立求解结果与答案不一致",
     }
     failed = []
@@ -5208,6 +5210,8 @@ def _authoring_quality_directive() -> str:
         "不删减解题条件，不在task重复input_contract的字段说明。"
         "不得在题面注释或提示中给出待考公式、正确推导或结果；"
         "把这些内容留在solution。必要的已知条件可以公开，但不能把待考规则当作提示。"
+        "quantitative_analysis_objective要求计算或推导锁定的概率、期望或复杂度，"
+        "明确随机变量、分布假设与边界条件；不能改成只追踪具体代码输出或树的形状。"
         "若提供private_measurement_design，先把其中已计算的材料、问题和互斥结果落实到题目；"
         "只把public_material放入stimulus、ask放入task，其他计划字段严格留在solution。"
         "不得把target_rule、trace、incorrect_rule、预测结果当成题干背景或提示。"
