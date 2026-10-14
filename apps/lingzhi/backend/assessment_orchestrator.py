@@ -79,7 +79,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v28"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v29"
 
 
 def _out_tokens(limit: int) -> int:
@@ -4275,6 +4275,16 @@ def _attach_learner_worked_solution(
         # Keep one complete source, even when it is incomplete and must fail.
         # Never fill missing solver evidence with pieces of the author answer.
         solution["worked_solution"] = independent_worked
+        solution["author_solution_graph_proposal"] = deepcopy(solution.get("solution_graph"))
+        solution["solution_graph"] = {
+            "schema_version": "solution_graph_v1",
+            "steps": [{
+                "step_id": f"step_{index + 1}",
+                "action": "\n".join(str(step.get(key) or "") for key in ("explanation", "calculation") if step.get(key))
+                    if isinstance(step, dict) else str(step),
+                "check": str(step.get("result") or "") if isinstance(step, dict) else "",
+            } for index, step in enumerate(independent_work)],
+        }
         return
     if worked_solution_is_complete(
         {**solution, "worked_solution": independent_worked}, option_ids=option_ids,
