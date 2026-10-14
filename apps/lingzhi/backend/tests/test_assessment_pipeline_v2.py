@@ -165,6 +165,30 @@ def test_math_variable_language_does_not_become_experiment_plan():
     )
 
 
+def test_algorithm_analysis_uses_derivation_questions_for_analytical_knowledge():
+    course = _course("programming_engineering")
+    course["nodes"][0].update({
+        "node_name": "随机化数据结构的性能分析",
+        "learning_objective": "推导开放寻址探测次数和随机搜索树期望深度",
+        "key_points": ["指示变量法", "开放寻址哈希表的期望探测次数推导", "随机搜索树的期望深度"],
+    })
+    slots = compile_course_assessment_blueprint(course)["nodes"][0]["slots"]
+    assert [s["question_type"] for s in slots] == ["selected_response", "structured_application", "symbolic_derivation"]
+    assert all(s["input_mode"] == "structured_fields" for s in slots[1:])
+    assert all(s["validation_mode"] == "expert_rubric_validator" for s in slots[1:])
+
+
+def test_mixed_programming_node_routes_by_each_slot_knowledge_not_whole_chapter():
+    course = _course("programming_engineering")
+    course["nodes"][0].update({
+        "learning_objective": "实现哈希表并推导性能界限",
+        "key_points": ["哈希表", "哈希表插入实现", "哈希表均摊复杂度证明"],
+    })
+    slots = compile_course_assessment_blueprint(course)["nodes"][0]["slots"]
+    assert slots[1]["question_type"] == "debugging_trace"
+    assert slots[2]["question_type"] == "symbolic_derivation"
+
+
 def test_programming_blueprint_is_not_all_implementation_tasks():
     course = _course("programming_engineering")
     course["nodes"][0]["learning_objective"] = (
