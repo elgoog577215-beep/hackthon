@@ -110,6 +110,22 @@ def _out_tokens(limit: int) -> int:
     except (TypeError, ValueError):
         return limit
     return max(limit, min(floor, 16000))
+
+
+def _stage_output_budget(stage: str, mode: str, *, atomic: bool = False) -> int:
+    """Budget the required artifact, independently of the thinking switch."""
+    complex_mode = mode in {"structured_fields", "rich_text", "code"}
+    if stage == "review":
+        return _out_tokens(4096 if complex_mode else 3072 if atomic else 2048)
+    if mode == "code":
+        return _out_tokens(12288)
+    if complex_mode:
+        return _out_tokens(8192)
+    if stage == "repair":
+        return _out_tokens(6144)
+    return _out_tokens(2048 if mode == "choice" else 6144 if stage == "solve" else 4096)
+
+
 AssessmentProgressCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
@@ -320,19 +336,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(
-                2048
-                if input_mode == "choice"
-                else (
-                    8192
-                    if reasoning_enabled and input_mode != "code"
-                    else (
-                        12288
-                        if reasoning_enabled and input_mode == "code"
-                        else (4096 if input_mode != "code" else 6144)
-                    )
-                )
-            ),
+            max_tokens=_stage_output_budget("generate", input_mode),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -381,7 +385,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=False,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(12288),
+            max_tokens=sum(_stage_output_budget("generate", (c.get("assessment_slot") or {}).get("input_mode", "")) for c in contexts),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -488,19 +492,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(
-                2048
-                if input_mode == "choice"
-                else (
-                    12288
-                    if input_mode == "code"
-                    else (
-                        8192
-                        if input_mode in {"structured_fields", "rich_text"}
-                        else (6144 if reasoning_enabled else 3072)
-                    )
-                )
-            ),
+            max_tokens=_stage_output_budget("solve", input_mode),
             json_mode=True,
             model_role="assessment_solver",
         )
@@ -545,7 +537,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(min(8192, 2048 * len(items))),
+            max_tokens=sum(_stage_output_budget("solve", ((item.get("question_spec") or {}).get("input_contract") or {}).get("mode", "")) for item in items),
             json_mode=True,
             model_role="assessment_solver",
         )
@@ -610,7 +602,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(6144),
+            max_tokens=_stage_output_budget("repair", input_mode),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -651,7 +643,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=False,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(min(12288, 4096 * len(items))),
+            max_tokens=sum(_stage_output_budget("repair", ((item.get("context") or {}).get("assessment_slot") or {}).get("input_mode", "")) for item in items),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -733,7 +725,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(3072 if slot.get("assessment_binding_schema") else 2048),
+            max_tokens=_stage_output_budget("review", (public_question_spec.get("input_contract") or {}).get("mode", ""), atomic=atomic),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -768,7 +760,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(6144 if any((item.get("slot") or {}).get("assessment_binding_schema") for item in items) else 4096),
+            max_tokens=sum(_stage_output_budget("review", ((item.get("question_spec") or {}).get("input_contract") or {}).get("mode", ""), atomic=bool((item.get("slot") or {}).get("assessment_binding_schema"))) for item in items),
             json_mode=True,
             model_role="assessment_reviewer",
         )
