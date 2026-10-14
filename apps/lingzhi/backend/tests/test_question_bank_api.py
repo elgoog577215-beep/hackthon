@@ -1189,6 +1189,20 @@ def test_truncation_message_preserves_successes_and_does_not_claim_outage():
     assert "本轮未形成" not in message
 
 
+def test_saved_questions_are_revalidated_with_their_own_frozen_slot(monkeypatch, tmp_path):
+    client, repository = _client(monkeypatch, tmp_path)
+    _rebuild(client, "original-frozen-slot")
+    bundle = deepcopy(repository.load_bundle("course-api"))
+    for node in bundle["assessment_blueprint"]["nodes"]:
+        for slot in node["slots"]:
+            slot["input_contract"] = {"mode": "structured_fields", "fields": [
+                {"field_id": "new_contract", "required": True, "kind": "rich_text"},
+            ]}
+    assert question_bank._published_practice_levels_by_node(_course(), bundle) == {
+        "node-1": {"concept_check", "objective_practice", "mastery_check"},
+    }
+
+
 def test_failed_chapter_message_distinguishes_provider_failure():
     assert "模型服务当前不可用" in question_bank._failed_chapters_message([
         {"error_code": "ai_provider_rate_limited"},
