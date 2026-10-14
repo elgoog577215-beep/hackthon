@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 import httpx
-from openai import DefaultAsyncHttpxClient
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 
 def _message_json(value: Any) -> str:
@@ -46,3 +46,20 @@ class QwenCompatibleAsyncHttpxClient(DefaultAsyncHttpxClient):
             headers.setdefault('Content-Type', 'application/json')
             kwargs['headers'] = headers
         return super().build_request(method, url, **kwargs)
+
+
+class QwenCompatibleAsyncOpenAI(AsyncOpenAI):
+    def _build_request(self, options: Any, *, retries_taken: int = 0) -> httpx.Request:
+        request = super()._build_request(options, retries_taken=retries_taken)
+        payload = getattr(options, 'json_data', None)
+        # Recent SDKs serialize JSON into content before calling HTTPX. Inspect
+        # the SDK options to distinguish that path from explicit raw bodies.
+        if (isinstance(payload, dict) and payload.get('model') == 'qwen3.8-27b'
+                and 'messages' in payload and getattr(options, 'content', None) is None
+                and request.url.path.rstrip('/').endswith('/chat/completions')
+                and request.headers.get('content-type', '').startswith('application/json')):
+            headers = httpx.Headers(request.headers)
+            headers.pop('Content-Length', None)
+            return httpx.Request(request.method, request.url, headers=headers,
+                content=encode_qwen_chat_body(json.loads(request.content)), extensions=request.extensions)
+        return request

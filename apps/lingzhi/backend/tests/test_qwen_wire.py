@@ -1,10 +1,9 @@
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
-from openai import AsyncOpenAI
-
-from qwen_wire import QwenCompatibleAsyncHttpxClient, encode_qwen_chat_body
+from qwen_wire import QwenCompatibleAsyncOpenAI, QwenCompatibleAsyncHttpxClient, encode_qwen_chat_body
 
 
 @pytest.mark.parametrize('text', [
@@ -38,11 +37,12 @@ async def test_sdk_uses_safe_json_bytes_with_correct_length_and_unchanged_author
             b'data: {"id":"one","object":"chat.completion.chunk","model":"qwen3.8-27b",'
             b'"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n'
             b'data: [DONE]\n\n'))
-    client = AsyncOpenAI(api_key='test-key', base_url='http://provider.test/v1',
+    client = QwenCompatibleAsyncOpenAI(api_key='test-key', base_url='http://provider.test/v1',
         http_client=QwenCompatibleAsyncHttpxClient(transport=httpx.MockTransport(handler)))
     messages = [{'role': 'user', 'content': 'Directory.CreateDirectory(Path.GetDirectoryName(savePath));中文🧪'}]
     try:
-        stream = await client.chat.completions.create(model='qwen3.8-27b', messages=messages, max_tokens=32000, stream=True)
+        stream = await client.chat.completions.create(model='qwen3.8-27b', messages=messages, max_tokens=32000,
+            stream=True, extra_body={'chat_template_kwargs': {'enable_thinking': False}})
         assert ''.join([chunk.choices[0].delta.content or '' async for chunk in stream]) == 'OK'
         request = captured[0]
         assert json.loads(request.content)['messages'] == messages
@@ -50,8 +50,26 @@ async def test_sdk_uses_safe_json_bytes_with_correct_length_and_unchanged_author
         assert int(request.headers['content-length']) == len(request.content)
         assert request.headers['authorization'] == 'Bearer test-key'
         assert request.headers['content-type'] == 'application/json'
+        assert json.loads(request.content)['max_tokens'] == 32000
+        assert json.loads(request.content)['chat_template_kwargs'] == {'enable_thinking': False}
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_sdk_serialized_json_is_encoded_but_explicit_raw_body_is_preserved(monkeypatch):
+    from openai import AsyncOpenAI
+    payload = {'model': 'qwen3.8-27b', 'messages': [{'role': 'user', 'content': 'literal.code();中文'}]}
+    raw = json.dumps(payload, ensure_ascii=False).encode()
+    monkeypatch.setattr(AsyncOpenAI, '_build_request', lambda *a, **k:
+        httpx.Request('POST', 'http://provider.test/v1/chat/completions',
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer test-key'}, content=raw))
+    async with QwenCompatibleAsyncOpenAI(api_key='test-key') as client:
+        rewritten = client._build_request(SimpleNamespace(json_data=payload, content=None))
+        assert rewritten.content == encode_qwen_chat_body(payload)
+        assert rewritten.headers['authorization'] == 'Bearer test-key'
+        explicit = client._build_request(SimpleNamespace(json_data=None, content=raw))
+        assert explicit.content == raw
 
 
 @pytest.mark.asyncio

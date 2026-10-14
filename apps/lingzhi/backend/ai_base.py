@@ -31,7 +31,6 @@ from dotenv import load_dotenv
 from openai import (
     APIConnectionError,
     APITimeoutError,
-    AsyncOpenAI,
     AuthenticationError,
     InternalServerError,
     PermissionDeniedError,
@@ -42,7 +41,7 @@ from ai_capacity import (
     ModelCapacityCoolingDown,
     get_provider_capacity_controller,
 )
-from qwen_wire import QwenCompatibleAsyncHttpxClient
+from qwen_wire import QwenCompatibleAsyncHttpxClient, QwenCompatibleAsyncOpenAI as AsyncOpenAI
 from generation_telemetry import record_call as _record_generation_call
 from generation_telemetry import telemetry_enabled as _generation_telemetry_on
 from text_ai_provider_policy import (
