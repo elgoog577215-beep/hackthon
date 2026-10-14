@@ -512,17 +512,11 @@ _PRACTICE_LEVELS = {
 }
 
 
-def _modern_published_chapter_node_ids(
+def _published_practice_levels_by_node(
     course: dict[str, Any],
     bundle: dict[str, Any] | None,
-) -> set[str]:
-    """Infer chapters already replaced by a complete v2 question set.
-
-    Some courses started their migration before chapter checkpoints were
-    introduced.  The active bundle is authoritative in that case: a chapter
-    counts only when all three practice slots are published and have passed
-    the v2 quality gate.
-    """
+) -> dict[str, set[str]]:
+    """Revalidate saved practice slots without requiring a course checkpoint."""
 
     course_node_ids = {
         str(node.get("node_id") or "")
@@ -537,7 +531,7 @@ def _modern_published_chapter_node_ids(
     if atomic_baseline(course):
         current = compile_course_assessment_blueprint(course)
         if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
-            return set()
+            return {}
     solutions = (bundle or {}).get("solution_envelopes") or {}
     levels_by_node: dict[str, set[str]] = {}
     for item in (bundle or {}).get("items") or []:
@@ -589,9 +583,17 @@ def _modern_published_chapter_node_ids(
             continue
         levels = set(item_slot_keys(item)) & set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
         levels_by_node.setdefault(node_id, set()).update(levels)
+    return levels_by_node
+
+
+def _modern_published_chapter_node_ids(
+    course: dict[str, Any],
+    bundle: dict[str, Any] | None,
+) -> set[str]:
+    expected_keys = slot_keys_by_node((bundle or {}).get("assessment_blueprint") or {})
     return {
         node_id
-        for node_id, levels in levels_by_node.items()
+        for node_id, levels in _published_practice_levels_by_node(course, bundle).items()
         if levels and levels == set(expected_keys.get(node_id, list(_PRACTICE_LEVELS)))
     }
 
@@ -1387,6 +1389,11 @@ def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
         "ai_provider_empty_response",
         "ai_provider_processing_failed",
     }
+    if "assessment_output_truncated" in codes:
+        return (
+            "题目生成或校验输出达到长度上限，未完成题目已停止；"
+            "已发布题目保留，可仅补生成缺失题目。"
+        )
     if "formal_runner_unavailable" in codes:
         return (
             "代码验证服务不可用，代码实现题未发布；"
@@ -1731,6 +1738,17 @@ async def _execute_question_bank_rebuild(
     }
     for node_id in published_node_ids:
         published_practice_levels_by_node[node_id] = set(planned_slot_keys.get(node_id, []))
+    preserve_saved_slots = (
+        payload.scope == "nodes" and payload.mode == "incremental"
+        and payload.resume_existing and not payload.knowledge_ids
+    )
+    if preserve_saved_slots:
+        saved_slots = _published_practice_levels_by_node(course_for_bank, previous)
+        for node_id in campaign_node_ids:
+            settled = saved_slots.get(node_id, set()) & set(planned_slot_keys.get(node_id, []))
+            published_practice_levels_by_node[node_id] = settled
+            if settled and settled == set(planned_slot_keys.get(node_id, [])):
+                published_node_ids.add(node_id)
     resumed_item_count = sum(len(v) for v in published_practice_levels_by_node.values())
     campaign_id = (
         str(checkpoint.get("campaign_id") or "")
@@ -1767,7 +1785,7 @@ async def _execute_question_bank_rebuild(
                 ]
                 for node_id in target_node_ids or []
             }
-            if resumable_checkpoint or repairs_course_checkpoint
+            if resumable_checkpoint or repairs_course_checkpoint or preserve_saved_slots
             else None
         )
     )
@@ -2186,7 +2204,7 @@ async def _execute_question_bank_rebuild(
 
     heartbeat_task = asyncio.create_task(persist_generation_heartbeat())
     try:
-        course_for_bank = await _prepare_course_compat(
+        course_for_bank = course_for_bank if chapter_publication_enabled and not target_node_ids else await _prepare_course_compat(
             assessment_generation_orchestrator,
             course_for_bank,
             node_ids=target_node_ids,
