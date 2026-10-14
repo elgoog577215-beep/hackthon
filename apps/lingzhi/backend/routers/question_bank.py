@@ -864,6 +864,50 @@ def _generation_summary(
     }
 
 
+def _resolve_rebuild_node_ids(course: dict[str, Any], requested: list[str]) -> list[str]:
+    """Expand teacher lectures to their direct assessment content nodes.
+
+    Keep explicit level-two requests supported for knowledge and retry flows.
+    Resolve the whole selection before starting a job so a missing/empty
+    lecture cannot silently shrink the requested scope or trigger a full run.
+    """
+    nodes = {
+        str(node.get("node_id") or ""): node
+        for node in course.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_id")
+    }
+    unknown = [node_id for node_id in requested if (
+        node_id not in nodes or int(nodes[node_id].get("node_level") or 1) not in {1, 2}
+    )]
+    if unknown:
+        raise HTTPException(status_code=422, detail={
+            "code": "question_bank_rebuild_nodes_unknown",
+            "message": "所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。",
+            "node_ids": unknown,
+        })
+    resolved: set[str] = set()
+    empty_lessons: list[str] = []
+    for node_id in requested:
+        if int(nodes[node_id].get("node_level") or 1) == 2:
+            resolved.add(node_id)
+            continue
+        sections = {
+            child_id for child_id, node in nodes.items()
+            if int(node.get("node_level") or 1) == 2
+            and str(node.get("parent_node_id") or "") == node_id
+        }
+        if not sections:
+            empty_lessons.append(node_id)
+        resolved.update(sections)
+    if empty_lessons:
+        raise HTTPException(status_code=422, detail={
+            "code": "question_bank_rebuild_lessons_empty",
+            "message": "所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。",
+            "node_ids": empty_lessons,
+        })
+    return sorted(resolved)
+
+
 @router.post("/rebuild", status_code=status.HTTP_202_ACCEPTED)
 async def rebuild_question_bank(
     course_id: str,
@@ -875,6 +919,8 @@ async def rebuild_question_bank(
 ) -> dict[str, Any]:
     actor_id = require_user_id(x_user_id)
     course = await _question_bank_course(course_id)
+    if payload.scope == "nodes":
+        payload.node_ids = _resolve_rebuild_node_ids(course, payload.node_ids)
     _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
         course_id,
@@ -892,25 +938,11 @@ async def rebuild_question_bank(
                 status_code=422,
                 detail={
                     "code": "question_bank_materials_unknown",
+                    "message": "所选出题资料已不可用，请刷新资料列表并重新选择。",
                     "material_asset_ids": unknown_material_ids,
                 },
             )
-    if payload.scope == "nodes":
-        known_node_ids = {
-            str(node.get("node_id") or "")
-            for node in course.get("nodes") or []
-            if int(node.get("node_level") or 1) == 2
-        }
-        unknown = sorted(set(payload.node_ids) - known_node_ids)
-        if unknown:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "question_bank_rebuild_nodes_unknown",
-                    "node_ids": unknown,
-                },
-            )
-    elif payload.scope == "items":
+    if payload.scope == "items":
         bundle = _require_bundle(course)
         payload.revision_ids = expand_question_atomic_revisions(
             bundle,

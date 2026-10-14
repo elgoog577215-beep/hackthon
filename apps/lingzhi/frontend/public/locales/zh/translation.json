@@ -145,6 +145,7 @@
     "dismiss": "关闭这条错误",
     "showTechnicalDetails": "查看技术详情",
     "names": {
+      "questionGenerationScope": "题目生成条件不足",
       "aiService": "AI 服务调用失败",
       "quality": "质量检查未通过",
       "conflict": "内容版本冲突",
@@ -182,6 +183,9 @@
       "submit": "提交"
     },
     "reasons": {
+      "questionNodesUnknown": "所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。",
+      "questionLessonsEmpty": "所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。",
+      "questionMaterialsUnknown": "所选出题资料已不可用，请刷新资料列表并重新选择。",
       "rateLimit": "服务请求过于频繁，当前操作尚未完成，请稍后重试。",
       "quota": "AI 服务额度已用尽，继续重试不会成功，请先检查服务配置。",
       "providerAuth": "AI 服务身份检查未通过，请检查服务配置后重试。",

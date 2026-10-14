@@ -82,6 +82,7 @@ function detailFields(data: unknown): { code: string; message: string; requestId
 
 function looksLikeTechnicalText(value: string): boolean {
   return value.length > 240
+    || /^Request failed(?: with status code \d+)?$/i.test(value)
     || value.includes('\n')
     || /Traceback|\b[A-Z][A-Za-z]+(?:Error|Exception)\b|\bFile "|\/Users\/|node_modules| at [\w$]+ \(/.test(value)
 }
@@ -123,6 +124,9 @@ function operationName(method: string, url: string): string {
 }
 
 function titleFor(code: string, status: number | null, method: string, url: string): string {
+  if (/^question_bank_(rebuild_nodes_unknown|rebuild_lessons_empty|materials_unknown)$/.test(code)) {
+    return t('appError.names.questionGenerationScope', '题目生成条件不足')
+  }
   if (/course_change_source_unavailable/.test(code)) {
     return t('appError.names.courseChangeSource', '课程修改条件不足')
   }
@@ -160,6 +164,9 @@ function reasonFor(
 ): string {
   if (networkFailure) return t('appError.reasons.network', '请求没有收到服务响应，请检查网络连接后重试。')
   const known: Array<[RegExp, string]> = [
+    [/^question_bank_rebuild_nodes_unknown\b/, t('appError.reasons.questionNodesUnknown', '所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。')],
+    [/^question_bank_rebuild_lessons_empty\b/, t('appError.reasons.questionLessonsEmpty', '所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。')],
+    [/^question_bank_materials_unknown\b/, t('appError.reasons.questionMaterialsUnknown', '所选出题资料已不可用，请刷新资料列表并重新选择。')],
     [/course_change_source_unavailable/i, t('appError.reasons.courseChangeSource', '当前课程还没有可分析的大纲或课程内容，请先完成课程大纲。')],
     [/lesson_sections_empty|sections_missing|outline_empty/i, t('appError.reasons.lessonPrerequisite', '当前讲次没有可生成教案的小节，请先补全课程大纲或课次小节。')],
     [/provider_rate_limited|too_many_requests|rate.?limit|\b429\b/i, t('appError.reasons.rateLimit', '服务请求过于频繁，当前操作尚未完成，请稍后重试。')],
