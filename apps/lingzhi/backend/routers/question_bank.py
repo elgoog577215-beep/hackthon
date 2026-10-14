@@ -1409,6 +1409,10 @@ def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
             "部分章节因模型服务或质量检查未完成；"
             "已发布章节保持生效，失败章节继续使用旧题"
         )
+    details = [str(item.get("error_message") or "") for item in failed_chapters
+               if item.get("error_code") == "chapter_quality_failed" and item.get("error_message")]
+    if details:
+        return "；".join(dict.fromkeys(details))
     return (
         "部分章节未通过质量门；已发布章节保持生效，"
         "失败章节继续使用旧题"
