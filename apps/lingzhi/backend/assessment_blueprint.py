@@ -21,7 +21,7 @@ from assessment_semantics import semantics_for_question_type
 from knowledge_assessment import atomic_baseline, atomic_slots, slot_key, ATOMIC_ASSESSMENT_SCHEMA
 
 
-ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v5"
+ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v6"
 REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v2"
 INPUT_CONTRACT_SCHEMA = "input_contract_v2"
 
@@ -158,7 +158,7 @@ def _programming_target_recipe(objective: dict[str, Any], index: int) -> dict[st
                        "structured_application" if index == 1 else "symbolic_derivation")
         recipe["selection_reason"] = "quantitative_analysis_objective"
         return recipe
-    if any(word in target for word in ("测试集设计", "鲁棒性", "基准测试", "测试套件", "可复现", "工程报告", "选型", "权衡", "reproducib", "benchmark", "test design")):
+    if any(word in target for word in ("测试集设计", "鲁棒性", "基准测试", "测试套件", "可复现", "工程报告", "选型", "权衡", "缓存不友好", "缓存局部性", "内存局部性", "遍历模式", "reproducib", "benchmark", "test design")):
         recipe = _slot("constrained_decision", "structured_fields", "expert_rubric_validator",
                        "structured_application" if index == 1 else "scenario_deliverable")
         recipe["selection_reason"] = "engineering_evidence_objective"

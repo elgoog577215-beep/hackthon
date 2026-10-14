@@ -81,7 +81,7 @@ def test_eight_subject_families_compile_diverse_generation_blueprints(
 
     slots = blueprint["nodes"][0]["slots"]
     assert blueprint["schema_version"] == (
-        "course_assessment_blueprint_v5"
+        "course_assessment_blueprint_v6"
     )
     assert len(slots) == 3
     assert len({slot["input_mode"] for slot in slots}) >= 2
