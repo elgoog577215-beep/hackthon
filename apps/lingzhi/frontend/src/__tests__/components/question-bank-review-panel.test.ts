@@ -737,6 +737,36 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).not.toContain('Request failed with status code 422')
   })
 
+  it.each(['custom', 'range'])('expands %s lectures to content IDs for existing servers without changing the lecture count', async (scope) => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1', initialWorkspaceMode: 'generate',
+        chapterOptions: [
+          { node_id: 'L1-1', node_ids: ['L1-1', 'L2-1-1'], number: 1, title: '第一讲' },
+          { node_id: 'L1-2', node_ids: ['L1-2', 'L2-2-1', 'L2-2-2'], number: 2, title: '第二讲' },
+          { node_id: 'L1-3', node_ids: ['L1-3', 'L2-3-1'], number: 3, title: '第三讲' },
+        ],
+      },
+    })
+    await flushPromises()
+    await wrapper.get(`[data-testid="question-scope-${scope}"] input`).setValue(true)
+    if (scope === 'custom') {
+      await wrapper.get('[data-testid="question-scope-node-L1-2"]').setValue(true)
+      expect(wrapper.text()).toContain('已选择 1 个讲次')
+    } else {
+      await wrapper.get('[data-testid="question-scope-range-start"]').setValue('L1-2')
+      await wrapper.get('[data-testid="question-scope-range-end"]').setValue('L1-3')
+    }
+    const expected = scope === 'custom' ? ['L2-2-1', 'L2-2-2'] : ['L2-2-1', 'L2-2-2', 'L2-3-1']
+    const candidate = await (wrapper.vm as any).requestAiCandidate('按所选讲次生成')
+    expect(candidate.node_ids).toEqual(expected)
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      scope: 'nodes', node_ids: expected,
+    }), expect.any(Object))
+  })
+
   it('按连续章节范围生成题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {
