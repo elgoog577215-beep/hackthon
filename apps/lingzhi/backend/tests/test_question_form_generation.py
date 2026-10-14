@@ -490,6 +490,15 @@ def test_local_solver_still_applies_to_numeric_questions() -> None:
     }) is True
 
 
+def test_numeric_solver_cannot_replace_structured_derivation_or_code_evidence():
+    from assessment_orchestrator import _local_solver_applicable
+    for mode in ["structured_fields", "rich_text", "code"]:
+        assert _local_solver_applicable({
+            "input_contract": {"mode": mode},
+            "solver_contract": {"kind": "numeric_expression", "expression": "1/(1-0.25)"},
+        }) is False
+
+
 # --- 跨线核查：lz-course-gen 报的三条契约缺陷 ------------------------------
 
 
