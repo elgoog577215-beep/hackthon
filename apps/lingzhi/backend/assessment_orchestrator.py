@@ -75,7 +75,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v25"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v26"
 
 
 def _out_tokens(limit: int) -> int:
@@ -2009,6 +2009,9 @@ class AssessmentGenerationOrchestrator:
                         chapter_error_message = (
                             "模型生成或验证未完成，本章未形成可发布题目"
                         )
+                if not chapter_passed and not chapter_error_code and not fatal_errors:
+                    chapter_error_code = "chapter_quality_failed"
+                    chapter_error_message = _question_quality_failure_message(node_audit_items)
                 async with chapter_callback_lock:
                     await _notify_progress(
                         on_chapter_complete,
@@ -3422,6 +3425,30 @@ def _preflight_issue_code(error: Exception) -> str:
         "invalid_candidate_task_too_long": "TASK_TOO_LONG",
         "invalid_candidate_prompt_too_long": "PROMPT_TOO_LONG",
     }.get(str(error), "")
+
+
+def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
+    labels = {"concept_check": "概念题", "objective_practice": "应用题", "mastery_check": "迁移题"}
+    reasons = {
+        "TASK_TOO_LONG": "任务说明超过300字符",
+        "ANSWER_RULE_DISCLOSED": "题面提示泄露待考规则",
+        "QUESTION_TYPE_SEMANTIC_MISMATCH": "题面缺少该题型要求的作答证据",
+        "MATERIAL_BINDING_INVALID": "题目材料不足或未参与求解",
+        "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
+        "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
+        "independent_solution_mismatch": "独立求解结果与答案不一致",
+    }
+    failed = []
+    for item in items:
+        if item.get("final_decision") != "discard":
+            continue
+        attempts = item.get("attempts") or []
+        codes = (attempts[-1].get("issue_codes") or []) if attempts else []
+        details = [reasons[code] for code in codes if code in reasons]
+        failed.append(labels.get(str(item.get("practice_level") or ""), "题目") + "：" + (
+            "、".join(dict.fromkeys(details)) or "未通过题面与答案质量检查"
+        ))
+    return "；".join(failed) + "。已发布题目保留，可仅补生成缺失题目。"
 
 
 def _repair_action_for_issues(
@@ -5175,6 +5202,12 @@ def _solver_contract_kind_hint() -> str:
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
+        "生成和任何定向修复都必须遵守：task.rendered_text最多300个字符，"
+        "英文、公式、标点和换行均计数，建议控制在120至200字符。"
+        "task只写作答动作；将必要背景、数据、代码放入stimulus，限制放constraints，"
+        "不删减解题条件，不在task重复input_contract的字段说明。"
+        "不得在题面注释或提示中给出待考公式、正确推导或结果；"
+        "把这些内容留在solution。必要的已知条件可以公开，但不能把待考规则当作提示。"
         "若提供private_measurement_design，先把其中已计算的材料、问题和互斥结果落实到题目；"
         "只把public_material放入stimulus、ask放入task，其他计划字段严格留在solution。"
         "不得把target_rule、trace、incorrect_rule、预测结果当成题干背景或提示。"
