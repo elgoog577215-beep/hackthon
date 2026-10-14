@@ -194,6 +194,7 @@ def test_mixed_programming_node_routes_by_each_slot_knowledge_not_whole_chapter(
     ("混合结构的空间与维护成本增量核算", "symbolic_derivation", ["premises", "derivation", "conclusion"]),
     ("基于Zipf分布的鲁棒性测试集设计", "scenario_deliverable", ["answer", "evidence", "result_check"]),
     ("工程报告的数据可复现性规范", "scenario_deliverable", ["answer", "evidence", "result_check"]),
+    ("缓存不友好的遍历模式", "scenario_deliverable", ["answer", "evidence", "result_check"]),
 ])
 def test_programming_evidence_shape_matches_mathematical_or_engineering_target(knowledge, expected_type, expected_fields):
     course = _course("programming_engineering")
