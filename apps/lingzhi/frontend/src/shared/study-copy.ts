@@ -2,7 +2,7 @@ import { activeLocale } from './i18n'
 
 const messages = {
   authorizedCourses: ['教师授权课程', 'Authorized courses'],
-  brand: ['我的学习空间', 'My study space'], subtitle: ['让资料成为适合你的讲义', 'Turn your materials into a handout that fits you'],
+  brand: ['我的学习空间', 'My study space'], subtitle: ['课程学习、练习与个人讲义', 'Courses, practice and personal handouts'],
   library: ['我的学习材料', 'My materials'], create: ['生成个人讲义', 'Create a handout'], teacher: ['教师工作台', 'Teacher workspace'],
   welcome: ['从你的资料，开始学习', 'Start with your own materials'], intro: ['选择资料和学习目的，生成一份属于自己的讲义。', 'Choose your sources and learning purpose to create your own handout.'],
   exam_prep: ['应试讲义', 'Exam preparation'], systematic: ['整体理解讲义', 'Deep understanding'],

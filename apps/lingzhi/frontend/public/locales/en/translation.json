@@ -3561,7 +3561,7 @@
     "notebook": "Notebook",
     "notebookHint": "View notes and learning markers for this course",
     "questionBook": "Question book",
-    "questionBookHint": "View, generate, and complete questions for this course",
+    "questionBookHint": "View course questions, practice and answer history",
     "learningTabs": "Learning tools",
     "resourceTabs": "Resource tools",
     "records": "Learning records",
@@ -5609,7 +5609,13 @@
       "stepwiseNoFlaw": "No faulty step found",
       "stepCorrect": "This step holds",
       "stepFlawed": "This step has a problem",
-      "stepUnclear": "No visible basis for this step"
+      "stepUnclear": "No visible basis for this step",
+      "refreshQuestion": "Another question",
+      "refreshing": "Changing question",
+      "refreshDraftWarning": "Your unsubmitted draft will be preserved as an abandoned attempt. Switch to another question?",
+      "questionStimulus": "Question material",
+      "answerTask": "Your task",
+      "answerTaskHint": "Read the requirements before answering"
     },
     "practiceAnalysis": {
       "title": "Question analysis and this judgment",
@@ -7990,7 +7996,7 @@
     "failed": "The question could not be completed. Check the generation status before retrying."
   },
   "companionWelcome": {
-    "message": "Hi, I’m your Lingzhi companion—select text to take a note or ask me a question, and use the bottom toolbar to explore your notes and knowledge tree.",
+    "message": "Hi, I am your learning companion. Select text to take notes or ask a question. The course toolbar opens practice, mistakes, knowledge and learning overview.",
     "dismiss": "Got it"
   },
   "handoutConcepts": {
@@ -8099,5 +8105,29 @@
     "studentSpace": "Student study space",
     "returnWorkbench": "Return to preparation workbench",
     "returnStudy": "Return to my study space"
+  },
+  "studentWorkspace": {
+    "home": "Learning home",
+    "homeHelp": "Continue a course, or prepare study and revision handouts from your own sources.",
+    "newMaterial": "Create a handout",
+    "systematic": "Systematic learning",
+    "systematicHelp": "Connect the material and concepts to build a complete understanding.",
+    "exam": "Exam preparation",
+    "examHelp": "Revise the exam scope and return to course practice and mistakes.",
+    "personalMaterials": "Personal handouts",
+    "materialsHelp": "Your generated handouts and notes retain their own sources.",
+    "allMaterials": "All handouts",
+    "noMaterials": "No personal handouts yet. Start with your sources or an authorized course.",
+    "reading": "Handout",
+    "practice": "Practice",
+    "mistakes": "Mistakes",
+    "knowledge": "Knowledge tree",
+    "overview": "Learning overview",
+    "tools": "Course learning workspace",
+    "courseTools": "Course tools",
+    "coursePath": "My learning plan",
+    "courseHelp": "Reading, practice, mistakes, knowledge and overview use the same course and learning records.",
+    "backReading": "Return to handout",
+    "space": "Learning space"
   }
 }

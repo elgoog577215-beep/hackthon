@@ -25,6 +25,19 @@ async function page() {
   return wrapper
 }
 describe('authorized student course library', () => {
+  it('exposes course tools on the formal learner route and hides them when reading is unavailable', async () => {
+    const view = await page()
+    const tools = view.findAll('.course-tools a').map(link => link.attributes('href'))
+    expect(tools).toHaveLength(4)
+    expect(tools.every(link => link?.startsWith('/course/course-a/learn?') && !link.includes('teacherPreview'))).toBe(true)
+    expect(tools.some(link => link?.includes('tool=mistakes'))).toBe(true)
+    expect(tools.some(link => link?.includes('tool=overview'))).toBe(true)
+    api.courses.mockResolvedValue([{ ...course, reading_available: false }])
+    await view.findAll('button').find(button => button.text() === '刷新')!.trigger('click')
+    await flushPromises()
+    expect(view.find('.course-tools').exists()).toBe(false)
+    expect(view.find('.course-start').exists()).toBe(false)
+  })
   it('adopts a teacher update only after the student chooses it, then refreshes paths', async () => {
     api.courses.mockResolvedValue([{ ...course, exchange_origin: { node_id: 'publisher' }, update_available: true, question_count: 3 }])
     api.updateCourse.mockResolvedValue({ release_id: 'revision-b' })

@@ -72,7 +72,7 @@
         :node-id="nodeId"
         :node-label="nodeLabel"
         hide-view-switch
-        scope="node"
+        :scope="scope"
         @ask-teacher="emit('askTeacher', $event)"
         @graded="emit('graded')"
         @view-change="practiceView = $event"
@@ -95,9 +95,11 @@ withDefaults(defineProps<{
   nodeLabel?: string
   originRect?: { top: number; left: number; width: number; height: number } | null
   recordCount?: number
+  scope?: 'node' | 'final' | 'all'
 }>(), {
   recordCount: 0,
   embedded: false,
+  scope: 'node',
 })
 const emit = defineEmits<{
   (event: 'close' | 'graded'): void

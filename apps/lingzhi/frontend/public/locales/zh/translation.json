@@ -3561,7 +3561,7 @@
     "notebook": "笔记本",
     "notebookHint": "查看本课程的笔记与学习标记",
     "questionBook": "题库本",
-    "questionBookHint": "查看、生成并完成本课程题目",
+    "questionBookHint": "查看本课程题目、练习与作答记录",
     "learningTabs": "学习功能",
     "resourceTabs": "资源功能",
     "records": "学习记录",
@@ -5609,7 +5609,13 @@
       "stepwiseNoFlaw": "没有发现出错的步骤",
       "stepCorrect": "这一步成立",
       "stepFlawed": "这一步有问题",
-      "stepUnclear": "这一步看不出依据"
+      "stepUnclear": "这一步看不出依据",
+      "refreshQuestion": "换一题",
+      "refreshing": "正在换题",
+      "refreshDraftWarning": "当前未提交草稿会结束并保留为一次已放弃记录，确定换一题吗？",
+      "questionStimulus": "题目材料",
+      "answerTask": "作答任务",
+      "answerTaskHint": "先明确要求，再开始作答"
     },
     "practiceAnalysis": {
       "title": "题目解析与本次判断",
@@ -7990,7 +7996,7 @@
     "failed": "题目未能完成，请查看生成状态后重试。"
   },
   "companionWelcome": {
-    "message": "你好，我是灵知学伴，选中文字就能记笔记或向我提问，底部还能查看笔记和知识树。",
+    "message": "你好，我是灵知学伴，选中文字就能记笔记或向我提问。课程工具栏还能打开练习、错题、知识树和学习概况。",
     "dismiss": "知道了"
   },
   "handoutConcepts": {
@@ -8099,5 +8105,29 @@
     "studentSpace": "学生学习空间",
     "returnWorkbench": "返回备课工作台",
     "returnStudy": "返回我的学习空间"
+  },
+  "studentWorkspace": {
+    "home": "学习首页",
+    "homeHelp": "从当前课程继续学习，或用自己的资料准备学习与复习讲义。",
+    "newMaterial": "生成讲义",
+    "systematic": "系统学习",
+    "systematicHelp": "整理资料与概念，建立完整理解。",
+    "exam": "期末备考",
+    "examHelp": "围绕考试范围复习，并回到课程练习与错题。",
+    "personalMaterials": "个人讲义",
+    "materialsHelp": "自己生成的讲义与笔记，保留各自的资料来源。",
+    "allMaterials": "全部讲义",
+    "noMaterials": "还没有个人讲义，可以从自己的资料或获授权课程开始。",
+    "reading": "讲义",
+    "practice": "练习",
+    "mistakes": "错题",
+    "knowledge": "知识树",
+    "overview": "学习概况",
+    "tools": "课程学习工作区",
+    "courseTools": "课程工具",
+    "coursePath": "我的学习安排",
+    "courseHelp": "进入课程后，阅读、练习、错题、知识树和学习概况使用同一份课程与学习记录。",
+    "backReading": "返回讲义",
+    "space": "学习空间"
   }
 }

@@ -144,4 +144,17 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
     expect(wrapper.find('[data-testid="rebuild-question-bank"]').exists()).toBe(false)
     expect(window.confirm).not.toHaveBeenCalled()
   })
+
+  it('published teacher courses never offer to rebuild teacher content or request local diagnostics', async () => {
+    const courseId = 'exchange_00000000000000000000000000000001'
+    const wrapper = mount(PracticeWorkspace, {
+      props: { courseId, scope: 'all' },
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="rebuild-question-bank"]').exists()).toBe(false)
+    expect(httpMock.get).toHaveBeenCalledWith(`/api/courses/${courseId}/practice`, expect.objectContaining({ params: { scope: 'all' } }))
+    expect(httpMock.get.mock.calls.some(([url]) => String(url).includes('/diagnostics/'))).toBe(false)
+    expect(rebuildMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

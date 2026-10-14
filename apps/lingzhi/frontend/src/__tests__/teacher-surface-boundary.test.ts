@@ -338,7 +338,7 @@ describe('calendar and course file-space boundary', () => {
     expect(learning).not.toContain('<TeachingRepresentationsOverlay')
     expect(learning).not.toContain('<CourseProductionStage')
     expect(learning).not.toContain('<CourseGenerationGate')
-    expect(learning).toContain('@question-book="openQuestionBook"')
+    expect(learning).toContain('@question-book="activateTool(\'practice\')"')
     expect(learning).not.toContain("workspace === 'practice'")
     expect(dock).toContain('data-domain="question-book"')
   })

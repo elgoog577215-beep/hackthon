@@ -18,6 +18,14 @@ beforeEach(()=>{
   vi.spyOn(useLearnerModelStore(),'load').mockResolvedValue(null)
 })
 describe('real course knowledge entry',()=>{
+  it('shows an unprepared tree as empty rather than a failed request',async()=>{
+    vi.mocked(http.get).mockResolvedValue({data:{assets:{}}})
+    const wrapper=mountStudy();await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('.profile-stub').exists()).toBe(false)
+    expect(useLearnerModelStore().load).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('loads formal learning assets and personal evidence through the existing course APIs',async()=>{
     vi.mocked(http.get).mockResolvedValue({data:{assets:{knowledge_library:[view]}}})
     const wrapper=mountStudy();await flushPromises()

@@ -17,10 +17,10 @@ describe('LearningDock', () => {
     const domainButtons = wrapper.findAll('.learning-dock__domain')
     expect(domainButtons).toHaveLength(5)
     expect(domainButtons.map(button => button.text())).toEqual([
-      '笔记本3',
       '题库本2',
       '学习概况',
       '知识树',
+      '笔记本3',
       '智能助教',
     ])
     expect(wrapper.find('[data-domain="learning"]').exists()).toBe(false)

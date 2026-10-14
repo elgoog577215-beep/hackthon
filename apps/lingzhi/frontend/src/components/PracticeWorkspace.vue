@@ -80,7 +80,7 @@
             <ClipboardCheck v-else :size="23" />
           </span>
           <div>
-            <small>{{ t('questionBook.readyWhenNeeded', '需要时再生成') }}</small>
+            <small v-if="canRebuildQuestionBank">{{ t('questionBook.readyWhenNeeded', '需要时再生成') }}</small>
             <strong>{{ canRebuildQuestionBank ? t('questionBook.emptyTitle', '这里还没有题目') : emptyState.title }}</strong>
             <p>{{ canRebuildQuestionBank
               ? t('questionBook.emptyBody', '课程默认不生成题目。选择范围后，系统会结合课程目标自动出题。')
@@ -591,6 +591,7 @@ import { splitPracticeQuestionMarkdown } from '../utils/practice-question-markdo
 import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
 import { createUuid } from '../utils/client-id'
+import { isPublishedExchangeCourse } from '../shared/student-workspace'
 import {
   runQuestionBankRebuild,
   type QuestionBankRebuildJob,
@@ -664,7 +665,7 @@ const hintDisplayRows = computed<HintDisplayRow[]>(() => {
   }
   return rows.sort((left, right) => Number(left.level) - Number(right.level))
 })
-const canRebuildQuestionBank = computed(() => isQuestionBankRepairReason(
+const canRebuildQuestionBank = computed(() => !isPublishedExchangeCourse(props.courseId) && isQuestionBankRepairReason(
   workspace.practice?.practice_availability?.reason_code,
 ))
 const currentNodeLabel = computed(() => props.nodeLabel || t('courseWorkspace.allCourse', '全课程'))

@@ -17,7 +17,7 @@
           <ArrowLeft :size="17" aria-hidden="true" />
           <span>{{ t('app.backToQizhi') }}</span>
         </a>
-        <RouterLink v-else class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
+        <RouterLink v-else class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="isLearningRoute && route.query.teacherPreview !== '1' ? '/study' : { name: 'course-library' }" :aria-label="isLearningRoute && route.query.teacherPreview !== '1' ? t('studentWorkspace.home') : t('app.backToLibrary', '返回课程库')">
           <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
           <span class="brand-name">启智</span>
         </RouterLink>

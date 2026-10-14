@@ -1,7 +1,8 @@
 <template>
-  <footer
+  <component
+    :is="toolbar ? 'header' : 'footer'"
     class="learning-dock"
-    :class="{ 'has-resume': resumeActionLabel }"
+    :class="{ 'has-resume': resumeActionLabel, 'is-toolbar': toolbar }"
     :aria-label="t('learningDock.title', '学习工具')"
   >
     <div class="learning-dock__location" :title="location">
@@ -24,32 +25,21 @@
     </div>
 
     <nav class="learning-dock__actions" :aria-label="t('learningDock.primaryNavigation', '学习辅助导航')">
-      <button
-        type="button"
-        class="learning-dock__domain"
-        data-domain="notebook"
-        :class="{ 'is-active': activeDomain === 'notebook' }"
-        :aria-current="activeDomain === 'notebook' ? 'page' : undefined"
-        :title="t('learningDock.notebookHint', '查看本课程的笔记与学习标记')"
-        @click="emit('notebook')"
-      >
-        <NotebookTabs :size="16" />
-        <span>{{ t('learningDock.notebook', '笔记本') }}</span>
-        <b v-if="noteCount" class="learning-dock__count">{{ noteCount }}</b>
-      </button>
+      <button v-if="toolbar" type="button" class="learning-dock__domain" data-domain="reading" :class="{ 'is-active': activeDomain === 'course' }" :aria-current="activeDomain === 'course' ? 'page' : undefined" @click="emit('reading')"><BookOpenCheck :size="16" /><span>{{ t('studentWorkspace.reading') }}</span></button>
       <button
         type="button"
         class="learning-dock__domain"
         data-domain="question-book"
         :class="{ 'is-active': activeDomain === 'question-book' }"
         :aria-current="activeDomain === 'question-book' ? 'page' : undefined"
-        :title="t('learningDock.questionBookHint', '查看、生成并完成本课程题目')"
+        :title="t('learningDock.questionBookHint', '查看本课程题目、练习与作答记录')"
         @click="emit('question-book')"
       >
         <BookOpenCheck :size="16" />
         <span>{{ t('learningDock.questionBook', '题库本') }}</span>
         <b v-if="questionCount" class="learning-dock__count">{{ questionCount }}</b>
       </button>
+      <button v-if="toolbar" type="button" class="learning-dock__domain" data-domain="mistakes" :class="{ 'is-active': activeDomain === 'mistakes' }" :aria-current="activeDomain === 'mistakes' ? 'page' : undefined" @click="emit('mistakes')"><BookOpenCheck :size="16" /><span>{{ t('studentWorkspace.mistakes') }}</span></button>
       <button
         type="button"
         class="learning-dock__domain"
@@ -78,6 +68,20 @@
       <button
         type="button"
         class="learning-dock__domain"
+        data-domain="notebook"
+        :class="{ 'is-active': notebookOpen || activeDomain === 'notebook' }"
+        :aria-current="activeDomain === 'notebook' ? 'page' : undefined"
+        :aria-pressed="notebookOpen || activeDomain === 'notebook'"
+        :title="t('learningDock.notebookHint', '查看本课程的笔记与学习标记')"
+        @click="emit('notebook')"
+      >
+        <NotebookTabs :size="16" />
+        <span>{{ t('learningDock.notebook', '笔记本') }}</span>
+        <b v-if="noteCount" class="learning-dock__count">{{ noteCount }}</b>
+      </button>
+      <button
+        type="button"
+        class="learning-dock__domain"
         data-domain="assistant"
         :class="{ 'is-active': assistantOpen || activeDomain === 'assistant' }"
         :aria-pressed="assistantOpen || activeDomain === 'assistant'"
@@ -88,7 +92,7 @@
         <span>{{ t('learningDock.assistant', '智能助教') }}</span>
       </button>
     </nav>
-  </footer>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -107,13 +111,17 @@ import { t } from '../shared/i18n'
 withDefaults(defineProps<{
   location: string
   assistantOpen?: boolean
-  activeDomain?: 'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'
+  toolbar?: boolean
+  notebookOpen?: boolean
+  activeDomain?: 'mistakes' | 'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'
   noteCount?: number
   questionCount?: number
   resumeActionLabel?: string
   resumeActionAvailable?: boolean
   resumeActionBusy?: boolean
 }>(), {
+  toolbar: false,
+  notebookOpen: false,
   activeDomain: 'course',
   assistantOpen: false,
   noteCount: 0,
@@ -124,7 +132,7 @@ withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume'): void
+  (event: 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume' | 'reading' | 'mistakes'): void
 }>()
 </script>
 
@@ -178,4 +186,18 @@ const emit = defineEmits<{
 @media (prefers-reduced-motion:reduce) {
   .learning-dock button { transition:none; }
 }
+</style>
+
+<style scoped>
+.learning-dock.is-toolbar { container-type: inline-size; }
+@container (max-width: 540px) {
+  .learning-dock.is-toolbar .learning-dock__actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .learning-dock.is-toolbar .learning-dock__actions button { min-height: 48px; padding: 7px 4px; gap: 4px; white-space: normal; justify-content: center; }
+  .learning-dock.is-toolbar .learning-dock__domain > span { white-space: normal; }
+  .learning-dock.is-toolbar .learning-dock__domain > svg, .learning-dock.is-toolbar .learning-dock__divider { display: none; }
+}
+</style>
+
+<style scoped>
+.learning-dock.is-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:14px 16px;border-top:0;border-bottom:1px solid var(--lz-border);background:#fff;box-shadow:none;flex:none}.is-toolbar .learning-dock__location span{display:none}.is-toolbar .learning-dock__location strong{font-size:15px;max-width:none;font-weight:600}.is-toolbar .learning-dock__actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px;min-width:0}.is-toolbar .learning-dock__actions button{min-height:38px;padding:7px 10px;font-size:15px;white-space:nowrap}.is-toolbar .learning-dock__domain.is-active{box-shadow:none;background:var(--lz-brand-soft);color:var(--lz-brand-strong);border-color:var(--lz-border)}.is-toolbar .learning-dock__resume>button{font-size:15px}.is-toolbar .learning-dock__divider{margin:0 5px}.is-toolbar .learning-dock__domain[data-domain="knowledge-library"]{order:3}.is-toolbar .learning-dock__domain[data-domain="overview"]{order:4}.is-toolbar .learning-dock__divider{order:5}.is-toolbar .learning-dock__domain[data-domain="notebook"]{order:6}.is-toolbar .learning-dock__domain[data-domain="assistant"]{order:7}.is-toolbar .learning-dock__domain[data-domain="reading"]{order:0}.is-toolbar .learning-dock__domain[data-domain="question-book"]{order:1}.is-toolbar .learning-dock__domain[data-domain="mistakes"]{order:2}
 </style>
