@@ -1148,6 +1148,47 @@ def test_failed_chapter_scoped_retry_closes_course_checkpoint(
     ]
 
 
+def test_scoped_resume_only_generates_missing_slot_and_preserves_published_revisions(monkeypatch, tmp_path):
+    client, repository = _client(monkeypatch, tmp_path,
+        orchestrator=DeterministicAssessmentOrchestrator(fail_node_id="node-1", fail_practice_level="objective_practice"))
+    def start(request_id):
+        response = client.post("/api/courses/course-api/question-bank/rebuild",
+            headers={"X-User-Id": "teacher-1"}, json={
+                "request_id": request_id, "scope": "nodes", "node_ids": ["node-1"],
+                "mode": "incremental", "resume_existing": True,
+            })
+        assert response.status_code == 202
+        return client.get(response.json()["status_url"], headers={"X-User-Id": "teacher-1"}).json()
+
+    assert start("scoped-partial-first")["status"] == "failed"
+    before = deepcopy(repository.load_bundle("course-api"))
+    published = [i for i in before["items"] if i.get("assessment_role") == "practice"]
+    assert len(published) == 2
+    assert not repository.course_storage.course.get("question_bank_chapter_rebuild")
+    worker = DeterministicAssessmentOrchestrator()
+    monkeypatch.setattr(question_bank, "assessment_generation_orchestrator", worker)
+    assert start("scoped-partial-retry")["status"] == "completed"
+    assert worker.requested_practice_levels == [{"node-1": ["objective_practice"]}]
+    after = repository.load_bundle("course-api")
+    for item in published:
+        assert next(i for i in after["items"] if i["revision_id"] == item["revision_id"]) == item
+        sid = item["solution_revision_id"]
+        assert after["solution_envelopes"][sid] == before["solution_envelopes"][sid]
+    assert len([i for i in after["items"] if i.get("assessment_role") == "practice"]) == 3
+    worker.requested_node_ids.clear()
+    assert start("scoped-already-complete")["status"] == "completed"
+    assert worker.requested_node_ids == []
+
+
+def test_truncation_message_preserves_successes_and_does_not_claim_outage():
+    message = question_bank._failed_chapters_message([{"error_code": "assessment_output_truncated"}])
+    assert "长度上限" in message
+    assert "已发布" in message
+    assert "缺失" in message
+    assert "不可用" not in message
+    assert "本轮未形成" not in message
+
+
 def test_failed_chapter_message_distinguishes_provider_failure():
     assert "模型服务当前不可用" in question_bank._failed_chapters_message([
         {"error_code": "ai_provider_rate_limited"},

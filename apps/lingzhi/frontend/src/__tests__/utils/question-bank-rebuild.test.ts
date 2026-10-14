@@ -7,12 +7,24 @@ const { get, post } = vi.hoisted(() => ({
 vi.mock('@/utils/http', () => ({ default: { get, post } }))
 
 import {
+  QuestionBankRebuildError,
   QuestionBankRebuildPollingDetached,
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
 } from '@/utils/question-bank-rebuild'
 
 describe('runQuestionBankRebuild', () => {
+  it('explains truncated output without hiding saved questions behind a provider outage', () => {
+    const error = new QuestionBankRebuildError({
+      job_id: 'partial', status: 'failed', progress: 59, status_url: '/jobs/partial',
+      error: { code: 'chapter_question_generation_failed', message: '模型服务当前不可用', retryable: true },
+      stage_details: { failed_chapters: [{ error_code: 'assessment_output_truncated' }] },
+    })
+    expect(error.code).toBe('assessment_output_truncated')
+    expect(error.message).toContain('长度上限')
+    expect(error.message).toContain('已发布')
+    expect(error.message).not.toContain('不可用')
+  })
   beforeEach(() => {
     get.mockReset()
     post.mockReset()

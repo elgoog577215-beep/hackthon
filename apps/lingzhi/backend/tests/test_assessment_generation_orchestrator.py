@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from ai_base import AIProviderRequestError
+from ai_base import AIProviderRequestError, AIResponseTruncated
 from assessment_orchestrator import (
     ASSESSMENT_PROMPT_TEMPLATE_VERSION,
     AssessmentGenerationOrchestrator,
@@ -715,6 +715,41 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
         }
         for contracts in prepared["_assessment_generated_contracts"].values()
     )
+
+
+@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 8192), ("rich_text", 8192), ("code", 12288)])
+async def test_independent_solver_reserves_full_explanation_budget_without_thinking(monkeypatch, mode, budget):
+    monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setenv("AI_THINKING_ENABLED", "false")
+    model = UniversalAssessmentModel()
+    captured = {}
+
+    async def call(prompt, **kwargs):
+        captured.update(kwargs)
+        return '{"answer": "valid", "work": []}'
+
+    monkeypatch.setattr(model, "_call_llm", call)
+    spec = {"input_contract": {"mode": mode}}
+    await model.solve_candidate(spec, call_policy=resolve_assessment_generation_policy("complete").call_policy("solve", spec))
+    assert captured["max_tokens"] == budget
+    assert captured["reject_truncated"] is True
+    assert captured["enable_thinking"] is False
+
+
+async def test_solver_truncation_has_its_own_failure_classification():
+    class TruncatedSolver(RepairingModel):
+        async def solve_candidate(self, public_question_spec):
+            raise AIResponseTruncated("max_tokens=3072, finish_reason=length")
+
+    events = []
+    await AssessmentGenerationOrchestrator(model=TruncatedSolver()).prepare_course(
+        _course(), node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["objective_practice"]},
+        on_chapter_complete=events.append,
+    )
+    assert events[0]["error_code"] == "assessment_output_truncated"
+    assert "长度上限" in events[0]["error_message"]
+    assert "不可用" not in events[0]["error_message"]
 
 
 async def test_provider_quota_fallback_is_not_auto_published():
