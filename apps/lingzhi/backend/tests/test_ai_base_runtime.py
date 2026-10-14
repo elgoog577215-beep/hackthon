@@ -627,6 +627,18 @@ async def test_non_primary_model_keeps_plain_string_message_content(monkeypatch)
     assert captured["messages"][1]["content"] == prompt
 
 
+@pytest.mark.parametrize('length', [32768, 32769, 36072, 64000, 192000])
+def test_long_qwen_request_bounds_wire_parts_without_changing_teaching_text(length):
+    unit = '红黑树旋转；跳表概率分析；B+树分裂。\n```cpp\nnode->left = child;\n```\n\\[h=\\log n\\] 🧪'
+    prompt = (unit * (length // len(unit) + 1))[:length]
+    messages = AIBase._request_messages(prompt=prompt, system_prompt='保留全部教学内容', model_id='qwen3.8-27b')
+    parts = messages[1]['content']
+    assert len(parts) <= 1024
+    assert ''.join(part['text'] for part in parts) == prompt
+    assert all(part['type'] == 'text' and part['text'] for part in parts)
+    assert messages[0]['content'] == '保留全部教学内容'
+
+
 @pytest.mark.asyncio
 async def test_request_spacing_smooths_concurrent_provider_bursts(
     monkeypatch,
