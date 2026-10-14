@@ -1447,6 +1447,31 @@ async def test_complete_profile_keeps_repairs_bounded():
     assert contract["generation_status"] == "discarded"
 
 
+async def test_ordinary_lecture_solver_error_retries_solution_without_reauthoring():
+    class ExplanationFailureModel(RepairingModel):
+        def __init__(self):
+            super().__init__()
+            self.review_count = 0
+
+        async def evaluate_candidate(self, *args):
+            self.review_count += 1
+            report = await super().evaluate_candidate(*args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "EXPLANATION_CONTRADICTION", "severity": "critical", "message": "摘要与推导矛盾",
+                }])
+            return report
+
+    model = ExplanationFailureModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert row["attempts"][0]["next_action"] == "solve"
+    assert model.generate_calls == 1 and model.repair_calls == 0
+    assert model.solve_calls == 2
+    assert row["final_decision"] == "publish"
+
+
 async def test_single_node_repair_runs_its_practice_levels_concurrently(
     monkeypatch,
 ):
