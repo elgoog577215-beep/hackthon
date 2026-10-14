@@ -89,6 +89,8 @@ DEFAULT_SMART_MODELS = [EXPECTED_TEXT_MODEL]
 
 DEFAULT_FAST_MODELS = [EXPECTED_TEXT_MODEL]
 QWEN_WIRE_TEXT_PART_CHARS = 32
+# Operational envelope budget, not a model context or teaching-content limit.
+QWEN_WIRE_MAX_TEXT_PARTS = 1024
 
 
 class AIProviderUnavailable(RuntimeError):
@@ -295,9 +297,17 @@ class AIBase:
         """
         if model_id != EXPECTED_TEXT_MODEL or len(prompt) <= QWEN_WIRE_TEXT_PART_CHARS:
             return prompt
+        # Fixed 32-character parts made a real whole-lecture request fan out
+        # into 1,128 parts and stall before response headers. Coalescing adjacent
+        # parts to 64 characters returned content in ~2s with identical text.
+        # Keep the established short-input encoding; bound long-input overhead
+        # without dropping, clipping, summarizing or changing any source text.
+        part_chars = QWEN_WIRE_TEXT_PART_CHARS
+        while (len(prompt) + part_chars - 1) // part_chars > QWEN_WIRE_MAX_TEXT_PARTS:
+            part_chars *= 2
         return [
-            {"type": "text", "text": prompt[index:index + QWEN_WIRE_TEXT_PART_CHARS]}
-            for index in range(0, len(prompt), QWEN_WIRE_TEXT_PART_CHARS)
+            {"type": "text", "text": prompt[index:index + part_chars]}
+            for index in range(0, len(prompt), part_chars)
         ]
 
     @classmethod
