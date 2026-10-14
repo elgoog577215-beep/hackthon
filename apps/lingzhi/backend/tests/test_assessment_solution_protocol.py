@@ -33,6 +33,18 @@ def test_open_answer_stays_pending_and_does_not_mix_two_solutions():
     assert contract["solution_validation"]["checks"]["independent_agreement"] is None
 
 
+def test_open_solution_graph_uses_the_same_independent_derivation():
+    contract, independent, validation = example()
+    author_graph = {"schema_version": "solution_graph_v1", "steps": [
+        {"step_id": "step_1", "action": "2+3+1+5=8", "check": "8"}]}
+    contract["solution_envelope"]["solution_graph"] = deepcopy(author_graph)
+    _apply_independent_validation(contract, validation, independent)
+    solution = contract["solution_envelope"]
+    assert solution["author_solution_graph_proposal"] == author_graph
+    assert solution["solution_graph"]["steps"][0]["action"] == independent["work"][0]["explanation"]
+    assert solution["solution_graph"]["steps"][0]["check"] == "11"
+
+
 async def test_review_sees_exact_deliverable_and_its_attestation_expires_after_mutation():
     from assessment_solution_protocol import final_solution_review_valid
     contract, independent, validation = example()
