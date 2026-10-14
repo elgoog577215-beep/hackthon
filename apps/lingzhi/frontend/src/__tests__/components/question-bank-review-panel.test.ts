@@ -1091,7 +1091,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(progress.get('[data-testid="question-progress-details"]').element.tagName).toBe('DETAILS')
     expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('48')
     expect(progress.text()).toContain(
-      '重新生成失败，当前有效题库保持不变',
+      '题目生成未完成，已发布题目继续有效',
     )
     expect(progress.text()).toContain('模型服务暂时不可用')
     runQuestionBankRebuild.mockResolvedValueOnce({

@@ -6300,6 +6300,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "regenerateFailed": "Question generation is incomplete; published questions remain available",
     "readingRegion": "Question content and explanation",
     "binding": {
       "saveFailed": "Could not save the binding. Please try again later.",

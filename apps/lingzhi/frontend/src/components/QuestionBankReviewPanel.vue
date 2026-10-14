@@ -1537,7 +1537,7 @@ const rebuildHeadline = computed(() => {
   if (status === 'failed') {
     return t(
       'questionBank.regenerateFailed',
-      '重新生成失败，当前有效题库保持不变',
+      '题目生成未完成，已发布题目继续有效',
     )
   }
   return t(
@@ -1852,6 +1852,7 @@ async function recoverActiveRebuild() {
           'questionBank.rebuildFailed',
           '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
         )
+        await load()
       } else {
         rebuildErrorMessage.value = t(
           'questionBank.rebuildProgressRecoveryFailed',
@@ -2119,6 +2120,9 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
       message: latestJob?.message,
       status_url: '',
     }
+    // A failed job may already have published valid individual questions.
+    // Reconcile from the bank even when the remaining questions failed.
+    if (error?.job) await load()
   } finally {
     if (rebuildAbortController === controller) {
       rebuildAbortController = null

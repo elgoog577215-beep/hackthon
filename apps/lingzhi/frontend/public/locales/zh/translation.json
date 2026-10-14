@@ -6300,6 +6300,7 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "regenerateFailed": "题目生成未完成，已发布题目继续有效",
     "readingRegion": "题目内容与解析",
     "binding": {
       "saveFailed": "绑定保存失败，请稍后重试。",
