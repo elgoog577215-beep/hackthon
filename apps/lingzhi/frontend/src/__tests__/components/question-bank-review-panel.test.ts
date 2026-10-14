@@ -709,6 +709,23 @@ describe('QuestionBankReviewPanel', () => {
     )
   })
 
+  it('shows the actionable scope error beside the failed generation', async () => {
+    runQuestionBankRebuild.mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'Request failed with status code 422',
+      config: { method: 'post', url: '/api/courses/course-1/question-bank/rebuild' },
+      response: { status: 422, data: { detail: { code: 'question_bank_rebuild_nodes_unknown' } } },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['L1-2'] },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('重新选择')
+    expect(wrapper.text()).not.toContain('Request failed with status code 422')
+  })
+
   it('按连续章节范围生成题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {

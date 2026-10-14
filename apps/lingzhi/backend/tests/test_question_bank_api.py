@@ -685,6 +685,36 @@ def test_full_rebuild_publishes_each_chapter_atomically(
     )
 
 
+def test_selected_lecture_generates_and_publishes_only_its_sections(monkeypatch, tmp_path):
+    course = _two_chapter_course()
+    for number, node in enumerate(course["nodes"], 1):
+        node["parent_node_id"] = f"L1-{number}"
+    course["nodes"].extend([
+        {"node_id": "L1-1", "node_level": 1, "node_name": "第一讲"},
+        {"node_id": "L1-2", "node_level": 1, "node_name": "第二讲"},
+    ])
+    orchestrator = DeterministicAssessmentOrchestrator()
+    client, repository = _client(monkeypatch, tmp_path, course=course, orchestrator=orchestrator)
+    repository.save_bundle("course-api", build_question_bank(course))
+    before = repository.load_bundle("course-api")
+    other_items = [item for item in before["items"] if item["node_id"] == "node-1"]
+    created = client.post("/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"}, json={
+            "request_id": "selected-lecture-publication", "scope": "nodes",
+            "node_ids": ["L1-2"], "mode": "full", "resume_existing": False,
+        })
+    assert created.status_code == 202, created.text
+    status = client.get(created.json()["status_url"], headers={"X-User-Id": "teacher-1"})
+    assert status.json()["status"] == "completed", status.text
+    assert orchestrator.requested_node_ids == [["node-2"]]
+    active = repository.load_bundle("course-api")
+    assert [item for item in active["items"] if item["node_id"] == "node-1"] == other_items
+    generated = [item for item in active["items"] if item["node_id"] == "node-2"]
+    assert len(generated) == 3
+    assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all(item["quality_report"]["passed"] for item in generated)
+
+
 def test_node_rebuild_publishes_each_selected_chapter_atomically(
     monkeypatch,
     tmp_path,
