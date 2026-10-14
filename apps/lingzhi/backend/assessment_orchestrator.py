@@ -75,7 +75,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v26"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v27"
 
 
 def _out_tokens(limit: int) -> int:
@@ -5216,6 +5216,8 @@ def _authoring_quality_directive() -> str:
         "把这些内容留在solution。必要的已知条件可以公开，但不能把待考规则当作提示。"
         "quantitative_analysis_objective要求计算或推导锁定的概率、期望或复杂度，"
         "明确随机变量、分布假设与边界条件；不能改成只追踪具体代码输出或树的形状。"
+        "engineering_evidence_objective要求依据给定工程场景设计、比较或核验方案，"
+        "使用真实可检查的数据、覆盖条件或复现清单作为证据，不能强行改成代码调试或执行轨迹。"
         "若提供private_measurement_design，先把其中已计算的材料、问题和互斥结果落实到题目；"
         "只把public_material放入stimulus、ask放入task，其他计划字段严格留在solution。"
         "不得把target_rule、trace、incorrect_rule、预测结果当成题干背景或提示。"
