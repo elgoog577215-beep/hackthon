@@ -1,8 +1,8 @@
-"""Lossless JSON transport for the configured Qwen chat endpoint.
+"""Stable, lossless JSON transport for the configured Qwen chat endpoint.
 
-Some ordinary teaching/code text stalls the ingress when sent as literal JSON
-string bytes. Unicode escapes are standard JSON: the server reconstructs the
-same strings, without prompt rewriting, fragmented messages or extra calls.
+Keep whole message strings instead of content-dependent fragment boundaries.
+Unicode escapes are standard JSON: decoding restores the same message values,
+without prompt rewriting, omitted content or extra model calls.
 """
 from __future__ import annotations
 
