@@ -623,7 +623,7 @@ async def test_prepared_contracts_drive_diverse_question_bank_items():
     assert "method_coverage" in bundle["reference_package"]
     assert bundle["assessment_blueprint"][
         "schema_version"
-    ] == "course_assessment_blueprint_v4"
+    ] == "course_assessment_blueprint_v5"
 
 
 async def test_malformed_nested_candidate_is_regenerated_not_discarded():

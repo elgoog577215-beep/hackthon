@@ -559,7 +559,7 @@ def _published_practice_levels_by_node(
             node_id=node_id,
             practice_level=level,
         )
-        if assessment_slot:
+        if assessment_slot and not hydrated.get("assessment_slot"):
             hydrated["assessment_slot"] = assessment_slot
         solution = solutions.get(
             str(item.get("solution_revision_id") or "")
