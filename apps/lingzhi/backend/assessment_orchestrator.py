@@ -2327,8 +2327,9 @@ class AssessmentGenerationOrchestrator:
                 ),
             }
             artifact_history: list[dict[str, Any]] = []
+            grading_repairs = 0
             for attempt_index in range(
-                generation_policy.max_generation_attempts
+                generation_policy.max_generation_attempts + generation_policy.max_grading_repairs_per_question
             ):
                 try:
                     if attempt_index and next_action not in {"review", "rubric"} and solve_budget["limit"] > 0 and solve_budget["used"] >= solve_budget["limit"]:
@@ -2713,14 +2714,20 @@ class AssessmentGenerationOrchestrator:
                         else "publish"
                     )
                     break
-                if attempt_index >= final_attempt_index:
-                    break
-                item_audit["repair_count"] += 1
                 recovery = evidence_recovery_action(
                     [str(i.get("code") or "") for i in quality.get("issues") or []],
                     validation_passed=validation.get("passed") is True,
                     delivery_checks=(semantic_report.get("review_witness") or {}).get("delivery_checks"),
                 )
+                grading_available = grading_repairs < generation_policy.max_grading_repairs_per_question
+                if attempt_index >= final_attempt_index and not (recovery == "rubric" and grading_available):
+                    break
+                if recovery == "rubric":
+                    if not grading_available:
+                        break
+                    grading_repairs += 1
+                    item_audit["grading_repair_count"] = grading_repairs
+                item_audit["repair_count"] += 1
                 if recovery in {"review", "solve", "rubric"}:
                     next_action = recovery
                     item_audit["attempts"][-1]["next_action"] = recovery

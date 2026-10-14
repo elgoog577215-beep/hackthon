@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v15"
+    "assessment_generation_policy_v16"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -79,6 +79,7 @@ class AssessmentGenerationPolicy:
     # 每题累计模型求解调用数，包含格式重试和修正后再次求解。
     # 本地确定性求解不占预算；预算耗尽不能跳过校验或继续重写。
     max_model_solve_calls_per_question: int
+    max_grading_repairs_per_question: int
     stage_timeouts: dict[str, float | None]
 
     @property
@@ -137,6 +138,7 @@ def resolve_assessment_generation_policy(
         # 吃光正文预算，也让解析天然成为一次独立正确性复核。
         compact_candidate=True,
         max_model_solve_calls_per_question=2,
+        max_grading_repairs_per_question=1,
         # 已注册的确定性解法优先；无法完整求解时才使用模型。
         prefer_local_solver=True,
         stage_timeouts={
