@@ -1484,7 +1484,10 @@ async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthorin
             if self.review_count == 1:
                 report.update(passed=False, solution_consistent=False, issues=[{
                     "code": "RUBRIC_ANSWER_MISMATCH", "severity": "critical", "message": "量规与已核对解答不符",
-                }])
+                }], review_witness={"delivery_checks": [
+                    {"path": "canonical_answer", "supported": True},
+                    {"path": "rubric[0]", "supported": False},
+                ]})
             else:
                 assert payload["delivery_solution"]["rubric"] == ["corrected criterion"]
             return report

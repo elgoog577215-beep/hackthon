@@ -60,6 +60,16 @@ def test_public_preflight_defers_answer_evidence_until_the_solution_exists():
     assert evaluate_question_semantic_preflight(contract)["passed"]
 
 
+def test_repair_ownership_uses_failed_artifact_not_the_reviewers_issue_label():
+    from assessment_measurement_design import evidence_recovery_action
+    codes = ["RUBRIC_ANSWER_MISMATCH", "SEMANTIC_REVIEW_FAILED", "VALIDATION_FAILED"]
+    checks = [{"path": "delivery_solution.canonical_answer.answer", "supported": False},
+              {"path": "delivery_solution.rubric[0]", "supported": True}]
+    assert evidence_recovery_action(codes, validation_passed=True, delivery_checks=checks) == "solve"
+    checks[0]["supported"], checks[1]["supported"] = True, False
+    assert evidence_recovery_action(codes, validation_passed=True, delivery_checks=checks) == "rubric"
+
+
 async def test_review_sees_exact_deliverable_and_its_attestation_expires_after_mutation():
     from assessment_solution_protocol import final_solution_review_valid
     contract, independent, validation = example()
