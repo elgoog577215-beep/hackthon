@@ -767,6 +767,36 @@ describe('QuestionBankReviewPanel', () => {
     }), expect.any(Object))
   })
 
+  it.each([false, true])('reads published partial results when generation fails (recovery=%s)', async (recover) => {
+    let bankReads = 0
+    get.mockImplementation(async (url: string) => {
+      if (!url.endsWith('/question-bank')) return { data: {} }
+      bankReads += 1
+      return { data: { items: bankReads > 1 ? [{
+        item_id: 'partial-one', revision_id: 'partial-revision', node_id: 'section-2',
+        prompt: '已通过校验并保存的均摊分析题', lifecycle_status: 'approved',
+        assessment_role: 'practice', risk_flags: [], quality_report: { passed: true },
+      }] : [] } }
+    })
+    const failure = Object.assign(new Error('部分题目未通过质量检查'), { job: {
+      job_id: 'partial-job', status: 'failed', progress: 59, status_url: '/jobs/partial-job',
+      stage_details: { chapter_status: 'partial', settled_practice_levels: ['concept_check'] },
+    } })
+    if (recover) resumeQuestionBankRebuild.mockRejectedValueOnce(failure)
+    else runQuestionBankRebuild.mockRejectedValueOnce(failure)
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['section-2'] },
+    })
+    await flushPromises()
+    if (!recover) {
+      await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+      await flushPromises()
+    }
+    expect(wrapper.text()).toContain('已通过校验并保存的均摊分析题')
+    expect(wrapper.text()).toContain('题目生成未完成，已发布题目继续有效')
+    expect(wrapper.text()).not.toContain('没有符合条件的题目')
+  })
+
   it('按连续章节范围生成题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {
