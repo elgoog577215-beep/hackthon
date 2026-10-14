@@ -39,6 +39,19 @@ def test_complete_potential_solution_comes_from_public_states_not_generator_expr
     assert set(result["answer"]) == {"premises", "derivation", "conclusion"}
 
 
+def test_equivalent_public_wording_is_recognized_without_changing_the_model():
+    spec = public_question()
+    spec["stimulus"]["rendered_text"] = (
+        "动态数组初始状态s0：元素数n_0=1，容量c_0=1。候选势函数Φ(s)=2n-c-1。"
+        "规则：追加时若n≥c，先倍增容量并复制旧n个元素，再插入新元素。实际成本t_i为复制数加1。"
+        "执行4次追加，状态取操作结束后。"
+    )
+    spec["task"]["rendered_text"] = "计算Φ(s0)；验证该势函数在s0至s4上的合法性；计算总实际成本与势能差。"
+    result = IndependentSolverRegistry.with_builtin_solvers().solve(spec)
+    assert result["solver_kind"] == "dynamic_array_potential"
+    assert result["solver_evidence"]["total_actual"] == 11
+
+
 @pytest.mark.parametrize("count", [1, 2, 3, 5, 10, 32])
 def test_bounded_append_sequences_satisfy_capacity_and_telescoping_invariants(count):
     evidence = IndependentSolverRegistry.with_builtin_solvers().solve(public_question(count))["solver_evidence"]
