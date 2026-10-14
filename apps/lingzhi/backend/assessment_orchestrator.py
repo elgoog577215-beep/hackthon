@@ -38,7 +38,7 @@ from assessment_generation_policy import (
 )
 from assessment_independent_solvers import IndependentSolverRegistry
 from assessment_solution_protocol import (
-    SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, review_solution_payload, attest_final_solution_review,
+    SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, delivery_solution, review_solution_payload, attest_final_solution_review,
 )
 from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
@@ -2339,7 +2339,7 @@ class AssessmentGenerationOrchestrator:
                 generation_policy.max_generation_attempts
             ):
                 try:
-                    if attempt_index and next_action != "review" and solve_budget["limit"] > 0 and solve_budget["used"] >= solve_budget["limit"]:
+                    if attempt_index and next_action not in {"review", "rubric"} and solve_budget["limit"] > 0 and solve_budget["used"] >= solve_budget["limit"]:
                         raise ModelSolveBudgetExhausted(solve_budget["used"], solve_budget["limit"])
                     if next_action == "generate":
                         audit["generation_calls"] += 1
@@ -2372,7 +2372,12 @@ class AssessmentGenerationOrchestrator:
                                 )
                             ),
                         )
-                    elif next_action == "repair":
+                    elif next_action in {"repair", "rubric"}:
+                        if next_action == "rubric":
+                            # The grader is repaired against the solved artifact,
+                            # not against the superseded author's answer draft.
+                            candidate = deepcopy(candidate)
+                            candidate["solution"].update(delivery_solution(contract))
                         generation_context = (
                             _context_with_diversity_constraints(
                                 context,
@@ -2393,6 +2398,9 @@ class AssessmentGenerationOrchestrator:
                                 and issue.get("code")
                             ],
                         }
+                        if next_action == "rubric":
+                            repair_context["issue_codes"] = ["RUBRIC_ANSWER_MISMATCH"]
+                            repair_context["repair_scope"] = "只修改rubric、acceptable_answers、validator_config；题面和已核对的答案、解析保持不变。"
                         call_policy = generation_policy.call_policy(
                             "repair",
                             repair_context,
@@ -2452,7 +2460,13 @@ class AssessmentGenerationOrchestrator:
                         ).append(repair_guard)
                     elif next_action == "initial":
                         next_action = "generate"
-                    if next_action != "review":
+                    if next_action == "rubric":
+                        previous_contract = contract
+                        contract = _contract_from_candidate(base, candidate)
+                        contract["semantic_preflight"] = deepcopy(previous_contract.get("semantic_preflight") or {})
+                        contract["material_bindings"] = deepcopy(previous_contract.get("material_bindings") or [])
+                        _apply_independent_validation(contract, validation, independent)
+                    elif next_action != "review":
                         (
                             contract,
                             validation,
@@ -2714,7 +2728,7 @@ class AssessmentGenerationOrchestrator:
                     [str(i.get("code") or "") for i in quality.get("issues") or []],
                     validation_passed=validation.get("passed") is True,
                 )
-                if recovery in {"review", "solve"}:
+                if recovery in {"review", "solve", "rubric"}:
                     next_action = recovery
                     item_audit["attempts"][-1]["next_action"] = recovery
                 elif quality.get("decision") == "regenerate":
@@ -3457,6 +3471,8 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "MATERIAL_BINDING_INVALID": "题目材料不足或未参与求解",
         "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
         "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
+        "RUBRIC_ANSWER_MISMATCH": "评分规则与已核对的解答不一致",
+        "FINAL_SOLUTION_REVIEW_MISSING": "最终答案或解析尚未通过一致性复核",
         "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
         "INDEPENDENT_EVIDENCE_UNVERIFIED": "独立解答缺少可核对的推导依据",
         "independent_solution_mismatch": "独立求解结果与答案不一致",
@@ -3500,6 +3516,9 @@ def _repair_action_for_issues(
 
 
 _TARGETED_REPAIR_PATHS: dict[str, tuple[str, ...]] = {
+    "RUBRIC_ANSWER_MISMATCH": (
+        "solution.rubric", "solution.acceptable_answers", "solution.validator_config",
+    ),
     "TASK_TOO_LONG": (
         "question_spec.task",
         "question_spec.stimulus",

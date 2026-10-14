@@ -444,6 +444,8 @@ def evidence_recovery_action(codes: list[str], *, validation_passed: bool) -> st
     failures = set(codes) - {"INDEPENDENT_EVIDENCE_UNVERIFIED", "SEMANTIC_REVIEW_FAILED", "QUALITY_DIMENSION_BELOW_MINIMUM", "FINAL_SOLUTION_REVIEW_MISSING", "VALIDATION_FAILED"}
     if not validation_passed or not failures:
         return "author"
+    if failures == {"RUBRIC_ANSWER_MISMATCH"}:
+        return "rubric"
     if failures <= {
         "TRACE_CONTROL_STRUCTURE_CHANGED",
         "COUNTERFACTUAL_INPUT_CHANGED",
