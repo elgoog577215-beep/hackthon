@@ -40,7 +40,7 @@ def test_complete_policy_bounds_correction_without_transport_retry_multiplicatio
     assert policy.stage_timeouts == {
         "generate": 150.0,
         "repair": 120.0,
-        "solve": 120.0,
+        "solve": 180.0,
         "review": 90.0,
     }
 

@@ -717,7 +717,7 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 8192), ("rich_text", 8192), ("code", 12288)])
+@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 16384), ("rich_text", 16384), ("code", 12288)])
 async def test_independent_solver_reserves_full_explanation_budget_without_thinking(monkeypatch, mode, budget):
     monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
     monkeypatch.setenv("AI_THINKING_ENABLED", "false")
@@ -750,6 +750,9 @@ async def test_solver_truncation_has_its_own_failure_classification():
     assert events[0]["error_code"] == "assessment_output_truncated"
     assert "长度上限" in events[0]["error_message"]
     assert "不可用" not in events[0]["error_message"]
+    failed = events[0]["contracts"]["objective_practice"]
+    assert failed["solution_envelope"]["generation_failure_artifact"]["candidate"]["question_spec"]
+    assert failed["quality_report"]["issues"][0]["code"] == "ASSESSMENT_OUTPUT_TRUNCATED"
 
 
 async def test_provider_quota_fallback_is_not_auto_published():
