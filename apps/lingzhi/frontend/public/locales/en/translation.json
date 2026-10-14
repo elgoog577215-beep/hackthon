@@ -6300,6 +6300,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "outputTruncated": "Question generation or verification reached the output length limit. Unfinished questions were stopped; published questions are preserved. Continue to generate only the missing questions.",
     "regenerateFailed": "Question generation is incomplete; published questions remain available",
     "readingRegion": "Question content and explanation",
     "binding": {

@@ -492,12 +492,12 @@ class UniversalAssessmentModel(AIBase):
                 2048
                 if input_mode == "choice"
                 else (
-                    6144
-                    if reasoning_enabled and input_mode != "code"
+                    12288
+                    if input_mode == "code"
                     else (
                         8192
-                        if reasoning_enabled and input_mode == "code"
-                        else (3072 if input_mode != "code" else 4096)
+                        if input_mode in {"structured_fields", "rich_text"}
+                        else (6144 if reasoning_enabled else 3072)
                     )
                 )
             ),
@@ -1945,6 +1945,12 @@ class AssessmentGenerationOrchestrator:
                     if "formal_runner_unavailable" in failure_code_text:
                         chapter_error_code = "formal_runner_unavailable"
                         chapter_error_message = "代码验证服务不可用；已通过的题目保留，代码实现题待服务恢复后继续。"
+                    elif "airesponsetruncated" in failure_code_text:
+                        chapter_error_code = "assessment_output_truncated"
+                        chapter_error_message = (
+                            "题目生成或校验输出达到长度上限，未完成题目已停止；"
+                            "已发布题目保留，可仅补生成缺失题目。"
+                        )
                     elif any(
                         token in failure_text
                         for token in (

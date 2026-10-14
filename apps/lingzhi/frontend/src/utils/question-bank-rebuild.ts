@@ -1,4 +1,5 @@
 import http from './http'
+import { t } from '@/shared/i18n'
 
 export type QuestionBankRebuildStatus =
   | 'queued'
@@ -66,9 +67,13 @@ export class QuestionBankRebuildError extends Error {
   job: QuestionBankRebuildJob
 
   constructor(job: QuestionBankRebuildJob) {
-    super(job.error?.message || '题目生成失败')
+    const failures = job.stage_details?.failed_chapters || []
+    const truncated = failures.length > 0 && failures.every(item => item.error_code === 'assessment_output_truncated')
+    super(truncated
+      ? t('questionBank.outputTruncated', '题目生成或校验输出达到长度上限，未完成题目已停止；已发布题目保留，可仅补生成缺失题目。')
+      : job.error?.message || '题目生成失败')
     this.name = 'QuestionBankRebuildError'
-    this.code = job.error?.code || 'question_bank_rebuild_failed'
+    this.code = truncated ? 'assessment_output_truncated' : job.error?.code || 'question_bank_rebuild_failed'
     this.retryable = Boolean(job.error?.retryable)
     this.job = job
   }

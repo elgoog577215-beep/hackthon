@@ -6300,6 +6300,7 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "outputTruncated": "题目生成或校验输出达到长度上限，未完成题目已停止；已发布题目保留，可仅补生成缺失题目。",
     "regenerateFailed": "题目生成未完成，已发布题目继续有效",
     "readingRegion": "题目内容与解析",
     "binding": {
