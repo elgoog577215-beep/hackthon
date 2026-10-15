@@ -41,6 +41,7 @@ from assessment_independent_solvers import IndependentSolverRegistry
 from assessment_solution_protocol import (
     SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, delivery_solution, review_solution_payload, attest_final_solution_review,
 )
+from assessment_fact_evidence import apply_fact_evidence, fact_publication_state
 from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
     attach_measurement_designs, candidate_from_measurement_design, evidence_recovery_action, measurement_design_prompt,
@@ -4443,7 +4444,9 @@ def _apply_quality_decision(
         or risk.get("requires_teacher_review")
         or spec.get("archetype_id") == "integrated_performance"
     )
-    eligible = bool(quality.get("passed"))
+    fact_state = fact_publication_state(contract)
+    fact_review = fact_state == "unverified"
+    eligible = bool(quality.get("passed")) and fact_state in {"verified", "legacy"}
     validation = contract.setdefault("solution_validation", {})
     validation["quality_gate_passed"] = bool(
         quality.get("passed")
@@ -4461,7 +4464,7 @@ def _apply_quality_decision(
             else "quality_failed"
         )
     )
-    contract["review_required"] = False
+    contract["review_required"] = bool(quality.get("passed")) and fact_review
     contract["generation_status"] = (
         "ready" if quality.get("passed") else "quality_failed"
     )
@@ -4472,6 +4475,8 @@ def _apply_quality_decision(
             for issue in quality.get("issues") or []
         ],
         *(["quality_advisory"] if quality_advisory else []),
+        *(["facts_unverified"] if fact_review else []),
+        *(["facts_contradicted"] if fact_state == "contradicted" else []),
     ]))
 
 
