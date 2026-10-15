@@ -182,6 +182,7 @@ describe('QuestionBankReviewPanel', () => {
   it('allows keyboard users to focus the question reading region and scroll its full contents', async () => {
     const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' }, attachTo: document.body })
     await flushPromises()
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     const reader = wrapper.get('.question-reader__scroll')
     expect(reader.attributes('tabindex')).toBe('0')
     expect(reader.attributes('aria-label')).toBeTruthy()
@@ -280,7 +281,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('4 / 4')
     expect(wrapper.text()).toContain('已发布')
     expect(wrapper.text()).toContain('1 道题等待发布前复核')
-    expect(wrapper.text()).toContain('浏览全部题目')
+    expect(wrapper.find('.question-index').exists()).toBe(true)
     expect(wrapper.text()).toContain('thermodynamics')
     expect(wrapper.get('[data-testid="question-diversity-monitor"]').text())
       .toContain('2 次拦截')
@@ -365,12 +366,15 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('第一讲第二题')
     expect(wrapper.text()).not.toContain('第二讲唯一题目')
 
+    await wrapper.findAll('[data-testid="toggle-question-details"]')[0]!.trigger('click')
     wrapper.get('.question-reader__scroll').element.scrollTop = 220
     await wrapper.get('[data-testid="question-chapter-lesson-2"]').trigger('click')
+    expect(wrapper.find('.question-reader').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     expect(wrapper.get('.question-reader__scroll').element.scrollTop).toBe(0)
 
     expect(wrapper.get('[data-testid="question-chapter-lesson-2"]').attributes('aria-current')).toBe('page')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('第二讲唯一题目')
     expect(wrapper.text()).not.toContain('第一讲第一题')
     expect(wrapper.get('.question-reader__header').text()).toContain('第 2 讲 · 状态机与存档')
@@ -413,7 +417,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('旧课程第二题')
   })
 
-  it('题目列表按每页十条分页并在筛选时回到第一页', async () => {
+  it('题目列表分页并在详情返回后保留原页码', async () => {
     const paginatedItems = Array.from({ length: 23 }, (_, index) => ({
       item_id: `page-item-${index + 1}`,
       revision_id: `page-revision-${index + 1}`,
@@ -461,36 +465,24 @@ describe('QuestionBankReviewPanel', () => {
       '[data-testid="toggle-question-details"]',
     )
     expect(detailToggles).toHaveLength(10)
-    expect(detailToggles[0]!.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
+    expect(wrapper.find('.question-reader').exists()).toBe(false)
     await detailToggles[1]!.trigger('click')
-    expect(detailToggles[0]!.attributes('aria-expanded')).toBe('false')
-    expect(detailToggles[1]!.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
-
+    expect(wrapper.find('.question-index').exists()).toBe(false)
+    expect(wrapper.get('.question-reader').text()).toContain('分页题目 02')
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
     await wrapper.get('[data-testid="question-page-select"]').setValue('2')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid="toggle-question-details"]')[0]!.attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('分页题目 11')
     expect(wrapper.text()).not.toContain('分页题目 01')
-
+    await wrapper.findAll('[data-testid="toggle-question-details"]')[1]!.trigger('click')
+    expect(wrapper.get('.question-reader').text()).toContain('分页题目 12')
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
+    expect((wrapper.get('[data-testid="question-page-select"]').element as HTMLSelectElement).value).toBe('2')
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(10)
     await wrapper.get('[data-testid="question-page-select"]').setValue('3')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('分页题目 23')
-    expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain(
-      '第 21–23 题，共 23 题',
-    )
+    expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain('第 21–23 题，共 23 题')
 
-    await wrapper.get('[data-testid="question-search-input"]').setValue('分页题目 12')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('分页题目 12')
-    expect(wrapper.find('[data-testid="question-pagination"]').exists()).toBe(false)
-
-    await wrapper.get('[data-testid="question-search-input"]').setValue('')
-    await wrapper.get('[data-testid="question-status-filter"]').setValue('rework')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('分页题目 23')
-    expect(wrapper.text()).not.toContain('没有符合条件的题目')
   })
 
   it('异常项置顶并将已覆盖目标按每页十条分页', async () => {
@@ -610,6 +602,7 @@ describe('QuestionBankReviewPanel', () => {
       { identityScope: 'teacher' },
     )
     expect(get).toHaveBeenCalledTimes(2)
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('已发布')
   })
@@ -1201,6 +1194,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.get('[data-testid="question-bank-progress"]').text()).toContain(expected)
     expect(wrapper.find('[data-testid="retry-failed-question-bank-chapters"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     expect(wrapper.text()).toContain(locale === 'zh' ? '结构检查通过，事实待复核' : 'Structure checked; factual verification pending')
   })
 

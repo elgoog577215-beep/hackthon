@@ -6301,6 +6301,7 @@
     "save": "Save note"
   },
   "questionBank": {
+    "backToList": "Back to question list",
     "settingsPane": "AI generation settings",
     "collapseSettings": "Collapse generation settings",
     "expandSettings": "Expand generation settings",

@@ -6301,6 +6301,7 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "backToList": "返回题目列表",
     "settingsPane": "AI 出题设置",
     "collapseSettings": "收起出题设置",
     "expandSettings": "展开出题设置",

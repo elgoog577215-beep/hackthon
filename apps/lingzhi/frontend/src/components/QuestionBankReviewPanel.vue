@@ -325,32 +325,7 @@
         class="question-browser question-review-workspace"
         :class="{ 'has-chapter-navigation': questionChapterGroupingEnabled }"
       >
-        <aside class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
-          <header class="question-index__toolbar">
-            <div class="question-browser__identity">
-              <strong>{{ questionListTitle }}</strong>
-              <small v-if="browseItems.length === chapterScopedItems.length">{{ chapterScopedItems.length }} 道</small>
-              <small v-else>{{ browseItems.length }} / {{ chapterScopedItems.length }}</small>
-            </div>
-            <div class="question-browser__controls">
-              <label>
-                <Search :size="14" />
-                <input
-                  v-model="browserQuery"
-                  data-testid="question-search-input"
-                  type="search"
-                  :placeholder="t('questionBank.searchQuestion', '搜索题目内容')"
-                />
-              </label>
-              <select v-model="browserStatus" data-testid="question-status-filter" :aria-label="t('questionBank.filter.label', '筛选题目状态')">
-                <option value="all">{{ t('questionBank.filter.all', '全部状态') }}</option>
-                <option value="published">{{ t('questionBank.filter.published', '已发布') }}</option>
-                <option value="mandatory">{{ t('questionBank.filter.mandatory', '发布前审核') }}</option>
-                <option value="rework">{{ t('questionBank.filter.rework', '重做中') }}</option>
-              </select>
-            </div>
-          </header>
-
+        <aside v-if="!selectedQuestion" ref="questionListRef" class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
           <div class="question-review-list">
             <article
               v-for="item in paginatedBrowseItems"
@@ -363,6 +338,7 @@
                 type="button"
                 class="question-review-item__summary"
                 data-testid="toggle-question-details"
+                :data-question-id="item.revision_id"
                 :aria-expanded="isQuestionExpanded(item)"
                 :aria-controls="`question-details-${item.revision_id}`"
                 :aria-current="isQuestionExpanded(item) ? 'true' : undefined"
@@ -377,6 +353,7 @@
                   <i aria-hidden="true"></i>
                   {{ shortItemStatusLabel(item) }}
                 </span>
+                <ChevronRight :size="18" class="question-list-open" aria-hidden="true" />
               </button>
             </article>
           </div>
@@ -403,6 +380,7 @@
           :aria-label="t('questionBank.questionReader', '题目查看与审阅')"
         >
           <header class="question-reader__header">
+            <button type="button" class="question-reader__back" data-testid="back-to-question-list" @click="returnToQuestionList"><ArrowLeft :size="17" />{{ t('questionBank.backToList', '返回题目列表') }}</button>
             <div>
               <span class="question-review-item__status" :data-status="selectedQuestion.lifecycle_status">
                 <i aria-hidden="true"></i>{{ itemStatusLabel(selectedQuestion) }}
@@ -608,7 +586,7 @@
             </div>
           </footer>
         </article>
-        <div v-else class="question-reader-empty">
+        <div v-else-if="!browseItems.length" class="question-reader-empty">
           <CircleCheck :size="21" />
           <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
           <span>{{ t('questionBank.noChapterQuestionsHint', '可以切换讲次或调整筛选条件。') }}</span>
@@ -906,6 +884,7 @@
 <script setup lang="ts">
 import {
   computed,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   reactive,
@@ -929,7 +908,6 @@ import {
   ListTree,
   LoaderCircle,
   RefreshCw,
-  Search,
   Shapes,
   ShieldCheck,
   SlidersHorizontal,
@@ -1120,11 +1098,11 @@ const paperComposerOpen = ref(false)
 const qualityPanelOpen = ref(false)
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
+const questionListRef = ref<HTMLElement | null>(null)
+let questionListScrollTop = 0
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
-const browserQuery = ref('')
-const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
 const selectedQuestionChapterId = ref('')
 const questionPage = ref(1)
 const coveredObjectivesExpanded = ref(false)
@@ -1384,45 +1362,7 @@ const chapterScopedItems = computed(() => {
     ),
   )
 })
-const questionListTitle = computed(() => {
-  if (!questionChapterGroupingEnabled.value || !activeQuestionChapter.value) {
-    return t('questionBank.browseTitle', '浏览全部题目')
-  }
-  if (activeQuestionChapter.value.node_id === '__unassigned__') {
-    return t('questionBank.unassignedQuestionCount', '其他题目 · {count} 道')
-      .replace('{count}', String(chapterScopedItems.value.length))
-  }
-  return t('questionBank.chapterQuestionsTitle', '第 {number} 讲 · {count} 道题')
-    .replace('{number}', String(activeQuestionChapter.value.number || ''))
-    .replace('{count}', String(chapterScopedItems.value.length))
-})
-const browseItems = computed(() => {
-  const keyword = browserQuery.value.trim().toLocaleLowerCase()
-  return chapterScopedItems.value.filter(item => {
-    const matchesQuery = !keyword || [
-      item.prompt,
-      item.assessment_role,
-      item.node_id,
-      item.objective_id,
-    ].some(value => String(value || '').toLocaleLowerCase().includes(keyword))
-    const matchesStatus = (
-      browserStatus.value === 'all'
-      || (
-        browserStatus.value === 'published'
-        && item.lifecycle_status === 'approved'
-      )
-      || (
-        browserStatus.value === 'mandatory'
-        && item.lifecycle_status === 'needs_review'
-      )
-      || (
-        browserStatus.value === 'rework'
-        && item.lifecycle_status === 'rejected'
-      )
-    )
-    return matchesQuery && matchesStatus
-  })
-})
+const browseItems = computed(() => chapterScopedItems.value)
 const questionPageCount = computed(() => Math.max(
   1,
   Math.ceil(browseItems.value.length / QUESTION_PAGE_SIZE),
@@ -1435,7 +1375,6 @@ const selectedQuestion = computed<QuestionBankItem | null>(() => (
   browseItems.value.find(
     item => item.revision_id === expandedQuestionRevision.value,
   )
-  || paginatedBrowseItems.value[0]
   || null
 ))
 const selectedQuestionNumber = computed(() => {
@@ -1684,8 +1623,6 @@ watch(() => props.courseId, () => {
   for (const key of Object.keys(solutions)) delete solutions[key]
   for (const key of Object.keys(reviewNotes)) delete reviewNotes[key]
   examPapers.value = []
-  browserQuery.value = ''
-  browserStatus.value = 'all'
   selectedQuestionChapterId.value = ''
   setQuestionPage(1)
   expandedQuestionRevision.value = ''
@@ -1712,10 +1649,6 @@ watch(coveredObjectivePageCount, pageCount => {
     setCoveredObjectivePage(pageCount)
   }
 })
-watch([browserQuery, browserStatus], () => {
-  expandedQuestionRevision.value = ''
-  setQuestionPage(1)
-})
 watch(questionPageCount, pageCount => {
   if (questionPage.value > pageCount) {
     setQuestionPage(pageCount)
@@ -1725,6 +1658,7 @@ watch(questionPageCount, pageCount => {
 function setQuestionPage(page: number) {
   const normalizedPage = Number.isFinite(page) ? Math.trunc(page) : 1
   expandedQuestionRevision.value = ''
+  questionListScrollTop = 0
   questionPage.value = Math.min(
     questionPageCount.value,
     Math.max(1, normalizedPage),
@@ -1734,8 +1668,6 @@ function setQuestionPage(page: number) {
 function selectQuestionChapter(nodeId: string) {
   if (activeQuestionChapter.value?.node_id === nodeId) return
   selectedQuestionChapterId.value = nodeId
-  browserQuery.value = ''
-  browserStatus.value = 'all'
   expandedQuestionRevision.value = ''
   setQuestionPage(1)
 }
@@ -1757,7 +1689,17 @@ function isQuestionExpanded(item: QuestionBankItem) {
 }
 
 function toggleQuestionDetails(item: QuestionBankItem) {
+  questionListScrollTop = questionListRef.value?.scrollTop || 0
   expandedQuestionRevision.value = item.revision_id
+}
+
+async function returnToQuestionList() {
+  const revision = expandedQuestionRevision.value
+  expandedQuestionRevision.value = ''
+  await nextTick()
+  if (questionListRef.value) questionListRef.value.scrollTop = questionListScrollTop
+  Array.from(questionListRef.value?.querySelectorAll<HTMLButtonElement>('button[data-question-id]') || [])
+    .find(button => button.dataset.questionId === revision)?.focus({ preventScroll: true })
 }
 
 function selectAdjacentQuestion(offset: -1 | 1) {
@@ -2772,6 +2714,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
 </style>
 
+
+
 <style scoped>
 /* Match the lesson document shell: a persistent lecture rail, a reading surface,
    and independently scrolling settings. No generation state lives in layout. */
@@ -2858,4 +2802,24 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel .question-bank-workspace-side :deep(.reference-tray header strong) { font-size:15px; }
 .question-bank-panel .question-quality-details { max-height:40%; flex:none; overflow:auto; }
 @media(max-width:760px) { .question-bank-page-heading { padding:10px; }.question-bank-page-identity { width:auto; }.question-bank-panel .question-bank-workspace-body { overflow:auto; min-width:740px; } }
+</style>
+
+<style scoped>
+.question-bank-panel .question-index { flex:1 1 0; min-height:0; max-height:none; overflow:auto; border:0; background:#f7f8fc; }
+.question-bank-panel .question-review-list { display:flex; flex-direction:column; gap:12px; padding:18px; }
+.question-bank-panel .question-review-item { flex:none; width:100%; max-width:none; }
+.question-bank-panel .question-review-item__summary { grid-template-columns:34px minmax(0,1fr) auto 18px; min-height:106px; gap:12px; padding:20px 18px; border:1px solid #e2e6ee; border-radius:12px; background:#fff; }
+.question-bank-panel .question-review-item__summary:hover { border-color:#c3bff1; background:#fcfbff; }
+.question-bank-panel .question-review-item__summary:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-panel .question-review-item__number { align-self:start; width:32px; height:32px; font-size:14px; }
+.question-bank-panel .question-review-item__question { display:grid; gap:8px; min-width:0; }
+.question-bank-panel .question-review-item__preview { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; white-space:normal; font-size:16px; line-height:1.75; }
+.question-bank-panel .question-review-item__question>small { display:block; color:#7c8799; font-size:14px; }
+.question-bank-panel .question-review-item__summary>.question-review-item__status { grid-column:auto; align-self:start; margin-top:5px; font-size:13px; white-space:nowrap; }
+.question-list-open { color:#939bad; }
+.question-reader__back { flex:none; display:inline-flex; align-items:center; gap:7px; min-height:36px; padding:0 10px; border:1px solid #dfe4ec; border-radius:8px; color:#475569; background:#fff; font:inherit; font-size:15px; cursor:pointer; }
+.question-reader__back:hover { color:#4f46e5; border-color:#bcb6f2; }
+.question-reader__back:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-panel .question-reader__header { flex-wrap:wrap; }
+@media(max-width:1100px) { .question-bank-panel .question-review-item__summary { grid-template-columns:30px minmax(0,1fr) 16px; gap:9px; padding:16px 12px; }.question-bank-panel .question-review-item__summary>.question-review-item__status { grid-column:2; grid-row:2; margin:0; }.question-list-open { grid-column:3;grid-row:1; } }
 </style>
