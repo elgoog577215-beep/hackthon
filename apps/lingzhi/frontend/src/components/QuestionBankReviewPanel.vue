@@ -420,7 +420,7 @@
             </nav>
           </header>
 
-          <div class="question-reader__scroll" tabindex="0" role="region" :aria-label="t('questionBank.readingRegion', '题目内容与解析')">
+          <div :key="selectedQuestion.revision_id" class="question-reader__scroll" tabindex="0" role="region" :aria-label="t('questionBank.readingRegion', '题目内容与解析')">
             <section class="question-sheet">
               <div class="question-sheet__meta">
                 <span>{{ questionTypeLabel(selectedQuestion) }}</span>
