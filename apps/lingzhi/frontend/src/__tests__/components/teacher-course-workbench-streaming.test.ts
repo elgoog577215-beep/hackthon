@@ -11,6 +11,7 @@ import http from '@/utils/http'
 import router from '@/router'
 import { setLocale } from '@/shared/i18n'
 import zhMessages from '../../../public/locales/zh/translation.json'
+import enMessages from '../../../public/locales/en/translation.json'
 
 const growth = {
   schema_version: 'course_outline_growth_v1',
@@ -209,6 +210,103 @@ describe('teacher course workbench outline streaming', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  function scopedScriptRecoveryFixture(changed = false) {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = store.loadedCourseId = 'course-1'
+    store.outlineRevisionId = 'outline-1'
+    const staleIssue = { issue_id: 'source-stale', stage: 'script', lesson_unit_id: 'L1-1', code: 'script_source_stale',
+      summary: '上游内容已变化', recovery: { action: 'regenerate_from_latest_source', automatic: false, requires_confirmation: true } }
+    const asset = strictProductionStage({ display_state: 'paused', task_state: 'failed', availability: changed ? 'stale' : 'missing',
+      source_state: changed ? 'stale' : 'current', update_required: changed, latest_attempt_failed: true,
+      task_ids: ['script-job-1'], allowed_actions: ['retry_generation'], action_targets: { retry_generation: ['script-job-1'] },
+      issues: changed ? [staleIssue] : [] })
+    const snapshot = strictProductionSnapshot({ script: asset })
+    snapshot.lessons = [{ lesson_unit_id: 'L1-1', stages: { script: asset } }] as any
+    store.productionState = snapshot as any
+    store.lessons = [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', sections: [], arrangement: { source_state: 'current', blocks: [] },
+      plan: { working_revision_id: 'plan-1', source_state: 'current', ready: true, current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: changed ? 'retained-script' : '', source_state: changed ? 'stale' : 'current', ready: false,
+        can_generate: true, sections: changed ? [{ section_node_id: 's1', title: '旧稿', content: '已保留的讲义正文', blocks: [] }] : [] },
+    }] as any
+    store.jobs = [{ id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
+      status: 'failed', source_lesson_plan_revision_id: changed ? 'plan-old' : 'plan-1', progress: 20, phase: 'failed', message: '生成中断',
+      warnings: [], error: { code: 'lesson_script_output_incomplete', message: '中断', retryable: true } }] as any
+    return store
+  }
+
+  it('来源变化时保留旧讲义，显示重新生成并阻止继续原任务', async () => {
+    const store = scopedScriptRecoveryFixture(true)
+    const resume = vi.spyOn(store, 'generateScript')
+    const batch = vi.spyOn(store, 'generateAllScripts')
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
+    const heading = wrapper.get('.context-pane-heading')
+    expect(heading.text()).toContain('生成来源已更新')
+    expect(heading.text()).toContain('原任务使用旧版来源')
+    expect(heading.findAll('button').map(button => button.text())).not.toContain('继续')
+    expect(heading.get('.primary-status-action').text()).toContain('重新生成')
+    expect(wrapper.get('[data-testid="script-document-stub"]').attributes('lesson')).toBe('[object Object]')
+    expect(wrapper.get('[data-testid="script-document-stub"]').attributes('generation-job')).toBeUndefined()
+    expect(store.lessons[0]?.script.sections[0]?.content).toBe('已保留的讲义正文')
+    expect(resume).not.toHaveBeenCalled()
+    expect(batch).not.toHaveBeenCalled()
+  })
+
+  it('右栏继续只提交当前讲的任务，不调用整课批量恢复', async () => {
+    const store = scopedScriptRecoveryFixture()
+    const resume = vi.spyOn(store, 'generateScript').mockResolvedValue(store.jobs[0]!)
+    const batch = vi.spyOn(store, 'generateAllScripts')
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
+    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
+    await flushPromises()
+    expect(resume).toHaveBeenCalledWith('course-1', 'L1-1', '', [], 'script-job-1')
+    expect(batch).not.toHaveBeenCalled()
+  })
+
+  it('英文界面同样说明来源变化，且不提供无效的继续按钮', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => enMessages })))
+    await setLocale('en')
+    let wrapper: ReturnType<typeof mountWorkbench> | undefined
+    try {
+      scopedScriptRecoveryFixture(true)
+      wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
+      const heading = wrapper.get('.context-pane-heading')
+      expect(heading.text()).toContain('Generation sources updated')
+      expect(heading.text()).toContain('older source and cannot continue')
+      expect(heading.findAll('button').some(button => button.text() === 'Continue')).toBe(false)
+    } finally {
+      wrapper?.unmount()
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+      await setLocale('zh')
+    }
+  })
+
+  it('右栏恢复被拒绝时保留结构化错误码和原因', async () => {
+    const store = scopedScriptRecoveryFixture()
+    vi.spyOn(store, 'generateScript').mockRejectedValue({ response: { status: 409, data: { detail: {
+      code: 'teacher_asset_resume_conflict', message: '原任务的来源或状态已变化',
+      details: { resume_job_id: 'script-job-1', reason: 'source_revision_changed' },
+    } } }, config: { method: 'post', url: '/api/teacher/courses/course-1/lessons/L1-1/script/generate' } })
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
+    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.workbench-error pre').text()).toContain('source_revision_changed')
+    expect(wrapper.get('.workbench-error pre').text()).toContain('teacher_asset_resume_conflict')
+  })
+
+  it('切换讲次后，上一讲迟到的恢复错误不显示到当前讲', async () => {
+    const store = scopedScriptRecoveryFixture()
+    store.lessons.push({ ...store.lessons[0], lesson_unit_id: 'L1-2', number: 2, title: '第二讲' } as any)
+    store.productionState!.lessons.push({ lesson_unit_id: 'L1-2', title: '第二讲', stages: { script: strictProductionStage({ allowed_actions: ['generate'] }) } } as any)
+    let rejectRecovery!: (error: Error) => void
+    vi.spyOn(store, 'generateScript').mockImplementation(() => new Promise((_resolve, reject) => { rejectRecovery = reject }))
+    const wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' })
+    await wrapper.get('.context-pane-heading__actions .primary-status-action').trigger('click')
+    await wrapper.findAll('.lesson-outline button')[1]!.trigger('click')
+    rejectRecovery(new Error('上一讲的恢复冲突'))
+    await flushPromises()
+    expect(wrapper.find('.context-pane .workbench-error').exists()).toBe(false)
   })
 
   it('keeps the latest lesson selection when an earlier lesson read finishes last', async () => {

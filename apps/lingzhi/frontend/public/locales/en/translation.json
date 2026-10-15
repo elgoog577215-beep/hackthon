@@ -1749,6 +1749,8 @@
       "retryOriginal": "Retry original inputs",
       "reviseAndGenerate": "Revise inputs and regenerate",
       "newRequirements": "Updated instructions",
+      "sourceChangedTitle": "Generation sources updated",
+      "sourceChangedDetail": "The previous task uses an older source and cannot continue. Existing handouts and fragments are retained. Regenerate from the current content; cancel a paused task first.",
       "requirementsHint": "Describe the teaching conditions or content to add or correct. The new attempt uses the current lesson plan and these instructions."
     }
   },

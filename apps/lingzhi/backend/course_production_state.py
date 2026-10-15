@@ -1225,6 +1225,7 @@ def _asset_state(
     source_state: SourceState,
     stale: bool,
     task: dict[str, Any] | None,
+    recovery_source_changed: bool = False,
 ) -> AssetProductionState:
     task_state = _task_state(task)
     latest_failed = task_state == TaskState.FAILED
@@ -1303,6 +1304,13 @@ def _asset_state(
             summary="上游内容已经变化，当前版本仍保留，可按最新来源重新生成。",
             action="regenerate_from_latest_source",
         ))
+    if recovery_source_changed:
+        issues.append(_issue(
+            stage=stage, lesson_unit_id=_lesson_id(task or {}), task_id=_task_id(task),
+            code="teacher_asset_resume_source_changed",
+            summary="原任务使用的来源版本已变化，不能继续原输入；已有内容仍保留。",
+            action="cancel_generation" if task_state == TaskState.PAUSED else "regenerate_from_latest_source",
+        ))
     active_states = {
         TaskState.QUEUED,
         TaskState.RUNNING,
@@ -1337,6 +1345,16 @@ def _asset_state(
         allowed_actions = [ProductionAction.GENERATE]
     else:
         allowed_actions = []
+    action_targets = _task_action_targets(task)
+    if recovery_source_changed and not control_issue_code:
+        if task_state == TaskState.PAUSED:
+            allowed_actions = [ProductionAction.CANCEL_GENERATION]
+        elif task_state in {TaskState.FAILED, TaskState.CANCELLED, TaskState.COMPLETED}:
+            allowed_actions = [ProductionAction.REGENERATE_FROM_LATEST_SOURCE]
+        action_targets = {action: ids for action, ids in action_targets.items() if action in allowed_actions}
+        for issue in issues:
+            if issue.recovery.action in {"resume_generation", "retry_generation"}:
+                issue.recovery.action = "cancel_generation" if task_state == TaskState.PAUSED else "regenerate_from_latest_source"
     return AssetProductionState(
         display_state=display,
         task_state=task_state,
@@ -1346,7 +1364,7 @@ def _asset_state(
         update_required=stale,
         task_ids=[task_id] if (task_id := _task_id(task)) else [],
         allowed_actions=allowed_actions,
-        action_targets=_task_action_targets(task),
+        action_targets=action_targets,
         issues=issues,
     )
 
@@ -1662,6 +1680,18 @@ def compile_course_production_state(
                 source_state=facts[2],
                 stale=facts[3],
                 task=lesson_task,
+                recovery_source_changed=bool(
+                    stage in {"lesson_plan", "script"}
+                    and lesson_task
+                    and _task_state(lesson_task) in {TaskState.PAUSED, TaskState.FAILED, TaskState.CANCELLED, TaskState.COMPLETED}
+                    and (frozen_source := str(lesson_task.get(
+                        "source_lesson_plan_revision_id" if stage == "script" else "source_outline_revision_id"
+                    ) or ""))
+                    and (current_source := str(
+                        (lesson.get("working_revision_id") if stage == "script" else authoring.get("outline_revision_id")) or ""
+                    ))
+                    and frozen_source != current_source
+                ),
             )
             # Stale issues need the formal lesson identity even without a task.
             for issue in state.issues:

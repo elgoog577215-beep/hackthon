@@ -85,6 +85,34 @@ def _plan_only_lesson(index: int) -> dict:
     return lesson
 
 
+@pytest.mark.parametrize("status", ["failed", "paused", "completed", "cancelled"])
+@pytest.mark.parametrize("has_handout", [True, False])
+def test_old_script_input_cannot_offer_resume_after_plan_changes(status, has_handout):
+    lesson = _ready_lesson(1) if has_handout else _plan_only_lesson(1)
+    job = {"id": "old-script", "course_id": "course-1", "lesson_unit_id": "lesson-1",
+           "type": "teacher_lesson_script_generation", "status": status,
+           "source_lesson_plan_revision_id": "old-plan",
+           "error": {"code": "lesson_script_output_incomplete", "retryable": True}}
+    authoring = {"lessons": {"lesson-1": lesson}, "jobs": {job["id"]: job}}
+    before = deepcopy(authoring)
+    result = compile_course_production_state(_course(1), authoring_state=authoring)
+    state = result["lessons"][0]["stages"]["script"]
+    assert state["allowed_actions"] == (["cancel_generation"] if status == "paused" else ["regenerate_from_latest_source"])
+    assert "resume_generation" not in state["action_targets"]
+    assert "retry_generation" not in state["action_targets"]
+    assert all(x["recovery"]["action"] not in {"resume_generation", "retry_generation"} for x in state["issues"])
+    assert authoring == before
+
+
+def test_old_script_source_does_not_strip_controls_from_running_task():
+    job = {"id": "running-script", "course_id": "course-1", "lesson_unit_id": "lesson-1",
+           "type": "teacher_lesson_script_generation", "status": "running", "source_lesson_plan_revision_id": "old-plan"}
+    state = compile_course_production_state(_course(1), authoring_state={
+        "lessons": {"lesson-1": _ready_lesson(1)}, "jobs": {job["id"]: job},
+    })["lessons"][0]["stages"]["script"]
+    assert state["allowed_actions"] == ["pause_generation", "cancel_generation"]
+
+
 def test_completed_latest_lecture_keeps_older_recovery_target_in_stage_identity_set():
     result = compile_course_production_state(
         _course(2),

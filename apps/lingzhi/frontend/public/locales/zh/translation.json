@@ -1749,6 +1749,8 @@
       "retryOriginal": "按原要求重试",
       "reviseAndGenerate": "调整要求后重新生成",
       "newRequirements": "这次补充的要求",
+      "sourceChangedTitle": "生成来源已更新",
+      "sourceChangedDetail": "原任务使用旧版来源，不能继续。已有讲义与片段仍保留，请按当前内容重新生成；暂停的旧任务须先取消。",
       "requirementsHint": "填写这次需要补充或修正的教学条件、内容要求；系统将使用当前教案和这些新要求。"
     }
   },

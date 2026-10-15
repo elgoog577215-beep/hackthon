@@ -302,6 +302,8 @@ export interface TeacherLessonStreamDeltaEvent {
 }
 
 export interface TeacherLessonJob {
+  source_outline_revision_id?: string
+  source_lesson_plan_revision_id?: string
   auto_recovery?: Record<string, { retries: number; code: string; category: string }>
   id: string
   course_id: string

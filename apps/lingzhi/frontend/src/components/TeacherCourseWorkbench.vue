@@ -1241,7 +1241,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonJob, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
-import { toAppError } from '../utils/app-error'
+import { toAppError, type AppErrorPresentation } from '../utils/app-error'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 
@@ -1731,7 +1731,7 @@ const currentLessonPlanReady = computed(() => lessonPlanIsReady(selectedLesson.v
 const currentScriptCanGenerate = computed(() => {
   const projected = lessonProductionState(productionState.value, selectedLessonId.value, 'script')
   if (productionState.value && !projected) return false
-  return projected ? projected.allowed_actions.includes('generate')
+  return projected ? selectedSourceRegenerationAvailable.value || projected.allowed_actions.includes('generate')
     || projected.allowed_actions.includes('regenerate_from_latest_source')
     || (projected.display_state === 'available' && !projected.latest_attempt_failed)
     : teacherLessonScriptCanGenerate(selectedLesson.value)
@@ -2210,7 +2210,14 @@ function projectedStageTaskIds(
   action: CourseProductionAllowedAction,
 ): string[] {
   const projected = productionState.value?.stages[stage]
-  return productionActionTaskIds(projected, action)
+  return productionActionTaskIds(projected, action).filter(taskId => {
+    if (!['resume_generation', 'retry_generation'].includes(action)) return true
+    const job = lessonStore.jobs.find(item => item.id === taskId)
+    const lesson = lessonStore.lessonById(job?.lesson_unit_id || '')
+    const frozen = stage === 'script' ? job?.source_lesson_plan_revision_id : job?.source_outline_revision_id
+    const current = stage === 'script' ? lesson?.plan.working_revision_id : lessonStore.outlineRevisionId
+    return !(frozen && current && frozen !== current)
+  })
 }
 const legacyBatchRunning = computed(() => batchLessonJobs.value.some(job => ['pending', 'running'].includes(job.status)))
 const batchRunning = computed(() => {
@@ -2354,8 +2361,24 @@ const lessonStreamSegments = computed(() => {
     : []
 })
 const scriptJob = computed(() => currentJobForLesson(selectedLessonId.value, 'script'))
-const scriptFailure = computed(() => activeStage.value === 'script' ? scriptFailurePresentation(scriptJob.value) : null)
-const scriptStreamJob = computed(() => currentLessonStreamJob(scriptJob.value, 'script'))
+const selectedRecoverySourceChanged = computed(() => {
+  const job = activeStage.value === 'script' ? scriptJob.value : activeStage.value === 'lesson' ? lessonJob.value : undefined
+  if (!job || !['failed', 'cancelled', 'paused', 'completed', 'completed_with_warnings'].includes(job.status)) return false
+  const frozen = activeStage.value === 'script' ? job.source_lesson_plan_revision_id : job.source_outline_revision_id
+  const current = activeStage.value === 'script' ? selectedLesson.value?.plan.working_revision_id : lessonStore.outlineRevisionId
+  return Boolean(frozen && current && frozen !== current)
+})
+// During a rolling backend update an issue can explicitly offer regeneration
+// while the old task still advertises resume. Never send that stale resume.
+const selectedSourceRegenerationAvailable = computed(() => Boolean(
+  selectedRecoverySourceChanged.value
+  && (activeStage.value === 'script' ? scriptJob.value : lessonJob.value)?.status !== 'paused'
+  && activeProjectedProduction.value?.issues.some(issue => issue.recovery.action === 'regenerate_from_latest_source')
+))
+const scriptFailure = computed(() => activeStage.value === 'script' && !selectedRecoverySourceChanged.value ? scriptFailurePresentation(scriptJob.value) : null)
+const scriptStreamJob = computed(() => selectedRecoverySourceChanged.value && hasRetainedStaleScript(selectedLesson.value?.script)
+  ? undefined
+  : currentLessonStreamJob(scriptJob.value, 'script'))
 const selectedScriptProduction = computed(() => lessonProductionState(productionState.value, selectedLessonId.value, 'script'))
 const scriptGenerationActive = computed(() => selectedScriptProduction.value
   ? ['queued', 'running'].includes(selectedScriptProduction.value.task_state)
@@ -2525,13 +2548,14 @@ const lessonBatchStartErrorPresentation = computed(() => (
     : null
 ))
 watch(batchRunning, running => { if (running) lessonGenerationRequestError.value = '' })
+const scriptBatchRequestFailure = ref<AppErrorPresentation | null>(null)
 const scriptBatchStartErrorPresentation = computed(() => (
-  scriptBatchStartError.value
+  scriptBatchRequestFailure.value || (scriptBatchStartError.value
     ? toAppError(scriptBatchStartError.value, {
         title: t('courseWorkbench.scriptBatch.failedTitle', '讲义生成未开始'),
         fallback: scriptBatchStartError.value,
       })
-    : null
+    : null)
 ))
 const pptBuildMatchesSelection = computed(() => Boolean(
   selectedLessonId.value
@@ -2604,10 +2628,10 @@ const activeProjectedProduction = computed<AssetProductionState | null>(() => {
       : productionState.value?.stages.outline || null
   }
   if (activeStage.value === 'lesson') {
-    return selectedLessonPlanProduction.value || productionState.value?.stages.lesson_plan || null
+    return selectedLessonPlanProduction.value || (!productionState.value?.lessons.length ? productionState.value?.stages.lesson_plan : null) || null
   }
   if (activeStage.value === 'script') {
-    return selectedScriptProduction.value || productionState.value?.stages.script || null
+    return selectedScriptProduction.value || (!productionState.value?.lessons.length ? productionState.value?.stages.script : null) || null
   }
   if (activeStage.value === 'ppt') {
     return pptLocalEventPendingProjection.value ? null : selectedPptProduction.value
@@ -2672,6 +2696,7 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
   }
   if (activeStage.value === 'script') {
     const projected = selectedScriptProduction.value || productionState.value?.stages.script
+    if (selectedSourceRegenerationAvailable.value) return hasRetainedStaleScript(selectedLesson.value?.script) ? 'completed' : 'ready'
     if (projected) return projectedReferenceWorkflowState(projected)
     if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
     if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
@@ -2787,10 +2812,10 @@ const referenceWorkflowCanPause = computed(() => (
     ? productionAllowsTaskAction(productionState.value.stages.outline, 'pause_generation')
     : taskInFlight.value
     : activeStage.value === 'lesson' ? productionState.value
-      ? productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'pause_generation')
+      ? productionAllowsTaskAction(activeProjectedProduction.value, 'pause_generation')
       : batchRunning.value || lessonGenerationActive.value
       : activeStage.value === 'script' ? productionState.value
-        ? productionAllowsTaskAction(productionState.value.stages.script, 'pause_generation')
+        ? productionAllowsTaskAction(activeProjectedProduction.value, 'pause_generation')
         : scriptBatchRunning.value || scriptGenerationActive.value
         : activeStage.value === 'ppt' ? selectedPptProduction.value && !pptLocalEventPendingProjection.value
           ? productionAllowsTaskAction(selectedPptProduction.value, 'pause_generation')
@@ -2798,15 +2823,17 @@ const referenceWorkflowCanPause = computed(() => (
         : false)
 ))
 const referenceWorkflowCanResume = computed(() => (
+  !selectedRecoverySourceChanged.value
+  &&
   !referenceWorkflowUsesDedicatedWaitingAction.value
   && (referenceWorkflowCanRetry.value || (activeStage.value === 'foundation' ? productionState.value && !outlineLocalEventPendingProjection.value
     ? (productionAllowsTaskAction(productionState.value.stages.outline, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.outline, 'retry_generation'))
     : taskPaused.value
     : activeStage.value === 'lesson' ? productionState.value
-      ? (productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'retry_generation'))
+      ? (productionAllowsTaskAction(activeProjectedProduction.value, 'resume_generation') || productionAllowsTaskAction(activeProjectedProduction.value, 'retry_generation'))
       : batchPaused.value || lessonJob.value?.status === 'paused'
       : activeStage.value === 'script' ? productionState.value
-        ? (productionAllowsTaskAction(productionState.value.stages.script, 'resume_generation') || productionAllowsTaskAction(productionState.value.stages.script, 'retry_generation'))
+        ? (productionAllowsTaskAction(activeProjectedProduction.value, 'resume_generation') || productionAllowsTaskAction(activeProjectedProduction.value, 'retry_generation'))
         : scriptBatchPaused.value || scriptJob.value?.status === 'paused'
         : activeStage.value === 'ppt' ? selectedPptProduction.value && !pptLocalEventPendingProjection.value
           ? (productionAllowsTaskAction(selectedPptProduction.value, 'resume_generation') || productionAllowsTaskAction(selectedPptProduction.value, 'retry_generation'))
@@ -2819,10 +2846,10 @@ const referenceWorkflowCanCancel = computed(() => (
     ? productionAllowsTaskAction(productionState.value.stages.outline, 'cancel_generation')
     : referenceWorkflowCanPause.value || referenceWorkflowCanResume.value
     : activeStage.value === 'lesson' ? productionState.value
-      ? productionAllowsTaskAction(productionState.value.stages.lesson_plan, 'cancel_generation')
+      ? productionAllowsTaskAction(activeProjectedProduction.value, 'cancel_generation')
       : referenceWorkflowCanPause.value || referenceWorkflowCanResume.value
       : activeStage.value === 'script' ? productionState.value
-        ? productionAllowsTaskAction(productionState.value.stages.script, 'cancel_generation')
+        ? productionAllowsTaskAction(activeProjectedProduction.value, 'cancel_generation')
         : referenceWorkflowCanPause.value || referenceWorkflowCanResume.value
         : activeStage.value === 'ppt' ? selectedPptProduction.value && !pptLocalEventPendingProjection.value
           ? productionAllowsTaskAction(selectedPptProduction.value, 'cancel_generation')
@@ -2830,19 +2857,18 @@ const referenceWorkflowCanCancel = computed(() => (
           : false)
 ))
 const referenceWorkflowCanRetry = computed(() => {
+  if (selectedRecoverySourceChanged.value) return false
   if (referenceWorkflowUsesDedicatedWaitingAction.value) return false
   if (!['failed', 'paused'].includes(referenceWorkflowState.value)) return false
   if (activeStage.value === 'foundation' && productionState.value && !outlineLocalEventPendingProjection.value) {
     return productionAllowsTaskAction(productionState.value.stages.outline, 'retry_generation')
   }
   if (activeStage.value === 'lesson') {
-    const projectedAction = projectedStageAction('lesson_plan')
-    if (projectedAction !== null) return projectedAction === 'retry_generation'
+    if (productionState.value) return productionAllowsTaskAction(activeProjectedProduction.value, 'retry_generation')
     return batchEligibleCount.value > 0 || selectedLessonCanGenerate.value
   }
   if (activeStage.value === 'script') {
-    const projectedAction = projectedStageAction('script')
-    if (projectedAction !== null) return projectedAction === 'retry_generation'
+    if (productionState.value) return productionAllowsTaskAction(activeProjectedProduction.value, 'retry_generation')
     return scriptBatchActionableCount.value > 0 || currentScriptCanGenerate.value
   }
   if (activeStage.value === 'ppt' && selectedPptProduction.value && !pptLocalEventPendingProjection.value) {
@@ -2928,6 +2954,7 @@ const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   return 'before'
 })
 const regenerationAvailable = computed(() => {
+  if (selectedSourceRegenerationAvailable.value) return true
   if (
     contextPhase.value !== 'after'
     || ['generating', 'paused', 'failed'].includes(referenceWorkflowState.value)
@@ -2946,6 +2973,7 @@ const contextScriptNeedsUpdate = computed(() => (
 ))
 const contextStatusLabel = computed(() => {
   if (pptContext.value) return pptContext.value.label
+  if (selectedRecoverySourceChanged.value) return t('courseWorkbench.recovery.sourceChangedTitle', '生成来源已更新')
   if (outlineAwaitingContinuation.value) return t('courseWorkbench.outlineFlow.readyToContinue', '讲次方案已就绪')
   if (activeStage.value === 'script' && scriptJob.value?.status === 'failed') return scriptGenerationPresentation(scriptJob.value).title
   if (contextErrorPresentation.value) return t('courseWorkbench.contextPane.failed', '需要处理')
@@ -2965,6 +2993,7 @@ const contextStatusLabel = computed(() => {
 })
 const contextStatusDetail = computed(() => {
   if (pptContext.value) return pptContext.value.detail
+  if (selectedRecoverySourceChanged.value) return t('courseWorkbench.recovery.sourceChangedDetail', '原任务使用旧版来源，不能继续。已有讲义与片段仍保留，请按当前内容重新生成；暂停的旧任务须先取消。')
   if (activeStage.value === 'script' && ['failed', 'paused'].includes(String(scriptJob.value?.status || ''))) {
     return [scriptGenerationPresentation(scriptJob.value).detail,
       scriptJob.value?.status === 'paused' && referenceWorkflowCanResume.value ? t('courseWorkbench.scriptDocument.progress.continueRemaining') : '',
@@ -3164,18 +3193,21 @@ async function pauseReferenceWorkflow() {
   }
   if (activeStage.value === 'lesson') return pauseAllLessonGeneration(
     productionState.value
-      ? projectedStageTaskIds('lesson_plan', 'pause_generation')
+      ? productionActionTaskIds(activeProjectedProduction.value, 'pause_generation')
       : activeLessonGenerationJobIds(),
   )
   if (activeStage.value === 'script') return pauseAllScriptGeneration(
     productionState.value
-      ? projectedStageTaskIds('script', 'pause_generation')
+      ? productionActionTaskIds(activeProjectedProduction.value, 'pause_generation')
       : activeScriptGenerationJobIds(),
   )
   if (activeStage.value === 'ppt' && await ensureProjectedPptControlTask('pause_generation')) return teachingRepresentationsStore.pauseBuild()
 }
 async function resumeReferenceWorkflow() {
-  if (referenceWorkflowUsesDedicatedWaitingAction.value) return
+  if (referenceWorkflowUsesDedicatedWaitingAction.value || !referenceWorkflowCanResume.value) return
+  if (productionState.value?.lessons.length && ['lesson', 'script'].includes(activeStage.value)) return resumeSelectedTeacherAsset(
+    productionAllowsTaskAction(activeProjectedProduction.value, 'retry_generation') ? 'retry_generation' : 'resume_generation',
+  )
   if (selectedFailureJob.value && !selectedFailureJob.value.parent_job_id && selectedFailureJob.value.error?.retryable && ['lesson', 'script'].includes(activeStage.value)) return retrySelectedFailure()
   if (referenceWorkflowCanRetry.value) return retryReferenceWorkflow()
   const outlineTaskId = outlineActionTaskId('resume_generation')
@@ -3200,18 +3232,19 @@ async function cancelReferenceWorkflow() {
   }
   if (activeStage.value === 'lesson') return cancelAllLessonGeneration(
     productionState.value
-      ? projectedStageTaskIds('lesson_plan', 'cancel_generation')
+      ? productionActionTaskIds(activeProjectedProduction.value, 'cancel_generation')
       : activeLessonGenerationJobIds(),
   )
   if (activeStage.value === 'script') return cancelAllScriptGeneration(
     productionState.value
-      ? projectedStageTaskIds('script', 'cancel_generation')
+      ? productionActionTaskIds(activeProjectedProduction.value, 'cancel_generation')
       : activeScriptGenerationJobIds(),
   )
   if (activeStage.value === 'ppt' && await ensureProjectedPptControlTask('cancel_generation')) return teachingRepresentationsStore.cancelBuild()
 }
 async function retryReferenceWorkflow() {
   if (referenceWorkflowUsesDedicatedWaitingAction.value) return
+  if (productionState.value?.lessons.length && ['lesson', 'script'].includes(activeStage.value)) return resumeSelectedTeacherAsset('retry_generation')
   if (activeStage.value === 'foundation') {
     if (
       productionState.value
@@ -3235,6 +3268,31 @@ async function retryReferenceWorkflow() {
     const taskId = pptActionTaskId('retry_generation')
     if (!taskId) return
     return openPptWorkspace('retry_generation', taskId)
+  }
+}
+async function resumeSelectedTeacherAsset(action: 'retry_generation' | 'resume_generation') {
+  if (selectedRecoverySourceChanged.value || recoveryStarting.value) return
+  const stage = activeStage.value
+  const lessonId = selectedLessonId.value
+  const courseId = props.courseId
+  const taskId = productionActionTaskIds(activeProjectedProduction.value, action)[0]
+  const job = lessonStore.jobs.find(item => item.id === taskId)
+  if (!taskId || !job || job.course_id !== props.courseId || job.lesson_unit_id !== selectedLessonId.value) return
+  recoveryStarting.value = true
+  scriptBatchStartError.value = ''
+  scriptBatchRequestFailure.value = null
+  try {
+    if (stage === 'lesson') await lessonStore.generateLesson(props.courseId, selectedLessonId.value, undefined, '', [], taskId)
+    else if (stage === 'script') await lessonStore.generateScript(props.courseId, selectedLessonId.value, '', [], taskId)
+  } catch (error) {
+    if (props.courseId !== courseId || selectedLessonId.value !== lessonId || activeStage.value !== stage) return
+    if (stage === 'script') {
+      scriptBatchStartError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed')
+      scriptBatchRequestFailure.value = toAppError(error, { title: t('courseWorkbench.scriptBatch.failedTitle'), summary: lessonStore.error || undefined, fallback: scriptBatchStartError.value })
+    } else lessonGenerationRequestError.value = lessonStore.error || t('courseWorkbench.arrangement.generateFailed')
+  } finally {
+    recoveryStarting.value = false
+    await refreshProductionProjection()
   }
 }
 async function regenerateReferenceWorkflow() {
@@ -4361,6 +4419,8 @@ async function generateScript(requirements = '', forceNew = false) {
     || (resuming ? referenceRelationshipSaving.value : referenceGenerationBlocked.value)
   ) return
   scriptGenerating.value = true
+  scriptBatchStartError.value = ''
+  scriptBatchRequestFailure.value = null
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
   try {
@@ -4401,6 +4461,7 @@ async function generateAllScripts(requestedAction?: 'generate' | 'resume_generat
   ) return
   scriptBatchStarting.value = true
   scriptBatchStartError.value = ''
+  scriptBatchRequestFailure.value = null
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
   try {
@@ -4415,8 +4476,9 @@ async function generateAllScripts(requestedAction?: 'generate' | 'resume_generat
     } else {
       await lessonStore.generateAllScripts(props.courseId, '')
     }
-  } catch {
+  } catch (error) {
     scriptBatchStartError.value = lessonStore.error || t('courseWorkbench.scriptBatch.failed', '全部讲义任务创建失败，请重试。')
+    scriptBatchRequestFailure.value = toAppError(error, { title: t('courseWorkbench.scriptBatch.failedTitle'), summary: lessonStore.error || undefined, fallback: scriptBatchStartError.value })
   } finally {
     scriptBatchStarting.value = false
   }
@@ -4731,7 +4793,7 @@ watch([
   }
   scheduleLessonSyncRetry()
 }, { immediate: true })
-watch(activeStage, () => { closeAiCollaboration(); aiCandidate.value = null; lessonGenerationRequestError.value = ''; scriptBatchStartError.value = ''; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, () => { closeAiCollaboration(); aiCandidate.value = null; lessonGenerationRequestError.value = ''; scriptBatchStartError.value = ''; scriptBatchRequestFailure.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
   if (!open) aiSourcesOpen.value = false
 })
@@ -4761,6 +4823,8 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
   lessonDocumentError.value = ''
   arrangementError.value = ''
   scriptGenerationError.value = ''
+  scriptBatchStartError.value = ''
+  scriptBatchRequestFailure.value = null
   scriptDocumentError.value = ''
   const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   if (!lesson) {
