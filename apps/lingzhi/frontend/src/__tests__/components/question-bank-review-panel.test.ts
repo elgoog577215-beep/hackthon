@@ -212,6 +212,20 @@ describe('QuestionBankReviewPanel', () => {
     wrapper.unmount()
   })
 
+  it('submits per-lecture additions while preserving existing questions and bounds the count', async () => {
+    const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate'}})
+    await flushPromises()
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('5')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1',expect.objectContaining({
+      questions_per_lesson:5,append_only:true,mode:'incremental',resume_existing:true,
+    }),expect.any(Object))
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('0')
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('用同一个课程题库外壳承载管理、导入和 AI 生成任务', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
