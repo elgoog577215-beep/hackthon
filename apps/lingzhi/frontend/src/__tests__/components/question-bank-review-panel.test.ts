@@ -190,6 +190,27 @@ describe('QuestionBankReviewPanel', () => {
     wrapper.unmount()
   })
 
+  it('opens a question as the full center page and returns to its list without changing settings', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
+    await flushPromises()
+    const middle = wrapper.get('.question-bank-workspace-main')
+    expect(middle.find('.question-reader').exists()).toBe(false)
+    expect(middle.find('[data-testid="question-search-input"]').exists()).toBe(false)
+    expect(middle.find('[data-testid="question-status-filter"]').exists()).toBe(false)
+    expect(middle.find('.question-index__toolbar').exists()).toBe(false)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(middle.find('.question-index').exists()).toBe(false)
+    expect(middle.get('.question-reader').text()).toContain('给定材料，完成跨章节分析并检查结论。')
+    expect(wrapper.get('[data-testid="question-settings-pane"]').isVisible()).toBe(true)
+    await middle.get('[data-testid="back-to-question-list"]').trigger('click')
+    expect(middle.find('.question-reader').exists()).toBe(false)
+    expect(middle.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(middle.get('[data-testid="toggle-question-details"]').element)
+    expect(post).not.toHaveBeenCalled()
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('用同一个课程题库外壳承载管理、导入和 AI 生成任务', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
