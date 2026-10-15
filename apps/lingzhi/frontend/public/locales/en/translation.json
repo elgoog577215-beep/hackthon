@@ -7878,6 +7878,7 @@
     "incoming": "Incoming relation",
     "outgoing": "Outgoing relation",
     "pointDetails": "Knowledge point details",
+    "backToTree": "Back to knowledge tree",
     "selectPointHint": "Select a knowledge point to view its definition, conditions, connections and handout sources.",
     "numberedLesson": "Lecture {number} · {title}",
     "lessonPicker": "Lecture",

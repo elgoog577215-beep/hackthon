@@ -7878,6 +7878,7 @@
     "incoming": "指向本知识的关联",
     "outgoing": "本知识指向的关联",
     "pointDetails": "元知识详情",
+    "backToTree": "返回知识树",
     "selectPointHint": "选择一个元知识点，查看定义、适用条件、关联内容与讲义出处。",
     "numberedLesson": "第{number}讲 · {title}",
     "lessonPicker": "讲次",

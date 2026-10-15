@@ -45,7 +45,7 @@ it('renders and selects leaves below four recursive category levels', async () =
     knowledge_points: [{ knowledge_id: 'kp', parent_id: 'c3', name: 'CPU作用', statement: 'CPU执行指令', source_refs: [] }], relations: [], misconceptions: [] }
   api.get.mockResolvedValue({ data: { ...state(), tree, history: [tree], knowledge_revision: 'tree' } })
   const w = mount(View, { props: { courseId: 'c' } }); await flushPromises()
-  const leaf = w.findAll('button').find(b => b.text() === 'CPU作用')
+  const leaf = w.find('[data-knowledge-id="kp"]')
   expect(leaf).toBeDefined()
   await leaf!.trigger('click')
   expect(w.get('.point-card h2').text()).toBe('CPU作用')

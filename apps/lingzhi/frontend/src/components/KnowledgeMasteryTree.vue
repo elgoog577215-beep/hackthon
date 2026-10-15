@@ -1,5 +1,5 @@
 <template>
-  <div class="mastery-tree">
+  <div class="mastery-tree" :class="{ 'content-tree': !showMastery }">
     <header class="tree-toolbar">
       <label class="tree-search"><Search :size="16" /><input v-model="query" type="search" :aria-label="t('knowledgeProfile.search', '搜索知识点')" :placeholder="t('knowledgeProfile.search', '搜索知识点')" /></label>
       <div class="tree-actions">
@@ -13,20 +13,20 @@
       </div>
     </header>
     <div v-if="query && !tree.children.length" class="tree-no-results" role="status">{{ t('knowledgeProfile.noResults', '没有匹配的知识点') }}</div>
-    <div v-else ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning }" tabindex="0" :aria-label="t('knowledgeProfile.tree', '知识树与掌握状态')"
+    <div v-else ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning }" tabindex="0" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')"
       @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @lostpointercapture="endPan">
       <div class="tree-stage-space" :style="{ width: `${Math.max(viewSize.width, layout.width * zoom)}px`, height: `${Math.max(viewSize.height, layout.height * zoom)}px` }">
         <div class="tree-stage" :style="{ left: `${stageLeft}px`, top: `${stageTop}px`, width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
           <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
           <template v-for="node in layout.nodes" :key="node.id">
-            <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ t('knowledgeProfile.courseScope', '全课范围') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
+            <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
             <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded, pending: node.pending }" :style="nodeStyle(node)" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim()) || node.pending" @click="toggle(node.id)">
-              <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }} · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
+              <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}<template v-if="showMastery"> · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</template></span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
             </button>
-            <button v-else type="button" class="tree-leaf" :class="node.status" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" aria-haspopup="dialog"
-              :aria-label="`${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}`" @click="select(node.sourceId, $event)">
-              <span class="mastery-orb" :style="{ '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` }"><span class="orb-core"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></span></span>
-              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ t(`knowledgeProfile.${node.status}`) }} <ArrowUpRight :size="12" /></small></span>
+            <button v-else type="button" class="tree-leaf" :class="[showMastery ? node.status : '', { selected: selectedId === node.sourceId }]" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" :aria-haspopup="showMastery ? 'dialog' : undefined" :aria-current="selectedId === node.sourceId ? 'true' : undefined"
+              :aria-label="showMastery ? `${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}` : node.label" @click="select(node.sourceId, $event)">
+              <span class="mastery-orb" :style="showMastery ? { '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` } : undefined"><span class="orb-core"><template v-if="showMastery"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></template><Leaf v-else :size="27" aria-hidden="true" /></span></span>
+              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small></span>
             </button>
           </template>
         </div>
@@ -38,12 +38,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ArrowUpRight, BookOpen, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
+import { ArrowUpRight, BookOpen, Leaf, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import type { KnowledgeProfile } from '../types/knowledge-profile'
-import { createKnowledgeTree, layoutKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
+import { createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
 
-const props = defineProps<{ profile: KnowledgeProfile; courseTitle?: string }>()
+const props = withDefaults(defineProps<{ profile?: KnowledgeProfile; contentTree?: ProfileTreeItem; treeRevision?: string; courseTitle?: string; showMastery?: boolean; selectedId?: string }>(), { showMastery: true })
 const emit = defineEmits<{ (event: 'select', id: string, trigger: HTMLElement): void }>()
 const query = ref('')
 const collapsed = ref(new Set<string>())
@@ -54,7 +54,8 @@ const viewSize = ref({ width: 0, height: 0 })
 let resizeObserver: ResizeObserver | undefined
 let resizeFrame: number | undefined
 let pan: { id: number; x: number; y: number; left: number; top: number; target: HTMLElement } | null = null
-const tree = computed(() => createKnowledgeTree(props.profile, props.courseTitle || t('knowledgeProfile.treeView.course', '当前课程'), query.value))
+const sourceTree = computed(() => props.contentTree || createKnowledgeTree(props.profile!, props.courseTitle || t('knowledgeProfile.treeView.course', '当前课程')))
+const tree = computed(() => props.contentTree ? filterKnowledgeTree(props.contentTree, query.value) : createKnowledgeTree(props.profile!, props.courseTitle || t('knowledgeProfile.treeView.course', '当前课程'), query.value))
 const layout = computed(() => layoutKnowledgeTree(tree.value, query.value.trim() ? new Set() : collapsed.value))
 const stageLeft = computed(() => Math.max(0, (viewSize.value.width - layout.value.width * zoom.value) / 2))
 const stageTop = computed(() => Math.max(0, (viewSize.value.height - layout.value.height * zoom.value) / 2))
@@ -79,7 +80,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { endPan(); resizeObserver?.disconnect(); if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame); window.removeEventListener('blur', endPan) })
 function resetBranches() {
-  const root = createKnowledgeTree(props.profile, '')
+  const root = sourceTree.value
   const closed = new Set<string>()
   const visit = (node: ProfileTreeItem, firstPath: boolean) => {
     if (node.kind === 'branch' && !firstPath) closed.add(node.id)
@@ -89,7 +90,7 @@ function resetBranches() {
   visit(root, true)
   collapsed.value = closed
 }
-watch(() => `${props.profile.course_id}:${props.profile.baseline_revision}`, () => { query.value = ''; resetBranches(); zoom.value = 1 }, { immediate: true })
+watch(() => `${sourceTree.value.id}:${props.treeRevision ?? props.profile?.baseline_revision ?? ''}`, () => { query.value = ''; resetBranches(); zoom.value = 1 }, { immediate: true })
 function toggle(id: string) {
   if (query.value.trim()) return
   const next = new Set(collapsed.value)
@@ -97,7 +98,30 @@ function toggle(id: string) {
   collapsed.value = next
 }
 function expandAll() { collapsed.value = new Set() }
-function collapseAll() { query.value = ''; collapsed.value = new Set(props.profile.branches.map(b => `branch:${b.id}`)) }
+function collapseAll() {
+  query.value = ''
+  const branches = new Set<string>()
+  const visit = (node: ProfileTreeItem) => { if (node.kind === 'branch') branches.add(node.id); node.children.forEach(visit) }
+  visit(sourceTree.value)
+  collapsed.value = branches
+}
+async function reveal(id: string) {
+  if (!layout.value.nodes.some(node => node.kind === 'knowledge' && node.sourceId === id)) {
+    const ancestors: string[] = []
+    const find = (node: ProfileTreeItem): boolean => {
+      if (node.kind === 'knowledge' && node.sourceId === id) return true
+      if (node.children.some(find)) { ancestors.push(node.id); return true }
+      return false
+    }
+    if (!find(sourceTree.value)) return
+    query.value = ''
+    collapsed.value = new Set([...collapsed.value].filter(branch => !ancestors.includes(branch)))
+  }
+  await nextTick()
+  const leaf = Array.from(viewport.value?.querySelectorAll<HTMLElement>('[data-knowledge-id]') || []).find(node => node.dataset.knowledgeId === id)
+  leaf?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+}
+watch(() => props.selectedId, id => { if (id) void reveal(id) })
 function nodeStyle(node: PositionedProfileNode) { return { left: `${node.x}px`, top: `${node.y}px`, width: `${node.width}px`, height: `${node.height}px` } }
 function select(id: string, event: MouseEvent) { emit('select', id, event.currentTarget as HTMLElement) }
 async function setZoom(value: number) {
@@ -155,4 +179,11 @@ button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:
 
 <style scoped>
 .tree-branch.pending{border-style:dashed;background:#faf9fd;color:#897996;opacity:1;cursor:default}.tree-branch.pending .tree-branch-meta{color:#94859e}
+.content-tree .tree-search input,.content-tree .tree-actions button,.content-tree .tree-leaf-copy strong{font-size:15px}
+.content-tree .tree-search{flex:1;min-width:220px}
+.content-tree .tree-viewport{height:clamp(500px,65vh,760px)}
+.content-tree .mastery-orb{background:linear-gradient(145deg,#d5c6eb,#a98acb);box-shadow:0 6px 18px #785da61a}
+.content-tree .orb-core{color:#8764ae;background:radial-gradient(circle at 30% 20%,#fff,#f2eafa 70%,#e7dbf4)}
+.content-tree .tree-leaf.selected .mastery-orb{box-shadow:0 0 0 4px #c4afe54d,0 8px 22px #785da629}
+.content-tree .tree-leaf.selected .tree-leaf-copy strong{color:#68468f;font-weight:600}
 </style>
