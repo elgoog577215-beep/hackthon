@@ -67,6 +67,24 @@ def test_fill_counts_existing_questions_across_all_parts_of_a_lecture():
     assert not plan['slots'].get('part-c')
 
 
+def test_adopted_reference_tree_with_candidate_points_keeps_lecture_generation_targets():
+    c=course()
+    c['course_knowledge_base']={'tree_schema':'knowledge_first_generic_v1','status':'accepted','revision_id':'kb-ref',
+        'knowledge_points':[{'knowledge_id':'candidate','granularity_status':'candidate','section_refs':['lecture-1'],
+                             'statement':'循环会重复执行代码','meta_question':'循环何时终止？','source_refs':['handout-1']}]}
+    before=deepcopy(c['course_knowledge_base'])
+    blueprint=compile_course_assessment_blueprint(c)
+    assert len(blueprint['nodes'][0]['slots'])==3
+    assert c['course_knowledge_base']==before
+
+
+def test_no_planned_targets_cannot_report_success_for_append():
+    from assessment_quantity import build_quantity_plan
+    with pytest.raises(ValueError,match='targets_unavailable'):
+        build_quantity_plan(course(),{'nodes':[{'node_id':'part-a','slots':[]}]},previous=None,
+                            node_ids=['part-a'],count=2,append_only=True,batch_id='empty')
+
+
 def test_job_count_and_operation_are_frozen_and_change_idempotency(tmp_path):
     repo=QuestionBankRebuildJobRepository(tmp_path)
     args=dict(course_id='c',request_id='same-id',scope='course',node_ids=[],mode='incremental',actor_id='teacher')
