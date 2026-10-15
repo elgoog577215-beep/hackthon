@@ -2634,8 +2634,18 @@ class AssessmentGenerationOrchestrator:
                             or "MODEL_OUTPUT_SCHEMA_INVALID"
                         ],
                     }
+                    attempt["error_message"] = str(exc)[:500]
                     item_audit["attempts"].append(attempt)
+                    last_quality = {"schema_version":QUESTION_QUALITY_SCHEMA,"passed":False,"score":0,"decision":decision,
+                                    "issues":[{"code":preflight_issue or "MODEL_OUTPUT_SCHEMA_INVALID","severity":"critical","message":str(exc)[:500]}]}
+                    last_contract = deepcopy(last_contract or base)
+                    last_contract["solution_envelope"]["generation_failure_artifact"] = {
+                        "candidate":deepcopy(candidate),"message":str(exc)[:500],"attempt":attempt_index+1,
+                        "error_code":str(exc).split(":",1)[0],"completed_attempts":deepcopy(artifact_history),
+                    }
                     if attempt_index >= final_attempt_index:
+                        item_audit["error_code"] = str(exc).split(":",1)[0]
+                        item_audit["error_message"] = str(exc)[:500]
                         break
                     item_audit["repair_count"] += 1
                     attempt["next_action"] = decision
@@ -3543,6 +3553,7 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
         "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
         "TASK_PREMISE_FALSE": "题面前提或答案被独立程序核验否定",
+        "MODEL_OUTPUT_SCHEMA_INVALID": "模型返回的题目结构不完整或与作答格式不匹配",
         "RUBRIC_ANSWER_MISMATCH": "评分规则与已核对的解答不一致",
         "FINAL_SOLUTION_REVIEW_MISSING": "最终答案或解析尚未通过一致性复核",
         "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
@@ -3918,7 +3929,7 @@ def _contract_from_candidate(
 ) -> dict[str, Any]:
     candidate, normalization = _normalize_candidate_layout(candidate)
     plan = (candidate.get("question_spec") or {}).get("computation_plan")
-    if plan is not None:
+    if plan is not None and plan != {}:
         response = (base.get("question_spec") or {}).get("input_contract") or {}
         if response.get("mode") != "structured_fields" or {f.get("field_id") for f in response.get("fields") or []} != {"premises","derivation","conclusion"}:
             raise AIProviderRequestError("invalid_computation_plan_input_contract")
