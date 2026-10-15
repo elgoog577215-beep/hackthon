@@ -216,6 +216,24 @@ async def test_verified_computation_uses_model_only_for_curriculum_not_factual_r
     assert len(seen)==1 and "canonical_answer" not in str(seen[0])
 
 
+async def test_unverifiable_proof_uses_alignment_review_and_retains_fact_pending_status():
+    from backend.tests.test_assessment_solution_protocol import example
+    from assessment_orchestrator import AssessmentGenerationOrchestrator, _apply_independent_validation, _apply_quality_decision
+    contract, independent, validation = example()
+    _apply_independent_validation(contract,validation,independent)
+    class Model:
+        async def evaluate_candidate(self,*args):
+            raise AssertionError("model self-review is not an independent fact oracle")
+        async def evaluate_unverified_target(self,spec,objective,slot):
+            return {"passed":True,"confidence":.99,"solution_consistent":True,"issues":[],"dimensions":{}}
+    report=await AssessmentGenerationOrchestrator(model=Model())._semantic_report(
+        contract,independent=independent,objective={},slot={},audit={"semantic_evaluation_calls":0})
+    _apply_quality_decision(contract,{"passed":True,"issues":[]},report)
+    assert contract["review_required"]
+    assert not contract["solution_validation"]["auto_publish_eligible"]
+    assert contract["solution_envelope"]["final_solution_review"]["resolution"] == "pending_fact_review"
+
+
 def test_publication_boundary_rechecks_fact_evidence_instead_of_cached_approval():
     from assessment_fact_evidence import build_computed_candidate, apply_fact_evidence
     from question_bank import _apply_tiered_review_policy
