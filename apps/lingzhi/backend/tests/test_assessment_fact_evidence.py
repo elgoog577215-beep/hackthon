@@ -79,6 +79,8 @@ def test_fact_gate_is_revision_bound_and_legacy_questions_are_not_reclassified()
     assert fact_publication_state(contract) == "verified"
     contract["question_spec"]["task"]["rendered_text"] += " 并证明所有键期望深度都相等。"
     assert fact_publication_state(contract) != "verified"
+    contract["question_spec"]["factual_evidence_schema"] = "unknown_future_schema"
+    assert fact_publication_state(contract) == "unverified"
 
 
 @pytest.mark.parametrize("plan", [

@@ -1125,6 +1125,12 @@ describe('QuestionBankReviewPanel', () => {
   ] as const)('事实待复核显示为完成生成而非失败：%s', async (locale, expected) => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
     await setLocale(locale)
+    const read = get.getMockImplementation()!
+    get.mockImplementation(async (...args) => {
+      const response = await read(...args)
+      if (response.data?.items?.[0]) response.data.items[0].risk_flags = ['facts_unverified']
+      return response
+    })
     runQuestionBankRebuild.mockImplementationOnce(async (_course, _body, options) => {
       const job = { job_id: 'fact-review', status: 'waiting_review', progress: 100, status_url: '/jobs/fact-review', error: null }
       options.onUpdate(job)
@@ -1137,6 +1143,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.get('[data-testid="question-bank-progress"]').text()).toContain(expected)
     expect(wrapper.find('[data-testid="retry-failed-question-bank-chapters"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain(locale === 'zh' ? '结构检查通过，事实待复核' : 'Structure checked; factual verification pending')
   })
 
   it('教师可按需读取私有答案与独立验证差异', async () => {
