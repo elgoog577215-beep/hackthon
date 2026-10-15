@@ -206,6 +206,18 @@ class ExchangeRepository:
             course_creation_intent="standard_learning" if tasks else "material_organization",
         )
         disclosed["course_knowledge_base"] = public_knowledge_tree(course, document)
+        if disclosed["course_knowledge_base"].get("knowledge_points"):
+            from course_knowledge_base import build_course_knowledge_library_view
+            from course_knowledge_map import compile_course_knowledge_map
+
+            # Freeze the same public read model consumed by the student graph.
+            # The consumer must not reconstruct it from a later teacher draft.
+            assets["knowledge_library"] = [build_course_knowledge_library_view(
+                disclosed["course_knowledge_base"],
+                compile_course_knowledge_map(disclosed),
+                assets,
+                disclosed,
+            )]
         from course_exchange_ppt import freeze_published_ppts
 
         disclosed["published_ppts"] = freeze_published_ppts(self.storage, course, document, ppt_project_ids)
@@ -350,6 +362,8 @@ class ExchangeRepository:
         course["learning_assets"]["exchange_release_id"] = public["release_id"]
         if course.get("course_knowledge_base"):
             course["course_knowledge_base"]["course_id"] = local_id
+        for library in course["learning_assets"].get("knowledge_library") or []:
+            library["subject_id"] = local_id
         course["exchange_origin"] = {
             key: public[key] for key in ("node_id", "source_course_id", "release_id", "source_document_revision")
         }
@@ -468,6 +482,10 @@ def remote_task_action(course, actor, action, payload):
 
 def public_knowledge_tree(course, document):
     tree = course.get("course_knowledge_base") or {}
+    if tree.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
+        from knowledge_first import knowledge_projection
+
+        tree = knowledge_projection(tree)
     if tree.get("lifecycle_status") != "active":
         return {}
     if tree.get("source_mode") == "handouts":
@@ -478,6 +496,8 @@ def public_knowledge_tree(course, document):
         key: deepcopy(tree[key])
         for key in (
             "schema_version",
+            "tree_schema",
+            "status",
             "knowledge_base_id",
             "course_id",
             "revision_id",
@@ -501,6 +521,8 @@ def public_knowledge_tree(course, document):
             "counterexamples",
             "knowledge_type",
             "primary_concept_group_id",
+            "parent_id",
+            "topic",
             "classification_id",
             "category_id",
             "status",
@@ -515,8 +537,12 @@ def public_knowledge_tree(course, document):
         ),
         "classifications": ("classification_id", "name", "parent_id", "parent_classification_id", "order", "status"),
         "concept_groups": (
+            "id",
             "concept_group_id",
             "parent_group_id",
+            "parent_id",
+            "primary_section_ref",
+            "revision_id",
             "name",
             "description",
             "order",
@@ -524,6 +550,10 @@ def public_knowledge_tree(course, document):
             "section_refs",
         ),
         "relations": (
+            "id",
+            "source_id",
+            "target_id",
+            "type",
             "relation_id",
             "revision_id",
             "source_knowledge_id",
@@ -575,6 +605,32 @@ def public_knowledge_tree(course, document):
             for item in tree.get(kind) or []
             if isinstance(item, dict)
         ]
+    # Generic trees retain their stable relation IDs and direction while also
+    # exposing the canonical aliases expected by the student library.
+    for relation in result["relations"]:
+        for target, source in (
+            ("relation_id", "id"),
+            ("source_knowledge_id", "source_id"),
+            ("target_knowledge_id", "target_id"),
+            ("relation_type", "type"),
+        ):
+            if not relation.get(target) and relation.get(source):
+                relation[target] = relation[source]
+    for point in result["knowledge_points"]:
+        if not point.get("primary_concept_group_id") and point.get("parent_id"):
+            point["primary_concept_group_id"] = point["parent_id"]
+    point_ids = {p["knowledge_id"] for p in result["knowledge_points"]}
+    visible_blocks = {block["block_id"] for block in document.get("blocks") or []}
+    result["bindings"] = [
+        {**binding, "knowledge_ids": [kid for kid in binding.get("knowledge_ids") or [] if kid in point_ids]}
+        for binding in result["bindings"]
+        if any(kid in point_ids for kid in binding.get("knowledge_ids") or [])
+        and (binding.get("target_type") != "course_block" or binding.get("target_id") in visible_blocks)
+    ]
+    result["categories"] = [
+        {key: deepcopy(item[key]) for key in ("id", "parent_id", "name", "order") if key in item}
+        for item in tree.get("categories") or [] if isinstance(item, dict)
+    ]
     section_keys = (
         "knowledge_node_ids",
         "capability_point_ids",

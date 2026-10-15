@@ -484,6 +484,92 @@ def test_published_knowledge_keeps_public_bindings_and_excludes_private_sources(
     assert "SECRET" not in str(public)
 
 
+def generic_handout_course(course):
+    raw = deepcopy(course)
+    raw["teacher_handouts"] = {"lecture": {"revision_id": "script-a"}}
+    group = {"id": "arithmetic", "concept_group_id": "arithmetic", "parent_id": None, "name": "Arithmetic"}
+    points = []
+    for kid, block in (("addition", "public"), ("count", "public"), ("private-atom", "private")):
+        points.append({
+            "knowledge_id": kid, "revision_id": kid+"-v1", "name": kid,
+            "statement": "Public concept" if block == "public" else "SECRET",
+            "parent_id": "arithmetic", "section_refs": ["lecture"], "topic": "lecture",
+            "granularity_status": "candidate", "private_note": "SECRET", "meta_answer": "SECRET",
+            "source_refs": ["source-"+kid],
+            "source_quotes": [{"evidence_id": "source-"+kid, "quote": "2 + 3 = 5.",
+                               "handout_ref": {"lesson_id": "lecture", "script_revision_id": "script-a", "block_id": block}}],
+        })
+    raw["course_knowledge_base"] = {
+        "schema_version": "course_knowledge_base_v2", "tree_schema": "knowledge_first_generic_v1",
+        "status": "accepted", "revision_id": "tree-a", "source_mode": "handouts",
+        "categories": [group], "concept_groups": [group], "knowledge_points": points,
+        "relations": [
+            {"id": "count-before-add", "source_id": "count", "target_id": "addition", "type": "prerequisite", "reason": "Counting supports addition", "private_note": "SECRET"},
+            {"id": "private-edge", "source_id": "addition", "target_id": "private-atom", "type": "applies_to"},
+        ],
+        "lessons": [{"topic": "lecture", "title": "Arithmetic", "knowledge_ids": [p["knowledge_id"] for p in points]}],
+        "source_handouts": [{"lesson_id": "lecture", "script_revision_id": "script-a"}],
+        "sources": [{"evidence_id": "source-"+p["knowledge_id"]} for p in points],
+        "bindings": [], "skill_units": [], "misconceptions": [], "mastery_criteria": [],
+    }
+    return raw
+
+
+def test_generic_handout_tree_reaches_student_as_a_frozen_public_library(pair):
+    from question_public_guard import assert_no_answer_leak
+
+    raw = generic_handout_course(pair.course)
+    pair.stores["teacher"].save_course_sync("source-course", raw)
+    course = enroll(pair)
+    path = f"/api/courses/{course['course_id']}/learning-assets"
+    first = pair.request("student", "GET", path, headers=pair.headers)
+    assert first.status_code == 200, first.text
+    library = first.json()["assets"]["knowledge_library"][0]
+    assert library["schema_version"] == "knowledge_library_view_v3"
+    assert library["binding_revision_id"] == "tree-a"
+    assert library["subject_id"] == course["course_id"]
+    points = {n["knowledge_id"]: n for n in library["nodes"] if n["node_type"] == "knowledge_point"}
+    assert set(points) == {"addition", "count"}
+    assert all(n["covered_by_course"] and n["granularity_status"] == "candidate" for n in points.values())
+    assert points["addition"]["parent_id"] == "arithmetic"
+    edge = library["relations"][0]
+    assert (edge["relation_id"], edge["source_knowledge_id"], edge["target_knowledge_id"], edge["relation_type"]) == (
+        "count-before-add", "count", "addition", "prerequisite")
+    assert "SECRET" not in first.text and "private-atom" not in first.text
+    assert_no_answer_leak(first.json()["assets"])
+    original = pair.repository("student").read(pair.actor, course["course_id"])
+
+    raw["course_knowledge_base"]["revision_id"] = "tree-b"
+    raw["course_knowledge_base"]["knowledge_points"][0]["statement"] = "Revised public concept"
+    pair.stores["teacher"].save_course_sync("source-course", raw)
+    assert pair.request("student", "GET", path, headers=pair.headers).json()["assets"]["knowledge_library"][0] == library
+    newer = pair.publish()
+    assert newer["release_id"] != course["revision_id"]
+    assert pair.request("student", "GET", path, headers=pair.headers).json()["assets"]["knowledge_library"][0] == library
+    updated = pair.request("student", "POST", f"/api/study/courses/{course['course_id']}/exchange/update",
+                           headers=pair.headers, json={"expected_release_id": course["revision_id"]})
+    assert updated.status_code == 200, updated.text
+    current = pair.request("student", "GET", path, headers=pair.headers).json()["assets"]["knowledge_library"][0]
+    assert current["binding_revision_id"] == "tree-b"
+    assert next(n for n in current["nodes"] if n["knowledge_id"] == "addition")["statement"] == "Revised public concept"
+    assert pair.repository("student").read(pair.actor, course["course_id"], release_id=course["revision_id"]) == original
+
+
+@pytest.mark.parametrize("source_change", ["candidate", "handout_changed"])
+def test_generic_public_knowledge_excludes_unadopted_or_changed_handout_points(pair, source_change):
+    from course_exchange import public_knowledge_tree
+    from course_learning_projection import public_document
+
+    raw = generic_handout_course(pair.course)
+    if source_change == "candidate":
+        raw["course_knowledge_base"].update(status="candidate", lifecycle_status="active")
+    else:
+        raw["teacher_handouts"]["lecture"]["revision_id"] = "script-b"
+    public = public_knowledge_tree(raw, public_document(raw))
+    assert not public.get("knowledge_points")
+    assert "private-atom" not in str(public) and "SECRET" not in str(public)
+
+
 def test_pending_feedback_survives_outage_and_retry_is_exactly_once(pair, monkeypatch):
     from course_exchange import ExchangeClient
     from fastapi import HTTPException
