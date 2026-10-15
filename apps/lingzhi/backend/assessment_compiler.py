@@ -244,14 +244,19 @@ def compile_formal_task_contract(
         or ""
     )
     if legacy_text_compat:
+        formal_task = item.get("formal_task") or {}
+        # A cached choice compiler result is not an authored grading override.
+        # Reusing it would freeze the old rubric fallback for exact selections.
+        legacy_policy = item.get("grading_policy") or (
+            {} if input_mode == "choice" and formal_task.get("compiled_contract_hash")
+            else formal_task.get("grading_policy") or {}
+        )
         grading_method = str(
-            (
-                (item.get("formal_task") or {}).get(
-                    "grading_policy"
-                )
-                or {}
-            ).get("method")
-            or "rubric_ai"
+            legacy_policy.get("method")
+            # Imported choice items may predate input contracts. Their selected
+            # option IDs still have an exact answer; an absent legacy policy
+            # must not route them through a free-form model rubric.
+            or ("deterministic" if input_mode == "choice" else "rubric_ai")
         )
     else:
         grading_method = _grading_method(
@@ -544,7 +549,7 @@ def validate_compiled_question_contract(
 def _legacy_input_contract(item: dict[str, Any]) -> dict[str, Any]:
     is_choice = bool(
         item.get("question_type")
-        in {"single_choice", "multiple_choice"}
+        in {"single_choice", "multiple_choice", "true_false"}
         or (item.get("answer_spec") or {}).get(
             "correct_option_id"
         )

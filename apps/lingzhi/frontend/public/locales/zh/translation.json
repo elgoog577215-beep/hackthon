@@ -89,6 +89,7 @@
     "renderAfterApply": "采用后按内容稿更新预览"
   },
   "pptLive": {
+    "loading": "正在读取课件…",
     "manuscript": "内容",
     "render": "渲染",
     "edit": "编辑内容",
@@ -4062,6 +4063,8 @@
     "practiceCount": "{count} 道正式题",
     "practiceOpen": "打开练习",
     "practiceHint": "从正式题目进入，作答进度会自动保存",
+    "practicePreviewHint": "教师试看 · 试答仅在当前会话保留，不计入正式学习记录",
+    "practicePreviewOpen": "试看练习",
     "content": "内容",
     "intro": "引入",
     "orientation": "引入",

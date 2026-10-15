@@ -68,7 +68,8 @@ def form_type(slug, *, authored=False):
     elif slug in {"cover", "section"}:
         fields = {"subtitle": required(TextField)}
     else:
-        point = ExplainedPoint if authored and slug in {"bullets", "summary"} else text_type(28 if slug == "flow" else 32)
+        point_limit = layout_limits(f"x@{VERSION}/{slug}")[3] if slug in {"flow", "flow6"} else 32
+        point = ExplainedPoint if authored and slug in {"bullets", "summary"} else text_type(point_limit)
         count = min(3, LAYOUTS[slug][2]) if authored and slug in {"bullets", "summary"} else layout_limits(f"x@{VERSION}/{slug}")[2]
         if slug == "flow6":
             minimum = 5

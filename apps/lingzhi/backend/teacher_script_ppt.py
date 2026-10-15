@@ -25,6 +25,7 @@ from ppt_page_repair_units import (
     page_repair_source_units,
     page_repair_unit_block,
     subdivide_page_repair_unit,
+    source_unit_kinds,
 )
 from ppt_source_quotes import source_excerpt_catalog
 from ppt_repair_response import parse_page_response
@@ -34,7 +35,7 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
-RECOVERY_CONTRACT = "ppt_page_recovery_v6"
+RECOVERY_CONTRACT = "ppt_page_recovery_v7"
 
 _SOURCE_GROUNDING_ERRORS = (
     "source_block_unknown",
@@ -262,6 +263,16 @@ def _compact_screen_text(value: str, limit: int) -> str:
     text = " ".join(str(value).split())
     if len(text) <= limit:
         return text
+    # LaTeX delimiters are display markup, not expendable prose. Cutting a
+    # sentence by character count can leave half a formula or drop a metric.
+    # Project supported inline notation first; keep any remaining overcapacity
+    # text whole so the existing page repair can split it without data loss.
+    from ppt_formula_projection import _MATH_SPAN, project_prose_math
+    if _MATH_SPAN.search(text):
+        try:
+            return project_prose_math(text)
+        except ValueError:
+            return text
     for separator in ("。", "；", ";", "，", ","):
         clause = text.split(separator, 1)[0].strip()
         if 1 < len(clause) <= limit:
@@ -625,6 +636,9 @@ async def _notify(callback, *args):
 def _repair_layout_slugs(block, repair_unit):
     role = str(block.get("role") or "").lower()
     content = str(block.get("content") or "")
+    kinds = source_unit_kinds(content, 0, len(content))
+    if "diagram" in kinds and "code" not in kinds:
+        return {"bullets", "comparison", "flow", "flow6"}
     if (repair_unit or {}).get("source_kind") == "code" or "`" in content or "~~~" in content:
         return {"code", "bullets", "flow"}
     if re.search(r"\$|\\\[|\\\(", content):
@@ -675,7 +689,9 @@ def _page_repair_prompt(block, pages, template, validation_error, repair_error="
         "页面文字中的数字、公式、专有名词和代码标识符必须出现在该项选择的来源中；没有依据就不得保留。"
         "pages 至少一页，每页仅含 layout_key、page_goal、fields；layout_key 必须来自 forms，fields 遵守对应表单。"
         "保留教学条件、例题和解答，覆盖本环节内容，避免重复封面。普通文案简洁，标识符和数值只能来自所给原文。"
+        "lingzhi-diagram 围栏是教学图的结构数据，不是代码示例；依据节点、边与图注表达知识，不显示JSON或围栏标记。决策分支不得改成线性步骤。"
         "流程必须保留所讲步骤；超过四步时可选flow6或连续分页，不能为了版式省略末尾步骤。"
+        "flow和flow6只表达真实的先后顺序；并列概念或可任选的策略用bullets分页，不得添加来源没有的顺序。"
         "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
         "不得修改讲义，不得补写讲义没有的API或事实。\n"
         + json.dumps({"block_id": block["block_id"], "title": block.get("title"), "role": block.get("role"),
@@ -817,6 +833,11 @@ def _grounded_repair_pages(
     prose_limit=32,
     fallback_reason="provider",
 ):
+    content = str(block.get("content") or "")
+    if "diagram" in source_unit_kinds(content, 0, len(content)):
+        # Diagram JSON is a rendering contract, not a code example. Keep it in
+        # the source notes; an unavailable expression must stay recoverable.
+        raise ValueError("script_ppt_diagram_requires_expression")
     if repair_unit.get("source_kind") == "code":
         return [_grounded_code_repair_page(block, template)]
     return _grounded_prose_repair_pages(

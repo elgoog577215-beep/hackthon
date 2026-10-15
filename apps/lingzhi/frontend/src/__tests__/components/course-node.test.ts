@@ -17,8 +17,8 @@ const node: CourseNodeModel = {
   generated_chars: 2,
 }
 
-const mountNode = () => mount(CourseNode, {
-  props: { node, index: 0, fontSize: 16, fontFamily: 'sans', lineHeight: 1.8 },
+const mountNode = (teacherPreview = false) => mount(CourseNode, {
+  props: { node, teacherPreview, index: 0, fontSize: 16, fontFamily: 'sans', lineHeight: 1.8 },
   global: {
     stubs: {
       CourseBlockStream: { template: '<div class="block-stream" />' },
@@ -71,6 +71,12 @@ describe('CourseNode 正式练习入口', () => {
     expect(wrapper.get('.task-launcher').attributes('id')).toBe('practice-block-node-1')
     expect(wrapper.get('.task-launcher').text()).toContain('2 道正式题')
     expect(wrapper.get('.task-launcher').text()).toContain('为什么线性组合仍然属于这个向量空间？')
+    expect(wrapper.get('.task-launcher').text()).toContain('作答进度会自动保存')
+    const preview = mountNode(true)
+    expect(preview.get('.task-launcher').text()).toContain('试看练习')
+    expect(preview.get('.task-launcher').text()).toContain('不计入正式学习记录')
+    expect(preview.get('.task-launcher').text()).not.toContain('作答进度会自动保存')
+    preview.unmount()
     await wrapper.find('.task-launcher').trigger('click')
     expect(wrapper.emitted('startPractice')?.[0]?.[0]).toMatchObject({ node_id: node.node_id })
   })

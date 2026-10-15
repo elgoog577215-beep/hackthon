@@ -405,6 +405,7 @@ export const useCourseStore = defineStore('course', {
             if (options.teacherTrial) {
                 const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher', {
                     silentError: options.silentError,
+                    timeout: 60000,
                 }))
                 if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
                 this.teacherPreviewSnapshot = data

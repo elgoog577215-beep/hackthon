@@ -83,6 +83,30 @@ def test_page_completion_reserves_json_and_source_binding_space_for_short_blocks
     validate_block_pages(result["blocks"][0], template)
 
 
+def test_flow6_field_capacity_matches_its_native_layout_before_provider_repair():
+    from ppt_fixed_draft import form_type
+    from ppt_fixed_templates import layout_limits
+    template, contract, _ = sample()
+    steps = ["需求理解：通过观察访谈用户行为和动机，在真实情境中发现隐性需求", "定义问题", "提出方案", "制作原型", "测试反馈"]
+    text = "\n".join(steps)
+    page = {"layout_id": template.layout_id("flow6"), "page_goal": "按顺序理解方法",
+        "fields": {"title": "顺序流程", "notes": "依次说明各步骤与条件",
+            "steps": [{"text": value, "sources": [{"block_id": "b", "quote": text}]} for value in steps]}}
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("the form capacity must match the existing native renderer")
+
+    seed = {**contract["modules"][0], "content": text, "ppt_pages": [page], "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=forbidden, contract=contract, instructions="",
+        template=template, seed_blocks={"b": seed}, immutable_handout=True))
+    block = result["blocks"][0]
+    form = form_type("flow6", authored=True).model_validate(block["ppt_pages"][0]["fields"])
+    assert len(form.steps) == len(steps)
+    assert all(len(step.text) <= layout_limits(template.layout_id("flow6"))[3] for step in form.steps)
+    assert block["content"] == text
+    validate_block_pages(block, template)
+
+
 @pytest.mark.asyncio
 async def test_saved_handout_ppt_requests_schema_constrained_pages(monkeypatch):
     from types import SimpleNamespace
@@ -154,6 +178,25 @@ def test_completion_progress_counts_content_blocks_in_a_single_section(workflow)
     assert _wait(client, response.json()["job"]["id"])["status"] == "completed"
     assert any(16 < value < 70 for value in progress)
     assert progress[-1] == 86
+
+
+def test_completion_checkpoint_write_runs_outside_request_event_loop(workflow, monkeypatch):
+    client, repository, _ = workflow
+    save = repository.save_script_bundle_checkpoint
+    saved = []
+
+    def persist(*args, **kwargs):
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        result = save(*args, **kwargs)
+        saved.append(args[2]["block_id"])
+        return result
+
+    monkeypatch.setattr(repository, "save_script_bundle_checkpoint", persist)
+    job = generate(client)
+    assert job["status"] == "completed"
+    assert saved
+    assert set(saved) == set(job["bundle_blocks"])
 
 
 def _wait(client, job_id):

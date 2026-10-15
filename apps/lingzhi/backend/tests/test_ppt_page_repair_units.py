@@ -15,3 +15,10 @@ def test_only_fenced_code_uses_deterministic_code_pagination():
     assert full_page_repair_unit("code", "~~~\nx = 1\n~~~")["source_kind"] == "code"
     assert full_page_repair_unit("text", "解释内联 `code` 和字符串 ``` 的含义。")["source_kind"] == "prose"
     assert full_page_repair_unit("text", "```\nx = 1\n```\n后续说明")["source_kind"] == "mixed"
+
+
+def test_teaching_diagram_fence_is_not_source_code():
+    from ppt_page_repair_units import source_unit_kinds
+    diagram = '```lingzhi-diagram\n{"nodes":[],"edges":[]}\n```'
+    assert full_page_repair_unit("diagram", diagram)["source_kind"] == "diagram"
+    assert source_unit_kinds(diagram + "\n图注：选择发布方法", 0, len(diagram) + 20) == {"diagram", "prose"}

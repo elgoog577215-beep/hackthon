@@ -13,6 +13,46 @@ def test_normalized_none_is_not_zero():
     assert _normalized(None) != _normalized(0)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["single_choice", "multiple_choice", "true_false"])
+async def test_imported_choice_answer_type_never_asks_model_to_reinterpret_options(monkeypatch, kind):
+    grader = PracticeGrader()
+    question = {
+        "question_type": kind,
+        "input_contract": {"mode": "choice", "selection": {"multiple": kind == "multiple_choice"}},
+        "options": [{"id": "A", "text": "5why分析法"}, {"id": "B", "text": "用户旅程图分析法"}],
+        "answer_spec": {"type": kind, "correct_option_id": "B", "correct_answer": "B"},
+    }
+
+    async def forbidden(*_args, **_kwargs):
+        pytest.fail("an imported objective answer key must use the deterministic grader")
+
+    monkeypatch.setattr(grader, "_grade_rubric", forbidden)
+    wrong = await grader.grade(question, {"answer_payload": {"selected_option_id": "A"}})
+    correct = await grader.grade(question, {"answer_payload": {"selected_option_id": "B"}})
+    assert wrong["score"] == 0 and not wrong["passed"]
+    assert correct["score"] == 100 and correct["passed"]
+    assert wrong["grading_method"] == correct["grading_method"] == "deterministic"
+    assert "业务流程图" not in wrong["feedback"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_rubric_policy_still_assesses_required_reasoning(monkeypatch):
+    grader = PracticeGrader()
+    calls = []
+
+    async def rubric(question, answer):
+        calls.append(answer)
+        return {"status": "graded", "score": 50, "passed": False, "feedback": "需补充理由"}
+
+    monkeypatch.setattr(grader, "_grade_rubric", rubric)
+    result = await grader.grade({"answer_spec": {"type": "single_choice", "correct_option_id": "B"},
+                                 "grading_policy": {"method": "rubric_ai"}},
+                                {"answer_payload": {"selected_option_id": "B", "text": "理由不足"}})
+    assert len(calls) == 1
+    assert result["score"] == 50 and not result["passed"]
+
+
 def test_normalized_none_is_not_false():
     assert _normalized(None) != _normalized(False)
 

@@ -345,6 +345,7 @@
                         :search-words="searchTokens"
                         :is-streaming="node.generation_status === 'generating'"
                         :generation-preview="isGenerationPreview"
+                        :teacher-preview="props.teacherPreview"
                         :can-improve-blocks="!props.readOnly && !isGenerationPreview && courseStore.currentCourseSourceFormat === 'canonical'"
                         :read-only="props.readOnly"
                         @start-practice="handleStartPractice"

@@ -62,10 +62,10 @@
             {{ lesson ? t('courseBlocks.lessonPractice', '本讲练习') : t('courseBlocks.chapterPractice', '章节练习') }} · {{ practiceCountLabel }}
           </span>
           <strong><MathText :content="practicePreview || node.node_name" /></strong>
-          <small>{{ t('courseBlocks.practiceHint', '从正式题目进入，作答进度会自动保存') }}</small>
+          <small>{{ teacherPreview ? t('courseBlocks.practicePreviewHint', '教师试看 · 试答仅在当前会话保留，不计入正式学习记录') : t('courseBlocks.practiceHint', '从正式题目进入，作答进度会自动保存') }}</small>
         </span>
         <span class="task-action">
-          {{ t('courseBlocks.practiceOpen', '打开练习') }}
+          {{ teacherPreview ? t('courseBlocks.practicePreviewOpen', '试看练习') : t('courseBlocks.practiceOpen', '打开练习') }}
           <ArrowRight :size="15" />
         </span>
       </button>
@@ -118,6 +118,7 @@ const props = defineProps<{
   studyDialogues?: boolean
   readOnly?: boolean
   generationPreview?: boolean
+  teacherPreview?: boolean
 }>()
 const emit = defineEmits<{
   (event: 'studyDialogue', payload: StudyRequest): void

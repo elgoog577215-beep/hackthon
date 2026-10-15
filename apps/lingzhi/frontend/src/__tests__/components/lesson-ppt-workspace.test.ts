@@ -18,6 +18,31 @@ vi.mock('@/utils/slide-deck-v6-adapter', () => ({
 }))
 
 describe('LessonPptWorkspace', () => {
+  it('notifies the outer lesson projection when saved content becomes available', async () => {
+    http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
+      manuscript: { pages: [], page_count: 0 }, revision: 'm1', status: 'ready', source_script_revision_id: 's1', can_export: true,
+    } } })
+    const wrapper = mount(LessonPptWorkspace, { props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' } })
+    try {
+      await flushPromises()
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+      await wrapper.setProps({ title: '第一讲新标题' }); await flushPromises()
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+      http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
+        manuscript: { pages: [], page_count: 0 }, revision: 'm2', status: 'ready', source_script_revision_id: 's2', can_export: true,
+      } } })
+      await wrapper.setProps({ initialLessonId: 'L1-2' }); await flushPromises()
+      expect(wrapper.emitted('updated')).toHaveLength(2)
+    } finally { wrapper.unmount() }
+  })
+
+  it('shows a translated loading label while the manuscript request is pending', async () => {
+    http.get.mockReturnValue(new Promise(() => {}))
+    const wrapper = mount(LessonPptWorkspace, { props: { courseId: 'course-1', initialLessonId: 'L1-1', title: '第一讲' } })
+    try {
+      expect(wrapper.get('.lesson-ppt-empty h2').text()).toBe('正在读取课件…')
+    } finally { wrapper.unmount() }
+  })
   it('导出失败后的重试重新执行导出，不只是刷新内容稿', async () => {
     http.get.mockResolvedValue({ data: { ppt_manuscript_state: {
       manuscript: { pages: [], page_count: 0 }, revision: 'm1', can_export: true,

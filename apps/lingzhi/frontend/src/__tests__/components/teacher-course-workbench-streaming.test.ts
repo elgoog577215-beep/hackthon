@@ -2620,7 +2620,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(statuses[0]!.attributes('data-state')).toBe('ready')
     expect(statuses[0]!.find('.lucide-check').exists()).toBe(true)
     expect(statuses[1]!.attributes('data-state')).toBe('paused')
-    expect(statuses[1]!.find('.lucide-triangle-alert').exists()).toBe(false)
+    expect(statuses[1]!.find('.lucide-triangle-alert').exists()).toBe(true)
     expect(values()).toEqual(['40'])
     wrapper.unmount()
   })

@@ -517,7 +517,9 @@ async function loadLearningCourse(courseId: string) {
     aiTeacherStore.clearPreviewSession()
   }
   await Promise.all([
-    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student', background: true }),
+    // The owner-checked preview snapshot supplies this course's navigation.
+    // Loading every teacher course here competes with ongoing authoring jobs.
+    isTeacherPreview.value ? Promise.resolve() : courseStore.fetchCourseList({ surface: 'student', background: true }),
     courseStore.loadCourse(courseId, isTeacherPreview.value ? {
       includeLearningRecords: false,
       taskType: 'teacher_outline_generation',

@@ -182,6 +182,7 @@ it.each(['trial', 'canonical'] as const)('keeps saved handout types, answer link
   expect(concepts[0]!.relations).toHaveLength(1)
   expect(concepts[0]!.nodes.map(n => n.anchor)).toEqual(['course-block-d', 'course-block-a'])
   expect(http.get).toHaveBeenCalledTimes(1)
+  if (mode === 'trial') expect(http.get).toHaveBeenCalledWith('/api/teacher/courses/c/preview', expect.objectContaining({ timeout: 60000 }))
   expect(http.post).not.toHaveBeenCalled()
   expect(localStorage.length).toBe(0)
 })

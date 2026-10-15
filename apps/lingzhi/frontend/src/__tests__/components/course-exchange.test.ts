@@ -7,7 +7,7 @@ import StudentCourseFeedback from '@/components/StudentCourseFeedback.vue'
 const api = vi.hoisted(() => ({ courseFeedback: vi.fn(), sendCourseFeedback: vi.fn(), retryCourseFeedback: vi.fn() }))
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api }))
-vi.mock('@/utils/http', () => ({ default: http, teacherRequestConfig: () => ({ identityScope: 'teacher' }) }))
+vi.mock('@/utils/http', () => ({ default: http, teacherRequestConfig: (config = {}) => ({ ...config, identityScope: 'teacher' }) }))
 let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
   vi.resetAllMocks(); activeLocale.value = 'zh'
@@ -32,7 +32,8 @@ describe('two-service course publication and feedback', () => {
     expect(http.post).not.toHaveBeenCalled()
     await wrapper.get('input[type="checkbox"]').setValue(true)
     await wrapper.findAll('button').find(b => b.text() === '发布当前课程版本')!.trigger('click'); await flushPromises()
-    expect(http.post).toHaveBeenCalledWith('/api/teacher/courses/source-a/exchange/publish', { expected_revision: 'doc-a', ppt_project_ids: ['ppt-a'] }, { identityScope: 'teacher' })
+    expect(http.get).toHaveBeenCalledWith('/api/teacher/courses/source-a/exchange', { identityScope: 'teacher', timeout: 60000 })
+    expect(http.post).toHaveBeenCalledWith('/api/teacher/courses/source-a/exchange/publish', { expected_revision: 'doc-a', ppt_project_ids: ['ppt-a'] }, { identityScope: 'teacher', timeout: 240000 })
     expect(wrapper.text()).toContain('课程版本已发布')
   })
   it('replies to a specific received question with its optimistic revision', async () => {

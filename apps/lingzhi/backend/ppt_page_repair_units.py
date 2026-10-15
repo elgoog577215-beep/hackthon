@@ -13,10 +13,11 @@ PAGE_REPAIR_RETRY_UNIT_MAX_CHARS = 900
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
-def _source_kind(content: str, start: int, end: int) -> str:
+def source_unit_kinds(content: str, start: int, end: int) -> set[str]:
     # A lecture can contain explanations and several code fences. Seeing one
     # fence does not make the whole source unit a code page.
     fence = ""
+    fence_kind = "code"
     kinds: set[str] = set()
     offset = 0
     for line in content.splitlines(keepends=True):
@@ -28,18 +29,24 @@ def _source_kind(content: str, start: int, end: int) -> str:
             token, tail = match.groups()
             if not fence and (token[0] != "`" or "`" not in tail):
                 fence, marker = token, True
+                fence_kind = "diagram" if tail.strip().casefold() == "lingzhi-diagram" else "code"
             elif fence and token[0] == fence[0] and len(token) >= len(fence) and not tail.strip():
                 marker = True
         if line_end > start and offset < end:
             excerpt = content[max(start, offset):min(end, line_end)]
             if excerpt.strip():
-                kinds.add("code" if fence or marker else "prose")
+                kinds.add(fence_kind if fence or marker else "prose")
         if marker and was_inside:
             fence = ""
         offset = line_end
         if offset >= end:
             break
-    return "mixed" if len(kinds) > 1 else next(iter(kinds), "prose")
+    return kinds or {"prose"}
+
+
+def _source_kind(content: str, start: int, end: int) -> str:
+    kinds = source_unit_kinds(content, start, end)
+    return "mixed" if len(kinds) > 1 else next(iter(kinds))
 
 
 def _unit(block_id: str, content: str, start: int, end: int) -> dict[str, Any]:

@@ -2828,7 +2828,9 @@ async def complete_teacher_ppt_manuscript(
                 async def save_page_checkpoint(
                     block: dict[str, Any], *, current_index: int = section_index
                 ) -> None:
-                    repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block)
+                    await asyncio.to_thread(
+                        repository.save_script_bundle_checkpoint, course_id, str(job["id"]), block
+                    )
                     has_pages = bool(block.get("ppt_pages"))
                     repair = block.get("ppt_repair_state") or {}
                     if has_pages and not block.get("ppt_errors") and not repair:
@@ -2843,7 +2845,8 @@ async def complete_teacher_ppt_manuscript(
                     )
                     if repair.get("waiting_for_provider"):
                         repair_message = "模型暂时不可用，正在等待恢复后重试当前页面"
-                    repository.update_job(
+                    await asyncio.to_thread(
+                        repository.update_job,
                         course_id,
                         str(job["id"]),
                         status="running",

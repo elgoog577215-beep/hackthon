@@ -259,6 +259,57 @@ def test_overlong_triad_points_are_fitted_locally_without_another_model_call():
     validate_block_pages(repaired, template)
 
 
+def test_diagram_source_requires_visual_expression_instead_of_raw_json_code():
+    from teacher_script_ppt import _repair_layout_slugs, _grounded_repair_pages
+    from ppt_page_repair_units import full_page_repair_unit
+    template, _, _ = sample()
+    text = '```lingzhi-diagram\n{"nodes":[{"id":"a","label":"需求"}],"edges":[]}\n```\n图注：理解需求'
+    block = {"block_id": "diagram", "title": "需求关系", "content": text}
+    unit = full_page_repair_unit("diagram", text)
+    assert "code" not in _repair_layout_slugs(block, unit)
+    assert {"bullets", "flow", "comparison"} <= _repair_layout_slugs(block, unit)
+    with pytest.raises(ValueError, match="script_ppt_diagram_requires_expression"):
+        _grounded_repair_pages(block, unit, template)
+    assert block["content"] == text
+
+
+def test_overlong_inline_math_metrics_keep_all_values_without_model_retry():
+    template, contract, _page = sample()
+    metrics = r"本次测试：任务完成率$\ge 80\%$、错误率$\le 5\%$、耗时$\le 30$秒、满意度$\ge 4.5$"
+    assert len(metrics) > 52
+    page = {"layout_id": template.layout_id("bullets"), "page_goal": "解释测试指标",
+            "fields": {"title": "测试指标", "notes": metrics,
+                       "points": [{"heading": "教学设定", "text": metrics,
+                                   "sources": [{"block_id": "b", "quote": metrics}]}]}}
+
+    async def unexpected(*_args, **_kwargs):
+        pytest.fail("supported math capacity projection must not call a model")
+
+    seed = {**contract["modules"][0], "content": metrics, "ppt_pages": [page],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=unexpected, contract=contract, instructions="", template=template,
+                                         seed_blocks={"b": seed}, immutable_handout=True))
+    repaired = result["blocks"][0]
+    assert not repaired["ppt_errors"]
+    text = repaired["ppt_pages"][0]["fields"]["points"][0]["text"]
+    assert text == "本次测试：任务完成率≥ 80%、错误率≤ 5%、耗时≤ 30秒、满意度≥ 4.5"
+    assert repaired["content"] == metrics
+    validate_block_pages(repaired, template)
+
+
+@pytest.mark.parametrize("formula", [r"$\ge 80\%$", r"$\unsupported{80}$"])
+def test_math_overcapacity_keeps_complete_source_instead_of_cutting(formula):
+    from teacher_script_ppt import _compact_screen_text
+    text = "完整指标" * 20 + formula + "以及后续说明" * 10
+    result = _compact_screen_text(text, 52)
+    assert len(result) > 52
+    assert result.endswith("以及后续说明" * 10)
+    if "unsupported" in formula:
+        assert result == text
+    else:
+        assert "≥ 80%" in result
+
+
 def test_source_wrapped_scalar_page_fields_are_unwrapped_without_model_retry():
     template, contract, page = sample()
     wrapped = deepcopy(page)

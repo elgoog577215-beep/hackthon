@@ -53,7 +53,7 @@ class PracticeGrader(AIBase):
                 answer_spec,
                 answer_payload,
             )
-        elif method in {"exact", "choice", "deterministic"}:
+        elif method in {"exact", "choice", "deterministic", "single_choice", "multiple_choice", "true_false"}:
             result = self._grade_deterministic(
                 question,
                 answer_spec,

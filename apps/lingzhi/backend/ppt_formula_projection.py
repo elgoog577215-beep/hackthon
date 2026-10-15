@@ -11,6 +11,7 @@ def project_formula(source):
         return matrix
     from slide_deck_renderer import _format_formula_text
     source = re.sub(r"\\dots\b", lambda _: "…", source)
+    source = source.replace(r"\%", "%")
     text = _format_formula_text(source)
     if "\\" in text or "$" in text:
         raise ValueError("teaching_formula_not_supported")
@@ -28,7 +29,10 @@ def project_prose_math(source):
     """
     def display(match):
         return project_formula(next(value for value in match.groups() if value is not None))
-    return _MATH_SPAN.sub(display, source)
+    projected = _MATH_SPAN.sub(display, source)
+    if re.search(r"(?<![\\$])\${1,2}\s*\\[A-Za-z]+", projected):
+        raise ValueError("teaching_formula_not_supported")
+    return projected
 
 
 def project_matrix(source):

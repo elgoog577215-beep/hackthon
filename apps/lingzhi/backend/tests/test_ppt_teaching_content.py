@@ -117,6 +117,17 @@ def test_math_projection_preserves_prose_and_refuses_unknown_commands():
         project_prose_math(r"观察 $\unknown{x}$")
 
 
+def test_inline_percentage_metrics_project_escaped_percent_without_changing_values():
+    from ppt_formula_projection import project_prose_math
+    assert project_prose_math(r"完成率 $\ge 80\%$，错误率 $\le 5\%$。") == "完成率 ≥ 80%，错误率 ≤ 5%。"
+
+
+def test_incomplete_math_command_is_not_accepted_as_visible_prose():
+    from ppt_formula_projection import project_prose_math
+    with pytest.raises(ValueError, match="teaching_formula_not_supported"):
+        project_prose_math(r"满意度$\ge…")
+
+
 @pytest.mark.parametrize("mutation,code", [
     (lambda v: v["expression"]["cells"].pop(), "comparison_matrix_incomplete"),
     (lambda v: v["expression"]["cells"][0].update(element_ids=["b-mode"]), "comparison_cell_identity_mismatch"),

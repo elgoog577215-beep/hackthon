@@ -354,7 +354,7 @@
           >
             <header>
               <strong>{{ t('courseWorkbench.lessonOutline.title', '讲次目录') }}</strong>
-              <small v-if="activeStage !== 'ppt' || legacyPptOpen">{{ t('courseWorkbench.lessonOutline.completedCount', '已完成 {completed}/{total}')
+              <small>{{ t('courseWorkbench.lessonOutline.completedCount', '已完成 {completed}/{total}')
                 .replace('{completed}', String(lessonCompletedCount))
                 .replace('{total}', String(lessonStore.lessons.length)) }}</small>
             </header>
@@ -377,12 +377,12 @@
                     <strong><MathText :content="lessonDisplayName(lesson)" /></strong>
                   </span>
                   <small
-                    v-if="(activeStage !== 'ppt' || legacyPptOpen) && (showLessonAuxiliaryState(lesson) || !['ready', 'generating'].includes(lessonGenerationState(lesson)))"
+                    v-if="showLessonAuxiliaryState(lesson) || !['ready', 'generating'].includes(lessonGenerationState(lesson))"
                     :data-state="lessonGenerationState(lesson)"
                   >{{ lessonGenerationStateLabel(lesson) }}</small>
                 </span>
                 <span
-                  v-if="activeStage !== 'ppt' || legacyPptOpen" class="lesson-outline-status"
+                  class="lesson-outline-status"
                   :data-state="lessonGenerationState(lesson)"
                   :aria-hidden="lessonGenerationProgressFor(lesson) === null ? true : undefined"
                 >
@@ -403,7 +403,8 @@
                     />
                   </svg>
                   <Check v-else-if="lessonGenerationState(lesson) === 'ready'" :size="14" />
-                  <TriangleAlert v-else-if="['stale', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
+                  <LoaderCircle v-else-if="lessonGenerationState(lesson) === 'generating'" :size="14" class="spin" />
+                  <TriangleAlert v-else-if="['stale', 'paused'].includes(lessonGenerationState(lesson))" :size="14" />
                   <i v-else />
                 </span>
               </button>
@@ -834,7 +835,7 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
-          <LessonPptWorkspace v-if="!legacyPptOpen && selectedLesson" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :title="selectedLesson.title" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" />
+          <LessonPptWorkspace v-if="!legacyPptOpen && selectedLesson" ref="pptProjectWorkspace" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" :title="selectedLesson.title" :source-revision="pptSourceRevision" embedded @legacy="legacyPptOpen = true" @updated="refreshPptProjection" />
           <TeacherDocumentCommandBar v-else-if="legacyPptOpen" class="ppt-review-toolbar" :label="t('pptWorkspace.editor.actions')" :show-status="contextPhase === 'during' || contextPhase === 'failed'" :status-label="contextStatusLabel" :status-tone="contextPhase === 'failed' ? 'warning' : 'busy'">
             <template #context><button type="button" @click="legacyPptOpen = false">{{ t('pptProject.backToNew') }}</button></template>
             <button v-for="action in pptContextActions" :key="action.id" type="button" :class="{ 'primary-status-action': action.primary }" :disabled="action.disabled" :title="action.reason || undefined" :data-testid="`ppt-context-${action.id}`" @click="runPptContextAction(action.id)">{{ action.label }}</button>

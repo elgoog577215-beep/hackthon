@@ -1,4 +1,69 @@
 from assessment_compiler import compile_formal_task_contract
+import pytest
+
+
+@pytest.mark.parametrize("question_type,answer", [
+    ("single_choice", "B"),
+    ("multiple_choice", ["A", "B"]),
+    ("true_false", "A"),
+])
+def test_imported_choice_without_input_contract_uses_exact_grading(question_type, answer):
+    compiled = compile_formal_task_contract({
+        "question_type": question_type,
+        "options": [{"option_id": "A", "text": "观察"},
+                    {"option_id": "B", "text": "用户旅程图"}],
+        "answer_spec": {"type": question_type, "correct_answer": answer},
+    })
+    assert compiled["input_contract"]["mode"] == "choice"
+    assert compiled["grading_policy"]["method"] == "deterministic"
+
+
+def test_imported_choice_preserves_explicit_legacy_rubric_policy():
+    compiled = compile_formal_task_contract({
+        "question_type": "single_choice",
+        "options": [{"option_id": "A", "text": "观察"},
+                    {"option_id": "B", "text": "用户旅程图"}],
+        "answer_spec": {"type": "single_choice", "correct_answer": "B"},
+        "formal_task": {"grading_policy": {"method": "rubric_ai"}},
+    })
+    assert compiled["grading_policy"]["method"] == "rubric_ai"
+
+
+def test_legacy_non_choice_cached_grading_policy_is_preserved():
+    compiled = compile_formal_task_contract({
+        "question_type": "short_answer",
+        "formal_task": {"compiled_contract_hash": "qcc_cached_text",
+                        "grading_policy": {"method": "rubric_ai_with_reference"}},
+    })
+    assert compiled["grading_policy"]["method"] == "rubric_ai_with_reference"
+
+
+@pytest.mark.asyncio
+async def test_cached_imported_choice_contract_is_recompiled_without_model_grading(monkeypatch):
+    from practice_grading import PracticeGrader
+
+    item = {
+        "question_type": "single_choice",
+        "options": [{"option_id": "A", "text": "5why分析法"},
+                    {"option_id": "B", "text": "用户旅程图分析法"}],
+        "answer_spec": {"type": "single_choice", "correct_answer": "B", "correct_option_id": "B"},
+        "formal_task": {"compiled_contract_hash": "qcc_legacy_cache",
+                        "grading_policy": {"method": "rubric_ai"}},
+    }
+    compiled = compile_formal_task_contract(item)
+    assert compiled["grading_policy"]["method"] == "deterministic"
+    grader = PracticeGrader()
+
+    async def no_model(*args, **kwargs):
+        pytest.fail("An imported choice must use its confirmed option IDs")
+
+    monkeypatch.setattr(grader, "_grade_rubric", no_model)
+    for option, expected in [("A", 0), ("B", 100)]:
+        result = await grader.grade({**item, **compiled}, {
+            "answer_payload": {"selected_option_ids": [option]},
+        })
+        assert result["score"] == expected
+        assert result["grading_method"] == "deterministic"
 
 
 def _v2_item(**overrides):

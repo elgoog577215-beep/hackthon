@@ -234,6 +234,8 @@ describe('LearningView 正文任务覆盖层', () => {
     } })
     await flushPromises()
     expect(wrapper.findComponent({ name:'LearningCompanion' }).props('welcome')).toBe(!preview)
+    if (preview) expect(useCourseStore().fetchCourseList).not.toHaveBeenCalled()
+    else expect(useCourseStore().fetchCourseList).toHaveBeenCalledWith({ surface: 'student', background: true })
     wrapper.unmount()
   })
 

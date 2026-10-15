@@ -592,6 +592,7 @@ import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
 import { createUuid } from '../utils/client-id'
 import { isPublishedExchangeCourse } from '../shared/student-workspace'
+import { isTeacherPreviewCourse } from '../utils/teacher-preview'
 import {
   runQuestionBankRebuild,
   type QuestionBankRebuildJob,
@@ -764,7 +765,8 @@ const questionTypeLabel = computed(() => t(
   currentQuestion.value?.question_type || '练习',
 ))
 const answerPlaceholder = computed(() => currentQuestion.value?.input_contract?.mode === 'short_text' ? t('courseWorkspace.practice.shortAnswerPlaceholder', '填写答案') : t('courseWorkspace.practice.answerPlaceholder', '写下完整过程、依据和结果检查'))
-const saveStateLabel = computed(() => t(
+const saveStateLabel = computed(() => isTeacherPreviewCourse(props.courseId)
+  ? t('courseBlocks.practicePreviewOpen', '试看练习') : t(
   `courseWorkspace.practice.saveState.${workspace.practiceSaveState}`,
   ({ idle: '尚未保存', saving: '正在保存', saved: '已保存', local_only: '仅保存在本机', conflict: '草稿冲突' } as Record<string, string>)[workspace.practiceSaveState],
 ))

@@ -53,7 +53,7 @@
       </template>
       <div v-else-if="!progressVisible" class="lesson-ppt-empty">
         <div class="lesson-ppt-empty-mark"><Presentation :size="24" /></div>
-        <h2>{{ loading ? t('common.loading') : t('pptLive.missing') }}</h2>
+        <h2>{{ loading ? t('pptLive.loading') : t('pptLive.missing') }}</h2>
         <p>{{ loading ? t('pptProject.preparing') : emptyDescription }}</p>
         <button type="button" :disabled="loading || busy || !state.source_script_revision_id" @click="complete"><RefreshCw :size="16" />{{ t('pptLive.complete') }}</button>
       </div>
@@ -73,8 +73,11 @@ import SlideCanvas from './SlideCanvas.vue'
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 
 const props = defineProps<{ courseId: string; initialLessonId: string; title: string; sourceRevision?: string; embedded?: boolean }>()
-const emit = defineEmits<{ (event: 'legacy'): void }>()
+const emit = defineEmits<{ (event: 'legacy' | 'updated'): void }>()
 const state = ref<Record<string, any>>({}), job = ref<Record<string, any> | null>(null)
+watch(() => [state.value.revision, state.value.status, state.value.source_state, state.value.can_export, job.value?.status].join('|'), () => {
+  if (state.value.source_script_revision_id || state.value.manuscript) emit('updated')
+})
 const editor = ref<InstanceType<typeof PptManuscriptWorkflow> | null>(null)
 const tab = ref('manuscript'), selectedPage = ref('')
 const dirty = ref(false), saving = ref(false), loading = ref(false), exporting = ref(false), syncing = ref(false)
