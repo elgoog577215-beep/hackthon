@@ -10,7 +10,6 @@ const productionAcademicSurfaces = [
   'components/CourseNavigatorNode.vue',
   'components/CourseNode.vue',
   'components/CourseOutlineReview.vue',
-  'components/CourseProductionStage.vue',
   'components/DiagramSpecRenderer.vue',
   'components/FeedbackReviewBlock.vue',
   'components/InlineRecordPopover.vue',

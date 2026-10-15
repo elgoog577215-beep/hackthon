@@ -204,6 +204,8 @@ VITE_USAGE_TRACKING_ENABLED=true
 
 ## 测试与检查
 
+教师课程入口使用 `TeacherTeachingCalendarView`、`TeacherCourseLibraryView` 和 `TeacherCourseWorkbench`；正式学习与教师试读共用 `LearnerCourseView`。已替代的旧课程库、独立试读页和旧进度界面不再保留平行实现。教学图表由正式 Markdown 与教学图表组件渲染；冻结的联网检索代码继续按既有边界保留。
+
 当前两套后端测试目录存在同名 `conftest` 收集边界，需要分别运行：
 
 ```bash

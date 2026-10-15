@@ -6,58 +6,10 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), 'utf8')
 }
 
-const librarySource = source('src/views/CourseLibraryView.vue')
-const workbenchSource = source('src/components/CourseWorkbench.vue')
-const taskCenterSource = source('src/components/CourseTaskCenter.vue')
-const reviewCenterSource = source('src/components/QuestionBankReviewCenter.vue')
 const reviewPanelSource = source('src/components/QuestionBankReviewPanel.vue')
 const learningSource = source('src/views/LearnerCourseView.vue')
 
 describe('mobile UI density contract', () => {
-  it('keeps course pagination in content flow and brings courses into the first screen', () => {
-    expect(librarySource).not.toMatch(
-      /<Teleport to="body">[\s\S]*?class="library-pagination-dock"/,
-    )
-    expect(librarySource).toMatch(
-      /\.library-pagination-dock\s*\{[^}]*position:relative[^}]*margin:14px auto 0/s,
-    )
-    expect(librarySource).toMatch(
-      /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar\s*\{[^}]*flex-wrap:nowrap[^}]*gap:8px/,
-    )
-    expect(librarySource).toMatch(
-      /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar label\s*\{[^}]*min-width:112px[^}]*flex:0 1 42%/,
-    )
-    expect(librarySource).toMatch(
-      /@media\s*\(max-width:700px\)[\s\S]*?\.pagination-jump\s*\{\s*display:none/,
-    )
-  })
-
-  it('uses a compact workbench header and a horizontal mobile task selector', () => {
-    expect(workbenchSource).not.toContain('course-workbench__mark')
-    expect(workbenchSource).not.toContain('workbenchEyebrow')
-    expect(taskCenterSource).toMatch(
-      /\.task-center__body\s*\{[^}]*grid-template-rows:76px minmax\(0,1fr\)/,
-    )
-    expect(taskCenterSource).toMatch(
-      /\.task-list\s*\{[^}]*display:flex[^}]*overflow-x:auto/,
-    )
-    expect(taskCenterSource).toMatch(
-      /\.task-center--embedded\s*\{[^}]*height:100%/,
-    )
-  })
-
-  it('keeps the mobile course selector compact and removes repeated helper copy', () => {
-    expect(reviewCenterSource).not.toContain('questionBank.openToInspect')
-    expect(reviewCenterSource).toMatch(
-      /\.review-center__body\s*\{[^}]*grid-template-rows:112px minmax\(0,1fr\)/,
-    )
-    expect(reviewCenterSource).toMatch(
-      /\.review-course-rows\s*\{[^}]*display:flex[^}]*overflow-x:auto/,
-    )
-    expect(reviewCenterSource).toMatch(
-      /\.selected-course-heading > div\s*\{[^}]*display:contents/,
-    )
-  })
 
   it('uses one visible generation action, a compact status band, and transform-based progress', () => {
     expect(reviewPanelSource).toMatch(

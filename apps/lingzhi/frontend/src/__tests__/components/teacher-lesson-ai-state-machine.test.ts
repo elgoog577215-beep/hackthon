@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  assessTeacherLessonRequest,
-  buildTeacherLessonAiInstruction,
   changedTeacherLessonFields,
-  teacherLessonAiBusy,
-  transitionTeacherLessonAiPhase,
-  type TeacherLessonAiMessage,
-  type TeacherLessonAiPhase,
-} from '@/composables/useTeacherLessonAiCollaboration'
-import {
+  teacherProductionAiBusy,
+  transitionTeacherProductionAiPhase,
+  type TeacherProductionAiMessage,
+  type TeacherProductionAiPhase,
   assessTeacherProductionRequest,
   buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
@@ -18,37 +14,37 @@ import {
 
 describe('教师教案 AI 协作状态机', () => {
   it('覆盖澄清、生成、审阅、采用和失败恢复的合法状态', () => {
-    let phase: TeacherLessonAiPhase = 'ready'
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'ASK_CLARIFICATION' })
+    let phase: TeacherProductionAiPhase = 'ready'
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'ASK_CLARIFICATION' })
     expect(phase).toBe('clarifying')
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'GENERATE' })
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'GENERATE' })
     expect(phase).toBe('generating')
-    expect(teacherLessonAiBusy(phase)).toBe(true)
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'CANDIDATE_READY' })
+    expect(teacherProductionAiBusy(phase)).toBe(true)
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'CANDIDATE_READY' })
     expect(phase).toBe('review')
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'ACCEPT' })
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'ACCEPT' })
     expect(phase).toBe('accepting')
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'RESOLVED' })
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'RESOLVED' })
     expect(phase).toBe('success')
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'FAIL' })
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'FAIL' })
     expect(phase).toBe('error')
-    phase = transitionTeacherLessonAiPhase(phase, { type: 'GENERATE' })
+    phase = transitionTeacherProductionAiPhase(phase, { type: 'GENERATE' })
     expect(phase).toBe('generating')
   })
 
   it('模糊要求先澄清，明确的教学修改直接生成', () => {
-    expect(assessTeacherLessonRequest('帮我改好一点')).toBe('clarify')
-    expect(assessTeacherLessonRequest('你觉得应该怎么改？')).toBe('clarify')
-    expect(assessTeacherLessonRequest('增加课堂互动与形成性检查')).toBe('generate')
-    expect(assessTeacherLessonRequest('把教学目标改成学生能独立完成流程图')).toBe('generate')
+    expect(assessTeacherProductionRequest('lesson', '帮我改好一点')).toBe('clarify')
+    expect(assessTeacherProductionRequest('lesson', '你觉得应该怎么改？')).toBe('clarify')
+    expect(assessTeacherProductionRequest('lesson', '增加课堂互动与形成性检查')).toBe('generate')
+    expect(assessTeacherProductionRequest('lesson', '把教学目标改成学生能独立完成流程图')).toBe('generate')
   })
 
   it('提示词保留最新要求并约束最小修改与教师确认边界', () => {
-    const messages: TeacherLessonAiMessage[] = Array.from({ length: 10 }, (_, index) => ({
+    const messages: TeacherProductionAiMessage[] = Array.from({ length: 10 }, (_, index) => ({
       id: String(index), role: 'user', kind: 'text', text: `${index}：${'要求'.repeat(90)}`,
     }))
-    const prompt = buildTeacherLessonAiInstruction(messages, {
-      courseTitle: '人工智能通识课', lessonTitle: '第一讲', sectionTitle: '1.1 基础概念', referenceCount: 3,
+    const prompt = buildTeacherProductionAiInstruction(messages, {
+      domain: 'lesson', courseTitle: '人工智能通识课', primaryTitle: '第一讲', secondaryTitle: '1.1 基础概念', referenceCount: 3,
     })
     expect(prompt).toContain('9：')
     expect(prompt).not.toContain('0：')

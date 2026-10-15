@@ -5,7 +5,6 @@ import TeacherScriptDocument from '@/components/TeacherScriptDocument.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { setLocale } from '@/shared/i18n'
 import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
-import { useTeacherScriptVisualStore } from '@/stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import zhMessages from '../../../public/locales/zh/translation.json'
 import enMessages from '../../../public/locales/en/translation.json'
@@ -90,7 +89,6 @@ describe('统一讲义页面', () => {
 
   beforeEach(async () => {
     setActivePinia(createPinia())
-    vi.spyOn(useTeacherScriptVisualStore(), 'load').mockResolvedValue({} as any)
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
     await setLocale('zh')
   })
@@ -226,7 +224,6 @@ describe('统一讲义页面', () => {
     expect(wrapper.text()).toContain('本讲目标')
     expect(wrapper.text()).toContain('重点讲解')
     expect(wrapper.find('.script-visual-studio').exists()).toBe(false)
-    expect(useTeacherScriptVisualStore().load).not.toHaveBeenCalled()
 
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
     const editors = wrapper.findAll('.script-block-editor textarea')
@@ -727,7 +724,6 @@ it('结构化讲义的真实正文提供修改入口，并把原段和 block ID 
 
 it('整讲流式正文按服务端小节身份归位，继续时保留已完成内容', async () => {
   setActivePinia(createPinia())
-  vi.spyOn(useTeacherScriptVisualStore(), 'load').mockResolvedValue({} as any)
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
   await setLocale('zh')
   const twoSections = structuredClone(lesson)

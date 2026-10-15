@@ -345,14 +345,12 @@ describe('calendar and course file-space boundary', () => {
 
   it('does not repeat controls with explanatory copy on the active teacher path', () => {
     const home = source('views/TeacherTeachingCalendarView.vue')
-    const courseDialog = source('components/CreateCourseSpaceDialog.vue')
     const fileSpace = source('views/TeacherCourseSpaceView.vue')
     const generationDialog = source('components/CourseGenerationDialog.vue')
     const taskCenter = source('components/CourseTaskCenter.vue')
     const questionBank = source('components/QuestionBankReviewPanel.vue')
 
     expect(home).not.toContain("t('teacherHome.noSearchResultsHelp')")
-    expect(courseDialog).not.toContain("t('courseSpaceCreate.rule')")
     expect(fileSpace).not.toContain('<p class="asset-create-help"')
     expect(fileSpace).not.toContain('emptyFolderHelp')
     expect(fileSpace).not.toContain('sourceHint')

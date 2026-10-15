@@ -1,7 +1,7 @@
 """关系网词表必须没有兜底类型（需求 B2 的常驻检查）。
 
 B2 只要一条常驻检查：确认关系网中不出现 `related` 之类兜底类型。为什么值得
-单独锁：仓库里**确实存在**这样一个词表。`subject_ontology.py:307/311` 与
+单独锁：仓库里**确实存在**这样一个词表。旧学科库与
 `subject_knowledge.py:840` 用的是学科库的旧五类词表
 `{prerequisite, application, related, confusable, derives}`，其中 `related`
 还是缺省值。那是学科库自己的域，与课程关系网无关——但两套词表同名字段、同名
@@ -44,7 +44,7 @@ CATCH_ALL_TYPES = {
     "general",
 }
 
-# 学科库 `subject_ontology.py` / `subject_knowledge.py` 在用的旧词表。
+# 历史学科库及 `subject_knowledge.py` 保留的旧词表。
 SUBJECT_LIBRARY_TYPES = {
     "prerequisite", "application", "related", "confusable", "derives",
 }

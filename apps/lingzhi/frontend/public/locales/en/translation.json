@@ -6895,18 +6895,6 @@
       }
     }
   },
-  "courseSpaceCreate": {
-    "title": "Create course space",
-    "help": "Create an empty course space first, then add or import its outline from the file manager.",
-    "courseName": "Course name",
-    "courseNamePlaceholder": "e.g. Introduction to Artificial Intelligence",
-    "academicYear": "Academic year",
-    "term": "Term",
-    "spring": "Spring",
-    "autumn": "Autumn",
-    "rule": "Creates the course space only. Generate content when needed.",
-    "submit": "Create course space"
-  },
   "courseAuditUpdates": {
     "title": "Review & update",
     "subtitle": "Review course materials and update related content",
@@ -7709,27 +7697,6 @@
       "exportUnavailable": "This course file does not have an exportable version yet.",
       "exportFailed": "Export failed. Please try again."
     }
-  },
-  "teacherTrial": {
-    "back": "Back to workspace",
-    "title": "Student view",
-    "sessionOnly": "Trial data stays in this preview only",
-    "refresh": "Refresh",
-    "loading": "Loading course…",
-    "chapters": "Lectures",
-    "noHandout": "No formal handout for this section yet.",
-    "practice": "Try questions",
-    "noQuestions": "No questions available. You can still read the handout.",
-    "check": "Check answer",
-    "passed": "Correct",
-    "feedback": "Feedback",
-    "ask": "Ask AI",
-    "you": "You",
-    "questionLabel": "Question about this content",
-    "working": "Working…",
-    "send": "Send",
-    "stale": "The course or question changed. Refresh the preview and try again.",
-    "failed": "Could not complete the request. Please try again."
   },
   "pptProject": {
     "speakerNotes": "Speaker notes",
