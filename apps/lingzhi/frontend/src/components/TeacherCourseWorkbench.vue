@@ -809,9 +809,10 @@
                   </template>
                   <template v-else>
                     <button v-if="currentScriptReady" type="button" :disabled="scriptDocument?.showWorkingPreview" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
+                    <button v-if="selectedSourceRegenerationAvailable" class="primary-action" data-testid="script-current-source-regenerate" type="button" :disabled="referenceGenerationBlocked || scriptGenerationBusy" @click="openRegenerationPreparation"><RotateCcw :size="15" />{{ t('courseWorkbench.contextPane.regenerate', '重新生成') }}</button>
                     <i v-if="currentScriptReady && scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
-                      v-if="scriptBatchLaunchVisible || scriptBatchStarting || (!currentScriptReady && !scriptBatchRunning && !scriptBatchPaused)"
+                      v-if="!selectedSourceRegenerationAvailable && (scriptBatchLaunchVisible || scriptBatchStarting || (!currentScriptReady && !scriptBatchRunning && !scriptBatchPaused))"
                       class="primary-action"
                       data-testid="script-batch-start"
                       type="button"
@@ -829,7 +830,7 @@
                     </button>
                   </template>
               </TeacherDocumentCommandBar>
-              <p v-if="!currentScriptReady && !scriptBatchLaunchVisible && !scriptBatchStarting && !scriptBatchRunning && !scriptBatchPaused" class="generation-unavailable-reason" role="status">{{ scriptGenerationBlockedReason }}</p>
+              <p v-if="!selectedSourceRegenerationAvailable && !currentScriptReady && !scriptBatchLaunchVisible && !scriptBatchStarting && !scriptBatchRunning && !scriptBatchPaused" class="generation-unavailable-reason" role="status">{{ scriptGenerationBlockedReason }}</p>
             </template>
           </TeacherScriptDocument>
         </template>
