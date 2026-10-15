@@ -4410,6 +4410,32 @@ class TeacherLessonAuthoringRepository:
                 ),
                 None,
             )
+            if (
+                existing is not None
+                and existing.get("source_lesson_plan_revision_id")
+                != source_lesson_plan_revision_id
+            ):
+                # Identical prose can be deliberately retained after a plan
+                # edit. Keep the old provenance intact and create a stable
+                # source-scoped revision instead of silently reusing it.
+                if revision_id_override:
+                    raise TeacherLessonAuthoringError(
+                        "lesson_script_revision_conflict",
+                        "讲义修订已绑定其他教案，不能覆盖原版本。",
+                    )
+                source_identity = {
+                    "schema_version": "teacher_script_source_identity_v2",
+                    "sections_revision_id": revision_id,
+                    "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                }
+                revision_id = "tlsr-" + hashlib.sha256(
+                    json.dumps(source_identity, sort_keys=True).encode("utf-8")
+                ).hexdigest()[:24]
+                existing = next(
+                    (item for item in revisions
+                     if isinstance(item, dict) and item.get("revision_id") == revision_id),
+                    None,
+                )
             if existing is None:
                 revision = {
                     "revision_id": revision_id,

@@ -1924,11 +1924,21 @@ def test_plan_save_api_refreshes_downstream_state_and_rejects_stale_editor(tmp_p
         [{
             "section_node_id": "L2-1-1",
             "title": "1.1",
-            "content": "当前教案对应的完整讲义。",
+            "blocks": [{
+                "block_id": "retained-concept-block",
+                "module_id": "handout_content",
+                "role": "concept",
+                "content_type": "definition",
+                "type_label": "定义",
+                "title": "核心概念",
+                "planned_minutes": 20,
+                "content": "当前教案对应的完整讲义。",
+            }],
         }],
         source_lesson_plan_revision_id=initial_revision,
         generation_source="teacher_edit",
     )
+    original_script = deepcopy(script["script_revisions"][-1])
     repository.bind_v6_ppt_revision(
         "course-1",
         "L1-1",
@@ -2006,6 +2016,50 @@ def test_plan_save_api_refreshes_downstream_state_and_rejects_stale_editor(tmp_p
             json={"expected_current_revision_id": current_revision},
         )
         assert retired_history_route.status_code == 404
+
+        # Retaining reviewed prose after a plan edit is a real source change.
+        retained = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/draft",
+            json={
+                "base_revision_id": original_script["revision_id"],
+                "sections": original_script["sections"],
+            },
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert retained.status_code == 200
+        assert retained.json()["lesson"]["script"]["ready"] is True
+        lesson = repository.lesson("course-1", "L1-1")
+        current_script_id = lesson["working_script_revision_id"]
+        assert current_script_id != original_script["revision_id"]
+        assert lesson["script_revisions"][0] == original_script
+        assert lesson["script_revisions"][-1]["source_lesson_plan_revision_id"] == current_revision
+        assert lesson["ppt_assets"][0]["source_state"] == "stale"
+
+        # Repeating the same save on the same source remains idempotent.
+        repeated = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/draft",
+            json={
+                "base_revision_id": current_script_id,
+                "sections": lesson["script_revisions"][-1]["sections"],
+            },
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert repeated.status_code == 200
+        after_repeat = repository.lesson("course-1", "L1-1")
+        assert after_repeat["working_script_revision_id"] == current_script_id
+        assert len(after_repeat["script_revisions"]) == 2
+        assert after_repeat["script_revisions"][0] == original_script
+
+        before_override = repository.load("course-1")
+        with pytest.raises(TeacherLessonAuthoringError) as raised:
+            repository.save_script_revision(
+                "course-1", "L1-1", original_script["sections"],
+                source_lesson_plan_revision_id=current_revision,
+                generation_source="teacher_edit",
+                revision_id_override=original_script["revision_id"],
+            )
+        assert raised.value.code == "lesson_script_revision_conflict"
+        assert repository.load("course-1") == before_override
 
 
 def test_plan_fallback_fails_without_formal_revision(tmp_path):
