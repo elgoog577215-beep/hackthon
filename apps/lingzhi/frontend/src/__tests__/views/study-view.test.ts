@@ -32,6 +32,19 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('reconnects the visible authorized course library together with personal sources', async () => {
+    api.sources.mockRejectedValueOnce(new Error('另一端暂不可达'))
+    api.courses.mockRejectedValueOnce(new Error('另一端暂不可达'))
+    const { wrapper } = await page('/study?view=courses')
+    expect(api.courses).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.course-empty').exists()).toBe(false)
+    api.courses.mockResolvedValue([{ course_id: 'course-a', title: '设计思维', revision_id: 'release-a', section_count: 2, reading_available: true }])
+    await wrapper.get('.study-error button').trigger('click'); await flushPromises()
+    expect(api.courses).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('设计思维')
+    expect(wrapper.find('.study-error').exists()).toBe(false)
+    expect(wrapper.find('.student-courses [role="alert"]').exists()).toBe(false)
+  })
   it('keeps the home, authorized courses, and personal materials within the authenticated student space', async () => {
     const { wrapper, router } = await page()
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)

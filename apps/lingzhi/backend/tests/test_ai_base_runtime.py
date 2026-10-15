@@ -487,6 +487,45 @@ async def test_global_thinking_switch_overrides_call_site_request(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reject_schema", [False, True])
+@pytest.mark.parametrize("previous_json_rejection", [False, True])
+async def test_explicit_json_schema_is_preserved_without_unconstrained_retry(monkeypatch, reject_schema, previous_json_rejection):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "http://schema.internal.test/v1")
+    service = AIBase()
+    service.smart_models = ["schema-test-model"]
+    service._working_model_cache.clear()
+    service._model_failure_cache.clear()
+    service._model_transient_failures.clear()
+    monkeypatch.setattr(AIBase, "_json_mode_unsupported", set())
+    if previous_json_rejection:
+        service._remember_json_mode_unsupported(service.api_base, "schema-test-model")
+    requests = []
+    schema = {"type": "object", "properties": {"pages": {"type": "array", "items": {"type": "object"}}}, "required": ["pages"]}
+
+    async def create(**kwargs):
+        requests.append(kwargs)
+        if reject_schema:
+            error = RuntimeError("response schema unsupported")
+            error.status_code = 400
+            raise error
+        return FakeStream([SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content='{"pages":[]}', reasoning_content=None))])])
+
+    service.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    call = service._call_llm("return pages", retry_count=1, max_attempts=1,
+        json_mode=True, json_schema=schema, raise_on_failure=True)
+    if reject_schema:
+        with pytest.raises(AIProviderRequestError, match="response schema unsupported"):
+            await call
+    else:
+        assert await call == '{"pages":[]}'
+    assert len(requests) == 1
+    assert requests[0]["response_format"] == {"type": "json_schema", "json_schema": {
+        "name": "structured_response", "strict": True, "schema": schema}}
+    assert service._supports_json_response_format(model_id="schema-test-model") is not previous_json_rejection
+
+
+@pytest.mark.asyncio
 async def test_json_mode_requests_structured_provider_output(monkeypatch):
     captured = {}
 

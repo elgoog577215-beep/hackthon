@@ -7688,6 +7688,14 @@ class CourseService(AIBase):
                     retry_count=1, max_attempts=1, enable_thinking=False,
                     wait_for_capacity=True, reject_truncated=True, raise_on_failure=True,
                     json_mode=generation_contract_version == "script_ppt_bundle_v1",
+                    json_schema={
+                        "type": "object",
+                        "properties": {"pages": {
+                            "type": "array", "minItems": 1,
+                            "items": {"type": "object"},
+                        }},
+                        "required": ["pages"], "additionalProperties": False,
+                    },
                     max_tokens=output_tokens,
                     request_timeout_seconds=float(
                         self._generation_budget.teacher_script_request_timeout_seconds

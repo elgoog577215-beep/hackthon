@@ -1263,6 +1263,10 @@
       "mappingTitle": "本讲讲义将按以下教案生成",
       "mappingReady": "教案提供教学依据，讲义将按本讲目标灵活编排。",
       "contentTypes": {
+        "rule": "规则",
+        "diagram": "图解",
+        "flowchart": "流程图",
+        "checklist": "自检清单",
         "introduction": "引入",
         "definition": "定义",
         "explanation": "解释",

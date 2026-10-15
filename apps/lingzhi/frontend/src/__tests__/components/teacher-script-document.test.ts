@@ -8,6 +8,7 @@ import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import { useTeacherScriptVisualStore } from '@/stores/teacherScriptVisuals'
 import type { TeacherLessonJob, TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import zhMessages from '../../../public/locales/zh/translation.json'
+import enMessages from '../../../public/locales/en/translation.json'
 
 const lesson: TeacherLessonProjection = {
   lesson_unit_id: 'lesson-1', number: 1, title: '第1讲 爬虫概述', duration_minutes: 45,
@@ -30,6 +31,19 @@ const lesson: TeacherLessonProjection = {
 }
 
 describe('统一讲义页面', () => {
+  it.each(['zh', 'en'] as const)('常见扩展内容块在 %s 界面显示可读名称', async locale => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
+    await setLocale(locale)
+    const current = structuredClone(lesson)
+    current.script.sections[0]!.blocks = ['rule', 'diagram', 'flowchart', 'checklist'].map(type => ({
+      block_id: type, module_id: 'handout_content', role: 'concept', content_type: type,
+      type_label: type, title: '课程内容', content: '完整正文',
+    }))
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: current } })
+    const expected = locale === 'zh' ? ['规则', '图解', '流程图', '自检清单'] : ['Rule', 'Diagram', 'Flowchart', 'Checklist']
+    expected.forEach(label => expect(wrapper.text()).toContain(label))
+    wrapper.unmount()
+  })
   it('uses historical knowledge sections without requiring a lesson plan', () => {
     const current = structuredClone(lesson)
     current.plan.current_revision = null

@@ -2803,6 +2803,8 @@ async def complete_teacher_ppt_manuscript(
         try:
             sections = []
             total_sections = max(1, len(script["sections"]))
+            expected_blocks = {b["block_id"] for s in script["sections"] for b in s["blocks"]}
+            completed_blocks: set[str] = set()
             repository.update_job(
                 course_id,
                 str(job["id"]),
@@ -2812,7 +2814,7 @@ async def complete_teacher_ppt_manuscript(
                 message="正在核对当前讲义与教案",
             )
             for section_index, section in enumerate(script["sections"], start=1):
-                section_start = 16 + int((section_index - 1) / total_sections * 62)
+                section_start = 16 + int(len(completed_blocks) / max(1, len(expected_blocks)) * 70)
                 repository.update_job(
                     course_id,
                     str(job["id"]),
@@ -2827,9 +2829,13 @@ async def complete_teacher_ppt_manuscript(
                     block: dict[str, Any], *, current_index: int = section_index
                 ) -> None:
                     repository.save_script_bundle_checkpoint(course_id, str(job["id"]), block)
-                    progress = min(84, 20 + int(current_index / total_sections * 62))
                     has_pages = bool(block.get("ppt_pages"))
                     repair = block.get("ppt_repair_state") or {}
+                    if has_pages and not block.get("ppt_errors") and not repair:
+                        completed_blocks.add(block["block_id"])
+                    else:
+                        completed_blocks.discard(block["block_id"])
+                    progress = min(86, 16 + int(len(completed_blocks & expected_blocks) / max(1, len(expected_blocks)) * 70))
                     repair_message = (
                         f"正在修复第 {repair.get('page_group')}/{repair.get('total_page_groups')} 组页面"
                         f"（第 {repair.get('attempt')}/{repair.get('max_attempts')} 次）"

@@ -221,10 +221,6 @@ def page_furniture(content, execution, theme_id, title, positions, slots, *, mak
         for i, key in enumerate(content.expression.node_element_ids):
             x, y, w, _ = positions[key]
             label(f"step-number-{i}", f"{i + 1:02d}", (x, y - 62, w, 56), 24 if slug == "flow6" else 30, palette["accent"], align="center")
-        if slug == "flow6":
-            label("flow6-phase-1", "准备", (48, 378, 272, 36), 14, palette["accent"], align="center")
-            label("flow6-phase-2", "执行", (344, 378, 272, 36), 14, palette["accent"], align="center")
-            label("flow6-phase-3", "结算", (640, 378, 272, 36), 14, palette["accent"], align="center")
     elif slug == "question":
         question, answer = content.expression.ordered_element_ids
         label("question-label", "Q", (56, 160, 40, 46), 22, palette["accent"])

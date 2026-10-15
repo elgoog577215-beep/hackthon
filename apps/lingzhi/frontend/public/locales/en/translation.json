@@ -1263,6 +1263,10 @@
       "mappingTitle": "This handout will follow the lesson plan below",
       "mappingReady": "The lesson plan guides the handout. Content blocks follow the learning goals, with a flexible sequence.",
       "contentTypes": {
+        "rule": "Rule",
+        "diagram": "Diagram",
+        "flowchart": "Flowchart",
+        "checklist": "Checklist",
         "introduction": "Introduction",
         "definition": "Definition",
         "explanation": "Explanation",

@@ -154,7 +154,7 @@ async def teacher_exchange(course_id: str, request: Request):
             i["envelope"]["course_id"] == course_id and i.get("owner_id") == request.headers.get("X-User-Id")
             for i in repo.ledger().get("received", {}).values()
         ),
-        "ppt_options": public_ppt_options(course, document),
+        "ppt_options": public_ppt_options(course, document, storage=storage),
     }
 
 

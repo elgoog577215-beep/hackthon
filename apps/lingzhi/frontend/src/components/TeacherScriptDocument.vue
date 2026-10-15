@@ -800,14 +800,7 @@ function selectAiScope(scopeId: string) {
 
 function contentTypeLabel(block: TeacherLessonScriptBlock): string {
   if (!block.content_type) return blockRoleLabel(block.role)
-  const known: Record<string, string> = {
-    introduction: '引入', definition: '定义', explanation: '解释', comparison: '对比',
-    derivation: '推导', example: '例题', exercise: '练习', answer: '解答',
-    misconception: '辨析', summary: '总结', theorem: '定理', result: '结论', warning: '易错点',
-  }
-  return known[block.content_type]
-    ? t(`courseWorkbench.scriptDocument.contentTypes.${block.content_type}`, known[block.content_type])
-    : block.type_label || block.content_type
+  return t(`courseWorkbench.scriptDocument.contentTypes.${block.content_type}`, block.type_label || block.content_type)
 }
 
 function blockRoleLabel(role: string) {

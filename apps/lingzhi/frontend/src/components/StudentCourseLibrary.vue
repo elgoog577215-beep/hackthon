@@ -17,7 +17,7 @@
         <button v-if="course.exchange_origin" class="feedback-button" :aria-expanded="feedbackCourse === course.course_id" @click="feedbackCourse = feedbackCourse === course.course_id ? '' : course.course_id">{{ copy('课程提问与教师回复', 'Questions & teacher replies') }}</button><StudentCourseFeedback v-if="course.exchange_origin && feedbackCourse === course.course_id" :course-id="course.course_id" :revision-id="course.revision_id" />
       </article>
     </div>
-    <p v-if="!loading && !courses.length" class="course-empty">{{ copy('还没有获授权课程。将你的学生身份提供给教师，教师授权后课程会显示在这里。', 'No authorized courses yet. Give your student identity to your teacher; granted courses will appear here.') }}</p>
+    <p v-if="!loading && !error && !courses.length" class="course-empty">{{ copy('还没有获授权课程。将你的学生身份提供给教师，教师授权后课程会显示在这里。', 'No authorized courses yet. Give your student identity to your teacher; granted courses will appear here.') }}</p>
     <details class="student-id"><summary>{{ copy('我的学生身份', 'My student identity') }}</summary><code>{{ userId }}</code></details>
   </section>
 </template>
@@ -39,6 +39,7 @@ const feedbackCourse = ref(''), pathGeneration = ref(0)
 let sequence = 0
 async function load() { const current = ++sequence; loading.value = true; error.value = ''; try { const result = await studyApi.courses(); if (current === sequence) { courses.value = result; if (!result.some(c => c.course_id === detailCourseId.value)) detailCourseId.value = ''; pathGeneration.value++ } } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('课程读取失败', 'Could not load courses') } finally { if (current === sequence) loading.value = false } }
 onMounted(load)
+defineExpose({ reload: load })
 async function derive(course: StudyCourse) { const current = ++sequence; loading.value = true; error.value = ''; try { const source = await studyApi.courseSource(course.course_id, course.revision_id); if (current === sequence) emit('source', source) } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('资料选择失败', 'Could not select course sources') } finally { if (current === sequence) loading.value = false } }
 async function update(course: StudyCourse) { const current = ++sequence; loading.value = true; error.value = ''; try { await studyApi.updateCourse(course.course_id, course.revision_id); if (current === sequence) await load() } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('课程更新失败', 'Could not update course') } finally { if (current === sequence) loading.value = false } }
 async function downloadPpt(course: StudyCourse, assetId: string, filename: string) { const current = ++sequence; loading.value = true; error.value = ''; try { const blob = await studyApi.coursePpt(course.course_id, assetId, course.revision_id); if (current !== sequence) return; const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } catch (cause) { if (current === sequence) error.value = cause instanceof Error ? cause.message : copy('PPT 下载失败', 'Could not download PPT') } finally { if (current === sequence) loading.value = false } }

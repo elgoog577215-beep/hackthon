@@ -34,7 +34,7 @@ from teacher_script import normalize_teacher_script_section, validate_teacher_sc
 
 CONTRACT = "script_ppt_bundle_v1"
 DEFAULT_THEME = "qizhi-classroom"
-RECOVERY_CONTRACT = "ppt_page_recovery_v5"
+RECOVERY_CONTRACT = "ppt_page_recovery_v6"
 
 _SOURCE_GROUNDING_ERRORS = (
     "source_block_unknown",
@@ -633,7 +633,7 @@ def _repair_layout_slugs(block, repair_unit):
         return {"question", "bullets", "flow"}
     if role in {"summary", "reflection", "closure"}:
         return {"summary", "bullets", "flow"}
-    return {"bullets", "comparison", "flow"}
+    return {"bullets", "comparison", "flow", "flow6"}
 
 
 def _repair_source_ranges(block, repair_unit):
@@ -675,6 +675,7 @@ def _page_repair_prompt(block, pages, template, validation_error, repair_error="
         "页面文字中的数字、公式、专有名词和代码标识符必须出现在该项选择的来源中；没有依据就不得保留。"
         "pages 至少一页，每页仅含 layout_key、page_goal、fields；layout_key 必须来自 forms，fields 遵守对应表单。"
         "保留教学条件、例题和解答，覆盖本环节内容，避免重复封面。普通文案简洁，标识符和数值只能来自所给原文。"
+        "流程必须保留所讲步骤；超过四步时可选flow6或连续分页，不能为了版式省略末尾步骤。"
         "sources 只返回 quote_id，格式为 [{\"quote_id\":\"提供的ID\"}]。代码、公式和数据使用精确来源；长代码由系统按实际容量连续分页，不必裁掉代码。"
         "不得修改讲义，不得补写讲义没有的API或事实。\n"
         + json.dumps({"block_id": block["block_id"], "title": block.get("title"), "role": block.get("role"),
@@ -738,7 +739,15 @@ def _grounded_prose_fragments(content: str, limit: int = 160) -> list[str]:
 
 
 def _grounded_visible_text(fragment: str, limit: int) -> str:
-    text = re.sub(r"\s+", " ", fragment).strip()
+    lines = []
+    for line in fragment.splitlines():
+        stripped = line.strip()
+        if re.fullmatch(r"\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?", stripped):
+            continue
+        if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 3:
+            line = " · ".join(cell.strip() for cell in stripped.strip("|").split("|"))
+        lines.append(line)
+    text = re.sub(r"\s+", " ", " ".join(lines)).strip()
     text = re.sub(r"^(?:#{1,6}|[-*+]\s+)", "", text)
     text = text.replace("**", "").replace("`", "").strip()
     if len(text) <= limit:
@@ -769,6 +778,10 @@ def _grounded_prose_repair_pages(
         if fixed_slug(layout.template_layout_id) == "bullets"
     )
     fragments = _grounded_prose_fragments(str(block.get("content") or ""))
+    # Keep table rows separate so a separator cannot occupy a whole screen
+    # item, or push the next row's identity out of the visible excerpt.
+    fragments = [line for fragment in fragments for line in fragment.splitlines(keepends=True)
+                 if line.strip() and not re.fullmatch(r"\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?", line.strip())]
     pages = []
     for offset in range(0, len(fragments), 3):
         selected = fragments[offset:offset + 3]
@@ -777,12 +790,8 @@ def _grounded_prose_repair_pages(
             "layout_id": layout_id,
             "page_goal": "阅读并核对讲义要点",
             "fields": {
-                "title": "讲义要点",
-                "notes": (
-                    "原页面含无法由讲义支持的事实，本页按讲义原文顺序重新整理。"
-                    if source_failure
-                    else "模型服务暂时不可用，本页按讲义原文顺序整理。"
-                ),
+                "title": _grounded_visible_text(str(block.get("title") or "讲义摘录"), 24),
+                "notes": "结合讲义中的条件和示例说明本页内容。",
                 "split_reason": (
                     "页面事实缺少讲义依据，按原文重新整理"
                     if source_failure
@@ -1021,6 +1030,7 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                             break
                         page_errors.append({"block_id": bid, "page_index": index, "message": detail})
                         break
+                    raw = None
                     try:
                         attempts[index] += 1
                         block.update(
@@ -1043,7 +1053,9 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         await _notify(on_checkpoint, deepcopy(block))
                         raw = await invoke("修复当前 PPT 页面，只返回 {\"pages\":[...]}，必要时拆分本页。",
                             _page_repair_prompt(repair_block, candidate_pages, template, detail, previous_repair_error, repair_unit),
-                            output_tokens=min(3500, max(1800, repair_unit["source_chars"] + 1000)),
+                            # Layout fields and per-field source bindings take
+                            # space even for a short source paragraph.
+                            output_tokens=min(8192, max(4096, repair_unit["source_chars"] * 2 + 2000)),
                             stream_delta=None, stream_reset=None)
                         value = parse_page_response(raw)
                         if not isinstance(value.get("pages"), list) or not value["pages"]:
@@ -1054,6 +1066,11 @@ async def generate_bundle(*, invoke, contract, instructions, template, on_delta=
                         previous_repair_error = str(exc)
                         issue = {"block_id": bid, "page_index": index, "validation_error": detail,
                                  "repair_error": str(exc), "message": detail + "; repair_failed: " + str(exc)}
+                        if str(exc).startswith("script_ppt_response_") and raw is not None:
+                            # Keep the actual failed response in the existing
+                            # private checkpoint so a retry can be diagnosed.
+                            # It is never substituted for accepted page content.
+                            issue["model_response"] = str(raw)
                         from course_generation_errors import classify_generation_failure
                         failure = classify_generation_failure(exc)
                         timeout_failure = (

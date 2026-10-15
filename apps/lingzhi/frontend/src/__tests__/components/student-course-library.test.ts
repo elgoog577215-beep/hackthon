@@ -25,6 +25,16 @@ async function page() {
   return wrapper
 }
 describe('authorized student course library', () => {
+  it('shows an unavailable connection without claiming that no course is authorized', async () => {
+    api.courses.mockRejectedValueOnce(new Error('另一端暂不可达'))
+    const view = await page()
+    expect(view.get('[role="alert"]').text()).toBe('另一端暂不可达')
+    expect(view.find('.course-empty').exists()).toBe(false)
+    await view.findAll('button').find(button => button.text() === '刷新')!.trigger('click')
+    await flushPromises()
+    expect(view.find('[role="alert"]').exists()).toBe(false)
+    expect(view.text()).toContain('线性代数')
+  })
   it('exposes course tools on the formal learner route and hides them when reading is unavailable', async () => {
     const view = await page()
     const tools = view.findAll('.course-tools a').map(link => link.attributes('href'))

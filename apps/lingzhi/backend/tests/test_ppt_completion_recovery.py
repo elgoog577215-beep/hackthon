@@ -65,6 +65,97 @@ def test_unknown_layout_with_ambiguous_fields_enters_bounded_page_repair():
     validate_block_pages(result["blocks"][0], template)
 
 
+def test_page_completion_reserves_json_and_source_binding_space_for_short_blocks():
+    template, contract, page = sample()
+    budgets = []
+
+    async def invoke(*args, **kwargs):
+        budgets.append(kwargs["output_tokens"])
+        assert kwargs["output_tokens"] >= 4096
+        return json.dumps({"pages": [page]})
+
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [],
+            "generation_contract_version": CONTRACT}
+    result = asyncio.run(generate_bundle(invoke=invoke, contract=contract, instructions="",
+        template=template, seed_blocks={"b": seed}, immutable_handout=True))
+    assert len(budgets) == 1
+    assert result["blocks"][0]["content"] == TEXT
+    validate_block_pages(result["blocks"][0], template)
+
+
+@pytest.mark.asyncio
+async def test_saved_handout_ppt_requests_schema_constrained_pages(monkeypatch):
+    from types import SimpleNamespace
+    from course_generation import service as service_module
+    template, contract, page = sample()
+    service = service_module.CourseService.__new__(service_module.CourseService)
+    service._generation_budget = SimpleNamespace(teacher_script_request_timeout_seconds=30)
+    monkeypatch.setattr(service_module, "compile_teacher_script_module_contract", lambda *_args: deepcopy(contract))
+    calls = []
+
+    async def call(*args, **kwargs):
+        calls.append(kwargs)
+        return json.dumps({"pages": [page]}, ensure_ascii=False)
+
+    service._call_llm = call
+    seed = {**contract["modules"][0], "content": TEXT, "ppt_pages": [], "generation_contract_version": CONTRACT}
+    result = await service.generate_teacher_ppt_from_handout(course_id="course-1",
+        outline_section={}, current_plan_section={}, generation_contract_version=CONTRACT,
+        ppt_template=template.model_dump(mode="json"), bundle_seed_blocks={"b": seed}, immutable_handout=True)
+    assert len(calls) == 1
+    assert calls[0]["json_mode"] is True
+    assert calls[0]["json_schema"]["required"] == ["pages"]
+    assert calls[0]["json_schema"]["properties"]["pages"]["minItems"] == 1
+    assert calls[0]["max_attempts"] == 1
+    assert result["blocks"][0]["content"] == TEXT
+    validate_block_pages(result["blocks"][0], template)
+
+
+def test_source_excerpt_pages_hide_table_syntax_and_keep_row_sources():
+    from teacher_script_ppt import _grounded_prose_repair_pages
+    template, _, _ = sample()
+    content = '| 阶段 | 特征 |\n| :--- | :--- |\n| 设计1.0 | 个人经验 |\n| 设计2.0 | 标准化 |'
+    pages = _grounded_prose_repair_pages({'block_id': 'table', 'title': '设计演进', 'content': content}, template)
+    points = [point for page in pages for point in page['fields']['points']]
+    assert any('设计1.0' in point['text'] for point in points)
+    assert any('设计2.0' in point['text'] for point in points)
+    assert all('|' not in point['text'] and ':---' not in point['text'] for point in points)
+    assert all(point['sources'][0]['quote'] in content for point in points)
+    assert all(page['fields']['title'] == '设计演进' and '模型服务' not in page['fields']['notes'] for page in pages)
+
+
+def test_six_step_layout_is_available_to_the_existing_page_planner():
+    from teacher_script_ppt import _page_repair_prompt
+    template, contract, _ = sample()
+    prompt = _page_repair_prompt({**contract['modules'][0], 'content': TEXT}, [], template, 'missing pages')
+    assert '"flow6"' in prompt
+
+
+def test_completion_progress_counts_content_blocks_in_a_single_section(workflow):
+    client, repository, _ = workflow
+    generate(client, complete_ppt=False)
+    lesson = repository.lesson("course-1", "L1-1")
+    sections = deepcopy(lesson["script_revisions"][-1]["sections"])
+    sections[0]["blocks"].append({**deepcopy(sections[0]["blocks"][0]), "block_id": "another-block"})
+    lesson = repository.save_script_revision("course-1", "L1-1", sections,
+        source_lesson_plan_revision_id=lesson["working_revision_id"], generation_source="teacher_edit")
+    progress = []
+    update = repository.update_job
+
+    def record(*args, **kwargs):
+        if kwargs.get("phase") in {"ppt_page_generation", "ppt_page_validation"}:
+            progress.append(kwargs["progress"])
+        return update(*args, **kwargs)
+
+    repository.update_job = record
+    response = client.post("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/complete",
+        json={"source_script_revision_id": lesson["working_script_revision_id"]})
+    assert response.status_code == 202
+    assert _wait(client, response.json()["job"]["id"])["status"] == "completed"
+    assert any(16 < value < 70 for value in progress)
+    assert progress[-1] == 86
+
+
 def _wait(client, job_id):
     for _ in range(500):
         job = client.get(f"/api/teacher/courses/course-1/lesson-jobs/{job_id}").json()["job"]

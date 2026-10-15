@@ -42,7 +42,7 @@
 
       <ColumnResizeHandle v-if="materialId || creating" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
-        <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" :key="user.id" :user-id="user.id" @source="createFromCourse" />
+        <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" ref="authorizedCourses" :key="user.id" :user-id="user.id" @source="createFromCourse" />
         <StudentLearningHome v-else-if="!creating && route.query.view !== 'materials'" :user-id="user.id" :materials="library" @create="startNew" @source="createFromCourse" />
         <div v-else-if="!creating" class="study-library">
           <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew()"><Plus :size="18" />{{ c('create') }}</button></div>
@@ -190,7 +190,8 @@ async function connect() {
 }
 async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else await openMaterial() }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
-function reconnect() { void action(async () => { if (!user.value) await connect(); else { await loadLibrary(); await openMaterial() } }) }
+const authorizedCourses = ref<InstanceType<typeof StudentCourseLibrary> | null>(null)
+function reconnect() { void action(async () => { if (!user.value) await connect(); else { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]); await openMaterial() } }) }
 async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
 async function goLibrary() { await openStudySection('materials') }
 async function startNew(purpose?: StudyPurpose) { await router.push('/study'); creating.value = true; if (purpose) form.purpose = purpose; await action(loadLibrary) }

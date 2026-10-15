@@ -58,6 +58,9 @@ def test_reference_compositions_resolve_to_native_editable_scenes():
         assert scenes and scenes[0].objects
         if slug == "flow6":
             assert len(scenes[0].edges) == 5
+            object_ids = {obj.object_id for obj in scenes[0].objects}
+            assert all(f"step-number-{index}" in object_ids for index in range(6))
+            assert not any(object_id.startswith("flow6-phase-") for object_id in object_ids)
         if slug == "radial":
             assert len(scenes[0].edges) == 3
 

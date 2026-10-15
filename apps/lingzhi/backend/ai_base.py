@@ -1237,6 +1237,7 @@ class AIBase:
         require_stop: bool = False,
         raise_on_failure: bool = False,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         model_role: str | None = None,
         on_stream_activity: Callable[[], None] | None = None,
         on_content_delta: Callable[[str], Any] | None = None,
@@ -1455,12 +1456,15 @@ class AIBase:
                         "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
-                    if json_mode and self._supports_json_response_format(
+                    if json_mode and (json_schema is not None or self._supports_json_response_format(
                         model_id=model_id
-                    ):
-                        request_options["response_format"] = {
-                            "type": "json_object"
-                        }
+                    )):
+                        request_options["response_format"] = (
+                            {"type": "json_schema", "json_schema": {
+                                "name": "structured_response", "strict": True,
+                                "schema": json_schema,
+                            }} if json_schema is not None else {"type": "json_object"}
+                        )
                     # 真实 token 数只有 provider 给得出；估算值会系统性偏差，
                     # 直接影响"重复上下文占多少 token"这一验收项。
                     if (
@@ -1523,7 +1527,7 @@ class AIBase:
                                             **request_options
                                         )
                                     )
-                                elif not (json_mode and status_400):
+                                elif not (json_mode and status_400) or json_schema is not None:
                                     raise
                                 else:
                                     # Remember the rejection: without this every

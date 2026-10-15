@@ -70,6 +70,8 @@ def test_failed_json_repair_keeps_original_validation_cause():
     error = result["blocks"][0]["ppt_errors"][0]
     assert "teaching_fact_token_unsupported" in error["validation_error"]
     assert "script_ppt_response_invalid_json" in error["repair_error"]
+    assert error["model_response"] == "This is not JSON"
+    assert result["blocks"][0]["content"] == TEXT
 
 
 def test_optional_text_with_only_a_valid_source_is_recovered():

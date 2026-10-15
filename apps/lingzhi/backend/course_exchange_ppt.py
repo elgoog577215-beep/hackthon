@@ -45,10 +45,17 @@ def shareable_project(project, document):
     )
 
 
-def public_ppt_options(course, document):
+def publication_projects(storage, course, document):
+    from course_exchange_lesson_ppt import lesson_ppt_projects
+    return {**(course.get("teacher_ppt_projects") or {}), **lesson_ppt_projects(storage, course, document)}
+
+
+def public_ppt_options(course, document, *, storage=None):
+    if storage is None:
+        from storage import storage
     return [
         {"project_id": key, "title": project["title"]}
-        for key, project in (course.get("teacher_ppt_projects") or {}).items()
+        for key, project in publication_projects(storage, course, document).items()
         if shareable_project(project, document)
     ]
 
@@ -95,7 +102,7 @@ def freeze_published_ppts(storage, course, document, project_ids):
         return []
     if len(set(project_ids)) != len(project_ids):
         raise HTTPException(422, "PPT 选择重复")
-    projects = course.get("teacher_ppt_projects") or {}
+    projects = publication_projects(storage, course, document)
     root = Path(storage._data_dir) / "published_ppts"
     root.mkdir(parents=True, exist_ok=True)
     result = []

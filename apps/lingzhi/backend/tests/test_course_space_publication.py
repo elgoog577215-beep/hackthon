@@ -429,7 +429,7 @@ def test_files_are_actually_written_to_disk(repo):
     content_root = Path(repo.root) / report["package_id"] / "content"
 
     written = sorted(
-        str(p.relative_to(content_root)) for p in content_root.rglob("*.md")
+        p.relative_to(content_root).as_posix() for p in content_root.rglob("*.md")
     )
     assert written == sorted(report["written"])
     # 内容非空且可读。
