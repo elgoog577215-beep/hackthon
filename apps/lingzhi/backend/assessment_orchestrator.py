@@ -2273,6 +2273,7 @@ class AssessmentGenerationOrchestrator:
         )
         base["design_brief"] = deepcopy(design_brief)
         base["retrieval_summary"] = deepcopy(reference_summary)
+        base["solution_envelope"]["factual_source_evidence"] = deepcopy(content_evidence)
         context = _generation_context(
             profile=profile,
             objective=scoped_objective,

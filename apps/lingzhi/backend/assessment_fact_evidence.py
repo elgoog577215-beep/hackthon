@@ -19,7 +19,7 @@ from course_versioning import stable_hash
 FACT_SCHEMA = "assessment_fact_evidence_v1"
 _PUBLIC_FIELDS = ("stimulus", "task", "constraints", "options", "input_contract", "response_contract")
 _DELIVERY_FIELDS = ("canonical_answer", "worked_solution", "rubric", "acceptable_answers", "validator_config", "solution_graph")
-PLAN_KINDS = ("arithmetic", "dynamic_array", "range_sum", "treap_depth", "zipf_coverage")
+PLAN_KINDS = ("arithmetic", "dynamic_array", "range_sum", "treap_depth", "zipf_coverage", "state_operations")
 
 
 def _integer(value: Any, low: int, high: int) -> int:
@@ -76,6 +76,21 @@ def _compute(plan: dict) -> tuple[Any, str, str]:
     if not isinstance(plan, dict) or plan.get("kind") not in PLAN_KINDS:
         raise ValueError("unsupported computation plan")
     kind = plan["kind"]
+    if kind == "state_operations":
+        if set(plan) != {"kind","initial_state","operations"}: raise ValueError("unknown state parameter")
+        if len(json.dumps(plan, ensure_ascii=False)) > 4000: raise ValueError("state plan too large")
+        state, trace = deepcopy(plan["initial_state"]), []
+        if not isinstance(state, (list,dict)) or not isinstance(plan["operations"], list) or not 1 <= len(plan["operations"]) <= 32:
+            raise ValueError("invalid state plan")
+        for op in plan["operations"]:
+            if not isinstance(op,dict): raise ValueError("invalid operation")
+            if op.get("op") == "append" and isinstance(state,list) and set(op) == {"op","value"}: state.append(deepcopy(op["value"]))
+            elif op.get("op") == "pop" and isinstance(state,list) and state and set(op) == {"op"}: state.pop()
+            elif op.get("op") == "set" and isinstance(state,dict) and isinstance(op.get("key"),str) and set(op) == {"op","key","value"}: state[op["key"]] = deepcopy(op["value"])
+            elif op.get("op") == "delete" and isinstance(state,dict) and isinstance(op.get("key"),str) and set(op) == {"op","key"}: state.pop(op["key"], None)
+            else: raise ValueError("operation incompatible with state")
+            trace.append(deepcopy(state))
+        return state, "从initial_state开始按顺序执行operations。append在列表末尾追加，pop删除列表最后一个元素；set设置字典键，delete删除键（不存在则不变）。给出最终状态。", "逐步状态为：" + json.dumps(trace,ensure_ascii=False,sort_keys=True)
     if kind == "arithmetic":
         if set(plan) != {"kind", "expression"}: raise ValueError("unknown arithmetic parameter")
         value = _arithmetic(plan["expression"])
@@ -112,6 +127,7 @@ def _compute(plan: dict) -> tuple[Any, str, str]:
     if set(plan) != {"kind", "n", "alpha", "threshold"}: raise ValueError("unknown probability parameter")
     n = _integer(plan["n"], 1, 64)
     alpha = _integer(plan["alpha"], 0, 4)
+    if not isinstance(plan["threshold"],str) or len(plan["threshold"]) > 48: raise ValueError("invalid threshold")
     try: threshold = Fraction(plan["threshold"])
     except (TypeError, ValueError, ZeroDivisionError) as exc: raise ValueError("invalid threshold") from exc
     if not 0 < threshold <= 1: raise ValueError("invalid threshold")
@@ -223,10 +239,31 @@ def apply_fact_evidence(contract: dict) -> dict:
     spec["factual_evidence_schema"] = FACT_SCHEMA
     solution = contract.setdefault("solution_envelope", {})
     report = evaluate_fact_evidence(spec, solution)
+    report["source_bindings"] = _source_bindings(spec, solution)
     report["artifact_hash"] = _artifact_hash(contract)
     solution["factual_validation"] = deepcopy(report)
-    contract.setdefault("solution_validation", {})["factual_validation"] = deepcopy(report)
+    contract.setdefault("solution_validation", {})["factual_validation"] = {
+        key:deepcopy(report[key]) for key in ("schema_version","status","reason","question_hash","artifact_hash","verifier") if key in report}
     return report
+
+
+def _source_bindings(spec: dict, solution: dict) -> list[dict]:
+    sources = {str(item.get("reference_id") or ""): item
+               for item in solution.get("factual_source_evidence") or [] if isinstance(item,dict)}
+    public_text = "\n".join(str((spec.get(key) or {}).get("rendered_text") or "") for key in ("stimulus","task"))
+    bindings = []
+    for binding in (solution.get("premise_bindings") or [])[:12]:
+        if not isinstance(binding,dict): continue
+        reference_id = str(binding.get("reference_id") or "")
+        claim, quote = str(binding.get("claim") or ""), str(binding.get("quote") or "")
+        source = sources.get(reference_id)
+        excerpt = str((source or {}).get("reference_excerpt") or "")
+        matched = bool(source and quote and claim and quote == claim and quote in excerpt and claim in public_text)
+        bindings.append({"reference_id":reference_id, "claim":claim[:1200], "quote":quote[:1200],
+                         "status":"matched" if matched else "missing_reference" if source is None else "quote_mismatch",
+                         "source_snapshot_hash":stable_hash(source) if source else None,
+                         "source_type":(source or {}).get("source_type")})
+    return bindings
 
 
 def fact_publication_state(contract: dict) -> str:
