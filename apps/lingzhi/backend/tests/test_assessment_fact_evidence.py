@@ -183,6 +183,27 @@ def test_generation_wire_offers_computation_plan_and_traceable_premises():
     assert '"premise_bindings"' in prompt
 
 
+async def test_verified_computation_uses_model_only_for_curriculum_not_factual_rejudging():
+    from assessment_fact_evidence import build_computed_candidate, computed_independent_solution
+    from assessment_orchestrator import AssessmentGenerationOrchestrator, _apply_independent_validation
+    from backend.tests.test_assessment_solution_protocol import example
+    c=build_computed_candidate({"kind":"treap_depth","n":3,"rank":2})
+    contract={"question_spec":c["question_spec"],"solution_envelope":c["solution"],"semantic_preflight":{"passed":True}}
+    independent=computed_independent_solution(c["question_spec"])
+    _apply_independent_validation(contract, example()[2], independent)
+    seen=[]
+    class Model:
+        async def evaluate_candidate(self,*args):
+            raise AssertionError("do not ask a model to overrule complete executable evidence")
+        async def evaluate_computed_target(self,spec,objective,slot):
+            seen.append(spec)
+            return {"passed":True,"confidence":.99,"solution_consistent":True,"issues":[],"dimensions":{}}
+    report=await AssessmentGenerationOrchestrator(model=Model())._semantic_report(
+        contract,independent=independent,objective={},slot={},audit={"semantic_evaluation_calls":0})
+    assert report["passed"]
+    assert len(seen)==1 and "canonical_answer" not in str(seen[0])
+
+
 def test_publication_boundary_rechecks_fact_evidence_instead_of_cached_approval():
     from assessment_fact_evidence import build_computed_candidate, apply_fact_evidence
     from question_bank import _apply_tiered_review_policy
