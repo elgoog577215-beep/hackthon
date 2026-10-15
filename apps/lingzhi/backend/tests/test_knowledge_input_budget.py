@@ -10,6 +10,60 @@ from backend.tests.test_knowledge_first import svc, initialize, start, tree_resp
 from course_knowledge_context import knowledge_context_prompt
 
 
+@pytest.mark.asyncio
+async def test_lesson_tree_with_adopted_knowledge_uses_its_own_context_budget(svc, monkeypatch):
+    """A later lecture must not inherit the smaller handout-writing input cap."""
+    from backend.tests.test_handout_knowledge import handouts
+    from backend.tests.test_lesson_knowledge import one_lesson_response
+
+    handouts(svc)
+    async def seed_call(prompt, **kwargs):
+        return json.dumps(one_lesson_response('memory'), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=seed_call, model_smart='test', client=None)
+    view = svc.view('c-pilot', source_mode='handouts')
+    seed, _ = svc.start('c-pilot', 'tree', 'seed', '', view['document_revision'], source_mode='handouts', lesson_id='memory')
+    await svc.run('c-pilot', seed['id'])
+    svc.adopt('c-pilot', seed['id'], '', view['document_revision'])
+
+    def grow_catalog(raw):
+        tree = raw['course_knowledge_base']
+        original = tree['knowledge_points'][0]
+        tree['knowledge_points'] = [{**deepcopy(original), 'knowledge_id': f'old-{i}',
+            'name': f'已采用知识{i}', 'statement': '这是已采用命题的完整定义及适用边界。' * 8,
+            'meta_question': f'如何解释已采用知识{i}？', 'meta_answer': '完整回答必须保留原命题中的条件。' * 4}
+            for i in range(44)]
+        tree['lessons'][0]['knowledge_ids'] = [p['knowledge_id'] for p in tree['knowledge_points']]
+        tree['relations'] = [{'id': f'old-relation-{i}', 'source_id': f'old-{i % 44}',
+            'target_id': f'old-{(i + 1) % 44}', 'type': 'applies_to',
+            'reason': '前一命题的规则用于后一命题描述的方法，并保留适用条件。' * 2,
+            'conditions': [], 'scope_lesson_id': 'memory'} for i in range(63)]
+        return raw
+    svc.storage.update_course_data('c-pilot', grow_catalog)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] = 'CPU执行指令。' + '完整讲义中的定义和方法步骤必须保留。' * 850
+    svc.authoring._save(state)
+    # This is a handout-writing knob, not the capacity of knowledge extraction.
+    monkeypatch.setenv('COURSE_TEACHER_HANDOUT_MAX_INPUT_TOKENS', '32768')
+    calls = []
+    async def call(prompt, **kwargs):
+        tokens = AIBase.estimate_request_tokens(prompt, kwargs['system_prompt'])
+        assert tokens > 32768
+        AIBase.validate_request_budget(prompt, kwargs['system_prompt'], kwargs['max_input_tokens'], kwargs['max_input_chars'])
+        assert kwargs['max_input_tokens'] + kwargs['max_tokens'] + 1024 <= 131072
+        calls.append(tokens)
+        return json.dumps(one_lesson_response('cpu'), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    view = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'later-lecture', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    frozen = deepcopy(job['request_snapshot']['knowledge_generation_context'])
+    await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'completed', saved.get('error')
+    assert len(calls) == 1
+    assert saved['request_snapshot']['knowledge_generation_context'] == frozen
+    assert saved['request_budget']['estimated_input_tokens'] == calls[0]
+
+
 def test_generic_final_wire_prompt_keeps_all_facts_once_and_uses_short_ids():
     from generic_knowledge import tree_model_prompt
     context = {'source_mode': 'handouts', 'scope_lesson_id': 'lesson',
