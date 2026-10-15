@@ -28,6 +28,18 @@ def test_question_asking_to_refute_a_false_statement_is_not_itself_rejected():
     assert report["status"] == "unverified"
 
 
+@pytest.mark.parametrize("stimulus,task", [
+    ("Treap的键为1到n，节点数n=2，优先级独立均匀随机，根深度为0。已知 E[D(i)] = H_n - 1。", "求平均深度。"),
+    ("Treap的键为1到n，节点数n=3，i=3，优先级独立均匀随机，根深度为0。已知 E[D(i)] = H_n - 1。", "求这个键的深度。"),
+    ("Treap使用相互相关的优先级。已知 E[D(i)] = H_n - 1。", "讨论这个假设模型。"),
+    ("已知 1/3=0.333。", "所有数保留三位小数，计算近似结果。"),
+    ("已知 1+2=1。", "在模2运算中继续计算。"),
+])
+def test_counterexamples_do_not_silently_change_the_problem_assumptions(stimulus,task):
+    from assessment_fact_evidence import evaluate_fact_evidence
+    assert evaluate_fact_evidence({"stimulus":{"rendered_text":stimulus},"task":{"rendered_text":task}}, {})["status"] == "unverified"
+
+
 @pytest.mark.parametrize("plan,expected", [
     ({"kind": "arithmetic", "expression": "16384/8"}, 2048),
     ({"kind": "dynamic_array", "append_count": 4}, 11),
