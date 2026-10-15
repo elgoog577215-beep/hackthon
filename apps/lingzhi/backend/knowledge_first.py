@@ -377,6 +377,7 @@ class KnowledgeFirstService:
 
     async def run(self, course_id, job_id):
         provider = None
+        request_budget = None
         try:
             job = self._active(course_id, job_id)
             self.authoring.update_job(course_id, job_id, status="running", progress=10, phase="model")
@@ -408,6 +409,21 @@ class KnowledgeFirstService:
             else:
                 shared = knowledge_context_prompt(context, None if topic == "tree" else topic, compact_evidence=True)
                 prompt += "\n共享课程上下文与冻结证据（不得扩大本次指定范围）：" + json.dumps(shared, ensure_ascii=False)
+            from course_generation_budget import CourseGenerationBudget
+            lecture_budget = CourseGenerationBudget.from_env() if generic and topic != "tree" else None
+            if generic and topic == "tree":
+                from knowledge_generation_budget import KnowledgeTreeBudget
+                budget = KnowledgeTreeBudget.from_env()
+                request_budget = budget.describe(prompt, system)
+                self.authoring.update_job(course_id, job_id, request_budget=request_budget)
+                budget.validate(prompt, system)
+                request_options = budget.call_options()
+            else:
+                request_options = dict(
+                    max_tokens=lecture_budget.teacher_handout_max_output_tokens if lecture_budget else 14000,
+                    max_input_tokens=lecture_budget.teacher_handout_max_input_tokens if lecture_budget else CoursePlanningBudget.from_env().max_input_tokens,
+                    max_input_chars=lecture_budget.teacher_handout_max_input_chars if lecture_budget else None,
+                    request_timeout_seconds=lecture_budget.teacher_handout_request_timeout_seconds if lecture_budget else 240)
             if self.provider_factory is None:
                 from ai_base import AIBase
                 provider = AIBase()
@@ -421,13 +437,8 @@ class KnowledgeFirstService:
                     self._active(course_id, job_id)
                     self.authoring.update_job(course_id, job_id, partial_text="".join(partial))
             pulse = asyncio.create_task(checkpoint())
-            from course_generation_budget import CourseGenerationBudget
-            lecture_budget = CourseGenerationBudget.from_env() if generic and (topic != "tree" or job.get("source_mode") == "handouts") else None
             call = asyncio.create_task(provider._call_llm(prompt, system_prompt=system,
-                retry_count=1, max_attempts=1, enable_thinking=False, max_tokens=lecture_budget.teacher_handout_max_output_tokens if lecture_budget else 14000,
-                max_input_tokens=lecture_budget.teacher_handout_max_input_tokens if lecture_budget else CoursePlanningBudget.from_env().max_input_tokens,
-                max_input_chars=lecture_budget.teacher_handout_max_input_chars if lecture_budget else None,
-                request_timeout_seconds=lecture_budget.teacher_handout_request_timeout_seconds if lecture_budget else 240,
+                retry_count=1, max_attempts=1, enable_thinking=False, **request_options,
                 reject_truncated=True, require_stop=True,
                 raise_on_failure=True, json_mode=False, on_content_delta=partial.append))
             try:
@@ -489,6 +500,8 @@ class KnowledgeFirstService:
                 if isinstance(exc, AIRequestBudgetExceeded):
                     error.update(message="本次输入超过生成容量限制，尚未调用模型。请调整输入范围或生成配置后再发起；重复点击不会解决。",
                                  retryable=False, recovery_action="revise_inputs", model_request_sent=False)
+                    if request_budget is not None:
+                        error['request_budget'] = request_budget
                 self.authoring.update_job(course_id, job_id, status="failed", phase="failed", stream_complete=True,
                     error=error)
         finally:
@@ -557,7 +570,7 @@ class KnowledgeFirstService:
     def view(self, course_id, *, source_mode=""):
         raw = self.repository.load_raw(course_id)
         state = self.authoring.load(course_id)
-        jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message", "error", "partial_text", "model") if k in j}
+        jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message", "error", "partial_text", "model", "request_budget") if k in j}
                 for j in state["jobs"].values() if j.get("type") in JOB_TYPES]
         active_jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message") if k in j}
                        for j in state["jobs"].values() if j.get("status") in ACTIVE]
