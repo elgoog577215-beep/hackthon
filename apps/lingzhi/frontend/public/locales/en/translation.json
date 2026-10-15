@@ -6301,6 +6301,10 @@
     "save": "Save note"
   },
   "questionBank": {
+    "settingsPane": "AI generation settings",
+    "collapseSettings": "Collapse generation settings",
+    "expandSettings": "Expand generation settings",
+    "knowledgeSettings": "Knowledge point bindings",
     "generationNotStarted": "Question generation did not start",
     "qualityAwaitingFacts": "Structure checked; factual verification pending",
     "factEvidenceTitle": "Factual evidence",

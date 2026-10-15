@@ -410,7 +410,7 @@
             :class="{ 'is-course-preview': lessonCoursePreviewVisible || scriptCoursePreviewVisible }"
           >
         <header
-          v-if="lessonStore.lessons.length && (activeStage !== 'ppt' || legacyPptOpen)"
+          v-if="lessonStore.lessons.length && activeStage !== 'question-bank' && (activeStage !== 'ppt' || legacyPptOpen)"
           class="lesson-navigator"
           :class="{ 'has-document-actions': lessonPageHeaderVisible }"
         >
@@ -478,7 +478,7 @@
             </template>
         </TeacherDocumentCommandBar>
         <nav
-          v-else-if="lessonStore.lessons.length && !['script', 'ppt'].includes(activeStage)"
+          v-else-if="lessonStore.lessons.length && !['script', 'ppt', 'question-bank'].includes(activeStage)"
           class="lesson-switch-actions lesson-switch-actions--standalone"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
@@ -5128,6 +5128,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .workbench-center.is-knowledge-workspace{overflow:auto;padding:24px 30px 36px;background:#f7f8fc}
+.is-question-bank-workspace>.workbench-center.is-lesson-workspace{padding:0;overflow:hidden;display:flex;flex-direction:column}
+.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .lesson-stage-content{height:100%;min-height:0;overflow:hidden;display:flex;flex-direction:column;flex:1}
+.is-question-bank-workspace .question-workbench-surface{height:100%;min-height:0;flex:1}
+.is-question-bank-workspace .lesson-workspace{display:flex;flex:1;min-height:0;overflow:hidden}
 @media(min-width:761px){
   .teacher-workbench:not(.is-ai-collaboration){grid-template-columns:var(--column-left-width) 10px minmax(0,1fr) 10px var(--column-right-width)}
   .teacher-workbench:not(.is-ai-collaboration).is-context-collapsed,.teacher-workbench:not(.is-ai-collaboration).is-question-bank-workspace{grid-template-columns:var(--column-left-width) 10px minmax(0,1fr)}

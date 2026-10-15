@@ -279,7 +279,7 @@ describe('QuestionBankReviewPanel', () => {
   })
 
   it('keeps generation controls in the right pane while browsing and preserves settings when collapsed', async () => {
-    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
     await flushPromises()
     const side = wrapper.get('[data-testid="question-settings-pane"]')
     expect(side.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
@@ -288,15 +288,16 @@ describe('QuestionBankReviewPanel', () => {
     await side.get('[data-testid="collapse-question-settings"]').trigger('click')
     expect(side.isVisible()).toBe(false)
     await wrapper.get('[data-testid="expand-question-settings"]').trigger('click')
-    expect(side.isVisible()).toBe(true)
+    expect(wrapper.get('[data-testid="question-settings-pane"]').isVisible()).toBe(true)
     expect((side.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
     expect(post).not.toHaveBeenCalled()
     expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('keeps empty lectures available in the left rail without starting generation on navigation', async () => {
     const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', chapterOptions: [
-      { node_id: 'section-1', number: 1, title: '已有题的讲次' },
+      { node_id: 'node-1', number: 1, title: '已有题的讲次' },
       { node_id: 'empty-lesson', number: 2, title: '还没有题的讲次' },
     ] } })
     await flushPromises()
@@ -383,7 +384,7 @@ describe('QuestionBankReviewPanel', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="question-chapter-item"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-lesson-rail"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('旧课程第一题')
     expect(wrapper.text()).toContain('旧课程第二题')

@@ -6301,6 +6301,10 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "settingsPane": "AI 出题设置",
+    "collapseSettings": "收起出题设置",
+    "expandSettings": "展开出题设置",
+    "knowledgeSettings": "知识点绑定",
     "generationNotStarted": "题目生成未启动",
     "qualityAwaitingFacts": "结构检查通过，事实待复核",
     "factEvidenceTitle": "事实核验依据",
