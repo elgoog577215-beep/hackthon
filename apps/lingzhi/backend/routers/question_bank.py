@@ -461,6 +461,16 @@ class QuestionBankRevisionRequest(BaseModel):
     expected_bundle_revision_id: str | None = Field(default=None, max_length=200)
 
 
+class QuestionSolutionRevisionRequest(BaseModel):
+    expected_bundle_revision_id: str = Field(min_length=1, max_length=200)
+    expected_solution_revision_id: str = Field(min_length=1, max_length=200)
+    stimulus: str = Field(min_length=1, max_length=12000)
+    task: str = Field(min_length=1, max_length=12000)
+    constraints: list[str] = Field(max_length=30)
+    solution_fields: dict[str, Any]
+    note: str = Field(min_length=1, max_length=2000)
+
+
 class ExamPaperCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     duration_minutes: int = Field(default=120, ge=1, le=1440)
@@ -3397,6 +3407,44 @@ async def revise_question(
         **_mutation_response(stored, str((edited or {}).get("revision_id") or revision_id)),
         "item": edited,
     }
+
+
+@router.post("/items/{revision_id}/solution-revisions", status_code=status.HTTP_201_CREATED)
+async def revise_question_solution(
+    course_id: str, revision_id: str, payload: QuestionSolutionRevisionRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict[str, Any]:
+    from question_solution_revisions import revise_open_question_solution
+
+    actor = require_user_id(x_user_id)
+    course = await _owned_binding_course(course_id, actor)
+    bundle = _require_bundle(course)
+    _require_expected_revision(bundle, payload.expected_bundle_revision_id)
+    if question_bank_rebuild_job_repository.active_for_course(course_id):
+        raise HTTPException(409, detail={"code": "question_bank_generation_active"})
+    try:
+        updated = revise_open_question_solution(
+            bundle, revision_id, expected_solution_revision_id=payload.expected_solution_revision_id,
+            stimulus=payload.stimulus, task=payload.task, constraints=payload.constraints,
+            solution_fields=payload.solution_fields, editor_id=actor, note=payload.note,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "question_revision_missing"}) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    stored = question_bank_repository.save_bundle(course_id, updated, activate=False)
+    try:
+        question_bank_repository.activate_bundle(
+            course_id, stored["bundle_revision_id"],
+            expected_current_revision_id=payload.expected_bundle_revision_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": "question_bank_changed"}) from exc
+    edited = next(item for item in stored["items"] if item.get("parent_revision_id") == revision_id)
+    return {"schema_version": "question_solution_revision_api_v1", "course_id": course_id,
+            "bundle_revision_id": stored["bundle_revision_id"], "item_revision_id": edited["revision_id"],
+            "solution_revision_id": edited["solution_revision_id"],
+            "review_status": edited["review_status"], "quality_report": edited["quality_report"]}
 
 
 def _require_bundle(

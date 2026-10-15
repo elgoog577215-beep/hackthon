@@ -112,6 +112,38 @@ def test_fixed_manuscript_roundtrip_edit_and_export(tmp_path):
     assert TEXT in Presentation(path).slides[0].notes_slide.notes_text_frame.text
 
 
+def test_selected_page_split_recompiles_page_numbers_and_preserves_locked_content(monkeypatch):
+    from ppt_teaching_planner import regenerate_teaching_pages
+    from ppt_teaching_manuscript import resolve_manuscript_page, physical_pages, teaching_deck_quality
+    doc, graph, template = fixture()
+    value = lowered("bullets")
+    plans = [{**deepcopy(value), "page_id": f"p-{n}", "teaching_unit_id": graph.units[0].teaching_unit_id,
+              "source_block_ids": ["b"]} for n in (1, 2)]
+    manuscript = compile_teaching_manuscript(doc, graph, template, {"central_question": "明确目标"}, plans)
+    manuscript.pages[1].teacher_locked = True
+    before = manuscript.model_dump()
+    calls = []
+    async def split(planner, request):
+        calls.append(request)
+        return {"pages": [{**lowered("bullets"), "split_reason": "分别说明准备与执行"},
+                          {**lowered("flow"), "split_reason": "分别说明准备与执行"}]}
+    monkeypatch.setattr("ppt_fixed_draft.invoke_fixed_form", split)
+    revised = asyncio.run(regenerate_teaching_pages(manuscript, ["p-1"], None))
+    assert len(calls) == 1
+    assert [p.page_number for p in revised.pages] == [1, 2, 3]
+    assert revised.pages[-1].teacher_locked
+    assert revised.pages[-1].teaching == manuscript.pages[-1].teaching
+    assert revised.pages[-1].speaker_notes == manuscript.pages[-1].speaker_notes
+    for page in revised.pages:
+        checked = page.model_copy(deep=True)
+        resolve_manuscript_page(checked, template, page.speaker_notes.source_document_revision)
+        assert checked.model_dump() == page.model_dump()
+        footer = next(o for o in page.resolved_scenes[0].objects if o.object_id == "page-number")
+        assert int(footer.text) == page.page_number
+    teaching_deck_quality(doc, graph, revised, template, physical_pages(revised))
+    assert manuscript.model_dump() == before
+
+
 def test_fixed_planner_parallel_failure_recovery_and_selected_forms():
     from slide_deck_v6_models import V6BuildError
     doc, graph, template = fixture()

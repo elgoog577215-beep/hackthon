@@ -769,7 +769,12 @@ async def regenerate_teaching_pages(manuscript, target_page_ids, planner, *, tim
             raise V6BuildError(stage="manuscript", code="teaching_page_validation_failed", message=error, page_id=page_id, retryable=True)
     candidate_base.pages = [part for page in candidate_base.pages for part in replacements.get(page.page_id, [page])]
     for number, page in enumerate(candidate_base.pages, 1):
-        page.page_number = number
+        if page.page_number != number:
+            page.page_number = number
+            # Splitting a selected page shifts its later siblings and the page
+            # furniture on subsequent pages. Recompile only this deterministic
+            # draft projection, retaining each page's exact source snapshot.
+            resolve_manuscript_page(page, template, page.speaker_notes.source_document_revision)
     candidate_base.story_page_count = len(candidate_base.pages)
     return refresh_manuscript(candidate_base)
 

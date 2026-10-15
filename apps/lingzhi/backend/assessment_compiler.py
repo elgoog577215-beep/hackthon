@@ -291,6 +291,10 @@ def compile_formal_task_contract(
             "practice_level": practice_level,
             "assessment_slot": item.get("assessment_slot") or {},
             "solution_revision_id": item.get("solution_revision_id"),
+            "validation_policy_version": "assessment_validation_policy_v2",
+            "independent_review_invalidated": bool(
+                (item.get("solution_validation") or {}).get("independent_review_invalidated")
+            ),
         },
         prefix="qcc_",
     )
@@ -326,6 +330,7 @@ def compile_formal_task_contract(
     )
     result["contract_validation"] = validation
     result["validation_policy"] = {
+        "schema_version": "assessment_validation_policy_v2",
         "mastery_eligible": bool(
             (practice_level in {"mastery_check", "final_assessment"}
              or (item.get("assessment_binding_schema") == ATOMIC_ASSESSMENT_SCHEMA
@@ -334,6 +339,7 @@ def compile_formal_task_contract(
                  and set(item.get("knowledge_revision_refs") or {}) == set(item["primary_knowledge_ids"])))
             and validation.get("passed")
             and not legacy_text_compat
+            and not (item.get("solution_validation") or {}).get("independent_review_invalidated")
         ),
         "max_support_level_for_mastery": 1,
         "requires_unseen_validation_after_solution": True,

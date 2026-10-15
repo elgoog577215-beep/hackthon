@@ -4425,6 +4425,8 @@ def _apply_tiered_review_policy(
 def _mandatory_review_reason(
     item: dict[str, Any],
 ) -> str:
+    if (item.get("solution_validation") or {}).get("independent_review_invalidated"):
+        return "private_solution_revised"
     if item.get("assessment_role") in FINAL_ASSESSMENT_ROLES:
         return "comprehensive_assessment"
     risk_flags = [
