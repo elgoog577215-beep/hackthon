@@ -71,9 +71,9 @@
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
-            <KnowledgeMasteryTree :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectedId = $event" />
+            <KnowledgeMasteryTree :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
             <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" :aria-label="t('knowledgeFirst.pointDetails')">
-            <button type="button" class="close-point-detail" @click="selectedId = ''">{{ t('knowledgeFirst.backToTree') }}</button>
+            <button type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
             <article v-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
               <h2>{{ selectedPoint.name }}</h2><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
@@ -148,7 +148,7 @@ import HandoutConceptMap from './HandoutConceptMap.vue'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
 
 const props = withDefaults(defineProps<{ courseId: string; treeOnly?: boolean; initialLessonId?: string }>(), { treeOnly: false, initialLessonId: '' })
-const emit = defineEmits<{ updated: []; 'open-handouts': [] }>()
+const emit = defineEmits<{ updated: []; 'open-handouts': []; 'lesson-change': [id: string] }>()
 const courseId = computed(() => props.courseId)
 const knowledgeLessonId = ref(props.initialLessonId)
 const data = ref<any>(null), error = ref(''), busy = ref(false)
@@ -157,6 +157,9 @@ const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
 const tab = ref('tree'), treeChoice = ref(''), selectedId = ref(''), lesson = ref('types'), handoutChoice = ref('')
 const detailPane = ref<HTMLElement | null>(null)
+let pointTrigger: HTMLElement | null = null
+function selectGraphPoint(id: string, trigger: HTMLElement) { pointTrigger = trigger; selectedId.value = id }
+async function closePoint() { selectedId.value = ''; await nextTick(); pointTrigger?.focus({ preventScroll: true }) }
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
 const base = computed(() => `/api/courses/${courseId.value}/knowledge-first`)
@@ -269,7 +272,8 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
   node?.scrollIntoView?.({ block: 'nearest' })
 }
 watch(selectedId, async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
-watch(knowledgeLessonId, () => { selectedId.value = ''; chooseTreeVersion() })
+watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
+watch(() => props.initialLessonId, id => { if (id && id !== knowledgeLessonId.value) knowledgeLessonId.value = id })
 async function refresh() {
   clearTimeout(timer)
   const seq = ++requestSequence
@@ -377,9 +381,10 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 <style scoped>
 .knowledge-detail-pane{min-width:0}.tree-only .knowledge-detail-pane{position:sticky;top:0;max-height:calc(100dvh - 230px);overflow:auto;scrollbar-gutter:stable;border:1px solid #e2e7f2;border-radius:12px;background:#fff}.tree-only .point-card{min-height:0;border:0;box-shadow:none;border-radius:0;padding:24px}.tree-only .point-card h2{font-size:22px;line-height:1.5;margin:14px 0}.relation+.relation{margin-top:12px}.relation button{font-weight:600;text-align:left;line-height:1.6}.relation-scope{display:block;color:#7866a9;font-size:13px;margin-bottom:8px}.relation-direction{color:#697496;font-size:14px;line-height:1.6}.related-statement{border-top:1px solid #e3e7f2;padding-top:10px;margin-top:10px;font-size:15px}.tree-only .point-card :deep(.markdown-body){overflow-wrap:anywhere}.tree-only .point-card dl{font-size:13px}.tree-only .source-evidence-heading{line-height:1.7}
 @media(max-width:1050px){.tree-only .point-card{padding:20px}}
-.teacher-knowledge-manager .tree-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
+.teacher-knowledge-manager{container-type:inline-size}
+.teacher-knowledge-manager .tree-layout{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
 .teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr) minmax(340px,400px)}
 .tree-layout>.mastery-tree{min-width:0}
 .close-point-detail{margin:16px 24px 0;font-size:15px}
-@media(max-width:1200px){.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr)}.teacher-knowledge-manager .knowledge-detail-pane{position:static;max-height:none}}
+@container(max-width:1000px){.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr)}.teacher-knowledge-manager .knowledge-detail-pane{position:absolute;z-index:5;top:0;right:0;width:min(420px,100%);max-height:clamp(420px,65vh,760px);overflow:auto;border:1px solid #ded3ed;border-radius:12px;background:#fff;box-shadow:-12px 12px 32px #4e396e20}}
 </style>

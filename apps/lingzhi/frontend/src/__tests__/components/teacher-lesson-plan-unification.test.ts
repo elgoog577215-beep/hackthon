@@ -145,9 +145,24 @@ describe('统一教案页面', () => {
         })],
       }),
       'revision-1',
+      'outline-1',
     )
     expect(wrapper.find('.objective-section textarea').exists()).toBe(false)
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
+  })
+
+  it('来源变化后保留编辑稿，并沿用开始编辑时的来源版本提交', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    const save = vi.spyOn(store, 'saveDraft').mockRejectedValue(new Error('lesson_source_changed'))
+    const wrapper = mount(TeacherLessonPlanDocument, { props: { courseId: 'course-1', courseTitle: '课程', lesson } })
+    ;(wrapper.vm as any).beginEditing()
+    await flushPromises()
+    await wrapper.get('.objective-section textarea').setValue('需要保留的教师编辑')
+    store.outlineRevisionId = 'outline-new'
+    expect(await (wrapper.vm as any).saveDraft()).toBe(false)
+    expect(save.mock.calls[0]?.[4]).toBe('outline-1')
+    expect((wrapper.get('.objective-section textarea').element as HTMLTextAreaElement).value).toBe('需要保留的教师编辑')
+    wrapper.unmount()
   })
 
   it('单一内容主题与讲次同名时不重复展示标题', () => {

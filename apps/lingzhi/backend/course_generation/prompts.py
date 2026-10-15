@@ -30,7 +30,24 @@ from teaching_design import (
 )
 from teaching_diagrams import teaching_diagram_prompt
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v39"
+PROMPT_CONTRACT_VERSION = "course_prompt_v40"
+
+
+def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
+    """Keep every source text and locator; omit only derived indexing fields.
+
+    The router freezes and compares the full evidence, including hashes and
+    block identities. The writer needs its evidence ID, original text, locator
+    and use restrictions, without a second copy in summaries and keywords.
+    """
+    derived = {'summary', 'keywords', 'document_id', 'block_ids', 'content_hash'}
+    if not isinstance(lesson.get('selected_material_evidence'), list):
+        return lesson
+    return {**lesson, 'selected_material_evidence': [
+        {key: value for key, value in item.items() if key not in derived}
+        if isinstance(item, dict) and isinstance(item.get('source_text'), str) and item['source_text'].strip() else item
+        for item in lesson['selected_material_evidence']
+    ]}
 
 
 def handout_course_context(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -100,7 +117,7 @@ def build_handout_prompt(
                           "title": section.get("title"), "content": content})
     data = {
         "contract": contract, "prompt_version": PROMPT_CONTRACT_VERSION,
-        "course_title": course_title, "lesson": lesson, "requirements": requirements,
+        "course_title": course_title, "lesson": handout_source_projection(lesson), "requirements": requirements,
         "course_context": course_context or {},
         "sections": [{"section_id": s["node_id"], "outline": {
                           key: value for key, value in s.items()

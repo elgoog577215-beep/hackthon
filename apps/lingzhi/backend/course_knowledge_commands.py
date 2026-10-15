@@ -130,9 +130,13 @@ def build_knowledge_candidate(
             f"{operation} 会移动稳定知识 ID，必须提供旧新 ID 映射",
         )
 
-    quality = validate_course_knowledge_base(
-        proposed_knowledge_base, course_data=course_data,
-    )
+    if operation == "adjust_relation" and active.get("tree_schema") == "knowledge_first_generic_v1":
+        from generic_knowledge import validate_relation_revision
+        quality = validate_relation_revision(active, proposed_knowledge_base)
+    else:
+        quality = validate_course_knowledge_base(
+            proposed_knowledge_base, course_data=course_data,
+        )
     event = knowledge_revision_event(
         active,
         proposed_knowledge_base,
@@ -244,8 +248,19 @@ class CourseKnowledgeCommandService:
             )
 
         payload = deepcopy(proposed_knowledge_base)
+        if operation == "adjust_relation" and active.get("tree_schema") == "knowledge_first_generic_v1":
+            checked = build_knowledge_candidate(current, operation=operation,
+                proposed_knowledge_base=payload, reason=candidate.get("reason"), actor=actor)
+            if not checked["confirmable"] or checked["candidate_id"] != candidate.get("candidate_id"):
+                raise KnowledgeCommandRejected("knowledge_candidate_not_confirmable", "关系候选在确认前发生变化，请重新检查。")
+        canonical = self.repository.load_raw(course_id)
+        expected_storage_revision = _text((canonical.get("course_document") or {}).get("document_revision"))
 
         def mutation(raw: dict[str, Any]) -> None:
+            current_view = self.repository.load_course_view(course_id)
+            if (_text(current_view.get("course_document_revision")) != expected_document_revision
+                    or _text((current_view.get("course_knowledge_base") or {}).get("revision_id")) != _text(active.get("revision_id"))):
+                raise CourseDocumentConflict("Course reading content or knowledge revision changed")
             # Re-stamp the source fingerprint against the course we are writing
             # into. `apply_persisted_course_knowledge_base` refuses a stored
             # base whose fingerprint no longer matches the course, and every
@@ -293,7 +308,7 @@ class CourseKnowledgeCommandService:
         try:
             receipt = await self.repository.apply_metadata_command(
                 course_id,
-                expected_document_revision=expected_document_revision,
+                expected_document_revision=expected_storage_revision,
                 operation={
                     "command_id": command_id,
                     "operation": f"knowledge:{operation}",

@@ -41,6 +41,10 @@ class ImportedQuestionPatch(BaseModel):
     confirmed: bool | None = None
 
 
+class ReextractRequest(BaseModel):
+    expected_updated_at: str = Field(min_length=1, max_length=100)
+
+
 async def _course_for_import(course_id: str) -> dict[str, Any]:
     canonical = await get_course_or_404(course_id)
     if any(isinstance(item, dict) for item in canonical.get("nodes") or []):
@@ -217,6 +221,23 @@ def update_imported_question(
         raise HTTPException(status_code=404, detail="待校对题目不存在") from exc
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{import_id}/reextract")
+def reextract_question_import(course_id: str, import_id: str, body: ReextractRequest,
+                              x_user_id: str | None = Header(default=None)):
+    actor_id = require_actor_id(x_user_id)
+    session = _owned_session(course_id, import_id, actor_id)
+    asset = material_repository.get_asset(session['asset_id'])
+    document = material_repository.load_parsed_document(session['asset_id'])
+    if not asset or not document or document.source_sha256 != asset.sha256:
+        raise HTTPException(409, '资料版本已变化，请检查原文件。')
+    questions, pages = extract_question_drafts(document)
+    try:
+        return question_bank_import_repository.replace_unreviewed_extraction(course_id, import_id,
+            expected_updated_at=body.expected_updated_at, questions=questions, source_pages=pages)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/{import_id}/commit")

@@ -734,7 +734,7 @@ def _write_libreoffice_fontconfig(output_dir: Path) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     fontconfig_path = output_dir / "fonts.conf"
     directories = "\n".join(
-        f"  <dir>{escape(str(directory))}</dir>" for directory in font_dirs
+        f"  <dir>{escape(directory.as_posix())}</dir>" for directory in font_dirs
     )
     fontconfig_path.write_text(
         "\n".join([
@@ -742,7 +742,7 @@ def _write_libreoffice_fontconfig(output_dir: Path) -> Path:
             '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">',
             "<fontconfig>",
             directories,
-            f"  <cachedir>{escape(str(cache_dir))}</cachedir>",
+            f"  <cachedir>{escape(cache_dir.as_posix())}</cachedir>",
             "</fontconfig>",
             "",
         ]),

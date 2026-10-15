@@ -67,7 +67,14 @@ function measureViewport() {
 }
 function scheduleMeasure() {
   if (resizeFrame !== undefined) return
-  resizeFrame = requestAnimationFrame(() => { resizeFrame = undefined; measureViewport() })
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = undefined
+    const previousWidth = viewSize.value.width
+    measureViewport()
+    if (!props.showMastery && previousWidth > 0 && previousWidth !== viewSize.value.width) {
+      void nextTick(fitView)
+    }
+  })
 }
 watch(viewport, (element, previous) => {
   if (previous) resizeObserver?.unobserve(previous)
@@ -75,6 +82,7 @@ watch(viewport, (element, previous) => {
 })
 onMounted(() => {
   measureViewport()
+  if (!props.showMastery) void nextTick(fitView)
   if (typeof ResizeObserver !== 'undefined') { resizeObserver = new ResizeObserver(scheduleMeasure); if (viewport.value) resizeObserver.observe(viewport.value) }
   window.addEventListener('blur', endPan)
 })
@@ -90,7 +98,7 @@ function resetBranches() {
   visit(root, true)
   collapsed.value = closed
 }
-watch(() => `${sourceTree.value.id}:${props.treeRevision ?? props.profile?.baseline_revision ?? ''}`, () => { query.value = ''; resetBranches(); zoom.value = 1 }, { immediate: true })
+watch(() => `${sourceTree.value.id}:${props.treeRevision ?? props.profile?.baseline_revision ?? ''}`, () => { query.value = ''; resetBranches(); zoom.value = 1; if (!props.showMastery) void nextTick(fitView) }, { immediate: true })
 function toggle(id: string) {
   if (query.value.trim()) return
   const next = new Set(collapsed.value)

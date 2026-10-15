@@ -59,7 +59,7 @@
         'is-lesson-workspace': !knowledgeOpen && !['foundation', 'companion'].includes(activeStage),
       }"
     >
-      <TeacherKnowledgeManager v-if="knowledgeOpen" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" tree-only />
+      <TeacherKnowledgeManager v-if="knowledgeOpen" :key="courseId" :course-id="courseId" :initial-lesson-id="selectedLessonId" tree-only @lesson-change="selectedLessonId = $event" />
       <template v-else>
       <button
         v-if="!contextPaneVisible && !['question-bank', 'ppt'].includes(activeStage)"
@@ -5145,6 +5145,7 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
+@media(min-width:761px){.teacher-workbench{overflow:clip;min-height:0}}
 .workbench-center.is-knowledge-workspace{overflow:auto;padding:24px 30px 36px;background:#f7f8fc}
 .is-question-bank-workspace>.workbench-center.is-lesson-workspace{padding:0;overflow:hidden;display:flex;flex-direction:column}
 .is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .lesson-stage-content{height:100%;min-height:0;overflow:hidden;display:flex;flex-direction:column;flex:1}

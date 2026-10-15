@@ -137,3 +137,28 @@ def test_confirmed_import_merges_without_ai_generated_questions(tmp_path):
     assert {item["source_type"] for item in bundle["items"]} == {"imported"}
     assert bundle["items"][0]["source_records"][0]["page"] == 1
     assert bundle["generation_audit"]["teacher_imports"][0]["question_count"] == 2
+
+
+def test_numbered_short_question_type_labels_are_not_discarded_as_section_headings():
+    doc=_parsed_document()
+    doc.blocks=[DocumentBlock(block_id='q',order=0,text='1. 单选题：如何区分两种需求？',locator=DocumentLocator(page=1)),DocumentBlock(block_id='o',order=1,text='A. 观察行为\nB. 凭空猜测\n答案：A\n解析：核对行为依据。',locator=DocumentLocator(page=1))]
+    drafts,_=extract_question_drafts(doc)
+    assert len(drafts)==1 and '如何区分' in drafts[0]['prompt']
+    assert drafts[0]['answer']=='A' and len(drafts[0]['options'])==2
+    assert not drafts[0]['prompt'].startswith('1.')
+
+
+def test_unreviewed_reextraction_retains_previous_drafts_and_refuses_reviewed_or_stale_session(tmp_path):
+    import pytest
+    doc=_parsed_document();drafts,pages=extract_question_drafts(doc)
+    for q in drafts:q['confirmed']=False
+    repo=QuestionBankImportRepository(tmp_path/'reextract')
+    asset=type('Asset',(),{'asset_id':'mat-import','filename':'source.pdf','extension':'.pdf','size_bytes':100})()
+    session=repo.create(course_id='c',actor_id='owner',asset=asset,document=doc,questions=drafts,source_pages=pages)
+    saved=repo.replace_unreviewed_extraction('c',session['import_id'],expected_updated_at=session['updated_at'],questions=drafts,source_pages=pages)
+    assert saved['extraction_history'][0]['questions']==session['questions']
+    with pytest.raises(ValueError):repo.replace_unreviewed_extraction('c',session['import_id'],expected_updated_at=session['updated_at'],questions=drafts,source_pages=pages)
+    repo.update_question('c',session['import_id'],drafts[0]['draft_id'],{'confirmed':True})
+    current=repo.load('c',session['import_id'])
+    with pytest.raises(ValueError):repo.replace_unreviewed_extraction('c',session['import_id'],expected_updated_at=current['updated_at'],questions=drafts,source_pages=pages)
+    assert repo.load('c',session['import_id'])==current

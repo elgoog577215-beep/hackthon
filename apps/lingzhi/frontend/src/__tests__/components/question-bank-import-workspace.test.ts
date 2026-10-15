@@ -193,4 +193,27 @@ describe('QuestionBankImportWorkspace', () => {
     await viewBank!.trigger('click')
     expect(wrapper.emitted('show-bank')).toHaveLength(1)
   })
+
+  it('未校对的识别结果可原地恢复，失败不清除已有题目', async () => {
+    const untouched = { ...session, created_at: session.updated_at,
+      questions: [{ ...session.questions[0], updated_at: session.updated_at }] }
+    window.sessionStorage.setItem('lingzhi:question-import:course-http', session.import_id)
+    get.mockResolvedValueOnce({ data: { imports: [summary(untouched)] } })
+      .mockResolvedValueOnce({ data: untouched })
+    post.mockRejectedValueOnce({ response: { data: { detail: '资料版本已变化' } } })
+      .mockResolvedValueOnce({ data: { ...untouched, pending_count: 0,
+        questions: [{ ...untouched.questions[0], confirmed: true, warnings: [], answer: 'B' }] } })
+    const wrapper = mount(QuestionBankImportWorkspace, { props: { courseId: 'course-http' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="reextract-import"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('资料版本已变化')
+    expect(wrapper.text()).toContain('HTTP 默认端口是？')
+    await wrapper.get('[data-testid="reextract-import"]').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenLastCalledWith('/api/courses/course-http/question-bank/imports/qimp-1/reextract',
+      { expected_updated_at: session.updated_at }, { silentError: true })
+    expect(wrapper.find('[data-testid="reextract-import"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="commit-question-import"]').attributes('disabled')).toBeUndefined()
+  })
 })

@@ -15,6 +15,16 @@ from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLe
 from teacher_script import parse_handout_stream, handout_section_contract
 
 
+def test_complete_markdown_transport_envelope_preserves_inner_code_and_requires_eof():
+    inner = '<!-- section:a -->\n<!-- block:{"type":"explanation","title":"Example","key":"a"} -->\nExample\n```python\nprint(1)\n```\n<!-- handout:end -->'
+    wrapped = '```markdown\n' + inner + '\n```'
+    assert not parse_handout_stream(wrapped, ['a'])['completed']
+    result = parse_handout_stream(wrapped, ['a'], provider_complete=True)
+    assert not result['error']
+    assert result['completed']['a'] == parse_handout_stream(inner, ['a'], provider_complete=True)['completed']['a']
+    assert not parse_handout_stream(wrapped.removesuffix('\n```'), ['a'], provider_complete=True)['completed']
+
+
 BLOCK = '<!-- block:{"type":"定义","title":"定义与条件","key":"b1"} -->\n'
 
 def response(ids):

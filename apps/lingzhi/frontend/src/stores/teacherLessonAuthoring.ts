@@ -1448,12 +1448,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       lessonUnitId: string,
       plan: Record<string, any>,
       expectedCurrentRevisionId: string,
+      sourceOutlineRevisionId?: string,
     ) {
       const response = await http.patch<{ lesson: TeacherLessonProjection }>(
         `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/draft`,
         {
           plan,
-          source_outline_revision_id: this.outlineRevisionId,
+          source_outline_revision_id: sourceOutlineRevisionId ?? this.outlineRevisionId,
           expected_current_revision_id: expectedCurrentRevisionId,
         },
         requestConfig(),

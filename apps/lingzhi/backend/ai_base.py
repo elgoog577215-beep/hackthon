@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
+from local_model_tokenization import MeasuredChatInput, prompt_digest
 from dotenv import load_dotenv
 from openai import (
     APIConnectionError,
@@ -529,9 +530,14 @@ class AIBase:
         system_prompt: str,
         max_input_tokens: int | None,
         max_input_chars: int | None = None,
+        measured_input: MeasuredChatInput | None = None,
     ) -> int:
         request_chars = len(prompt) + len(system_prompt)
         estimated_tokens = cls.estimate_request_tokens(prompt, system_prompt)
+        if measured_input is not None:
+            if measured_input.digest != prompt_digest(prompt, system_prompt) or measured_input.tokens <= 0:
+                raise ValueError('Measured token count does not match the complete request.')
+            estimated_tokens = measured_input.tokens
         if (
             (
                 max_input_chars is not None
@@ -1236,6 +1242,7 @@ class AIBase:
         on_content_delta: Callable[[str], Any] | None = None,
         on_content_reset: Callable[[], Any] | None = None,
         telemetry_sink: Callable[[dict], None] | None = None,
+        measured_input: MeasuredChatInput | None = None,
     ) -> Optional[str]:
         """
         通用 LLM 调用函数。
@@ -1270,6 +1277,7 @@ class AIBase:
             system_prompt,
             max_input_tokens,
             max_input_chars,
+            measured_input,
         )
         if not self.api_key:
             if raise_on_failure:

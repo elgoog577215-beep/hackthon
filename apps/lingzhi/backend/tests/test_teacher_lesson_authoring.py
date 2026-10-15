@@ -131,6 +131,22 @@ def test_selected_material_must_finish_parsing_before_generation(
     assert raised.value.details == {"material_asset_ids": ["material-1"]}
 
 
+def test_manual_plan_save_rejects_changed_outline_without_replacing_saved_content(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path / 'authoring')
+    repository.set_outline('course-1', 'outline-1')
+    original = repository.save_plan_revision('course-1', 'L1-1', standard_lesson_plan(),
+        source_outline_revision_id='outline-1')
+    repository.set_outline('course-1', 'outline-2')
+    before = repository.load('course-1')
+    with pytest.raises(TeacherLessonAuthoringError) as raised:
+        TeacherLessonAuthoringService(repository).save_plan_draft(course_id='course-1',
+            lesson_unit_id='L1-1', course_data=course_data(), plan=standard_lesson_plan(),
+            source_outline_revision_id='outline-1', actor='teacher',
+            expected_current_revision_id=original['working_revision_id'])
+    assert raised.value.code == 'lesson_source_changed'
+    assert repository.load('course-1') == before
+
+
 def course_data():
     return {
         "course_id": "course-1",

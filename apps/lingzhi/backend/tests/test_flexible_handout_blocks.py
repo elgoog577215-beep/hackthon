@@ -204,3 +204,11 @@ async def test_failed_second_block_remains_visible_in_original_job(tmp_path):
     assert result['status'] == 'failed'
     assert '错误标记之后的真实内容' in result['unassigned_fragment']
     assert not repo.lesson('course-1', 'L1-1')['script_revisions']
+
+def test_first_manual_draft_accepts_flexible_blocks_after_model_format_failure():
+    blocks = parse_handout_blocks(TEXT, 's', identity='recovered-model-result', complete=True)['blocks']
+    contract = script_contract_for_revision({'node_id': 's', 'node_name': '栈'}, {}, {})
+    recovered = normalize_teacher_script_section({'section_node_id': 's', 'title': '栈', 'blocks': blocks}, contract)
+    assert validate_teacher_script_section(recovered, contract)['passed']
+    assert [b['block_id'] for b in recovered['blocks']] == [b['block_id'] for b in blocks]
+    assert recovered['blocks'][-1]['answer_to'] == blocks[-2]['block_id']

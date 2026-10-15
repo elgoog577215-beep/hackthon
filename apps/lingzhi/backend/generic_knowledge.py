@@ -137,7 +137,11 @@ def tree_model_prompt(raw, context):
         shared.pop(key, None)
     shared['evidence_package'].pop('units', None)
     shared['policy']['output_source_refs'] = '沿用sources中的S短键；E短键引用existing_knowledge。完整ID、版本及来源映射由程序从冻结快照还原。'
-    return tree_prompt(raw, context) + '\n共享课程上下文与冻结证据（不得扩大本次指定范围）：' + json.dumps(shared, ensure_ascii=False)
+    prompt = tree_prompt(raw, context)
+    if context.get('cross_lesson_alignment_contract') == 'per_point_relations_v3':
+        prompt = prompt.replace('"relations":[{"source_key":"K1","target_key":"K2","type":"prerequisite","reason":"理由","conditions":[]}]', '"relations":[]')
+        prompt += '\n本次顶层relations固定为空数组；全部讲内和跨讲关系只在cross_alignment.links中登记一次，不在另一端重复登记。逐点复用判断和独立关系判断仍须完整输出，不能删减知识点、来源或适用条件。输出紧凑JSON，不缩进、不另写解释。'
+    return prompt + '\n共享课程上下文与冻结证据（不得扩大本次指定范围）：' + json.dumps(shared, ensure_ascii=False)
 
 
 def _link_direction(point_key, link, explicit_relations):
@@ -399,3 +403,49 @@ def compile_handout(tree, lesson, response, identity):
     require(covered == set(points), '部分必学知识缺少内容块引用，已保留生成片段')
     return {'section_node_id': lesson['topic'], 'title': lesson['title'], 'blocks': parsed['blocks'],
             'content': '\n\n'.join('## '+b['title']+'\n\n'+b['content'] for b in parsed['blocks'])}
+
+
+def validate_relation_revision(previous, proposed):
+    """Check a scoped human relation correction without legacy teaching fields."""
+    from course_knowledge_base import _find_relation_cycle
+    from knowledge_relations import relation_index
+    issues = []
+    def issue(code, message): issues.append({'code': code, 'gate': 'relations', 'severity': 'critical', 'message': message})
+    def facts(tree):
+        value = deepcopy(tree)
+        for field in ('relations', 'relation_index', 'revision_id'): value.pop(field, None)
+        alignment = value.get('cross_alignment')
+        if isinstance(alignment, dict) and isinstance(alignment.get('decisions', []), list):
+            for decision in alignment.get('decisions', []):
+                if isinstance(decision, dict): decision.pop('relation_ids', None)
+        return value
+    if facts(previous) != facts(proposed):
+        issue('relation_scope_changed', '关系调整不能改变知识命题、分类、讲次、来源或已有判断。')
+        return {'passed': False, 'blocking_issues': issues, 'semantic_verification': 'owner_review_required'}
+    if not isinstance(proposed.get('relations'), list) or any(not isinstance(e, dict) for e in proposed['relations']):
+        issue('invalid_relation_revision', '关系必须是对象列表。')
+        return {'passed': False, 'blocking_issues': issues, 'semantic_verification': 'owner_review_required'}
+    points = {p['knowledge_id'] for p in previous.get('knowledge_points', [])}
+    seen, ids = set(), set()
+    for edge in proposed.get('relations', []):
+        source, target = edge.get('source_id'), edge.get('target_id')
+        kind, rid = edge.get('type'), edge.get('id')
+        if (not isinstance(source, str) or not isinstance(target, str) or not isinstance(kind, str)
+                or not isinstance(rid, str) or source not in points or target not in points or source == target or kind not in RELATIONS
+                or source != edge.get('source_knowledge_id') or target != edge.get('target_knowledge_id')
+                or kind != edge.get('relation_type') or not rid or rid != edge.get('relation_id') or rid in ids
+                or not isinstance(edge.get('reason'), str) or not edge['reason'].strip()
+                or not isinstance(edge.get('conditions'), list) or any(not isinstance(c, str) for c in edge.get('conditions', []))):
+            issue('invalid_relation_revision', '关系端点、方向、身份、类型、理由或条件无效。')
+            continue
+        ids.add(rid)
+        pair = tuple(sorted((source, target))) if kind in {'contrasts_with', 'equivalent_to'} else (source, target)
+        key = (pair, kind, tuple(sorted(edge['conditions'])))
+        if key in seen: issue('duplicate_relation_revision', '相同端点、类型和条件的关系只能登记一次。')
+        seen.add(key)
+    for kind in ('prerequisite', 'derives'):
+        if _find_relation_cycle(proposed.get('relations', []), kind): issue('relation_cycle', '先修或推导关系存在环。')
+    if proposed.get('relation_index') != relation_index(proposed): issue('relation_index_changed', '关系两端索引必须与实际关系一致。')
+    expected = stable_hash({k: v for k, v in proposed.items() if k != 'revision_id'}, prefix='kb_')
+    if proposed.get('revision_id') != expected: issue('relation_revision_mismatch', '关系修订内容与版本不一致。')
+    return {'passed': not issues, 'blocking_issues': issues, 'semantic_verification': 'owner_review_required'}

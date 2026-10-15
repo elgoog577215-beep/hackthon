@@ -436,6 +436,51 @@ async def test_joint_plan_structural_repair_reserves_output_that_fits_without_dr
 
 
 @pytest.mark.asyncio
+async def test_local_repair_counts_both_full_input_and_preserved_output(monkeypatch):
+    from local_model_tokenization import MeasuredChatInput, prompt_digest
+
+    monkeypatch.setenv('COURSE_GENERATION_CONTEXT_WINDOW_TOKENS', '32768')
+    monkeypatch.setenv('COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS', '16000')
+    plan = _multi_section_outline(['定义', '应用'])
+    plan['chapters'][0]['node_id'] = 'L1-1'
+    service = CourseService()
+    original = ''
+    correct = ''
+    calls = []
+    counts = []
+    monkeypatch.setattr(service, 'estimate_request_tokens', lambda prompt, system_prompt='':
+        30000 if '原响应：' in prompt else 20000 if prompt.startswith('{') else 4000)
+
+    async def measure(base, key, prompt, system):
+        counts.append(prompt)
+        if '原响应：' in prompt:
+            assert original in prompt
+            return MeasuredChatInput(17000, prompt_digest(prompt, system))
+        assert prompt == original
+        return MeasuredChatInput(4500, prompt_digest(prompt, system))
+
+    async def model(prompt, system, **kwargs):
+        nonlocal original, correct
+        calls.append((prompt, kwargs))
+        if len(calls) == 1:
+            correct = _combined_teacher_lesson_v4_response(system)
+            payload = json.loads(correct)
+            payload['sections'][0]['owned_knowledge_keys'] = ['unknown']
+            original = json.dumps(payload, ensure_ascii=False)
+            return original
+        return correct
+
+    monkeypatch.setattr('course_generation.service.measure_local_chat_input', measure)
+    monkeypatch.setattr(service, '_call_llm', model)
+    result = await service.prepare_teacher_lesson_plan(course_data={'course_id': 'local-repair',
+        'course_name': '设计思维', 'course_plan': plan, 'course_outline': plan}, lesson_unit_id='L1-1')
+    assert len(calls) == len(counts) == 2
+    assert 5524 <= calls[1][1]['max_tokens'] <= 32768 - 17000 - 1024
+    assert calls[1][1]['measured_input'].tokens == 17000
+    assert [s['node_id'] for s in result['plan']['sections']] == ['L2-1-1', 'L2-1-2']
+
+
+@pytest.mark.asyncio
 async def test_teacher_lesson_plan_uses_one_joint_model_response_and_resumes(
     monkeypatch,
 ):
@@ -979,7 +1024,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v17"
     assert data["generation_schema_version"] == "course_generation_v17"
-    assert data["prompt_contract_version"] == "course_prompt_v39"
+    assert data["prompt_contract_version"] == "course_prompt_v40"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,

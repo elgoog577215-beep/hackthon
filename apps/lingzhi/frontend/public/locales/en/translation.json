@@ -6505,6 +6505,8 @@
       "sourceHint": "Imported and AI-generated questions enter this single course question bank with their sources preserved."
     },
     "importFlow": {
+      "reextract": "Recognize source file again",
+      "reextractFailed": "Recognition failed. Existing results have been preserved.",
       "progress": "Import progress",
       "existingBank": "Existing bank",
       "aiGenerate": "Generate with AI",

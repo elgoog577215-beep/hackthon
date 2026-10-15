@@ -1466,7 +1466,13 @@ def _aggregate_stage(
         source_state=source_state,
         latest_attempt_failed=bool(latest_attempt and latest_attempt.failed > 0),
         update_required=stale > 0,
-        task_ids=list(latest_attempt.task_ids) if latest_attempt else [],
+        # An older lecture may still expose an explicit recovery action after
+        # the latest lecture completed. Keep every authorized action target in
+        # this projection's identity set; latest_attempt retains its own scope.
+        task_ids=list(dict.fromkeys([
+            *(latest_attempt.task_ids if latest_attempt else []),
+            *(task_id for targets in action_targets.values() for task_id in targets),
+        ])),
         allowed_actions=allowed_actions,
         action_targets=action_targets,
         counts=ProductionCounts(

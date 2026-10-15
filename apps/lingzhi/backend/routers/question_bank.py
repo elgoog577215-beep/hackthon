@@ -55,6 +55,7 @@ from learner_context import require_user_id
 from learning_asset_storage import learning_asset_repository
 from learning_assets import compile_learning_assets
 from material_storage import material_repository
+from material_evidence import load_material_evidence
 from question_bank import (
     expand_question_atomic_revisions,
     filter_question_bank_items,
@@ -3436,7 +3437,7 @@ def _load_course_evidence(bindings: list[dict[str, Any]]) -> list[dict[str, Any]
             continue
         seen.add(asset_id)
         try:
-            result.extend(material_repository.load_evidence(asset_id))
+            result.extend(load_material_evidence(material_repository, asset_id, binding))
         except (OSError, ValueError):
             continue
     return result

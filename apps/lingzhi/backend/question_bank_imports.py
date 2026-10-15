@@ -133,10 +133,10 @@ def _parse_group(
 ) -> dict[str, Any]:
     raw = _clean("\n".join(group["lines"]))
     for _ in range(2):
-        question_start = _QUESTION_START_RE.match(raw)
+        question_start = _QUESTION_START_RE.match(raw.splitlines()[0])
         if not question_start:
             break
-        raw = question_start.group(2)
+        raw = raw[question_start.start(2):]
     raw = _LABELED_QUESTION_RE.sub(lambda match: match.group(1), raw, count=1)
     answer_match = _ANSWER_RE.search(raw)
     explanation_match = _EXPLANATION_RE.search(raw)
@@ -221,7 +221,7 @@ def extract_question_drafts(
         if not block_text:
             continue
         detected_type = _section_type(block_text)
-        if detected_type and len(block_text) <= 100:
+        if detected_type and len(block_text) <= 100 and not (_QUESTION_START_RE.match(block_text.splitlines()[0]) or _LABELED_QUESTION_RE.match(block_text.splitlines()[0])):
             active_type = detected_type
             if current:
                 current.setdefault("section_path", []).extend(block.locator.section_path)
@@ -360,6 +360,21 @@ class QuestionBankImportRepository:
             if temp.exists():
                 temp.unlink()
         return stored
+
+    def replace_unreviewed_extraction(self, course_id, import_id, *, expected_updated_at, questions, source_pages):
+        session = self.load(course_id, import_id)
+        if not session:
+            raise FileNotFoundError(import_id)
+        if (session.get('status') == 'committed' or session.get('updated_at') != expected_updated_at
+                or any(q.get('confirmed') or q.get('updated_at', '') > session.get('created_at', '') for q in session.get('questions', []))):
+            raise ValueError('已有校对或会话变化，重新识别不能覆盖当前题目。')
+        if not questions:
+            raise ValueError('未识别到题目，当前结果保持不变。')
+        session.setdefault('extraction_history', []).append({'questions': deepcopy(session['questions']),
+            'source_pages': deepcopy(session['source_pages']), 'saved_at': _now()})
+        session['questions'] = [{**q, 'import_id': import_id} for q in questions]
+        session['source_pages'] = deepcopy(source_pages)
+        return self.save(session)
 
     def load(self, course_id: str, import_id: str) -> dict[str, Any] | None:
         path = self._path(course_id, import_id)

@@ -289,6 +289,7 @@ const lessonStore = useTeacherLessonAuthoringStore()
 const editing = ref(false)
 const editBaseline = ref('')
 const editBaseRevisionId = ref('')
+const editBaseOutlineRevisionId = ref('')
 const dirty = computed(() => editing.value && JSON.stringify(draftPlan.value) !== editBaseline.value)
 const saving = ref(false)
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
@@ -734,6 +735,7 @@ function beginEditing() {
   for (const section of draftPlan.value.sections || []) ensureFormalObjectiveFields(section)
   editBaseline.value = JSON.stringify(draftPlan.value)
   editBaseRevisionId.value = String(props.lesson.plan.working_revision_id || '')
+  editBaseOutlineRevisionId.value = workingRevision.value.source_outline_revision_id || lessonStore.outlineRevisionId
   editHistory.reset(draftPlan.value)
   editing.value = true
   saveError.value = null
@@ -875,6 +877,7 @@ async function saveDraft(): Promise<boolean> {
       props.lesson.lesson_unit_id,
       draftPlan.value,
       expectedCurrentRevisionId,
+      editBaseOutlineRevisionId.value,
     )
     draftPlan.value = null
     editing.value = false
@@ -961,4 +964,14 @@ defineExpose({
 @media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.document-actions{width:100%;justify-content:flex-end}.focus-grid,.closing-grid,.block-fields,.lesson-block-summary{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}.block-fields>label,.lesson-block-summary>section{border-right:0;border-bottom:1px solid #e8ecf2}.lesson-block-summary>section:last-child{border-bottom:0}}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .document-actions button:hover{background:var(--teacher-component-tint,#f7f7ff)}
+</style>
+
+<style scoped>
+.lesson-document { container-type:inline-size; }
+@container (max-width:780px) {
+  .objective-grid, .assignment-contract { grid-template-columns:minmax(0,1fr); gap:20px; }
+  .focus-grid, .closing-grid, .block-fields, .lesson-block-summary { grid-template-columns:minmax(0,1fr); }
+  .focus-grid>div, .closing-grid>div { padding-right:0; }
+  .focus-grid>div+div, .closing-grid>div+div { margin-top:20px; padding:20px 0 0; border-top:1px solid #e8ecf2; border-left:0; }
+}
 </style>

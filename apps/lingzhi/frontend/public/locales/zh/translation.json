@@ -6505,6 +6505,8 @@
       "sourceHint": "导入文件与 AI 生成题目统一进入这份课程题库，并保留各自来源。"
     },
     "importFlow": {
+      "reextract": "重新识别原文件",
+      "reextractFailed": "重新识别失败，已有结果已保留",
       "progress": "导入进度",
       "existingBank": "已有题库",
       "aiGenerate": "AI 生成题目",

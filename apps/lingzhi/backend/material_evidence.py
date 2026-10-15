@@ -54,6 +54,18 @@ def build_evidence_units(
     return units
 
 
+def load_material_evidence(repository: Any, asset_id: str, binding: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Read the evidence cache or project the same parsed upload, without mutation."""
+    cached = repository.load_evidence(asset_id)
+    if cached:
+        return cached
+    document = repository.load_parsed_document(asset_id)
+    if document is None or document.asset_id != asset_id:
+        return []
+    scope = MaterialBinding.model_validate({**(binding or {}), 'asset_id': asset_id})
+    return [unit.model_dump(mode='json') for unit in build_evidence_units(document, scope)]
+
+
 def build_evidence_catalog_summary(
     evidence: list[dict[str, Any]],
     max_items: int = 80,

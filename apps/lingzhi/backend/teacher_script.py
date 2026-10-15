@@ -227,7 +227,9 @@ def script_contract_for_revision(outline: dict[str, Any], plan: dict[str, Any], 
         contract["modules"] = deepcopy(blocks)
         contract["flexible_blocks"] = False  # Editing preserves the chosen block identities.
         return contract
-    if not blocks or all(b.get("module_id") == "handout_prose" for b in blocks):
+    if not blocks:
+        return handout_section_contract(outline, plan)
+    if all(b.get("module_id") == "handout_prose" for b in blocks):
         contract = handout_section_contract(outline, plan)
         contract["flexible_blocks"] = False
         return contract
@@ -267,6 +269,13 @@ def parse_handout_stream(text: str, section_ids: list[str], *, provider_complete
     An optional end marker never substitutes for either requirement.
     Markers inside fenced code remain literal content.
     """
+    # Some providers wrap the entire protocol in a Markdown code fence. Only
+    # remove that complete transport envelope at normal EOF; nested examples
+    # and unfinished fences remain literal, incomplete content.
+    if provider_complete and section_ids:
+        envelope = re.fullmatch(r"\s*```(?:markdown|md)\s*\n([\s\S]*?)\n```\s*", text)
+        if envelope and envelope[1].lstrip().startswith(f"<!-- section:{section_ids[0]} -->"):
+            text = envelope[1]
     completed: dict[str, str] = {}
     fragments: dict[str, str] = {}
     current = ""

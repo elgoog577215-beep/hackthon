@@ -5003,6 +5003,10 @@ class TeacherLessonAuthoringService:
         expected_current_revision_id: str = "",
     ) -> dict[str, Any]:
         canonical_outline_revision = self.repository.outline_revision_id(course_id)
+        if canonical_outline_revision and source_outline_revision_id and source_outline_revision_id != canonical_outline_revision:
+            raise TeacherLessonAuthoringError(
+                "lesson_source_changed", "大纲版本已变化，请核对当前来源后再保存；本次编辑未覆盖已保存版本。"
+            )
         effective_source_revision = (
             source_outline_revision_id or canonical_outline_revision
         )

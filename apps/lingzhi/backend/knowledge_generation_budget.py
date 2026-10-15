@@ -36,10 +36,10 @@ class KnowledgeTreeBudget:
             'max_input_chars': self.max_input_chars, 'max_output_tokens': self.max_output_tokens,
             'context_window_tokens': self.context_window_tokens, 'context_reserve_tokens': self.context_reserve_tokens}
 
-    def validate(self, prompt: str, system: str) -> int:
+    def validate(self, prompt: str, system: str, *, measured_input=None) -> int:
         # The input estimate includes the final system and user messages. Output
         # and message framing keep their own space even with a generous override.
-        return AIBase.validate_request_budget(prompt, system, self.max_input_tokens, self.max_input_chars)
+        return AIBase.validate_request_budget(prompt, system, self.max_input_tokens, self.max_input_chars, measured_input=measured_input)
 
     def call_options(self) -> dict[str, int]:
         return {'max_input_tokens': self.max_input_tokens, 'max_input_chars': self.max_input_chars,

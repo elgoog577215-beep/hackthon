@@ -22,6 +22,10 @@
             </small>
           </div>
         </div>
+        <button v-if="canReextract" type="button" class="quiet-button" data-testid="reextract-import" :disabled="reextracting || saving || committing" @click="reextractImport">
+          <LoaderCircle v-if="reextracting" :size="15" class="spin" />
+          {{ t('questionBank.importFlow.reextract', '重新识别原文件') }}
+        </button>
       </header>
 
       <div v-if="errorMessage" class="question-import__error" role="alert">
@@ -259,6 +263,7 @@ interface ImportQuestion {
   source_page: number | null
   warnings: string[]
   confirmed: boolean
+  updated_at?: string
 }
 interface ImportSession {
   import_id: string
@@ -272,6 +277,7 @@ interface ImportSession {
   questions: ImportQuestion[]
   source_pages: Array<{ page: number; text: string }>
   updated_at: string
+  created_at?: string
 }
 interface ImportSummary extends Omit<ImportSession, 'questions' | 'source_pages'> {}
 
@@ -295,6 +301,7 @@ const dragging = ref(false)
 const uploading = ref(false)
 const saving = ref(false)
 const committing = ref(false)
+const reextracting = ref(false)
 const uploadProgress = ref(0)
 const uploadFileName = ref('')
 const uploadFileIndex = ref(0)
@@ -311,6 +318,12 @@ const selectedAnswers = computed<string[]>(() => (selectedQuestion.value?.answer
 const editIsChoiceQuestion = computed(() => ['single_choice', 'multiple_choice'].includes(editDraft.value?.question_type || ''))
 const editMultipleAnswers = computed<string[]>(() => (editDraft.value?.answer || '').toUpperCase().match(/[A-H]/g) || [])
 const sessionCommitted = computed(() => session.value?.status === 'committed')
+const canReextract = computed(() => {
+  const value = session.value
+  return Boolean(value?.created_at && !sessionCommitted.value && !editing.value
+    && value.questions.every(question => !question.confirmed
+      && (!question.updated_at || question.updated_at <= value.created_at!)))
+})
 
 onMounted(() => { void loadWorkspace() })
 watch(() => props.courseId, () => {
@@ -465,6 +478,26 @@ async function resumeImport(importId: string, silent = false) {
   } catch (error) {
     rememberImport('')
     if (!silent) errorMessage.value = apiError(error, t('questionBank.importFlow.loadFailed', '未能读取导入记录'))
+  }
+}
+
+async function reextractImport() {
+  const current = session.value
+  if (!current || !canReextract.value || reextracting.value) return
+  reextracting.value = true
+  errorMessage.value = ''
+  try {
+    const response = await http.post(
+      `/api/courses/${props.courseId}/question-bank/imports/${current.import_id}/reextract`,
+      { expected_updated_at: current.updated_at },
+      teacherRequestConfig({ silentError: true }),
+    )
+    applySession(response.data)
+    upsertRecentImport(response.data)
+  } catch (error) {
+    errorMessage.value = apiError(error, t('questionBank.importFlow.reextractFailed', '重新识别失败，已有结果已保留'))
+  } finally {
+    reextracting.value = false
   }
 }
 

@@ -25,6 +25,7 @@ from typing import (
 )
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from local_model_tokenization import MeasuredChatInput, measure_local_chat_input
 from ai_learning_context import build_ai_learning_context
 from ai_output_quality import assess_ai_output
 from content_blocks import (
@@ -2764,11 +2765,21 @@ class CourseService(AIBase):
             phase_detail: dict[str, Any],
             structural_repair: bool = False,
             required_repair_output_tokens: int = 0,
+            repair_source_text: str = "",
         ) -> str:
             input_tokens = self.estimate_request_tokens(
                 user_prompt,
                 system_prompt,
             )
+            measured_input = None
+            if structural_repair:
+                measured_input = await measure_local_chat_input(self.api_base, self.api_key, user_prompt, system_prompt)
+                if measured_input is not None:
+                    input_tokens = measured_input.tokens
+                    if repair_source_text:
+                        original_size = await measure_local_chat_input(self.api_base, self.api_key, repair_source_text, "")
+                        if original_size is not None:
+                            required_repair_output_tokens = original_size.tokens + 1024
             output_tokens = self._teaching_plan_budget.max_output_tokens
             available_output_tokens = (
                 self._generation_budget.context_window_tokens
@@ -2873,6 +2884,7 @@ class CourseService(AIBase):
                                 + (self._teaching_plan_budget.max_output_tokens * 4 if structural_repair else 0)
                             ),
                             max_output_tokens=output_tokens,
+                            measured_input=measured_input,
                             telemetry_sink=telemetry.append,
                             start_on_provider_request=combine_knowledge_and_plan,
                             wall_timeout_seconds=600 if combine_knowledge_and_plan else None,
@@ -3151,6 +3163,7 @@ class CourseService(AIBase):
                         phase_detail={"artifact_type": "course_teaching_plan_batch", "batch_id": batch_id + ":structure-repair"},
                         structural_repair=True,
                         required_repair_output_tokens=self.estimate_request_tokens(str(response or ""), "") + 1024,
+                        repair_source_text=str(response or ""),
                     )
                 if not skeleton_report.get("passed") or not batch_report.get("passed"):
                     issues = [
@@ -5210,6 +5223,7 @@ class CourseService(AIBase):
         on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
         telemetry_sink: Callable[[dict], None] | None = None,
         start_on_provider_request: bool = False,
+        measured_input: MeasuredChatInput | None = None,
     ) -> str:
         """Run one model unit until it completes or stops producing chunks."""
         inactivity_timeout_seconds = max(
@@ -5273,6 +5287,7 @@ class CourseService(AIBase):
             on_content_delta=_handle_content_delta,
             on_content_reset=_handle_content_reset,
             telemetry_sink=telemetry_sink,
+            measured_input=measured_input,
         ))
         started_at = time.monotonic()
         last_heartbeat = started_at
@@ -7563,8 +7578,19 @@ class CourseService(AIBase):
                 partial_text=partial_text, contract=HANDOUT_CONTRACT_VERSION,
                 course_context=course_context,
             )
-        def fits(prompt):
+        measured_input = None
+        async def fits(prompt):
+            nonlocal measured_input
+            measured_input = None
+            if len(prompt) + len(instructions) > self._generation_budget.teacher_handout_max_input_chars:
+                return False
             tokens = self.estimate_request_tokens(prompt, instructions)
+            if (tokens > self._generation_budget.teacher_handout_max_input_tokens
+                    or tokens + output_tokens + self._generation_budget.context_reserve_tokens
+                    > self._generation_budget.context_window_tokens):
+                measured_input = await measure_local_chat_input(self.api_base, self.api_key, prompt, instructions)
+                if measured_input is not None:
+                    tokens = measured_input.tokens
             return (len(prompt) + len(instructions) <= self._generation_budget.teacher_handout_max_input_chars
                     and tokens <= self._generation_budget.teacher_handout_max_input_tokens
                     and tokens + output_tokens + self._generation_budget.context_reserve_tokens
@@ -7573,10 +7599,12 @@ class CourseService(AIBase):
         prompt = prompt_for(selected)
         # Split only when the measured request budget cannot hold the range.
         # This remains the same capability and requires explicit continuation.
-        while len(selected) > 1 and not fits(prompt):
+        current_fits = await fits(prompt)
+        while len(selected) > 1 and not current_fits:
             selected.pop()
             prompt = prompt_for(selected)
-        if not selected or not fits(prompt):
+            current_fits = await fits(prompt)
+        if not selected or not current_fits:
             raise CourseGenerationBudgetExceeded("当前小节连同冻结来源超过讲义请求预算，请调整范围；没有截断来源或调用模型。")
         section_ids = [str(s["node_id"]) for s in selected]
         if on_scope:
@@ -7588,6 +7616,7 @@ class CourseService(AIBase):
                 enable_thinking=False, wait_for_capacity=True, reject_truncated=True,
                 require_stop=True, raise_on_failure=True, json_mode=False,
                 max_tokens=output_tokens, max_input_tokens=self._generation_budget.teacher_handout_max_input_tokens,
+                measured_input=measured_input,
                 max_input_chars=self._generation_budget.teacher_handout_max_input_chars,
                 request_timeout_seconds=float(self._generation_budget.teacher_handout_request_timeout_seconds),
                 inactivity_timeout_seconds=float(self._generation_budget.content_inactivity_timeout_seconds),

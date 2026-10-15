@@ -43,6 +43,7 @@ from teaching_design import (
     validate_lesson_arrangement,
 )
 from material_storage import MaterialStorageError, material_repository
+from material_evidence import load_material_evidence
 from material_parser import parse_document_path, parse_material_asset
 from jobs.manager import TaskManager
 from teacher_lesson_authoring import (
@@ -1225,7 +1226,14 @@ def _course_material_evidence(
 
     evidence: list[dict[str, Any]] = []
     for material_asset_id in selected_ids:
-        for item in material_repository.load_evidence(material_asset_id):
+        units = load_material_evidence(material_repository, material_asset_id)
+        if not units:
+            raise TeacherLessonAuthoringError(
+                "lesson_material_source_empty",
+                "已选资料没有可用正文，请检查解析结果或重新选择资料；没有调用模型。",
+                details={"material_asset_ids": [material_asset_id]},
+            )
+        for item in units:
             if not isinstance(item, dict):
                 continue
             evidence.append({

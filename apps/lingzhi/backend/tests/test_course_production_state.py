@@ -85,6 +85,33 @@ def _plan_only_lesson(index: int) -> dict:
     return lesson
 
 
+def test_completed_latest_lecture_keeps_older_recovery_target_in_stage_identity_set():
+    result = compile_course_production_state(
+        _course(2),
+        authoring_state={
+            "lessons": {"lesson-1": _ready_lesson(1), "lesson-2": _ready_lesson(2)},
+            "jobs": {
+                "old-failed": {
+                    "id": "old-failed", "type": "teacher_lesson_script_generation",
+                    "lesson_unit_id": "lesson-1", "status": "failed",
+                    "error": {"code": "lesson_script_output_incomplete", "retryable": True},
+                    "updated_at": "2026-10-15T01:00:00+00:00",
+                },
+                "latest-completed": {
+                    "id": "latest-completed", "type": "teacher_lesson_script_generation",
+                    "lesson_unit_id": "lesson-2", "status": "completed",
+                    "updated_at": "2026-10-15T02:00:00+00:00",
+                },
+            },
+        },
+    )
+    stage = result["stages"]["script"]
+    assert stage["task_state"] == "completed"
+    assert stage["action_targets"]["retry_generation"] == ["old-failed"]
+    assert set(stage["task_ids"]) == {"old-failed", "latest-completed"}
+    assert stage["latest_attempt"]["task_ids"] == ["latest-completed"]
+
+
 def test_projection_contract_locks_schema_and_enums():
     result = compile_course_production_state(
         _course(1),

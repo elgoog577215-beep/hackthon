@@ -30,6 +30,8 @@ def answer():
 
 @pytest.mark.asyncio
 async def test_no_upload_extracts_from_existing_handouts_without_rewriting_them(svc, monkeypatch):
+    monkeypatch.setenv('COURSE_TEACHER_HANDOUT_MAX_OUTPUT_TOKENS', '2048')
+    monkeypatch.setenv('COURSE_KNOWLEDGE_TREE_MAX_OUTPUT_TOKENS', '14000')
     monkeypatch.setattr('knowledge_first.material', lambda: pytest.fail('C17 seed was accessed'))
     handouts(svc)
     before = deepcopy(svc.authoring.load('c-pilot')['lessons'])
@@ -37,6 +39,7 @@ async def test_no_upload_extracts_from_existing_handouts_without_rewriting_them(
     async def call(prompt, **kwargs):
         assert 'CPU执行指令。' in prompt and '主存保存正在使用的数据。' in prompt
         assert kwargs['max_attempts'] == 1
+        assert kwargs['max_tokens'] == 14000
         return json.dumps(answer(), ensure_ascii=False)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
     v = svc.view('c-pilot', source_mode='handouts')
@@ -212,3 +215,19 @@ def test_preview_uses_adopted_tree_but_excludes_hidden_or_superseded_handouts(sv
     assert visible['knowledge_points'][0]['name'] == 'CPU作用'
     assert len(tree['knowledge_points']) == 2
     assert visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'new'}})['knowledge_points'] == []
+
+@pytest.mark.asyncio
+async def test_tree_capacity_rejects_before_call_without_shortening_sources(svc, monkeypatch):
+    monkeypatch.setenv('COURSE_GENERATION_CONTEXT_WINDOW_TOKENS', '4096')
+    monkeypatch.setenv('COURSE_KNOWLEDGE_TREE_MAX_OUTPUT_TOKENS', '14000')
+    handouts(svc)
+    before = deepcopy(svc.authoring.load('c-pilot')['lessons'])
+    async def call(*args, **kwargs): pytest.fail('oversized request must not reach the model')
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    v = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'bounded-capacity', '', v['document_revision'], source_mode='handouts')
+    await svc.run('c-pilot', job['id'])
+    result = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert result['status'] == 'failed' and result['error']['model_request_sent'] is False
+    assert result['error']['recovery_action'] == 'revise_inputs'
+    assert svc.authoring.load('c-pilot')['lessons'] == before
