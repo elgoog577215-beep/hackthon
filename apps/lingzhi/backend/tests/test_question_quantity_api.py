@@ -50,4 +50,3 @@ def test_quantity_retry_uses_frozen_slots_and_only_generates_missing_item(monkey
     assert sum(map(len,orchestrator.requested_practice_levels[-1].values()))==1
     current={i['revision_id']:i for i in repo.load_bundle('course-api')['items']}
     assert all(current[i['revision_id']]==i for i in partial['items'])
-

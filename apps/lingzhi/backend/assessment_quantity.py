@@ -13,8 +13,6 @@ def build_quantity_plan(course, blueprint, *, previous, node_ids, count, append_
     lookup = {str(n.get('node_id')): n for n in course.get('nodes') or []}
     groups = {}
     for node_id in node_ids:
-        if node_id not in templates or not templates[node_id]:
-            continue
         node = lookup.get(node_id) or {}
         parent = str(node.get('parent_node_id') or node.get('parent_id') or node_id)
         groups.setdefault(parent, []).append(node_id)
@@ -23,6 +21,8 @@ def build_quantity_plan(course, blueprint, *, previous, node_ids, count, append_
         existing = sum(str(i.get('node_id') or '') in nodes and i.get('lifecycle_status') not in {'rejected','discarded'}
                        for i in (previous or {}).get('items') or [])
         needed = count if append_only else max(0, count-existing)
+        if needed and any(not templates.get(node_id) for node_id in nodes):
+            raise ValueError('assessment_quantity_targets_unavailable: 所选讲次没有可用出题目标，请检查课程内容和知识点绑定')
         plan['lectures'][lecture] = {'node_ids':nodes,'existing':existing,'requested_additions':needed}
         for node_id in nodes:
             plan['slots'][node_id] = []
