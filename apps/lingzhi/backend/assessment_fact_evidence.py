@@ -216,9 +216,20 @@ def _treap_counterexample(spec: dict) -> dict | None:
     text = " ".join(str((spec.get(key) or {}).get("rendered_text") or "") for key in ("stimulus","task"))
     normalized = re.sub(r"[\s$\\{}]", "", text).replace("−","-")
     if not re.search(r"Treap|随机搜索树|随机二叉搜索树", text, re.I): return None
+    if "独立" not in text or not re.search(r"均匀|连续",text) or re.search(r"不独立|非均匀|相关|不要求",text): return None
+    if not re.search(r"1到n|1dotsn|1\.\.\.?n|1…n",normalized): return None
+    if not re.search(r"根深度(?:为)?0|根为第0层|节点数减1|边数",normalized): return None
     if re.search(r"(?:i|rank)=1|(?:i|rank)=n|最小键|最大键|是否|判断.*正确|反驳|错误的", normalized): return None
     if not re.search(r"(?:已知|满足|对于任意).*?(?:E|mathbbE)\[D\(i\)\]=H_?n-1", normalized): return None
-    return {"n":3,"rank":2,"expected":str(treap_expected_depth(3,2)), "claimed":str(sum(Fraction(1,k) for k in range(1,4))-1),
+    sizes = set(re.findall(r"n[=＝](\d+)",normalized))
+    ranks = set(re.findall(r"(?:i|rank)[=＝](\d+)",normalized))
+    if len(sizes)>1 or len(ranks)>1 or (not sizes and re.search(r"n[<>≤≥]",normalized)): return None
+    rank = int(next(iter(ranks))) if ranks else 2
+    n = int(next(iter(sizes))) if sizes else max(3,rank+1)
+    if not 1 <= rank <= n <= 32: return None
+    expected, claimed = treap_expected_depth(n,rank), sum(Fraction(1,k) for k in range(1,n+1))-1
+    if expected == claimed: return None
+    return {"n":n,"rank":rank,"expected":str(expected), "claimed":str(claimed),
             "method":"exact_uniform_root_recurrence"}
 
 
@@ -226,6 +237,7 @@ def _numeric_counterexample(spec: dict) -> dict | None:
     task = str((spec.get("task") or {}).get("rendered_text") or "")
     if re.search(r"是否|判断|反驳|找出.*错误", task): return None
     text = str((spec.get("stimulus") or {}).get("rendered_text") or "").replace("$", "")
+    if re.search(r"近似|舍入|保留|浮点|容差|测量|重新定义|约定|模\d|模运算|mod\b",text+task,re.I): return None
     pattern = r"(?:^|[。；\n])\s*已知\s*([0-9.()+*/\-\s]+?)\s*(>=|<=|==|!=|=|>|<|≥|≤|≠)\s*([0-9.()+*/\-\s]+)(?=[。；\n]|$)"
     for match in re.finditer(pattern, text):
         try: left, right = _arithmetic(match[1].strip()), _arithmetic(match[3].strip())
