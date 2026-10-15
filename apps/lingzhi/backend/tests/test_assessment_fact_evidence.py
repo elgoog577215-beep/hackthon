@@ -106,3 +106,48 @@ def test_review_queue_survives_publication_policy_and_job_finishes_as_review(tmp
     assert final["status"] == "waiting_review"
     assert "待事实复核" in final["message"]
     assert final["error"] is None
+
+
+async def test_wrong_premise_is_blocked_even_when_all_model_roles_agree():
+    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    from assessment_orchestrator import AssessmentGenerationOrchestrator
+    class WrongPremiseModel(RepairingModel):
+        async def generate_candidate(self, context):
+            candidate = await super().generate_candidate(context)
+            candidate["question_spec"]["stimulus"]["rendered_text"] = "Treap的键为1到n，优先级独立均匀随机。已知 E[D(i)] = H_n - 1，根深度0。"
+            candidate["question_spec"]["task"]["rendered_text"] = "求所有键的平均深度并解释依据。"
+            return candidate
+    prepared = await AssessmentGenerationOrchestrator(model=WrongPremiseModel()).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1":["mastery_check"]})
+    c = prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
+    assert c["generation_status"] == "discarded"
+    assert "TASK_PREMISE_FALSE" in {i["code"] for i in c["quality_report"]["issues"]}
+
+
+def test_production_compiles_a_plan_before_rendering_instead_of_trusting_authored_answer():
+    from assessment_fact_evidence import build_computed_candidate, computed_independent_solution
+    from assessment_orchestrator import _contract_from_candidate, _apply_independent_validation
+    from backend.tests.test_assessment_solution_protocol import example
+    base, _, validation = example()
+    base["question_spec"].update(build_computed_candidate({"kind":"treap_depth","n":3,"rank":2})["question_spec"])
+    candidate = {"question_spec":{"computation_plan":{"kind":"treap_depth","n":3,"rank":2}},"solution":{}}
+    contract = _contract_from_candidate(base, candidate)
+    independent = computed_independent_solution(contract["question_spec"])
+    assert independent is not None
+    _apply_independent_validation(contract, validation, independent)
+    assert contract["solution_validation"]["factual_validation"]["status"] == "verified"
+    assert contract["solution_envelope"]["canonical_answer"]["conclusion"] == "1"
+
+
+def test_publication_boundary_rechecks_fact_evidence_instead_of_cached_approval():
+    from assessment_fact_evidence import build_computed_candidate, apply_fact_evidence
+    from question_bank import _apply_tiered_review_policy
+    candidate = build_computed_candidate({"kind":"treap_depth","n":3,"rank":2})
+    contract = {"question_spec":candidate["question_spec"],"solution_envelope":candidate["solution"]}
+    apply_fact_evidence(contract)
+    item = {"id":"q", "revision_id":"r", "solution_revision_id":"s", "source_type":"generated",
+            "assessment_role":"practice", "question_spec":contract["question_spec"], "risk_flags":[],
+            "quality_report":{"passed":True}, "solution_validation":{"passed":True}, "review_required":False}
+    candidate["solution"]["canonical_answer"]["conclusion"] = "wrong"
+    _apply_tiered_review_policy([item], {}, solution_envelopes={"s":candidate["solution"]})
+    assert item["lifecycle_status"] != "approved"
