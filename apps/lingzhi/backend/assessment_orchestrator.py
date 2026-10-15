@@ -16,6 +16,7 @@ from ai_base import (
     AIBase,
     AIProviderRequestError,
     AIProviderUnavailable,
+    AIResponseTruncated,
 )
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
@@ -37,6 +38,10 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
+from assessment_solution_protocol import (
+    SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, delivery_solution, review_solution_payload, attest_final_solution_review,
+)
+from assessment_fact_evidence import apply_fact_evidence, fact_publication_state, build_computed_candidate, computed_independent_solution
 from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
     attach_measurement_designs, candidate_from_measurement_design, evidence_recovery_action, measurement_design_prompt,
@@ -76,7 +81,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v27"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v32"
 
 
 def _out_tokens(limit: int) -> int:
@@ -107,6 +112,22 @@ def _out_tokens(limit: int) -> int:
     except (TypeError, ValueError):
         return limit
     return max(limit, min(floor, 16000))
+
+
+def _stage_output_budget(stage: str, mode: str, *, atomic: bool = False) -> int:
+    """Budget the required artifact, independently of the thinking switch."""
+    complex_mode = mode in {"structured_fields", "rich_text", "code"}
+    if stage == "review":
+        return _out_tokens(4096 if complex_mode else 3072 if atomic else 2048)
+    if mode == "code":
+        return _out_tokens(12288)
+    if complex_mode:
+        return _out_tokens(16384 if stage == "solve" else 8192)
+    if stage == "repair":
+        return _out_tokens(6144)
+    return _out_tokens(2048 if mode == "choice" else 6144 if stage == "solve" else 4096)
+
+
 AssessmentProgressCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
@@ -317,19 +338,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(
-                2048
-                if input_mode == "choice"
-                else (
-                    8192
-                    if reasoning_enabled and input_mode != "code"
-                    else (
-                        12288
-                        if reasoning_enabled and input_mode == "code"
-                        else (4096 if input_mode != "code" else 6144)
-                    )
-                )
-            ),
+            max_tokens=_stage_output_budget("generate", input_mode),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -378,7 +387,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=False,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(12288),
+            max_tokens=sum(_stage_output_budget("generate", (c.get("assessment_slot") or {}).get("input_mode", "")) for c in contexts),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -421,6 +430,7 @@ class UniversalAssessmentModel(AIBase):
         *,
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
+        public_question_spec = _model_public_question(public_question_spec)
         input_mode = str(
             (public_question_spec.get("input_contract") or {}).get(
                 "mode"
@@ -468,12 +478,7 @@ class UniversalAssessmentModel(AIBase):
                 "每个错误选项只用一句话说明与本题计算结果的差别，不扩展到其他语言、余数、未给出的转换等题外情境。"
                 "非终止小数或截断显示的有限小数必须标明约等于，不把干扰项的小数写法说成原算式的精确结果。"
                 "checks只写本题可核对的事实；common_errors最多一条。先写已核对的推导，最后填写answer。"
-                "只输出JSON：{\"summary\": \"...\", "
-                "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
-                "\"calculation\": \"...\", \"result\": \"...\"}], "
-                "\"checks\": [\"具体核验方法\"], \"option_analysis\": "
-                "[{\"option_id\": \"A\", \"is_correct\": true, \"explanation\": \"具体原因\"}], "
-                "\"common_errors\": [...], \"answer\": ...}。\n"
+                f"只输出JSON：{json.dumps(_independent_solution_schema(), ensure_ascii=False)}。\n"
                 f"{code_answer_requirement}"
                 f"{json.dumps(public_question_spec, ensure_ascii=False)}"
             ),
@@ -489,19 +494,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(
-                2048
-                if input_mode == "choice"
-                else (
-                    12288
-                    if input_mode == "code"
-                    else (
-                        8192
-                        if input_mode in {"structured_fields", "rich_text"}
-                        else (6144 if reasoning_enabled else 3072)
-                    )
-                )
-            ),
+            max_tokens=_stage_output_budget("solve", input_mode),
             json_mode=True,
             model_role="assessment_solver",
         )
@@ -546,7 +539,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(min(8192, 2048 * len(items))),
+            max_tokens=sum(_stage_output_budget("solve", ((item.get("question_spec") or {}).get("input_contract") or {}).get("mode", "")) for item in items),
             json_mode=True,
             model_role="assessment_solver",
         )
@@ -611,7 +604,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(6144),
+            max_tokens=_stage_output_budget("repair", input_mode),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -652,7 +645,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=False,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(min(12288, 4096 * len(items))),
+            max_tokens=sum(_stage_output_budget("repair", ((item.get("context") or {}).get("assessment_slot") or {}).get("input_mode", "")) for item in items),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -686,9 +679,11 @@ class UniversalAssessmentModel(AIBase):
         *,
         call_policy: AssessmentModelCallPolicy | None = None,
     ) -> dict[str, Any]:
+        public_question_spec = _model_public_question(public_question_spec)
+        atomic = bool(slot.get("assessment_binding_schema"))
         evaluation_schema = {
-            "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
-            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), "")),
+            "evidence_checks": {key: True for key in EVIDENCE_CHECKS} if atomic else {},
+            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), ""), atomic=atomic),
             "passed": True,
             "confidence": 0.9,
             "solution_consistent": True,
@@ -705,7 +700,7 @@ class UniversalAssessmentModel(AIBase):
         response = await self._assessment_llm_call(
             call_policy,
             (
-                _semantic_review_directive()
+                _semantic_review_directive(atomic=atomic)
                 +
                 "严格按以下JSON结构输出，所有字符串必须正确转义。"
                 "evidence只写短句，不复制代码，不在字符串中使用引号。\n"
@@ -721,8 +716,8 @@ class UniversalAssessmentModel(AIBase):
                 f"蓝图槽位：{json.dumps(slot, ensure_ascii=False)}"
             ),
             system_prompt=(
-                "你是独立的课程测评质量评审器。你看不到生成器的解释、"
-                "标准答案、隐藏测试或评分参数。只依据公开题面、独立作答、"
+                "你是独立的课程测评质量评审器。作者答案只是待核查提案；"
+                "请核查最终交付的答案、解析和量规。只依据公开题面、独立作答、"
                 "章节目标和蓝图给出结构化结论。"
             ),
             retry_count=1,
@@ -732,7 +727,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(3072 if slot.get("assessment_binding_schema") else 2048),
+            max_tokens=_stage_output_budget("review", (public_question_spec.get("input_contract") or {}).get("mode", ""), atomic=atomic),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -757,7 +752,7 @@ class UniversalAssessmentModel(AIBase):
             system_prompt=(
                 "你是独立课程测评质量评审器。只读取公开题面、"
                 "独立作答摘要、章节目标和蓝图槽位。"
-                "你看不到生成器解释、标准答案、隐藏测试或评分参数。"
+                "作者答案只是待核查提案，请核查最终交付的答案、解析和量规。"
                 "只输出JSON，不输出思维过程。"
             ),
             retry_count=1,
@@ -767,7 +762,7 @@ class UniversalAssessmentModel(AIBase):
             use_fast_model=True,
             raise_on_failure=True,
             reject_truncated=True,
-            max_tokens=_out_tokens(6144 if any((item.get("slot") or {}).get("assessment_binding_schema") for item in items) else 4096),
+            max_tokens=sum(_stage_output_budget("review", ((item.get("question_spec") or {}).get("input_contract") or {}).get("mode", ""), atomic=bool((item.get("slot") or {}).get("assessment_binding_schema"))) for item in items),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -799,6 +794,43 @@ class UniversalAssessmentModel(AIBase):
                 "invalid_assessment_batch_quality_items"
             )
         return result
+
+    async def evaluate_computed_target(self, public_question_spec, objective, slot, *, call_policy=None):
+        """The program owns facts; the model only assesses teaching alignment."""
+        return await self._evaluate_target_alignment(public_question_spec,objective,slot,fact_status="verified",call_policy=call_policy)
+
+    async def evaluate_unverified_target(self, public_question_spec, objective, slot, *, call_policy=None):
+        return await self._evaluate_target_alignment(public_question_spec,objective,slot,fact_status="unverified",call_policy=call_policy)
+
+    async def _evaluate_target_alignment(self, public_question_spec, objective, slot, *, fact_status, call_policy=None):
+        fact_notice = ("这道题由有界程序先计算再生成，题面参数、定义、完整答案和评分依据已由确定性计算合同核验。"
+                       if fact_status == "verified" else "这道题的事实前提尚无完整独立证据，将保留为待事实复核候选，不会自动发布。")
+        response = await self._assessment_llm_call(
+            call_policy,
+            fact_notice + "你只检查教学适配，不重新求解、推算答案或评判数学正确性；这里不会提供答案。"
+            "判断：是否考查给定目标、作答形式是否支持要求的动作、题面是否足够清楚、难度是否适配。"
+            "有限参数的计算题可以作为应用与结果核对；不要要求它同时完成整章的证明或项目。"
+            "只输出JSON：{\"target_matches\":true,\"action_supported\":true,\"clear\":true,"
+            "\"difficulty_fits\":true,\"confidence\":0.95,\"evidence\":[\"简短的教学适配依据\"]}。\n"
+            + json.dumps({"question":_model_public_question(public_question_spec),"objective":objective,"slot":slot},ensure_ascii=False),
+            system_prompt="只评审课程目标与题目任务的对应关系，不充当计算器或事实裁判。",
+            retry_count=1, enable_thinking=False, use_fast_model=True, raise_on_failure=True,
+            reject_truncated=True, max_tokens=_out_tokens(2048), json_mode=True, model_role="assessment_reviewer",
+        )
+        value = self._extract_json(response) if response else None
+        if not isinstance(value,dict):
+            raise AIProviderRequestError("invalid_computed_target_review")
+        checks = {key:value.get(key) is True for key in ("target_matches","action_supported","clear")}
+        issues = [{"code":code,"severity":"critical","message":message} for key,code,message in (
+            ("target_matches","OBJECTIVE_MISMATCH","题目与教学目标不匹配"),
+            ("action_supported","OBSERVABLE_ACTION_MISSING","作答形式不能承载任务动作"),
+            ("clear","TASK_UNCLEAR","题面表达需要澄清"),
+        ) if not checks[key]]
+        return {"passed":all(checks.values()),"confidence":value.get("confidence",0),
+                "solution_consistent":True,"issues":issues,"evidence":value.get("evidence") or [],
+                "dimensions":{"curriculum_targeting":20 if checks["target_matches"] else 0,
+                              "answerability_and_completeness":15,"clarity":5 if checks["clear"] else 0,
+                              "difficulty_fit":10 if value.get("difficulty_fits") is True else 5}}
 
     async def _assessment_llm_call(
         self,
@@ -918,12 +950,7 @@ class _SemanticEvaluationBatcher:
             "question_spec": deepcopy(
                 contract["question_spec"]
             ),
-            "independent_solution": {
-                **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                "checks": deepcopy(
-                    independent.get("checks") or []
-                ),
-            },
+            "independent_solution": review_solution_payload(contract, independent),
             "objective": deepcopy(objective),
             "slot": deepcopy(slot),
         }
@@ -1114,12 +1141,7 @@ class _SemanticEvaluationBatcher:
             call=lambda: _call_model_method(
                 evaluator,
                 deepcopy(contract["question_spec"]),
-                {
-                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                    "checks": deepcopy(
-                        independent.get("checks") or []
-                    ),
-                },
+                review_solution_payload(contract, independent),
                 deepcopy(objective),
                 deepcopy(slot),
                 call_policy=resolved_call_policy,
@@ -1713,6 +1735,7 @@ class AssessmentGenerationOrchestrator:
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         quality_lock = asyncio.Lock()
+        quantity_history = historical_questions_for_node(prepared,node_id='') if prepared.get('_assessment_quantity_plan') else None
         slot_parallelism = self.slot_concurrency
         if callable(
             getattr(
@@ -1756,7 +1779,7 @@ class AssessmentGenerationOrchestrator:
                 if not objective:
                     return
                 contracts[node_id] = {}
-                accepted_questions = historical_questions_for_node(
+                accepted_questions = quantity_history if quantity_history is not None else historical_questions_for_node(
                     prepared,
                     node_id=node_id,
                 )
@@ -1836,7 +1859,7 @@ class AssessmentGenerationOrchestrator:
                             blueprint=slot_blueprint,
                             reference_package=reference_package,
                             practice_level=actual_level,
-                            variant_index=PRACTICE_LEVELS.index(actual_level),
+                            variant_index=int(selected_slot.get('variant_index',PRACTICE_LEVELS.index(actual_level))),
                             audit=audit,
                             accepted_questions=accepted_questions,
                             quality_lock=quality_lock,
@@ -2087,7 +2110,7 @@ class AssessmentGenerationOrchestrator:
             if slot is None:
                 continue
             practice_level = slot["practice_level"]
-            variant_index = PRACTICE_LEVELS.index(practice_level)
+            variant_index = int(slot.get('variant_index',PRACTICE_LEVELS.index(practice_level)))
             objective = slot.get("target_objective") or chapter_objective
             if slot.get("assessment_binding_schema"):
                 content_evidence = deepcopy(slot.get("target_content_evidence") or [])
@@ -2288,6 +2311,7 @@ class AssessmentGenerationOrchestrator:
         )
         base["design_brief"] = deepcopy(design_brief)
         base["retrieval_summary"] = deepcopy(reference_summary)
+        base["solution_envelope"]["factual_source_evidence"] = deepcopy(content_evidence)
         context = _generation_context(
             profile=profile,
             objective=scoped_objective,
@@ -2343,11 +2367,18 @@ class AssessmentGenerationOrchestrator:
                     generation_policy.max_model_solve_calls_per_question
                 ),
             }
+            artifact_history: list[dict[str, Any]] = []
+            grading_repairs = 0
+            # The first authoring pass assigns these; grading-only retries
+            # reuse the same independently solved artifacts across iterations.
+            contract: dict[str, Any] = deepcopy(base)
+            validation: dict[str, Any] = {}
+            independent: dict[str, Any] = {}
             for attempt_index in range(
-                generation_policy.max_generation_attempts
+                generation_policy.max_generation_attempts + generation_policy.max_grading_repairs_per_question
             ):
                 try:
-                    if attempt_index and next_action != "review" and solve_budget["limit"] > 0 and solve_budget["used"] >= solve_budget["limit"]:
+                    if attempt_index and next_action not in {"review", "rubric"} and solve_budget["limit"] > 0 and solve_budget["used"] >= solve_budget["limit"]:
                         raise ModelSolveBudgetExhausted(solve_budget["used"], solve_budget["limit"])
                     if next_action == "generate":
                         audit["generation_calls"] += 1
@@ -2380,7 +2411,12 @@ class AssessmentGenerationOrchestrator:
                                 )
                             ),
                         )
-                    elif next_action == "repair":
+                    elif next_action in {"repair", "rubric"}:
+                        if next_action == "rubric":
+                            # The grader is repaired against the solved artifact,
+                            # not against the superseded author's answer draft.
+                            candidate = deepcopy(candidate)
+                            candidate["solution"].update(delivery_solution(contract))
                         generation_context = (
                             _context_with_diversity_constraints(
                                 context,
@@ -2401,6 +2437,9 @@ class AssessmentGenerationOrchestrator:
                                 and issue.get("code")
                             ],
                         }
+                        if next_action == "rubric":
+                            repair_context["issue_codes"] = ["RUBRIC_ANSWER_MISMATCH"]
+                            repair_context["repair_scope"] = "只修改rubric、acceptable_answers、validator_config；题面和已核对的答案、解析保持不变。"
                         call_policy = generation_policy.call_policy(
                             "repair",
                             repair_context,
@@ -2460,7 +2499,13 @@ class AssessmentGenerationOrchestrator:
                         ).append(repair_guard)
                     elif next_action == "initial":
                         next_action = "generate"
-                    if next_action != "review":
+                    if next_action == "rubric":
+                        previous_contract = contract
+                        contract = _contract_from_candidate(base, candidate)
+                        contract["semantic_preflight"] = deepcopy(previous_contract.get("semantic_preflight") or {})
+                        contract["material_bindings"] = deepcopy(previous_contract.get("material_bindings") or [])
+                        _apply_independent_validation(contract, validation, independent)
+                    elif next_action != "review":
                         (
                             contract,
                             validation,
@@ -2595,8 +2640,18 @@ class AssessmentGenerationOrchestrator:
                             or "MODEL_OUTPUT_SCHEMA_INVALID"
                         ],
                     }
+                    attempt["error_message"] = str(exc)[:500]
                     item_audit["attempts"].append(attempt)
+                    last_quality = {"schema_version":QUESTION_QUALITY_SCHEMA,"passed":False,"score":0,"decision":decision,
+                                    "issues":[{"code":preflight_issue or "MODEL_OUTPUT_SCHEMA_INVALID","severity":"critical","message":str(exc)[:500]}]}
+                    last_contract = deepcopy(last_contract or base)
+                    last_contract["solution_envelope"]["generation_failure_artifact"] = {
+                        "candidate":deepcopy(candidate),"message":str(exc)[:500],"attempt":attempt_index+1,
+                        "error_code":str(exc).split(":",1)[0],"completed_attempts":deepcopy(artifact_history),
+                    }
                     if attempt_index >= final_attempt_index:
+                        item_audit["error_code"] = str(exc).split(":",1)[0]
+                        item_audit["error_message"] = str(exc)[:500]
                         break
                     item_audit["repair_count"] += 1
                     attempt["next_action"] = decision
@@ -2621,6 +2676,22 @@ class AssessmentGenerationOrchestrator:
                 if slot.get("assessment_binding_schema"):
                     contract.update(assessment_binding(slot))
                     stamp_evidence_admission(contract, semantic_report)
+                artifact_history.append({
+                    "attempt": attempt_index + 1, "action": next_action,
+                    "candidate": deepcopy(candidate),
+                    "independent_solution": deepcopy(independent),
+                    "delivery_solution": review_solution_payload(contract, independent)["delivery_solution"],
+                    "review": deepcopy(semantic_report),
+                })
+                # Answers stay in the existing private solution boundary.
+                contract["solution_envelope"]["generation_artifact_history"] = deepcopy(artifact_history)
+                item_audit["artifact_refs"] = [
+                    {"attempt": row["attempt"], "action": row["action"],
+                     "candidate_hash": stable_hash(row["candidate"]),
+                     "independent_hash": stable_hash(row["independent_solution"]),
+                     "delivery_hash": stable_hash(row["delivery_solution"])}
+                    for row in artifact_history
+                ]
                 async with quality_lock:
                     quality = evaluate_question_contract_quality(
                         contract,
@@ -2699,14 +2770,21 @@ class AssessmentGenerationOrchestrator:
                         else "publish"
                     )
                     break
-                if attempt_index >= final_attempt_index:
-                    break
-                item_audit["repair_count"] += 1
                 recovery = evidence_recovery_action(
                     [str(i.get("code") or "") for i in quality.get("issues") or []],
                     validation_passed=validation.get("passed") is True,
-                ) if slot.get("assessment_binding_schema") else "author"
-                if recovery in {"review", "solve"}:
+                    delivery_checks=(semantic_report.get("review_witness") or {}).get("delivery_checks"),
+                )
+                grading_available = grading_repairs < generation_policy.max_grading_repairs_per_question
+                if attempt_index >= final_attempt_index and not (recovery == "rubric" and grading_available):
+                    break
+                if recovery == "rubric":
+                    if not grading_available:
+                        break
+                    grading_repairs += 1
+                    item_audit["grading_repair_count"] = grading_repairs
+                item_audit["repair_count"] += 1
+                if recovery in {"review", "solve", "rubric"}:
                     next_action = recovery
                     item_audit["attempts"][-1]["next_action"] = recovery
                 elif quality.get("decision") == "regenerate":
@@ -2742,9 +2820,16 @@ class AssessmentGenerationOrchestrator:
             AIProviderUnavailable,
         ) as exc:
             fallback = deepcopy(base)
+            truncated = isinstance(exc, AIResponseTruncated)
+            reason_code = "assessment_output_truncated" if truncated else "ai_validation_unavailable"
+            fallback["solution_envelope"]["generation_failure_artifact"] = {
+                "candidate": deepcopy(candidate), "error_code": type(exc).__name__,
+                "message": str(exc)[:500], "attempt": attempt_index + 1,
+                "completed_attempts": deepcopy(artifact_history),
+            }
             fallback["risk_flags"] = list(dict.fromkeys([
                 *fallback.get("risk_flags", []),
-                "ai_validation_unavailable",
+                reason_code,
             ]))
             deferred_validation_issues = deepcopy(
                 (fallback.get("solution_validation") or {}).get("issues")
@@ -2758,10 +2843,10 @@ class AssessmentGenerationOrchestrator:
                     "score": 0,
                     "decision": "discard",
                     "issues": [{
-                        "code": "AI_VALIDATION_UNAVAILABLE",
+                        "code": "ASSESSMENT_OUTPUT_TRUNCATED" if truncated else "AI_VALIDATION_UNAVAILABLE",
                         "severity": "critical",
                         "message": (
-                            "模型生成或验证不可用，禁止将本地保底合同"
+                            "模型输出达到长度上限，题目未完成，已发布题目保留。" if truncated else "模型生成或验证不可用，禁止将本地保底合同"
                             "自动发布为正式题目。"
                         ),
                     }],
@@ -2769,9 +2854,9 @@ class AssessmentGenerationOrchestrator:
             )
             fallback["generation_degradation"] = {
                 "status": "failed_fallback_local",
-                "reason_code": "ai_validation_unavailable",
+                "reason_code": reason_code,
                 "validation_basis": "deterministic_local_contract",
-                "independent_ai_validation_status": "unavailable",
+                "independent_ai_validation_status": "truncated" if truncated else "unavailable",
                 "teacher_review_recommended": True,
                 "deferred_validation_issues": deferred_validation_issues,
             }
@@ -2844,6 +2929,7 @@ class AssessmentGenerationOrchestrator:
         semantic_preflight = evaluate_question_semantic_preflight(
             contract,
             design_brief=contract.get("design_brief"),
+            require_solution_evidence=contract["solution_envelope"].get("validation_mode") not in OPEN_VALIDATORS,
         )
         contract["semantic_preflight"] = deepcopy(
             semantic_preflight
@@ -2869,8 +2955,10 @@ class AssessmentGenerationOrchestrator:
             )
             or ""
         )
-        independent: dict[str, Any] | None = None
-        if generation_policy.prefer_local_solver and _local_solver_applicable(
+        independent: dict[str, Any] | None = computed_independent_solution(public_spec)
+        if independent is not None:
+            audit["local_independent_solution_count"] = int(audit.get("local_independent_solution_count") or 0) + 1
+        if independent is None and generation_policy.prefer_local_solver and _local_solver_applicable(
             public_spec,
         ):
             independent = self.local_solvers.solve(public_spec)
@@ -3009,9 +3097,47 @@ class AssessmentGenerationOrchestrator:
             validation,
             independent,
         )
+        if validation_mode in OPEN_VALIDATORS:
+            # The compact author draft is not a finished solution. Check
+            # solution-dependent evidence only after the blind solve is built.
+            semantic_preflight = evaluate_question_semantic_preflight(contract, design_brief=contract.get("design_brief"))
+            contract["semantic_preflight"] = deepcopy(semantic_preflight)
+            contract["material_bindings"] = deepcopy(semantic_preflight.get("material_bindings") or [])
+            if not semantic_preflight.get("passed"):
+                raise SemanticPreflightFailure(semantic_preflight, contract)
         return contract, validation, independent
 
     async def _semantic_report(
+        self,
+        contract: dict[str, Any],
+        *,
+        independent: dict[str, Any],
+        objective: dict[str, Any],
+        slot: dict[str, Any],
+        audit: dict[str, Any],
+        semantic_batcher: _SemanticEvaluationBatcher | None = None,
+    ) -> dict[str, Any]:
+        expected_hash = delivery_hash(contract)
+        fact_state = fact_publication_state(contract)
+        evaluator = getattr(self.model,"evaluate_computed_target" if fact_state == "verified" else "evaluate_unverified_target",None)
+        if fact_state == "verified" or (fact_state == "unverified" and not slot.get("assessment_binding_schema") and callable(evaluator)):
+            if not callable(evaluator):
+                return attest_final_solution_review(contract, {"passed":False,"confidence":0,"solution_consistent":True,
+                    "issues":[{"code":"SEMANTIC_REVIEW_UNAVAILABLE","severity":"major","message":"缺少教学目标适配检查"}]}, expected_hash)
+            call_policy = resolve_assessment_generation_policy(None).call_policy("review", {"slot":slot})
+            audit["semantic_evaluation_calls"] += 1
+            report = await _timed_model_call(audit,role="reviewer",operation="curriculum_only",batch_size=1,call_policy=call_policy,
+                call=lambda:_call_model_method(evaluator, _model_public_question(contract["question_spec"]),deepcopy(objective),deepcopy(slot),call_policy=call_policy))
+            report = _normalize_semantic_report(report)
+            report.update(solution_consistent=True,reviewer_triggered=True,review_scope="curriculum_alignment")
+            return attest_final_solution_review(contract,report,expected_hash)
+        report = await self._review_solution(
+            contract, independent=independent, objective=objective, slot=slot,
+            audit=audit, semantic_batcher=semantic_batcher,
+        )
+        return attest_final_solution_review(contract, report, expected_hash)
+
+    async def _review_solution(
         self,
         contract: dict[str, Any],
         *,
@@ -3101,12 +3227,7 @@ class AssessmentGenerationOrchestrator:
             batch_size=1,
             call=lambda: evaluator(
                 deepcopy(contract["question_spec"]),
-                {
-                    **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "option_analysis", "common_errors")},
-                    "checks": deepcopy(
-                        independent.get("checks") or []
-                    ),
-                },
+                review_solution_payload(contract, independent),
                 deepcopy(objective),
                 deepcopy(slot),
             ),
@@ -3437,6 +3558,10 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "MATERIAL_BINDING_INVALID": "题目材料不足或未参与求解",
         "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
         "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
+        "TASK_PREMISE_FALSE": "题面前提或答案被独立程序核验否定",
+        "MODEL_OUTPUT_SCHEMA_INVALID": "模型返回的题目结构不完整或与作答格式不匹配",
+        "RUBRIC_ANSWER_MISMATCH": "评分规则与已核对的解答不一致",
+        "FINAL_SOLUTION_REVIEW_MISSING": "最终答案或解析尚未通过一致性复核",
         "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
         "INDEPENDENT_EVIDENCE_UNVERIFIED": "独立解答缺少可核对的推导依据",
         "independent_solution_mismatch": "独立求解结果与答案不一致",
@@ -3480,6 +3605,9 @@ def _repair_action_for_issues(
 
 
 _TARGETED_REPAIR_PATHS: dict[str, tuple[str, ...]] = {
+    "RUBRIC_ANSWER_MISMATCH": (
+        "solution.rubric", "solution.acceptable_answers", "solution.validator_config",
+    ),
     "TASK_TOO_LONG": (
         "question_spec.task",
         "question_spec.stimulus",
@@ -3806,6 +3934,21 @@ def _contract_from_candidate(
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
     candidate, normalization = _normalize_candidate_layout(candidate)
+    plan = (candidate.get("question_spec") or {}).get("computation_plan")
+    if plan is not None and plan != {}:
+        response = (base.get("question_spec") or {}).get("input_contract") or {}
+        if response.get("mode") != "structured_fields" or {f.get("field_id") for f in response.get("fields") or []} != {"premises","derivation","conclusion"}:
+            raise AIProviderRequestError("invalid_computation_plan_input_contract")
+        try:
+            computed = build_computed_candidate(plan)
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise AIProviderRequestError("invalid_computation_plan:" + str(exc)) from exc
+        draft = candidate.get("question_spec") or {}
+        if any(draft.get(key) and draft[key] != computed["question_spec"][key] for key in ("stimulus","task","constraints","options")):
+            raise AIProviderRequestError("invalid_computation_plan_rendering")
+        if (candidate.get("solution") or {}).get("canonical_answer", computed["solution"]["canonical_answer"]) != computed["solution"]["canonical_answer"]:
+            raise AIProviderRequestError("invalid_computation_plan_answer")
+        candidate = computed
     if normalization:
         base = {**base, "candidate_normalization": normalization}
     question_draft = candidate.get("question_spec") or {}
@@ -3909,6 +4052,7 @@ def _contract_from_candidate(
         "response_contract",
         "options",
         "solver_contract",
+        "computation_plan",
     ):
         if field in question_draft:
             public_spec[field] = deepcopy(question_draft[field])
@@ -3924,6 +4068,7 @@ def _contract_from_candidate(
         "worked_solution",
         "hidden_tests",
         "measurement_plan",
+        "premise_bindings",
     ):
         if field in solution_draft:
             value = deepcopy(solution_draft[field])
@@ -4141,6 +4286,13 @@ def _apply_independent_validation(
         and not risk_contract.get("requires_teacher_review")
     )
     passed = bool(validation.get("passed"))
+    open_answer = validation.get("validation_mode") in OPEN_VALIDATORS
+    if open_answer:
+        solution = contract["solution_envelope"]
+        solution["author_answer_proposal"] = deepcopy(solution.get("canonical_answer"))
+        solution["canonical_answer"] = deepcopy(independent.get("answer"))
+        contract["solution_protocol"] = {"schema_version": SOLUTION_PROTOCOL, "accepted": False, "resolution": "pending_review"}
+        solution["final_solution_review"] = contract["solution_protocol"]
     auto_publish = passed and deterministic and risk_low
     issue_code = validation.get("issue_code")
     issues = (
@@ -4162,6 +4314,7 @@ def _apply_independent_validation(
     )
     _attach_learner_worked_solution(contract, independent)
     contract["solution_envelope"]["independent_solution_record"] = {
+        **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "checks", "option_analysis", "common_errors")},
         "answer_hash": stable_hash(
             independent.get("answer"),
             prefix="ians_",
@@ -4175,11 +4328,11 @@ def _apply_independent_validation(
     _refresh_solution_revision_id(contract)
     contract["solution_validation"] = {
         "schema_version": "solution_validation_report_v1",
-        "passed": passed,
+        "passed": passed and not open_answer,
         "status": (
             "passed"
             if auto_publish
-            else "needs_review"
+            else "pending_semantic_review" if open_answer else "needs_review"
         ),
         "validation_mode": validation.get("validation_mode"),
         "deterministic": deterministic,
@@ -4190,7 +4343,7 @@ def _apply_independent_validation(
             "schema": True,
             "solution_revision": True,
             "answer_executable": True,
-            "independent_agreement": passed,
+            "independent_agreement": None if open_answer else passed,
         },
         "validator_result": deepcopy(validation),
     }
@@ -4201,6 +4354,7 @@ def _apply_independent_validation(
     contract["risk_flags"] = [
         str(issue["code"]) for issue in issues
     ]
+    apply_fact_evidence(contract)
 
 
 def _attach_learner_worked_solution(
@@ -4215,7 +4369,7 @@ def _attach_learner_worked_solution(
         for option in question_spec.get("options") or []
         if isinstance(option, dict) and option.get("id")
     ]
-    if worked_solution_is_complete(
+    if not contract.get("solution_protocol") and worked_solution_is_complete(
         solution,
         option_ids=option_ids,
     ):
@@ -4243,6 +4397,21 @@ def _attach_learner_worked_solution(
         "option_analysis": deepcopy(option_analysis),
         "common_errors": deepcopy(common_errors),
     }
+    if contract.get("solution_protocol"):
+        # Keep one complete source, even when it is incomplete and must fail.
+        # Never fill missing solver evidence with pieces of the author answer.
+        solution["worked_solution"] = independent_worked
+        solution["author_solution_graph_proposal"] = deepcopy(solution.get("solution_graph"))
+        solution["solution_graph"] = {
+            "schema_version": "solution_graph_v1",
+            "steps": [{
+                "step_id": f"step_{index + 1}",
+                "action": "\n".join(str(step.get(key) or "") for key in ("explanation", "calculation") if step.get(key))
+                    if isinstance(step, dict) else str(step),
+                "check": str(step.get("result") or "") if isinstance(step, dict) else "",
+            } for index, step in enumerate(independent_work)],
+        }
+        return
     if worked_solution_is_complete(
         {**solution, "worked_solution": independent_worked}, option_ids=option_ids,
     ):
@@ -4292,7 +4461,7 @@ def _refresh_solution_revision_id(
     solution_payload = {
         key: value
         for key, value in solution.items()
-        if key != "solution_revision_id"
+        if key not in {"solution_revision_id", "final_solution_review", "generation_artifact_history"}
     }
     revision_id = stable_hash(
         {
@@ -4364,7 +4533,9 @@ def _apply_quality_decision(
         or risk.get("requires_teacher_review")
         or spec.get("archetype_id") == "integrated_performance"
     )
-    eligible = bool(quality.get("passed"))
+    fact_state = fact_publication_state(contract)
+    fact_review = fact_state == "unverified"
+    eligible = bool(quality.get("passed")) and fact_state in {"verified", "legacy"}
     validation = contract.setdefault("solution_validation", {})
     validation["quality_gate_passed"] = bool(
         quality.get("passed")
@@ -4382,7 +4553,7 @@ def _apply_quality_decision(
             else "quality_failed"
         )
     )
-    contract["review_required"] = False
+    contract["review_required"] = bool(quality.get("passed")) and fact_review
     contract["generation_status"] = (
         "ready" if quality.get("passed") else "quality_failed"
     )
@@ -4393,6 +4564,8 @@ def _apply_quality_decision(
             for issue in quality.get("issues") or []
         ],
         *(["quality_advisory"] if quality_advisory else []),
+        *(["facts_unverified"] if fact_review else []),
+        *(["facts_contradicted"] if fact_state == "contradicted" else []),
     ]))
 
 
@@ -5211,6 +5384,16 @@ def _solver_contract_kind_hint() -> str:
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
+        "计算计划分支：仅当input_mode=structured_fields且field_id恰为premises、derivation、conclusion，"
+        "并且计算模型确实考查锁定目标时，可返回{question_spec:{computation_plan:计划},solution:{}}。"
+        "这一分支不填写stimulus/task或答案，程序先计算再完整渲染题面；不要混入自行编写的前提。"
+        "支持的计划为{kind:arithmetic,expression:纯数字四则式}、{kind:dynamic_array,append_count:1到32的整数}、"
+        "{kind:range_sum,values:整数数组,start:起始下标,end:结束下标}、{kind:treap_depth,n:1到32的整数,rank:1到n}、"
+        "{kind:zipf_coverage,n:1到64的整数,alpha:0到4的整数,threshold:分数字符串}、"
+        "{kind:state_operations,initial_state:列表或字典,operations:append/pop/set/delete操作列表}。"
+        "不适配目标时使用普通题面分支，computation_plan为null。普通题的事实前提在solution.premise_bindings中"
+        "给出claim、quote、reference_id；quote必须逐字来自content_evidence且claim必须出现在题面，缺来源时留空，不能编造。"
+        "以下完整文本结构要求只适用于普通题面分支。"
         "生成和任何定向修复都必须遵守：task.rendered_text最多300个字符，"
         "英文、公式、标点和换行均计数，建议控制在120至200字符。"
         "task只写作答动作；将必要背景、数据、代码放入stimulus，限制放constraints，"
@@ -5268,6 +5451,7 @@ def _authoring_quality_directive() -> str:
 def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -> dict[str, Any]:
     candidate_schema = {
         "question_spec": {
+            "computation_plan": None,
             "stimulus": {
                 "rendered_text": (
                     "完整题目材料；代码必须使用带语言标记的"
@@ -5293,6 +5477,7 @@ def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -
             },
         },
         "solution": {
+            "premise_bindings": [],
             "validation_mode": (
                 "必须逐字等于对应assessment_slot.validation_mode"
             ),
@@ -5717,34 +5902,40 @@ def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
     )
 
 
+def _model_public_question(spec: dict[str, Any]) -> dict[str, Any]:
+    """Only learner-visible inputs; author solver hints are never evidence."""
+    return {key: deepcopy(spec[key]) for key in (
+        "stimulus", "task", "constraints", "options", "input_contract", "response_contract",
+        "explanation_revision_issues",
+    ) if key in spec}
+
+
+def _independent_solution_schema() -> dict:
+    # A single ordering contract for single and batch calls: derive, verify,
+    # then summarize. No answer-first batch path that anchors later work.
+    return {
+        "work": [{"title": "步骤标题", "explanation": "可公开、可复核的推导",
+                  "calculation": "必要的计算过程", "result": "本步结果"}],
+        "checks": ["独立核算或边界检查"],
+        "option_analysis": [{"option_id": "实际选项ID，非选择题使用空数组",
+                             "is_correct": True, "explanation": "依据本题的原因"}],
+        "common_errors": [], "summary": "与已核对步骤一致的简洁概述",
+        "answer": "匹配input_contract且与推导一致的最终答案",
+    }
+
+
 def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
     public_items = [
         {
             "slot_id": str(item.get("slot_id") or ""),
-            "question_spec": deepcopy(item.get("question_spec") or {}),
+            "question_spec": _model_public_question(item.get("question_spec") or {}),
         }
         for item in items
     ]
     schema = {
         "solutions": [{
             "slot_id": "必须复制输入中的slot_id",
-            "solution": {
-                "answer": "匹配input_contract的答案",
-                "summary": "面向学生的简洁教学概述",
-                "work": [{
-                    "title": "步骤标题",
-                    "explanation": "可公开、可复核的推导",
-                    "calculation": "必要的计算过程",
-                    "result": "本步结果",
-                }],
-                "checks": ["结果检查"],
-                "option_analysis": [{
-                    "option_id": "复制公开选项ID，非选择题使用空数组",
-                    "is_correct": True,
-                    "explanation": "该选项成立或不成立的具体原因",
-                }],
-                "common_errors": [],
-            },
+            "solution": _independent_solution_schema(),
         }],
     }
     return (
@@ -5767,6 +5958,8 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
 def _batch_evaluation_prompt(
     items: list[dict[str, Any]],
 ) -> str:
+    items = [{**item, "question_spec": _model_public_question(item.get("question_spec") or {})} for item in items]
+    atomic = any((item.get("slot") or {}).get("assessment_binding_schema") for item in items)
     report_schema = {
         "evidence_checks": {key: True for key in EVIDENCE_CHECKS},
         "review_witness": _review_witness_schema(),
@@ -5794,13 +5987,16 @@ def _batch_evaluation_prompt(
             "report": {
                 **report_schema,
                 "review_witness": _review_witness_schema(
-                    next(iter((item.get("objective") or {}).get("knowledge") or []), "")
+                    next(iter((item.get("objective") or {}).get("knowledge") or []), ""),
+                    atomic=bool((item.get("slot") or {}).get("assessment_binding_schema")),
                 ),
+                "evidence_checks": {key: True for key in EVIDENCE_CHECKS}
+                    if (item.get("slot") or {}).get("assessment_binding_schema") else {},
             },
         } for item in items],
     }
     return (
-        _semantic_review_directive()
+        _semantic_review_directive(atomic=atomic)
         + f"分别评审以下{len(items)}道题。每道题必须独立评分，"
         "不能用另一题的答案或结论。只输出JSON，不输出思维过程。"
         "dimensions只能包含curriculum_targeting(0-20)、"
@@ -5824,7 +6020,14 @@ def _ordered_review_schema(schema: dict) -> dict:
     )}
 
 
-def _review_witness_schema(target_statement: str = "") -> dict:
+def _review_witness_schema(target_statement: str = "", *, atomic: bool = True) -> dict:
+    if not atomic:
+        return {
+            "delivery_checks": [{"path": "所核查的答案/解析/量规字段路径",
+                                 "claim": "该字段的实际断言", "verification": "依据公开条件的计算或核查",
+                                 "supported": True}],
+            "unsupported_assumptions": [],
+        }
     return {
         "option_audit": [{"option_id": "逐项复制实际ID", "meaning": "明确该选项按什么语义解释",
                           "is_correct": True, "reason": "依题面条件核对的具体理由"}],
@@ -5839,8 +6042,28 @@ def _review_witness_schema(target_statement: str = "") -> dict:
     }
 
 
-def _semantic_review_directive() -> str:
+def _semantic_review_directive(*, atomic: bool = True) -> str:
+    if not atomic:
+        return (
+            "评审最终交付的delivery_solution：答案、每步解析、检查、量规及solution_graph必须与公开题面相符。"
+            "author_answer_proposal是未验证的作者草稿，不是标准答案。不得以与草稿不同为由否定正确的独立解。"
+            "先在delivery_checks列出关键断言与可复核的计算，再给结论。没有错误时issues为空。"
+            "只依据实际题面，不构造题面没有要求的反例或虚构选项；非原子题不填写observation_test。"
+            "必要定义、初值和数据不是答案泄露；只有直接透露所考结论或作答方法才标ANSWER_RULE_DISCLOSED。"
+            "检查题目可答性、目标对齐、实际难度、表达清晰度；缺少条件标TASK_CONDITION_MISSING。"
+            "解析错误标EXPLANATION_CONTRADICTION；量规或solution_graph错误标RUBRIC_ANSWER_MISMATCH，"
+            "并给出具体字段路径、原断言及正确核算依据。不得把作者量规错误归咎于独立解。"
+            "最终数值正确不能豁免错误的步骤。所有critical问题必须passed=false、solution_consistent=false。"
+            "不确定的断言如实标未验证；不能凭猜测放行。最多列三条关键核查，输出简洁、一致的最终报告。"
+        )
     return (
+        "Review delivery_solution as the exact proposed student-facing answer, explanation and grading contract. "
+        "Check its canonical_answer, worked_solution summary, every step, final_answer and rubric against the public question. "
+        "author_answer_proposal is an untrusted author draft, not ground truth. The independent solve was completed blind. "
+        "Accept the independently derived delivery only when its full reasoning is supported; do not force agreement with an incorrect author draft. "
+        "A correct final value does not excuse a wrong explanation. Identify whether a defect belongs to the question, solution or review. "
+        "Given initial values, data layout and necessary mathematical definitions are not answer leakage by themselves. "
+        "Require actual disclosure of the tested conclusion or solving rule. For non-choice tasks keep option_audit empty. "
         "Return ONE final, internally consistent report, never deliberation, self-correction or alternate drafts. "
         "First complete the factual option audit and observation trace; then set all final flags and scores from them. "
         "Keep evidence to at most three factual sentences of 60 Chinese characters each, and trace under 160 characters. "

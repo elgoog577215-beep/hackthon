@@ -4,11 +4,58 @@ export interface ProfileTreeItem {
   id: string; sourceId: string; kind: 'course' | 'branch' | 'knowledge'
   label: string; progress: number | null; count: number; status?: string; pending?: boolean
   children: ProfileTreeItem[]
+  searchText?: string
 }
 export interface PositionedProfileNode extends ProfileTreeItem {
   x: number; y: number; width: number; height: number; expanded: boolean
 }
 export interface ProfileTreeEdge { id: string; source: PositionedProfileNode; target: PositionedProfileNode; path: string }
+
+/** Display course content without manufacturing a learner assessment profile. */
+export function createContentKnowledgeTree(
+  courseId: string,
+  title: string,
+  categories: Array<{ id: string; parent_id?: string | null; name: string }>,
+  points: Array<{ knowledge_id: string; parent_id?: string | null; name: string; statement?: string }>,
+): ProfileTreeItem {
+  const groups = new Map(categories.map(category => [category.id, category]))
+  const placed = new Set<string>()
+  const visited = new Set<string>()
+  const point = (item: typeof points[number]): ProfileTreeItem | null => {
+    if (placed.has(item.knowledge_id)) return null
+    placed.add(item.knowledge_id)
+    return { id: `knowledge:${item.knowledge_id}`, sourceId: item.knowledge_id, kind: 'knowledge',
+      label: item.name, searchText: `${item.name} ${item.statement || ''}`, progress: null, count: 1, children: [] }
+  }
+  const branch = (id: string): ProfileTreeItem | null => {
+    const category = groups.get(id)
+    if (!category || visited.has(id)) return null
+    visited.add(id)
+    const children = [
+      ...categories.filter(item => item.parent_id === id).map(item => branch(item.id)),
+      ...points.filter(item => item.parent_id === id).map(point),
+    ].filter((item): item is ProfileTreeItem => item !== null)
+    if (!children.length) return null
+    return { id: `branch:${id}`, sourceId: id, kind: 'branch', label: category.name,
+      progress: null, count: children.reduce((total, child) => total + child.count, 0), children }
+  }
+  const children = categories.filter(item => !item.parent_id || !groups.has(item.parent_id))
+    .map(item => branch(item.id)).filter((item): item is ProfileTreeItem => item !== null)
+  children.push(...points.map(point).filter((item): item is ProfileTreeItem => item !== null))
+  return { id: `course:${courseId}`, sourceId: courseId, kind: 'course', label: title,
+    progress: null, count: placed.size, children }
+}
+
+export function filterKnowledgeTree(root: ProfileTreeItem, query: string): ProfileTreeItem {
+  const search = query.trim().toLocaleLowerCase()
+  if (!search) return root
+  const filter = (item: ProfileTreeItem): ProfileTreeItem | null => {
+    if (item.kind === 'knowledge') return (item.searchText || item.label).toLocaleLowerCase().includes(search) ? item : null
+    const children = item.children.map(filter).filter((child): child is ProfileTreeItem => child !== null)
+    return children.length || (item.pending && item.label.toLocaleLowerCase().includes(search)) ? { ...item, children } : null
+  }
+  return { ...root, children: root.children.map(filter).filter((item): item is ProfileTreeItem => item !== null) }
+}
 
 export function createKnowledgeTree(profile: KnowledgeProfile, title: string, query = ''): ProfileTreeItem {
   const search = query.trim().toLocaleLowerCase()

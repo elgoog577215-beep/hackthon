@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,8 +64,13 @@ class QuestionBankRebuildJobRepository:
         teacher_instruction: str = "",
         knowledge_ids: list[str] | None = None,
         knowledge_baseline_revision: str = "",
+        questions_per_lesson: int | None = None,
+        append_only: bool = False,
+        quantity_batch_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
+        if questions_per_lesson is not None and (type(questions_per_lesson) is not int or not 1 <= questions_per_lesson <= 20):
+            raise ValueError('questions_per_lesson must be between 1 and 20')
         normalized_scope = str(scope or "course")
         normalized_mode = str(mode or "incremental")
         normalized_knowledge = sorted({str(value).strip() for value in knowledge_ids or [] if str(value).strip()})
@@ -113,6 +120,7 @@ class QuestionBankRebuildJobRepository:
             {
                 "course_id": normalized_course_id,
                 "request_id": request_key,
+                **({'questions_per_lesson':questions_per_lesson,'append_only':bool(append_only),'quantity_batch_id':quantity_batch_id} if questions_per_lesson is not None else {}),
                 "scope": normalized_scope,
                 **({"knowledge_ids": normalized_knowledge,
                     "knowledge_baseline_revision": knowledge_baseline_revision} if normalized_knowledge else {}),
@@ -146,6 +154,9 @@ class QuestionBankRebuildJobRepository:
                         teacher_instruction=normalized_teacher_instruction,
                         knowledge_ids=normalized_knowledge,
                         knowledge_baseline_revision=knowledge_baseline_revision,
+                        questions_per_lesson=questions_per_lesson,
+                        append_only=append_only,
+                        quantity_batch_id=quantity_batch_id,
                     ):
                         continue
                     active_worker_id = str(
@@ -169,6 +180,9 @@ class QuestionBankRebuildJobRepository:
                 "course_id": normalized_course_id,
                 "request_id": request_id,
                 "request_key": request_key,
+                "questions_per_lesson": questions_per_lesson,
+                "append_only": bool(append_only),
+                "quantity_batch_id": quantity_batch_id,
                 "scope": normalized_scope,
                 "knowledge_ids": normalized_knowledge,
                 "knowledge_baseline_revision": knowledge_baseline_revision,
@@ -336,13 +350,16 @@ class QuestionBankRebuildJobRepository:
     ) -> dict[str, Any]:
         with self._lock:
             path, job = self._load_by_job_id(job_id)
-            job["status"] = "completed"
+            waiting = int((result.get("review_queue") or {}).get("blocking_count") or 0) > 0
+            job["status"] = "waiting_review" if waiting else "completed"
             job["current_stage"] = "publication"
             job["current_stage_index"] = 9
             job["progress"] = 100
             for stage in job["stages"]:
                 stage["status"] = "completed"
-            job["message"] = "题库重建并发布完成"
+            if waiting:
+                job["stages"][-1]["status"] = "waiting_review"
+            job["message"] = "题目已生成，待事实复核；已发布题目保留" if waiting else "题库重建并发布完成"
             job["result"] = deepcopy(result)
             job["error"] = None
             job["completed_at"] = _now()
@@ -390,6 +407,15 @@ class QuestionBankRebuildJobRepository:
             job["updated_at"] = _now()
             self._write(path, job)
             return deepcopy(job)
+
+    def freeze_quantity_plan(self, job_id: str, plan: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            path, job = self._load_by_job_id(job_id)
+            if job.get('quantity_plan') is not None:
+                return deepcopy(job['quantity_plan'])
+            job['quantity_plan'] = deepcopy(plan)
+            self._write(path, job)
+            return deepcopy(plan)
 
     def freeze_retrieval_package(
         self,
@@ -452,9 +478,10 @@ class QuestionBankRebuildJobRepository:
     def _path(self, course_id: str, job_id: str) -> Path:
         return self.root_dir / course_id / f"{job_id}.json"
 
-    @staticmethod
-    def _read(path: Path) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as handle:
+    def _read(self, path: Path) -> dict[str, Any]:
+        # Windows readers can temporarily deny replacement. Polling and worker
+        # writes must use the same lock, including latest/active job scans.
+        with self._lock, path.open("r", encoding="utf-8") as handle:
             value = json.load(handle)
         value["assessment_generation_profile"] = (
             normalize_assessment_generation_profile(
@@ -470,10 +497,24 @@ class QuestionBankRebuildJobRepository:
     @staticmethod
     def _write(path: Path, value: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-        temporary.replace(path)
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                json.dump(value, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            for attempt in range(6):
+                try:
+                    temporary.replace(path)
+                    break
+                except OSError as exc:
+                    # Also tolerate short-lived handles held outside this
+                    # repository (indexer/antivirus). Never rerun generation.
+                    if getattr(exc, "winerror", None) not in {5, 32, 33} or attempt == 5:
+                        raise
+                    time.sleep(0.02 * (2 ** attempt))
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _storage_id(value: str) -> str:
@@ -498,9 +539,15 @@ def _same_active_scope(
     teacher_instruction: str,
     knowledge_ids: list[str] | None = None,
     knowledge_baseline_revision: str = "",
+    questions_per_lesson: int | None = None,
+    append_only: bool = False,
+    quantity_batch_id: str | None = None,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
+        and job.get('questions_per_lesson') == questions_per_lesson
+        and bool(job.get('append_only')) == bool(append_only)
+        and job.get('quantity_batch_id') == quantity_batch_id
         and str(job.get("scope") or "") == scope
         and sorted(job.get("knowledge_ids") or []) == (knowledge_ids or [])
         and str(job.get("knowledge_baseline_revision") or "") == knowledge_baseline_revision

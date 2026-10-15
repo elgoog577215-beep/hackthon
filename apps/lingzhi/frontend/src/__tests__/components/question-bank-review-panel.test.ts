@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuestionBankReviewPanel from '@/components/QuestionBankReviewPanel.vue'
 import { setLocale } from '@/shared/i18n'
 import zhMessages from '@/../public/locales/zh/translation.json'
+import enMessages from '@/../public/locales/en/translation.json'
 
 const { get, post } = vi.hoisted(() => ({
   get: vi.fn(),
@@ -18,6 +19,7 @@ const {
 vi.mock('@/utils/http', () => ({
   default: { get, post },
   teacherReadRequestConfig: (config = {}) => config,
+  teacherRequestConfig: (config = {}) => ({ ...config, identityScope: 'teacher' }),
 }))
 vi.mock('@/utils/question-bank-rebuild', () => ({
   resumeQuestionBankRebuild,
@@ -59,6 +61,9 @@ describe('QuestionBankReviewPanel', () => {
             solution_envelope: {
               canonical_answer: '应包含跨章节证据链。',
               rubric: [{ criterion: '证据对应', points: 4 }],
+              factual_validation: { status: 'unverified', source_bindings: [
+                { reference_id: 'course-source-1', claim: '每次扩容将容量翻倍。', quote: '每次扩容将容量翻倍。', status: 'matched' },
+              ] },
             },
             solution_spec: {
               summary: '先定位章节结论，再建立跨章节证据关系。',
@@ -177,11 +182,47 @@ describe('QuestionBankReviewPanel', () => {
   it('allows keyboard users to focus the question reading region and scroll its full contents', async () => {
     const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' }, attachTo: document.body })
     await flushPromises()
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     const reader = wrapper.get('.question-reader__scroll')
     expect(reader.attributes('tabindex')).toBe('0')
     expect(reader.attributes('aria-label')).toBeTruthy()
     ;(reader.element as HTMLElement).focus()
     expect(document.activeElement).toBe(reader.element)
+    wrapper.unmount()
+  })
+
+  it('opens a question as the full center page and returns to its list without changing settings', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
+    await flushPromises()
+    const middle = wrapper.get('.question-bank-workspace-main')
+    expect(middle.find('.question-reader').exists()).toBe(false)
+    expect(middle.find('[data-testid="question-search-input"]').exists()).toBe(false)
+    expect(middle.find('[data-testid="question-status-filter"]').exists()).toBe(false)
+    expect(middle.find('.question-index__toolbar').exists()).toBe(false)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(middle.find('.question-index').exists()).toBe(false)
+    expect(middle.get('.question-reader').text()).toContain('给定材料，完成跨章节分析并检查结论。')
+    expect(wrapper.get('[data-testid="question-settings-pane"]').isVisible()).toBe(true)
+    await middle.get('[data-testid="back-to-question-list"]').trigger('click')
+    expect(middle.find('.question-reader').exists()).toBe(false)
+    expect(middle.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(middle.get('[data-testid="toggle-question-details"]').element)
+    expect(post).not.toHaveBeenCalled()
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('submits per-lecture additions while preserving existing questions and bounds the count', async () => {
+    const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate'}})
+    await flushPromises()
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('5')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1',expect.objectContaining({
+      questions_per_lesson:5,append_only:true,mode:'incremental',resume_existing:true,
+    }),expect.any(Object))
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('0')
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
 
@@ -253,8 +294,8 @@ describe('QuestionBankReviewPanel', () => {
     )
     expect(wrapper.text()).toContain('4 / 4')
     expect(wrapper.text()).toContain('已发布')
-    expect(wrapper.text()).toContain('1 道高风险题等待发布前确认')
-    expect(wrapper.text()).toContain('浏览全部题目')
+    expect(wrapper.text()).toContain('1 道题等待发布前复核')
+    expect(wrapper.find('.question-index').exists()).toBe(true)
     expect(wrapper.text()).toContain('thermodynamics')
     expect(wrapper.get('[data-testid="question-diversity-monitor"]').text())
       .toContain('2 次拦截')
@@ -271,6 +312,37 @@ describe('QuestionBankReviewPanel', () => {
     expect(audit.text()).toContain('MATERIAL_BINDING_INVALID')
     expect(audit.text()).toContain('重复 86%')
     expect(audit.text()).toContain('item-history-1')
+  })
+
+  it('keeps generation controls in the right pane while browsing and preserves settings when collapsed', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
+    await flushPromises()
+    const side = wrapper.get('[data-testid="question-settings-pane"]')
+    expect(side.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
+    expect(wrapper.get('.question-bank-workspace-main').find('[data-testid="question-generation-studio"]').exists()).toBe(false)
+    await side.get('[data-testid="questions-per-lesson"]').setValue('5')
+    await side.get('[data-testid="collapse-question-settings"]').trigger('click')
+    expect(side.isVisible()).toBe(false)
+    await wrapper.get('[data-testid="expand-question-settings"]').trigger('click')
+    expect(wrapper.get('[data-testid="question-settings-pane"]').isVisible()).toBe(true)
+    expect((side.get('[data-testid="questions-per-lesson"]').element as HTMLInputElement).value).toBe('5')
+    expect(post).not.toHaveBeenCalled()
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps empty lectures available in the left rail without starting generation on navigation', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', chapterOptions: [
+      { node_id: 'node-1', number: 1, title: '已有题的讲次' },
+      { node_id: 'empty-lesson', number: 2, title: '还没有题的讲次' },
+    ] } })
+    await flushPromises()
+    const rail = wrapper.get('[data-testid="question-lesson-rail"]')
+    await rail.get('[data-testid="question-chapter-empty-lesson"]').trigger('click')
+    expect(wrapper.get('.question-bank-workspace-main').text()).toContain('没有符合条件的题目')
+    expect(rail.get('[data-testid="question-chapter-empty-lesson"]').attributes('aria-current')).toBe('page')
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="question-settings-pane"]').find('[data-testid="generate-question-bank"]').exists()).toBe(true)
   })
 
   it('按讲次分层浏览题目并只显示当前讲次题目', async () => {
@@ -308,10 +380,15 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('第一讲第二题')
     expect(wrapper.text()).not.toContain('第二讲唯一题目')
 
+    await wrapper.findAll('[data-testid="toggle-question-details"]')[0]!.trigger('click')
+    wrapper.get('.question-reader__scroll').element.scrollTop = 220
     await wrapper.get('[data-testid="question-chapter-lesson-2"]').trigger('click')
+    expect(wrapper.find('.question-reader').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(wrapper.get('.question-reader__scroll').element.scrollTop).toBe(0)
 
     expect(wrapper.get('[data-testid="question-chapter-lesson-2"]').attributes('aria-current')).toBe('page')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('第二讲唯一题目')
     expect(wrapper.text()).not.toContain('第一讲第一题')
     expect(wrapper.get('.question-reader__header').text()).toContain('第 2 讲 · 状态机与存档')
@@ -348,13 +425,13 @@ describe('QuestionBankReviewPanel', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="question-chapter-item"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-lesson-rail"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('旧课程第一题')
     expect(wrapper.text()).toContain('旧课程第二题')
   })
 
-  it('题目列表按每页十条分页并在筛选时回到第一页', async () => {
+  it('题目列表分页并在详情返回后保留原页码', async () => {
     const paginatedItems = Array.from({ length: 23 }, (_, index) => ({
       item_id: `page-item-${index + 1}`,
       revision_id: `page-revision-${index + 1}`,
@@ -402,36 +479,24 @@ describe('QuestionBankReviewPanel', () => {
       '[data-testid="toggle-question-details"]',
     )
     expect(detailToggles).toHaveLength(10)
-    expect(detailToggles[0]!.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
+    expect(wrapper.find('.question-reader').exists()).toBe(false)
     await detailToggles[1]!.trigger('click')
-    expect(detailToggles[0]!.attributes('aria-expanded')).toBe('false')
-    expect(detailToggles[1]!.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
-
+    expect(wrapper.find('.question-index').exists()).toBe(false)
+    expect(wrapper.get('.question-reader').text()).toContain('分页题目 02')
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
     await wrapper.get('[data-testid="question-page-select"]').setValue('2')
-    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid="toggle-question-details"]')[0]!.attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('分页题目 11')
     expect(wrapper.text()).not.toContain('分页题目 01')
-
+    await wrapper.findAll('[data-testid="toggle-question-details"]')[1]!.trigger('click')
+    expect(wrapper.get('.question-reader').text()).toContain('分页题目 12')
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
+    expect((wrapper.get('[data-testid="question-page-select"]').element as HTMLSelectElement).value).toBe('2')
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(10)
     await wrapper.get('[data-testid="question-page-select"]').setValue('3')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('分页题目 23')
-    expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain(
-      '第 21–23 题，共 23 题',
-    )
+    expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain('第 21–23 题，共 23 题')
 
-    await wrapper.get('[data-testid="question-search-input"]').setValue('分页题目 12')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('分页题目 12')
-    expect(wrapper.find('[data-testid="question-pagination"]').exists()).toBe(false)
-
-    await wrapper.get('[data-testid="question-search-input"]').setValue('')
-    await wrapper.get('[data-testid="question-status-filter"]').setValue('rework')
-    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('分页题目 23')
-    expect(wrapper.text()).not.toContain('没有符合条件的题目')
   })
 
   it('异常项置顶并将已覆盖目标按每页十条分页', async () => {
@@ -548,8 +613,10 @@ describe('QuestionBankReviewPanel', () => {
         note: '',
         expected_bundle_revision_id: 'qbb-1',
       },
+      { identityScope: 'teacher' },
     )
     expect(get).toHaveBeenCalledTimes(2)
+    await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('已发布')
   })
@@ -673,6 +740,9 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
+        resume_existing: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -714,6 +784,9 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: ['mat-primary', 'mat-reference'],
+        questions_per_lesson: 3,
+        append_only: true,
+        resume_existing: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -734,6 +807,8 @@ describe('QuestionBankReviewPanel', () => {
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('重新选择')
+    expect(wrapper.text()).toContain('题目生成未启动')
+    expect(wrapper.text()).not.toContain('等待生成')
     expect(wrapper.text()).not.toContain('Request failed with status code 422')
   })
 
@@ -891,10 +966,12 @@ describe('QuestionBankReviewPanel', () => {
         request_id: expect.any(String),
         scope: 'course',
         node_ids: [],
-        mode: 'full',
+        mode: 'incremental',
         resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -933,10 +1010,12 @@ describe('QuestionBankReviewPanel', () => {
         request_id: expect.any(String),
         scope: 'course',
         node_ids: [],
-        mode: 'full',
-        resume_existing: false,
+        mode: 'incremental',
+        resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -1115,11 +1194,41 @@ describe('QuestionBankReviewPanel', () => {
     )
   })
 
+  it.each([
+    ['zh', '题目已生成，待事实复核'],
+    ['en', 'Questions generated; factual verification pending'],
+  ] as const)('事实待复核显示为完成生成而非失败：%s', async (locale, expected) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
+    await setLocale(locale)
+    const read = get.getMockImplementation()!
+    get.mockImplementation(async (...args) => {
+      const response = await read(...args)
+      if (response.data?.items?.[0]) response.data.items[0].risk_flags = ['facts_unverified']
+      return response
+    })
+    runQuestionBankRebuild.mockImplementationOnce(async (_course, _body, options) => {
+      const job = { job_id: 'fact-review', status: 'waiting_review', progress: 100, status_url: '/jobs/fact-review', error: null }
+      options.onUpdate(job)
+      return job
+    })
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', initialWorkspaceMode: 'generate' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="question-bank-progress"]').text()).toContain(expected)
+    expect(wrapper.find('[data-testid="retry-failed-question-bank-chapters"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(wrapper.text()).toContain(locale === 'zh' ? '结构检查通过，事实待复核' : 'Structure checked; factual verification pending')
+  })
+
   it('教师可按需读取私有答案与独立验证差异', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
+
+    expect(wrapper.find('[data-testid="question-fact-evidence"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     await wrapper.get('[data-testid="load-question-solution"]').trigger('click')
@@ -1127,7 +1236,10 @@ describe('QuestionBankReviewPanel', () => {
 
     expect(get).toHaveBeenCalledWith(
       '/api/courses/course-1/question-bank/items/revision-1/solution',
+      { identityScope: 'teacher' },
     )
+    expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('每次扩容将容量翻倍。')
+    expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('待事实复核')
     expect(wrapper.text()).toContain('应包含跨章节证据链')
     expect(wrapper.text()).toContain('先定位章节结论')
     expect(wrapper.text()).toContain('用第二章证据验证结论')
@@ -1176,6 +1288,7 @@ describe('QuestionBankReviewPanel', () => {
         material_asset_ids: ['material-1'],
         teacher_instruction: '增加一道应用题',
       }),
+      { identityScope: 'teacher' },
     )
   })
 })

@@ -137,9 +137,12 @@ async def test_recovery_keeps_question_and_retries_responsible_artifact(failed_a
 
     model.evaluate_candidate = evaluate
     prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(course)
-    assert len(approved_formal_tasks(build_question_bank(prepared))) == (
-        0 if failed_artifact == "review_persistent" else 1
-    )
+    # This fixture supplies only model evidence. A repaired candidate is kept
+    # for factual review; agreement between the model roles cannot publish it.
+    bank = build_question_bank(prepared)
+    assert not approved_formal_tasks(bank)
+    assert sum(item.get("generation_status") == "waiting_review" for item in bank["items"]) == (
+        0 if failed_artifact == "review_persistent" else 1)
     assert model.generate_calls == 1
     assert model.solve_calls == (2 if failed_artifact == "solve" else 1)
     assert model.repair_calls == 0

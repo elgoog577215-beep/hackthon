@@ -640,7 +640,7 @@ async def test_malformed_nested_candidate_is_regenerated_not_discarded():
     assert first["attempts"][0]["issue_codes"] == [
         "MODEL_OUTPUT_SCHEMA_INVALID"
     ]
-    assert first["final_decision"] == "publish"
+    assert first["final_decision"] == "teacher_review"  # No independent fact evidence in this model fixture.
 
 
 async def test_slots_generate_with_bounded_concurrency(monkeypatch):
@@ -717,7 +717,7 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 8192), ("rich_text", 8192), ("code", 12288)])
+@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 16384), ("rich_text", 16384), ("code", 12288)])
 async def test_independent_solver_reserves_full_explanation_budget_without_thinking(monkeypatch, mode, budget):
     monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
     monkeypatch.setenv("AI_THINKING_ENABLED", "false")
@@ -750,6 +750,9 @@ async def test_solver_truncation_has_its_own_failure_classification():
     assert events[0]["error_code"] == "assessment_output_truncated"
     assert "长度上限" in events[0]["error_message"]
     assert "不可用" not in events[0]["error_message"]
+    failed = events[0]["contracts"]["objective_practice"]
+    assert failed["solution_envelope"]["generation_failure_artifact"]["candidate"]["question_spec"]
+    assert failed["quality_report"]["issues"][0]["code"] == "ASSESSMENT_OUTPUT_TRUNCATED"
 
 
 async def test_provider_quota_fallback_is_not_auto_published():
@@ -966,7 +969,7 @@ async def test_task_length_preflight_repairs_before_independent_solving():
     assert mastery["attempts"][0]["next_action"] == "repair"
     assert model.repair_calls == 2
     assert model.solve_calls == 4
-    assert mastery["final_decision"] == "publish"
+    assert mastery["final_decision"] == "teacher_review"
 
 
 async def test_choice_generation_uses_fast_non_thinking_json_mode(
@@ -1445,6 +1448,96 @@ async def test_complete_profile_keeps_repairs_bounded():
     assert model.repair_calls <= 3
     assert len(audit_item["attempts"]) <= 4
     assert contract["generation_status"] == "discarded"
+
+
+async def test_ordinary_lecture_solver_error_retries_solution_without_reauthoring():
+    class ExplanationFailureModel(RepairingModel):
+        def __init__(self):
+            super().__init__()
+            self.review_count = 0
+
+        async def evaluate_candidate(self, *args):
+            self.review_count += 1
+            report = await super().evaluate_candidate(*args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "EXPLANATION_CONTRADICTION", "severity": "critical", "message": "摘要与推导矛盾",
+                }])
+            return report
+
+    model = ExplanationFailureModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert row["attempts"][0]["next_action"] == "solve"
+    assert model.generate_calls == 1 and model.repair_calls == 0
+    assert model.solve_calls == 2
+    assert row["final_decision"] == "teacher_review"
+
+
+async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthoring():
+    class RubricFailureModel(RepairingModel):
+        review_count = 0
+        repair_input = None
+        reviewed_questions = []
+        async def evaluate_candidate(self, spec, payload, *args):
+            self.review_count += 1
+            self.reviewed_questions.append(deepcopy(spec))
+            report = await super().evaluate_candidate(spec, payload, *args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "RUBRIC_ANSWER_MISMATCH", "severity": "critical", "message": "量规与已核对解答不符",
+                }], review_witness={"delivery_checks": [
+                    {"path": "canonical_answer", "supported": True},
+                    {"path": "rubric[0]", "supported": False},
+                ]})
+            else:
+                assert payload["delivery_solution"]["rubric"] == ["corrected criterion"]
+            return report
+        async def repair_candidate(self, context, candidate, validation):
+            self.repair_calls += 1
+            self.repair_input = deepcopy(candidate)
+            candidate["solution"]["rubric"] = ["corrected criterion"]
+            candidate["solution"]["canonical_answer"] = "unrelated answer"
+            candidate["question_spec"]["task"] = {"rendered_text": "unrelated rewritten task"}
+            return candidate
+
+    model = RubricFailureModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert row["attempts"][0]["next_action"] == "rubric"
+    assert model.generate_calls == model.repair_calls == model.solve_calls == 1
+    assert row["final_decision"] == "teacher_review"
+    assert model.reviewed_questions[0]["task"] == model.reviewed_questions[1]["task"]
+    contract = prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
+    assert contract["solution_envelope"]["canonical_answer"] == model.repair_input["solution"]["canonical_answer"]
+
+
+async def test_final_author_attempt_can_finish_one_grading_only_correction():
+    class FinalRubricModel(RepairingModel):
+        review_count = 0
+        async def evaluate_candidate(self, *args):
+            self.review_count += 1
+            report = await super().evaluate_candidate(*args)
+            if self.review_count == 1:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "TASK_CONDITION_MISSING", "severity": "critical", "message": "题面条件不足"}])
+            if self.review_count == 2:
+                report.update(passed=False, solution_consistent=False, issues=[{
+                    "code": "RUBRIC_ANSWER_MISMATCH", "severity": "critical", "message": "仅评分规则有误"}],
+                    review_witness={"delivery_checks": [{"path": "canonical_answer", "supported": True},
+                                                        {"path": "rubric[0]", "supported": False}]})
+            return report
+    model = FinalRubricModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
+    row = prepared["_assessment_generation_audit"]["items"][0]
+    assert model.solve_calls == 2, "grading-only completion must not consume another solve"
+    assert model.generate_calls == 2
+    assert model.repair_calls == 1
+    assert row["attempts"][1]["next_action"] == "rubric"
+    assert row["final_decision"] == "teacher_review"
 
 
 async def test_single_node_repair_runs_its_practice_levels_concurrently(

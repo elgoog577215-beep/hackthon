@@ -26,6 +26,16 @@ function axiosError(overrides: Record<string, unknown> = {}) {
 }
 
 describe('application error presentation', () => {
+  it.each(['teacher_course_unavailable', 'teacher_question_bank_unavailable'])('explains ownership denial %s without claiming deletion', (code) => {
+    const result = toAppError(axiosError({
+      config: { method: 'post', url: '/api/courses/c/question-bank/rebuild' },
+      response: { status: 404, data: { detail: { code } } },
+    }))
+    expect(result.title).toBe('权限校验失败')
+    expect(result.summary).toContain('教师身份')
+    expect(result.summary).not.toContain('已删除')
+    expect(result.technicalDetail).toContain(code)
+  })
   it.each([
     ['question_bank_rebuild_nodes_unknown', '重新选择'],
     ['question_bank_rebuild_lessons_empty', '补全'],

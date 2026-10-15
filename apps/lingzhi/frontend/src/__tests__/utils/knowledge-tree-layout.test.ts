@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import demo from '@/demo/knowledge-profile.json'
 import type { KnowledgeProfile } from '@/types/knowledge-profile'
-import { createKnowledgeTree, layoutKnowledgeTree } from '@/utils/knowledge-tree-layout'
+import { createContentKnowledgeTree, createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree } from '@/utils/knowledge-tree-layout'
 
 const profile = demo.cases.at(-1)!.profile as KnowledgeProfile
 describe('horizontal knowledge tree', () => {
@@ -30,5 +30,20 @@ describe('horizontal knowledge tree', () => {
     expect(layout.nodes.map(n => n.kind)).toEqual(['course', 'branch', 'knowledge'])
     expect(layout.nodes.at(-1)?.progress).toBeNull()
     expect(tree.progress).toBe(profile.summary.verified_progress)
+  })
+  it('builds a teacher tree with nested categories and keeps uncategorized points reachable', () => {
+    const tree = createContentKnowledgeTree('course', '处理器', [
+      { id: 'root', name: '硬件' }, { id: 'child', parent_id: 'root', name: '处理器' },
+    ], [
+      { knowledge_id: 'cpu', parent_id: 'child', name: 'CPU作用', statement: 'CPU执行指令' },
+      { knowledge_id: 'orphan', parent_id: 'missing', name: '主存' },
+    ])
+    expect(tree.count).toBe(2)
+    expect(tree.children[0]?.count).toBe(1)
+    expect(layoutKnowledgeTree(tree, new Set()).nodes.filter(node => node.kind === 'knowledge').map(node => node.sourceId)).toEqual(['cpu', 'orphan'])
+    const filtered = filterKnowledgeTree(tree, '执行指令')
+    expect(layoutKnowledgeTree(filtered, new Set()).nodes.map(node => node.label)).toEqual(['处理器', '硬件', '处理器', 'CPU作用'])
+    expect(filtered.count).toBe(2)
+    expect(filterKnowledgeTree(tree, '不存在').children).toEqual([])
   })
 })

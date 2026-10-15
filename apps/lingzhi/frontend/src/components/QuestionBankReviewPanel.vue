@@ -32,81 +32,58 @@
           <ChevronUp v-if="qualityPanelOpen" :size="14" />
           <ChevronDown v-else :size="14" />
         </button>
-        <div
-          v-if="rebuildJob"
-          class="question-bank-progress question-bank-progress--compact"
-          :data-status="rebuildJob.status"
-          data-testid="question-bank-progress"
-          role="status"
-          aria-live="polite"
-        >
-          <span class="question-bank-progress__summary">
-            <LoaderCircle v-if="rebuilding" :size="14" class="spin" />
-            <TriangleAlert v-else-if="rebuildJob.status === 'failed'" :size="14" />
-            <CircleCheck v-else :size="14" />
-            <strong>{{ compactRebuildHeadline }}</strong>
-          </span>
-          <details data-testid="question-progress-details">
-            <summary>
-              {{ compactRebuildSupport }}
-              <ChevronDown :size="13" />
-            </summary>
-            <div class="question-bank-progress__popover">
-              <strong>{{ rebuildHeadline }}</strong>
-              <span>{{ rebuildJob.message || rebuildStageLabel }}</span>
-              <small v-if="chapterProgressLabel">{{ chapterProgressLabel }}</small>
-              <ul v-if="failedChapterSummaries.length">
-                <li v-for="chapter in failedChapterSummaries" :key="chapter.node_id">
-                  <i aria-hidden="true"></i>{{ chapter.label }}
-                </li>
-              </ul>
-              <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
-                {{ rebuildErrorMessage }}
-              </small>
-            </div>
-          </details>
-          <button
-            v-if="canRetryFailedChapters"
-            type="button"
-            class="question-bank-progress__retry"
-            data-testid="retry-failed-question-bank-chapters"
-            :disabled="rebuilding"
-            @click="retryFailedChapters"
-          >
-            <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-            {{ t('questionBank.retryFailedChapters', '重试失败讲次') }}
-          </button>
-          <span
-            class="question-bank-progress__track"
-            role="progressbar"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            :aria-valuenow="rebuildJob.progress"
-            :aria-label="t('questionBank.regenerateProgress', '课程题目重新生成进度')"
-          ><i :style="{ transform: `scaleX(${rebuildJob.progress / 100})` }"></i></span>
-        </div>
+
       </div>
       <nav class="question-bank-workspace-actions" :aria-label="t('questionBank.workspace.actions', '题库操作')">
+        <button v-if="settingsCollapsed" type="button" data-testid="expand-question-settings" :aria-label="t('questionBank.expandSettings', '展开出题设置')" @click="settingsCollapsed = false"><PanelRightOpen :size="17" /></button>
         <button v-if="workspaceMode !== 'bank'" type="button" class="question-bank-back" @click="workspaceMode = 'bank'">
           <ArrowLeft :size="15" />{{ t('questionBank.workspace.backToBank', '返回题库') }}
         </button>
         <button v-if="workspaceMode !== 'import'" type="button" class="question-bank-import-action" @click="workspaceMode = 'import'">
           <FileUp :size="15" />{{ t('questionBank.importFlow.importFile', '导入题目文件') }}
         </button>
-        <button v-if="workspaceMode !== 'generate'" type="button" class="question-bank-ai-action" @click="workspaceMode = 'generate'">
+        <button v-if="workspaceMode !== 'generate'" type="button" class="question-bank-ai-action" @click="openGenerationSettings">
           <WandSparkles :size="15" />{{ t('questionBank.importFlow.aiGenerate', 'AI 生成题目') }}
         </button>
       </nav>
     </header>
-    <QuestionKnowledgeBinding
-      v-if="workspaceMode === 'bank' && items.length && bundleRevisionId"
-      :course-id="courseId"
-      :bundle-revision="bundleRevisionId"
-      :generation-active="rebuilding"
-      @updated="load"
-    />
     <div class="question-bank-document-surface">
-    <div class="question-bank-workspace-body">
+    <div ref="questionColumnsRoot" class="question-bank-workspace-body" :class="{ 'settings-collapsed': settingsCollapsed }" :style="questionLayoutStyle">
+        <aside
+          class="question-chapter-index" data-testid="question-lesson-rail"
+          :aria-label="t('questionBank.chapterNavigation', '讲次')"
+        >
+          <header>
+            <strong>{{ t('questionBank.chapterNavigation', '讲次') }}</strong>
+            <ListTree :size="15" aria-hidden="true" />
+          </header>
+          <nav>
+            <p v-if="!chapterOptions.length" class="question-rail-empty">{{ t('questionBank.allQuestions', '全部题目') }}</p>
+            <div
+              v-for="chapter in visibleQuestionChapterGroups"
+              :key="chapter.node_id"
+              data-testid="question-chapter-item"
+            >
+              <button
+                type="button"
+                :data-testid="`question-chapter-${chapter.node_id}`"
+                :aria-current="activeQuestionChapter?.node_id === chapter.node_id ? 'page' : undefined"
+                :title="chapterLabel(chapter)"
+                @click="selectQuestionChapter(chapter.node_id)"
+              >
+                <span>{{ chapter.number ? String(chapter.number).padStart(2, '0') : '··' }}</span>
+                <span>
+                  <strong>{{ chapter.title }}</strong>
+                  <small>{{ t('questionBank.chapterQuestionCount', '{count} 道题').replace('{count}', String(chapter.item_count)) }}</small>
+                </span>
+                <i :data-status="questionChapterStatus(chapter)" aria-hidden="true"></i>
+              </button>
+            </div>
+          </nav>
+        </aside>
+
+    <ColumnResizeHandle v-bind="questionLeftHandle" />
+    <main class="question-bank-workspace-main">
     <QuestionBankImportWorkspace
       v-if="workspaceMode === 'import'"
       :course-id="courseId"
@@ -115,200 +92,6 @@
       @imported="handleFileImport"
     />
     <template v-else>
-    <main class="question-bank-workspace-main">
-    <section v-if="workspaceMode === 'generate'" class="question-generation-studio" data-testid="question-generation-studio">
-      <header class="question-generation-studio__header">
-        <div v-if="publishedCount" class="question-generation-studio__published">
-          <CircleCheck :size="15" />
-          <span>{{ t('questionBank.studio.published', '已发布 {count} 道').replace('{count}', String(publishedCount)) }}</span>
-        </div>
-        <button
-          v-if="!assistantOpen"
-          type="button"
-          class="question-generation-studio__ai"
-          :disabled="loading || rebuilding"
-          @click="emit('open-ai')"
-        ><WandSparkles :size="15" />{{ t('questionBank.aiEdit', 'AI 调整') }}</button>
-      </header>
-
-      <div v-if="pendingAiCandidate" ref="candidateRef" class="question-ai-candidate" tabindex="-1">
-        <WandSparkles :size="15" />
-        <strong>{{ t('questionBank.aiTask', 'AI 出题任务') }}</strong>
-        <span>{{ pendingAiCandidateScopeLabel }}</span>
-      </div>
-
-      <div class="question-generation-flow">
-        <section
-          class="question-generation-step"
-          role="radiogroup"
-          aria-labelledby="question-scope-title"
-        >
-          <h4 id="question-scope-title">{{ t('questionBank.studio.scope', '出题范围') }}</h4>
-          <div class="question-generation-scope-wrap">
-            <div class="question-generation-scope">
-              <label
-                v-if="props.initialNodeIds.length"
-                data-testid="question-scope-current"
-                :class="{ active: generationScope === 'current' }"
-              >
-                <input v-model="generationScope" type="radio" value="current" />
-                <span>
-                  <strong>{{ props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次') }}</strong>
-                  <small>{{ t('questionBank.studio.currentLessonHint', '沿用进入题库时的当前范围') }}</small>
-                </span>
-              </label>
-              <label data-testid="question-scope-course" :class="{ active: generationScope === 'course' }">
-                <input v-model="generationScope" type="radio" value="course" />
-                <span>
-                  <strong>{{ t('questionBank.studio.wholeCourse', '整门课程') }}</strong>
-                  <small>{{ t('questionBank.studio.wholeCourseHint', '为全部章节生成课程练习') }}</small>
-                </span>
-              </label>
-              <label
-                v-if="chapterOptions.length"
-                data-testid="question-scope-range"
-                :class="{ active: generationScope === 'range' }"
-              >
-                <input v-model="generationScope" type="radio" value="range" />
-                <span>
-                  <strong>{{ t('questionBank.studio.chapterRange', '连续讲次') }}</strong>
-                  <small>{{ t('questionBank.studio.chapterRangeHint', '选择开始和结束讲次') }}</small>
-                </span>
-              </label>
-              <label
-                v-if="chapterOptions.length"
-                data-testid="question-scope-custom"
-                :class="{ active: generationScope === 'custom' }"
-              >
-                <input v-model="generationScope" type="radio" value="custom" />
-                <span>
-                  <strong>{{ t('questionBank.studio.selectedChapters', '指定讲次') }}</strong>
-                  <small>{{ t('questionBank.studio.selectedChaptersHint', '逐讲勾选需要出题的范围') }}</small>
-                </span>
-              </label>
-            </div>
-
-          <div v-if="generationScope === 'range'" class="question-generation-range" data-testid="question-scope-range-panel">
-            <label>
-              <span>{{ t('questionBank.studio.rangeStart', '开始讲次') }}</span>
-              <select v-model="rangeStartNodeId" data-testid="question-scope-range-start">
-                <option v-for="chapter in chapterOptions" :key="`start-${chapter.node_id}`" :value="chapter.node_id">
-                  {{ chapterLabel(chapter) }}
-                </option>
-              </select>
-            </label>
-            <ArrowRight :size="16" aria-hidden="true" />
-            <label>
-              <span>{{ t('questionBank.studio.rangeEnd', '结束讲次') }}</span>
-              <select v-model="rangeEndNodeId" data-testid="question-scope-range-end">
-                <option v-for="chapter in chapterOptions" :key="`end-${chapter.node_id}`" :value="chapter.node_id">
-                  {{ chapterLabel(chapter) }}
-                </option>
-              </select>
-            </label>
-            <small>{{ selectedScopeSummary }}</small>
-          </div>
-
-          <div v-else-if="generationScope === 'custom'" class="question-generation-chapters" data-testid="question-scope-custom-panel">
-            <header>
-              <span>{{ selectedScopeSummary }}</span>
-              <div>
-                <button type="button" @click="selectAllChapters">{{ t('questionBank.studio.selectAll', '全选') }}</button>
-                <button type="button" @click="clearSelectedChapters">{{ t('questionBank.studio.clearSelection', '清空') }}</button>
-              </div>
-            </header>
-            <div class="question-generation-chapter-grid">
-              <label v-for="chapter in chapterOptions" :key="chapter.node_id" :class="{ active: selectedChapterNodeIds.includes(chapter.node_id) }">
-                <input
-                  v-model="selectedChapterNodeIds"
-                  type="checkbox"
-                  :value="chapter.node_id"
-                  :data-testid="`question-scope-node-${chapter.node_id}`"
-                />
-                <span><strong>{{ chapterLabel(chapter) }}</strong></span>
-              </label>
-            </div>
-          </div>
-          </div>
-        </section>
-
-        <section class="question-generation-step" aria-labelledby="question-intelligence-title">
-          <h4 id="question-intelligence-title">{{ t('questionBank.studio.intelligence', '智能编排') }}</h4>
-          <div class="question-intelligence-grid">
-            <article>
-              <SlidersHorizontal :size="16" />
-              <span>
-                <strong>{{ t('questionBank.studio.difficulty', '智能难度') }}</strong>
-              </span>
-              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
-            </article>
-            <article>
-              <Shapes :size="16" />
-              <span>
-                <strong>{{ t('questionBank.studio.questionTypes', '题型组合') }}</strong>
-              </span>
-              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
-            </article>
-          </div>
-        </section>
-
-        <section class="question-generation-step question-generation-options" aria-labelledby="question-source-title">
-          <h4 id="question-source-title">{{ t('questionBank.studio.sources', '生成设置') }}</h4>
-          <div class="question-generation-option-list">
-            <label class="question-generation-toggle">
-              <span>
-                <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
-              </span>
-              <input v-model="keepPublished" type="checkbox" />
-            </label>
-            <label class="question-generation-toggle">
-              <span>
-                <strong>{{ t('questionBank.studio.retrieval', '联网补充资料') }}</strong>
-              </span>
-              <input v-model="retrievalEnabled" type="checkbox" />
-            </label>
-          </div>
-        </section>
-      </div>
-
-      <footer>
-        <div class="question-bank-panel__header-action">
-          <div v-if="canContinueGeneration" class="question-bank-panel__header-copy">
-            <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
-              已发布新版章节 {{ completedChapters }}/{{ totalChapters }}
-            </span>
-          </div>
-          <div class="question-bank-panel__header-buttons">
-            <button
-              v-if="canContinueGeneration && generationScope === 'course'"
-              type="button"
-              data-testid="continue-course-question-bank"
-              :disabled="loading || rebuilding || !generationScopeReady"
-              @click="rebuild(undefined, true)"
-            >
-              <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-              {{ rebuilding
-                ? t('questionBank.continuingCourse', '正在继续生成')
-                : `继续生成剩余 ${remainingChapters} 章` }}
-            </button>
-            <button
-              type="button"
-              data-testid="generate-question-bank"
-              class="question-generation-primary"
-              :disabled="loading || rebuilding || !generationScopeReady"
-              @click="startGeneration"
-            >
-              <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
-              <WandSparkles v-else :size="15" />
-              {{ rebuilding
-                ? t('questionBank.studio.generating', '正在智能出题')
-                : t('questionBank.studio.generate', '开始智能出题') }}
-            </button>
-          </div>
-        </div>
-      </footer>
-    </section>
-
     <div v-if="loading && !items.length" class="question-bank-panel__state">
       <LoaderCircle :size="18" class="spin" />
       {{ t('questionBank.loading', '正在读取题库') }}
@@ -331,7 +114,7 @@
         <button type="button" class="question-bank-empty-import" data-testid="empty-import-questions" @click="workspaceMode = 'import'">
           <FileUp :size="16" />{{ t('questionBank.workspace.importPrimary', '导入题目文件') }}
         </button>
-        <button type="button" data-testid="empty-generate-questions" @click="workspaceMode = 'generate'">
+        <button type="button" data-testid="empty-generate-questions" @click="openGenerationSettings">
           <WandSparkles :size="16" />{{ t('questionBank.importFlow.aiGenerate', 'AI 生成题目') }}
         </button>
       </div>
@@ -542,63 +325,7 @@
         class="question-browser question-review-workspace"
         :class="{ 'has-chapter-navigation': questionChapterGroupingEnabled }"
       >
-        <aside
-          v-if="questionChapterGroupingEnabled"
-          class="question-chapter-index"
-          :aria-label="t('questionBank.chapterNavigation', '讲次')"
-        >
-          <header>
-            <strong>{{ t('questionBank.chapterNavigation', '讲次') }}</strong>
-            <ListTree :size="15" aria-hidden="true" />
-          </header>
-          <nav>
-            <div
-              v-for="chapter in visibleQuestionChapterGroups"
-              :key="chapter.node_id"
-              data-testid="question-chapter-item"
-            >
-              <button
-                type="button"
-                :data-testid="`question-chapter-${chapter.node_id}`"
-                :aria-current="activeQuestionChapter?.node_id === chapter.node_id ? 'page' : undefined"
-                @click="selectQuestionChapter(chapter.node_id)"
-              >
-                <span>{{ chapter.number ? String(chapter.number).padStart(2, '0') : '··' }}</span>
-                <span>
-                  <strong>{{ chapter.title }}</strong>
-                  <small>{{ t('questionBank.chapterQuestionCount', '{count} 道题').replace('{count}', String(chapter.item_count)) }}</small>
-                </span>
-                <i :data-status="questionChapterStatus(chapter)" aria-hidden="true"></i>
-              </button>
-            </div>
-          </nav>
-        </aside>
-        <aside class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
-          <header class="question-index__toolbar">
-            <div class="question-browser__identity">
-              <strong>{{ questionListTitle }}</strong>
-              <small v-if="browseItems.length === chapterScopedItems.length">{{ chapterScopedItems.length }} 道</small>
-              <small v-else>{{ browseItems.length }} / {{ chapterScopedItems.length }}</small>
-            </div>
-            <div class="question-browser__controls">
-              <label>
-                <Search :size="14" />
-                <input
-                  v-model="browserQuery"
-                  data-testid="question-search-input"
-                  type="search"
-                  :placeholder="t('questionBank.searchQuestion', '搜索题目内容')"
-                />
-              </label>
-              <select v-model="browserStatus" data-testid="question-status-filter" :aria-label="t('questionBank.filter.label', '筛选题目状态')">
-                <option value="all">{{ t('questionBank.filter.all', '全部状态') }}</option>
-                <option value="published">{{ t('questionBank.filter.published', '已发布') }}</option>
-                <option value="mandatory">{{ t('questionBank.filter.mandatory', '发布前审核') }}</option>
-                <option value="rework">{{ t('questionBank.filter.rework', '重做中') }}</option>
-              </select>
-            </div>
-          </header>
-
+        <aside v-if="!selectedQuestion" ref="questionListRef" class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
           <div class="question-review-list">
             <article
               v-for="item in paginatedBrowseItems"
@@ -611,6 +338,7 @@
                 type="button"
                 class="question-review-item__summary"
                 data-testid="toggle-question-details"
+                :data-question-id="item.revision_id"
                 :aria-expanded="isQuestionExpanded(item)"
                 :aria-controls="`question-details-${item.revision_id}`"
                 :aria-current="isQuestionExpanded(item) ? 'true' : undefined"
@@ -625,6 +353,7 @@
                   <i aria-hidden="true"></i>
                   {{ shortItemStatusLabel(item) }}
                 </span>
+                <ChevronRight :size="18" class="question-list-open" aria-hidden="true" />
               </button>
             </article>
           </div>
@@ -651,6 +380,7 @@
           :aria-label="t('questionBank.questionReader', '题目查看与审阅')"
         >
           <header class="question-reader__header">
+            <button type="button" class="question-reader__back" data-testid="back-to-question-list" @click="returnToQuestionList"><ArrowLeft :size="17" />{{ t('questionBank.backToList', '返回题目列表') }}</button>
             <div>
               <span class="question-review-item__status" :data-status="selectedQuestion.lifecycle_status">
                 <i aria-hidden="true"></i>{{ itemStatusLabel(selectedQuestion) }}
@@ -668,14 +398,16 @@
             </nav>
           </header>
 
-          <div class="question-reader__scroll" tabindex="0" role="region" :aria-label="t('questionBank.readingRegion', '题目内容与解析')">
+          <div :key="selectedQuestion.revision_id" class="question-reader__scroll" tabindex="0" role="region" :aria-label="t('questionBank.readingRegion', '题目内容与解析')">
             <section class="question-sheet">
               <div class="question-sheet__meta">
                 <span>{{ questionTypeLabel(selectedQuestion) }}</span>
                 <span>{{ sourceLabel(selectedQuestion.source_records) }}</span>
                 <span>{{ validationModeLabel(selectedQuestion.validation_mode) }}</span>
                 <span :data-status="selectedQuestion.quality_report?.passed ? 'passed' : 'failed'">
-                  {{ selectedQuestion.quality_report?.passed
+                  {{ selectedQuestion.lifecycle_status !== 'approved' && selectedQuestion.risk_flags?.includes('facts_unverified')
+                    ? t('questionBank.qualityAwaitingFacts', '结构检查通过，事实待复核')
+                    : selectedQuestion.quality_report?.passed
                     ? t('questionBank.qualityPassed', '质量检查通过')
                     : t('questionBank.qualityFailed', '需要修正') }}
                 </span>
@@ -769,6 +501,19 @@
                   <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
                   <pre><MathText :content="solutionValidation(solutions[selectedQuestion.revision_id] || {})" /></pre>
                 </details>
+                <section v-if="factEvidence(solutions[selectedQuestion.revision_id] || {}).status" class="question-solution-diff__analysis" data-testid="question-fact-evidence">
+                  <strong>{{ t('questionBank.factEvidenceTitle', '事实核验依据') }}</strong>
+                  <p>{{ factEvidence(solutions[selectedQuestion.revision_id] || {}).status === 'verified'
+                    ? t('questionBank.factEvidenceVerified', '程序已按公开参数重新计算，并核对题面与答案。')
+                    : t('questionBank.factEvidencePendingHint', '已生成，待事实复核。引用可用于核对原文，不等于证明题目正确。') }}</p>
+                  <ul v-if="factEvidence(solutions[selectedQuestion.revision_id] || {}).source_bindings?.length">
+                    <li v-for="(binding, index) in factEvidence(solutions[selectedQuestion.revision_id] || {}).source_bindings" :key="index">
+                      <MathText :content="String(binding.claim || '')" />
+                      <p>{{ binding.status === 'matched' ? t('questionBank.factSourceMatched', '已定位资料原文') : t('questionBank.factSourceMissing', '引用尚未匹配资料原文') }} · {{ binding.reference_id }}</p>
+                      <blockquote><MathText :content="String(binding.quote || '')" /></blockquote>
+                    </li>
+                  </ul>
+                </section>
               </section>
             </section>
 
@@ -841,7 +586,7 @@
             </div>
           </footer>
         </article>
-        <div v-else class="question-reader-empty">
+        <div v-else-if="!browseItems.length" class="question-reader-empty">
           <CircleCheck :size="21" />
           <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
           <span>{{ t('questionBank.noChapterQuestionsHint', '可以切换讲次或调整筛选条件。') }}</span>
@@ -860,9 +605,278 @@
       @close="paperComposerOpen = false"
       @created="handlePaperCreated"
     />
-    </main>
     </template>
-    <aside ref="workspaceSideRef" class="question-bank-workspace-side">
+    </main>
+    <ColumnResizeHandle v-if="!settingsCollapsed" v-bind="questionRightHandle" />
+    <aside v-show="!settingsCollapsed" ref="workspaceSideRef" class="question-bank-workspace-side" data-testid="question-settings-pane" :aria-label="t('questionBank.settingsPane', 'AI 出题设置')">
+      <header class="question-settings-heading"><strong><SlidersHorizontal :size="17" />{{ t('questionBank.settingsPane', 'AI 出题设置') }}</strong><button type="button" data-testid="collapse-question-settings" :aria-label="t('questionBank.collapseSettings', '收起出题设置')" @click="settingsCollapsed = true"><PanelRightClose :size="17" /></button></header>
+        <div
+          v-if="rebuildJob"
+          class="question-bank-progress question-bank-progress--compact"
+          :data-status="rebuildJob.status"
+          data-testid="question-bank-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="question-bank-progress__summary">
+            <LoaderCircle v-if="rebuilding" :size="14" class="spin" />
+            <TriangleAlert v-else-if="rebuildJob.status === 'failed'" :size="14" />
+            <CircleCheck v-else :size="14" />
+            <strong>{{ compactRebuildHeadline }}</strong>
+          </span>
+          <details data-testid="question-progress-details">
+            <summary>
+              {{ compactRebuildSupport }}
+              <ChevronDown :size="13" />
+            </summary>
+            <div class="question-bank-progress__popover">
+              <strong>{{ rebuildHeadline }}</strong>
+              <span>{{ rebuildJob.message || rebuildStageLabel }}</span>
+              <small v-if="chapterProgressLabel">{{ chapterProgressLabel }}</small>
+              <ul v-if="failedChapterSummaries.length">
+                <li v-for="chapter in failedChapterSummaries" :key="chapter.node_id">
+                  <i aria-hidden="true"></i>{{ chapter.label }}
+                </li>
+              </ul>
+              <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
+                {{ rebuildErrorMessage }}
+              </small>
+            </div>
+          </details>
+          <button
+            v-if="canRetryFailedChapters"
+            type="button"
+            class="question-bank-progress__retry"
+            data-testid="retry-failed-question-bank-chapters"
+            :disabled="rebuilding"
+            @click="retryFailedChapters"
+          >
+            <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+            {{ t('questionBank.retryFailedChapters', '重试失败讲次') }}
+          </button>
+          <span
+            class="question-bank-progress__track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="rebuildJob.progress"
+            :aria-label="t('questionBank.regenerateProgress', '课程题目重新生成进度')"
+          ><i :style="{ transform: `scaleX(${rebuildJob.progress / 100})` }"></i></span>
+        </div>
+    <section class="question-generation-studio" data-testid="question-generation-studio">
+      <header class="question-generation-studio__header">
+        <div v-if="publishedCount" class="question-generation-studio__published">
+          <CircleCheck :size="15" />
+          <span>{{ t('questionBank.studio.published', '已发布 {count} 道').replace('{count}', String(publishedCount)) }}</span>
+        </div>
+        <button
+          v-if="!assistantOpen"
+          type="button"
+          class="question-generation-studio__ai"
+          :disabled="loading || rebuilding"
+          @click="emit('open-ai')"
+        ><WandSparkles :size="15" />{{ t('questionBank.aiEdit', 'AI 调整') }}</button>
+      </header>
+
+      <div v-if="pendingAiCandidate" ref="candidateRef" class="question-ai-candidate" tabindex="-1">
+        <WandSparkles :size="15" />
+        <strong>{{ t('questionBank.aiTask', 'AI 出题任务') }}</strong>
+        <span>{{ pendingAiCandidateScopeLabel }}</span>
+      </div>
+
+      <div class="question-generation-flow">
+        <section
+          class="question-generation-step"
+          role="radiogroup"
+          aria-labelledby="question-scope-title"
+        >
+          <h4 id="question-scope-title">{{ t('questionBank.studio.scope', '出题范围') }}</h4>
+          <div class="question-generation-scope-wrap">
+            <div class="question-generation-scope">
+              <label
+                v-if="props.initialNodeIds.length"
+                data-testid="question-scope-current"
+                :class="{ active: generationScope === 'current' }"
+              >
+                <input v-model="generationScope" type="radio" value="current" />
+                <span>
+                  <strong>{{ props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次') }}</strong>
+                  <small>{{ t('questionBank.studio.currentLessonHint', '沿用进入题库时的当前范围') }}</small>
+                </span>
+              </label>
+              <label data-testid="question-scope-course" :class="{ active: generationScope === 'course' }">
+                <input v-model="generationScope" type="radio" value="course" />
+                <span>
+                  <strong>{{ t('questionBank.studio.wholeCourse', '整门课程') }}</strong>
+                  <small>{{ t('questionBank.studio.wholeCourseHint', '为全部章节生成课程练习') }}</small>
+                </span>
+              </label>
+              <label
+                v-if="chapterOptions.length"
+                data-testid="question-scope-range"
+                :class="{ active: generationScope === 'range' }"
+              >
+                <input v-model="generationScope" type="radio" value="range" />
+                <span>
+                  <strong>{{ t('questionBank.studio.chapterRange', '连续讲次') }}</strong>
+                  <small>{{ t('questionBank.studio.chapterRangeHint', '选择开始和结束讲次') }}</small>
+                </span>
+              </label>
+              <label
+                v-if="chapterOptions.length"
+                data-testid="question-scope-custom"
+                :class="{ active: generationScope === 'custom' }"
+              >
+                <input v-model="generationScope" type="radio" value="custom" />
+                <span>
+                  <strong>{{ t('questionBank.studio.selectedChapters', '指定讲次') }}</strong>
+                  <small>{{ t('questionBank.studio.selectedChaptersHint', '逐讲勾选需要出题的范围') }}</small>
+                </span>
+              </label>
+            </div>
+
+          <div v-if="generationScope === 'range'" class="question-generation-range" data-testid="question-scope-range-panel">
+            <label>
+              <span>{{ t('questionBank.studio.rangeStart', '开始讲次') }}</span>
+              <select v-model="rangeStartNodeId" data-testid="question-scope-range-start">
+                <option v-for="chapter in chapterOptions" :key="`start-${chapter.node_id}`" :value="chapter.node_id">
+                  {{ chapterLabel(chapter) }}
+                </option>
+              </select>
+            </label>
+            <ArrowRight :size="16" aria-hidden="true" />
+            <label>
+              <span>{{ t('questionBank.studio.rangeEnd', '结束讲次') }}</span>
+              <select v-model="rangeEndNodeId" data-testid="question-scope-range-end">
+                <option v-for="chapter in chapterOptions" :key="`end-${chapter.node_id}`" :value="chapter.node_id">
+                  {{ chapterLabel(chapter) }}
+                </option>
+              </select>
+            </label>
+            <small>{{ selectedScopeSummary }}</small>
+          </div>
+
+          <div v-else-if="generationScope === 'custom'" class="question-generation-chapters" data-testid="question-scope-custom-panel">
+            <header>
+              <span>{{ selectedScopeSummary }}</span>
+              <div>
+                <button type="button" @click="selectAllChapters">{{ t('questionBank.studio.selectAll', '全选') }}</button>
+                <button type="button" @click="clearSelectedChapters">{{ t('questionBank.studio.clearSelection', '清空') }}</button>
+              </div>
+            </header>
+            <div class="question-generation-chapter-grid">
+              <label v-for="chapter in chapterOptions" :key="chapter.node_id" :class="{ active: selectedChapterNodeIds.includes(chapter.node_id) }">
+                <input
+                  v-model="selectedChapterNodeIds"
+                  type="checkbox"
+                  :value="chapter.node_id"
+                  :data-testid="`question-scope-node-${chapter.node_id}`"
+                />
+                <span><strong>{{ chapterLabel(chapter) }}</strong></span>
+              </label>
+            </div>
+          </div>
+          </div>
+        </section>
+
+        <section class="question-generation-step question-quantity-settings" :aria-label="t('questionBank.quantity.title', '生成数量与方式')">
+          <h4>{{ t('questionBank.quantity.title', '生成数量与方式') }}</h4>
+          <label class="question-quantity-count"><span>{{ t('questionBank.quantity.count', '每讲生成数量') }}</span><input v-model.number="questionsPerLesson" data-testid="questions-per-lesson" type="number" min="1" max="20" step="1" :disabled="rebuilding" /></label>
+          <div class="question-quantity-mode">
+            <label><input v-model="appendOnly" type="radio" :value="true" :disabled="rebuilding" />{{ t('questionBank.quantity.append', '追加生成') }}</label>
+            <label><input v-model="appendOnly" type="radio" :value="false" :disabled="rebuilding" />{{ t('questionBank.quantity.fill', '补齐到指定数量') }}</label>
+          </div>
+          <p>{{ appendOnly ? t('questionBank.quantity.appendHint', '每个所选讲次新增指定数量，保留全部已有题目，并检查重复。') : t('questionBank.quantity.fillHint', '每个所选讲次只补足数量差额，已有题目保留，不减少现有题目。') }}</p>
+          <small v-if="!quantityValid" role="alert">{{ t('questionBank.quantity.invalid', '请输入 1 到 20 之间的整数。') }}</small>
+        </section>
+
+        <section class="question-generation-step" aria-labelledby="question-intelligence-title">
+          <h4 id="question-intelligence-title">{{ t('questionBank.studio.intelligence', '智能编排') }}</h4>
+          <div class="question-intelligence-grid">
+            <article>
+              <SlidersHorizontal :size="16" />
+              <span>
+                <strong>{{ t('questionBank.studio.difficulty', '智能难度') }}</strong>
+              </span>
+              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
+            </article>
+            <article>
+              <Shapes :size="16" />
+              <span>
+                <strong>{{ t('questionBank.studio.questionTypes', '题型组合') }}</strong>
+              </span>
+              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
+            </article>
+          </div>
+        </section>
+
+        <section class="question-generation-step question-generation-options" aria-labelledby="question-source-title">
+          <h4 id="question-source-title">{{ t('questionBank.studio.sources', '生成设置') }}</h4>
+          <div class="question-generation-option-list">
+            <label class="question-generation-toggle">
+              <span>
+                <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
+              </span>
+              <input type="checkbox" checked disabled />
+            </label>
+            <label class="question-generation-toggle">
+              <span>
+                <strong>{{ t('questionBank.studio.retrieval', '联网补充资料') }}</strong>
+              </span>
+              <input v-model="retrievalEnabled" type="checkbox" />
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        <div class="question-bank-panel__header-action">
+          <div v-if="canContinueGeneration" class="question-bank-panel__header-copy">
+            <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
+              已发布新版章节 {{ completedChapters }}/{{ totalChapters }}
+            </span>
+          </div>
+          <div class="question-bank-panel__header-buttons">
+            <button
+              v-if="canContinueGeneration && generationScope === 'course'"
+              type="button"
+              data-testid="continue-course-question-bank"
+              :disabled="loading || rebuilding || !generationScopeReady"
+              @click="rebuild(undefined, undefined, false)"
+            >
+              <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+              {{ rebuilding
+                ? t('questionBank.continuingCourse', '正在继续生成')
+                : `继续生成剩余 ${remainingChapters} 章` }}
+            </button>
+            <button
+              type="button"
+              data-testid="generate-question-bank"
+              class="question-generation-primary"
+              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid"
+              @click="startGeneration"
+            >
+              <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
+              <WandSparkles v-else :size="15" />
+              {{ rebuilding
+                ? t('questionBank.studio.generating', '正在智能出题')
+                : t('questionBank.studio.generate', '开始智能出题') }}
+            </button>
+          </div>
+        </div>
+      </footer>
+    </section>
+
+
+      <details class="question-settings-binding" v-if="items.length && bundleRevisionId" @toggle="knowledgeSettingsOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ t('questionBank.knowledgeSettings', '知识点绑定') }}</summary>
+    <QuestionKnowledgeBinding
+      v-if="knowledgeSettingsOpen"
+      :course-id="courseId"
+      :bundle-revision="bundleRevisionId"
+      :generation-active="rebuilding"
+      @updated="load"
+    />
+      </details>
       <CourseReferenceTray
         v-model="questionReferences"
         :course-id="courseId"
@@ -881,6 +895,7 @@
 <script setup lang="ts">
 import {
   computed,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   reactive,
@@ -904,7 +919,6 @@ import {
   ListTree,
   LoaderCircle,
   RefreshCw,
-  Search,
   Shapes,
   ShieldCheck,
   SlidersHorizontal,
@@ -912,6 +926,9 @@ import {
   WandSparkles,
   X,
 } from 'lucide-vue-next'
+import { PanelRightClose, PanelRightOpen } from 'lucide-vue-next'
+import ColumnResizeHandle from './ColumnResizeHandle.vue'
+import { useResizableColumns } from '@/composables/useResizableColumns'
 import ExamPaperComposer from './ExamPaperComposer.vue'
 import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
@@ -919,7 +936,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
-import http, { teacherReadRequestConfig } from '@/utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '@/utils/http'
 import { toAppError } from '@/utils/app-error'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
@@ -1033,6 +1050,8 @@ const props = withDefaults(defineProps<{
   initialWorkspaceMode: 'bank',
 })
 interface QuestionBankAiCandidate {
+  questions_per_lesson?: number
+  append_only?: boolean
   candidate_id: string
   base_bundle_revision_id: string
   scope: 'course' | 'nodes'
@@ -1056,6 +1075,18 @@ const emit = defineEmits<{
 const workspaceMode = ref<'import' | 'bank' | 'generate'>(props.initialWorkspaceMode)
 const questionReferences = ref<CourseReferenceItem[]>([])
 const workspaceSideRef = ref<HTMLElement | null>(null)
+const questionColumnsRoot = ref<HTMLElement | null>(null)
+const settingsCollapsed = ref(false)
+const knowledgeSettingsOpen = ref(false)
+const { layoutStyle: questionLayoutStyle, leftHandle: questionLeftHandle, rightHandle: questionRightHandle } = useResizableColumns(questionColumnsRoot, {
+  storageKey: 'question-bank-column-widths-v1', left: 190, right: 300, leftMin: 160, rightMin: 260, centerMin: 400,
+  rightVisible: () => !settingsCollapsed.value,
+})
+function openGenerationSettings() {
+  workspaceMode.value = 'generate'
+  settingsCollapsed.value = false
+}
+
 const effectiveMaterialAssetIds = computed(() => [...new Set(
   questionReferences.value.map(item => item.material_asset_id).filter(Boolean),
 )])
@@ -1080,11 +1111,11 @@ const paperComposerOpen = ref(false)
 const qualityPanelOpen = ref(false)
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
+const questionListRef = ref<HTMLElement | null>(null)
+let questionListScrollTop = 0
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
-const browserQuery = ref('')
-const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
 const selectedQuestionChapterId = ref('')
 const questionPage = ref(1)
 const coveredObjectivesExpanded = ref(false)
@@ -1096,7 +1127,9 @@ const rangeStartNodeId = ref('')
 const rangeEndNodeId = ref('')
 const selectedChapterNodeIds = ref<string[]>([])
 const retrievalEnabled = ref(false)
-const keepPublished = ref(true)
+const questionsPerLesson = ref(3)
+const appendOnly = ref(true)
+const quantityValid = computed(() => Number.isInteger(questionsPerLesson.value) && questionsPerLesson.value >= 1 && questionsPerLesson.value <= 20)
 const pendingAiCandidate = ref<QuestionBankAiCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 let rebuildAbortController: AbortController | null = null
@@ -1344,45 +1377,7 @@ const chapterScopedItems = computed(() => {
     ),
   )
 })
-const questionListTitle = computed(() => {
-  if (!questionChapterGroupingEnabled.value || !activeQuestionChapter.value) {
-    return t('questionBank.browseTitle', '浏览全部题目')
-  }
-  if (activeQuestionChapter.value.node_id === '__unassigned__') {
-    return t('questionBank.unassignedQuestionCount', '其他题目 · {count} 道')
-      .replace('{count}', String(chapterScopedItems.value.length))
-  }
-  return t('questionBank.chapterQuestionsTitle', '第 {number} 讲 · {count} 道题')
-    .replace('{number}', String(activeQuestionChapter.value.number || ''))
-    .replace('{count}', String(chapterScopedItems.value.length))
-})
-const browseItems = computed(() => {
-  const keyword = browserQuery.value.trim().toLocaleLowerCase()
-  return chapterScopedItems.value.filter(item => {
-    const matchesQuery = !keyword || [
-      item.prompt,
-      item.assessment_role,
-      item.node_id,
-      item.objective_id,
-    ].some(value => String(value || '').toLocaleLowerCase().includes(keyword))
-    const matchesStatus = (
-      browserStatus.value === 'all'
-      || (
-        browserStatus.value === 'published'
-        && item.lifecycle_status === 'approved'
-      )
-      || (
-        browserStatus.value === 'mandatory'
-        && item.lifecycle_status === 'needs_review'
-      )
-      || (
-        browserStatus.value === 'rework'
-        && item.lifecycle_status === 'rejected'
-      )
-    )
-    return matchesQuery && matchesStatus
-  })
-})
+const browseItems = computed(() => chapterScopedItems.value)
 const questionPageCount = computed(() => Math.max(
   1,
   Math.ceil(browseItems.value.length / QUESTION_PAGE_SIZE),
@@ -1395,7 +1390,6 @@ const selectedQuestion = computed<QuestionBankItem | null>(() => (
   browseItems.value.find(
     item => item.revision_id === expandedQuestionRevision.value,
   )
-  || paginatedBrowseItems.value[0]
   || null
 ))
 const selectedQuestionNumber = computed(() => {
@@ -1516,6 +1510,7 @@ const profileCapabilities = computed(() => {
   ].filter(Boolean).join(' · ')
 })
 const rebuildStageLabel = computed(() => {
+  if (rebuildJob.value?.job_id === 'local-rebuild-error') return t('questionBank.generationNotStarted', '题目生成未启动')
   const current = rebuildJob.value?.current_stage || ''
   const stage = rebuildJob.value?.stages?.find(item => item.stage_id === current)
   return String(stage?.label || current || t('questionBank.rebuildQueued', '等待生成'))
@@ -1531,10 +1526,11 @@ const rebuildHeadline = computed(() => {
   if (status === 'waiting_review') {
     return t(
       'questionBank.regenerateWaitingReview',
-      '题目已生成，部分高风险题目待审核',
+      '题目已生成，待事实复核',
     )
   }
   if (status === 'failed') {
+    if (rebuildJob.value?.job_id === 'local-rebuild-error') return t('questionBank.generationNotStarted', '题目生成未启动')
     return t(
       'questionBank.regenerateFailed',
       '题目生成未完成，已发布题目继续有效',
@@ -1642,8 +1638,6 @@ watch(() => props.courseId, () => {
   for (const key of Object.keys(solutions)) delete solutions[key]
   for (const key of Object.keys(reviewNotes)) delete reviewNotes[key]
   examPapers.value = []
-  browserQuery.value = ''
-  browserStatus.value = 'all'
   selectedQuestionChapterId.value = ''
   setQuestionPage(1)
   expandedQuestionRevision.value = ''
@@ -1670,10 +1664,6 @@ watch(coveredObjectivePageCount, pageCount => {
     setCoveredObjectivePage(pageCount)
   }
 })
-watch([browserQuery, browserStatus], () => {
-  expandedQuestionRevision.value = ''
-  setQuestionPage(1)
-})
 watch(questionPageCount, pageCount => {
   if (questionPage.value > pageCount) {
     setQuestionPage(pageCount)
@@ -1683,6 +1673,7 @@ watch(questionPageCount, pageCount => {
 function setQuestionPage(page: number) {
   const normalizedPage = Number.isFinite(page) ? Math.trunc(page) : 1
   expandedQuestionRevision.value = ''
+  questionListScrollTop = 0
   questionPage.value = Math.min(
     questionPageCount.value,
     Math.max(1, normalizedPage),
@@ -1692,8 +1683,6 @@ function setQuestionPage(page: number) {
 function selectQuestionChapter(nodeId: string) {
   if (activeQuestionChapter.value?.node_id === nodeId) return
   selectedQuestionChapterId.value = nodeId
-  browserQuery.value = ''
-  browserStatus.value = 'all'
   expandedQuestionRevision.value = ''
   setQuestionPage(1)
 }
@@ -1715,7 +1704,17 @@ function isQuestionExpanded(item: QuestionBankItem) {
 }
 
 function toggleQuestionDetails(item: QuestionBankItem) {
+  questionListScrollTop = questionListRef.value?.scrollTop || 0
   expandedQuestionRevision.value = item.revision_id
+}
+
+async function returnToQuestionList() {
+  const revision = expandedQuestionRevision.value
+  expandedQuestionRevision.value = ''
+  await nextTick()
+  if (questionListRef.value) questionListRef.value.scrollTop = questionListScrollTop
+  Array.from(questionListRef.value?.querySelectorAll<HTMLButtonElement>('button[data-question-id]') || [])
+    .find(button => button.dataset.questionId === revision)?.focus({ preventScroll: true })
 }
 
 function selectAdjacentQuestion(offset: -1 | 1) {
@@ -1854,10 +1853,10 @@ async function recoverActiveRebuild() {
         )
         await load()
       } else {
-        rebuildErrorMessage.value = t(
+        rebuildErrorMessage.value = toAppError(error, { fallback: t(
           'questionBank.rebuildProgressRecoveryFailed',
           '暂时无法恢复生成进度，请稍后重新打开题库面板。',
-        )
+        ) }).summary
       }
     }
   } finally {
@@ -1954,14 +1953,11 @@ function handlePaperCreated() {
 }
 
 function startGeneration() {
-  if (!generationScopeReady.value) return
+  if (!generationScopeReady.value || !quantityValid.value) return
   const nodeIds = generationScope.value === 'course'
     ? undefined
     : generationNodeIds.value
-  return rebuild(
-    nodeIds,
-    questionBankMissing.value ? false : keepPublished.value,
-  )
+  return rebuild(nodeIds)
 }
 
 function aiCandidateStorageKey() {
@@ -2010,7 +2006,9 @@ async function requestAiCandidate(value: string) {
     node_ids: scope === 'nodes' ? [...generationNodeIds.value] : [],
     material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
-    mode: keepPublished.value ? 'incremental' : 'full',
+    questions_per_lesson: questionsPerLesson.value,
+    append_only: appendOnly.value,
+    mode: 'incremental',
     retrieval_enabled: retrievalEnabled.value,
     created_at: new Date().toISOString(),
   }
@@ -2038,7 +2036,10 @@ async function resolveAiCandidate(accept: boolean) {
           resume_existing: true,
           retrieval_enabled: candidate.retrieval_enabled,
           teacher_instruction: candidate.teacher_instruction,
+          questions_per_lesson: candidate.questions_per_lesson,
+          append_only: candidate.append_only,
         },
+        teacherRequestConfig(),
       )
       if (!current()) return false
       rebuildJob.value = response.data as QuestionBankRebuildJob
@@ -2071,7 +2072,7 @@ function focusReferenceSources() {
   workspaceSideRef.value?.querySelector<HTMLElement>('button, [tabindex]')?.focus()
 }
 
-async function rebuild(nodeId?: string | string[], resumeExisting = true) {
+async function rebuild(nodeId?: string | string[], retryJob?: QuestionBankRebuildJob, useQuantity = true) {
   if (!props.courseId || rebuilding.value) return
   const courseId = props.courseId
   rebuildAbortController?.abort()
@@ -2091,11 +2092,16 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         request_id: createUuid(),
         scope: scopedNodeIds.length ? 'nodes' : 'course',
         node_ids: scopedNodeIds,
-        mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
+        mode: useQuantity || scopedNodeIds.length ? 'incremental' : 'full',
         retrieval_enabled: retrievalEnabled.value,
         material_asset_ids: effectiveMaterialAssetIds.value,
         teacher_instruction: '',
-        ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
+        resume_existing: true,
+        ...(useQuantity && (!retryJob || retryJob.questions_per_lesson) ? {
+          questions_per_lesson: retryJob?.questions_per_lesson ?? questionsPerLesson.value,
+          append_only: retryJob?.append_only ?? appendOnly.value,
+          ...(retryJob ? { quantity_batch_id: retryJob.quantity_plan?.batch_id || retryJob.quantity_batch_id || retryJob.job_id } : {}),
+        } : {}),
       },
       {
         maxPolls: scopedNodeIds.length ? 450 : 3600,
@@ -2113,7 +2119,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
     }).summary
     const latestJob = rebuildJob.value as QuestionBankRebuildJob | null
     rebuildJob.value = error?.job || {
-      job_id: 'local-rebuild-error',
+      job_id: latestJob?.job_id || 'local-rebuild-error',
       status: 'failed',
       progress: latestJob?.progress || 0,
       current_stage: latestJob?.current_stage,
@@ -2133,7 +2139,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
 
 async function retryFailedChapters() {
   if (!failedChapterNodeIds.value.length) return
-  await rebuild(failedChapterNodeIds.value, true)
+  await rebuild(failedChapterNodeIds.value, rebuildJob.value || undefined)
 }
 
 function isAbortError(error: any) {
@@ -2146,6 +2152,7 @@ async function loadSolution(item: QuestionBankItem) {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/question-bank/items/${item.revision_id}/solution`,
+      teacherRequestConfig(),
     )
     solutions[item.revision_id] = response.data || {}
   } catch {
@@ -2239,6 +2246,7 @@ async function submitDecision(
       note: reviewNotes[item.revision_id] || '',
       expected_bundle_revision_id: bundleRevisionId.value,
     },
+    teacherRequestConfig(),
   )
   const data = response.data || {}
   const updatedItem = data.item || {
@@ -2269,6 +2277,7 @@ function itemStatusLabel(item: QuestionBankItem) {
     return t('questionBank.status.rework', '已下架 · 等待重做')
   }
   if (item.lifecycle_status === 'needs_review') {
+    if (item.risk_flags?.includes('facts_unverified')) return t('questionBank.factsPending', '已生成，待事实复核')
     return `${t('questionBank.status.mandatory', '发布前审核')} · ${riskLabel(item.risk_flags)}`
   }
   return item.lifecycle_status
@@ -2282,6 +2291,7 @@ function shortItemStatusLabel(item: QuestionBankItem) {
     return t('questionBank.status.reworkShort', '重做中')
   }
   if (item.lifecycle_status === 'needs_review') {
+    if (item.risk_flags?.includes('facts_unverified')) return t('questionBank.factsPendingShort', '待事实复核')
     return t('questionBank.status.reviewShort', '待审核')
   }
   return item.lifecycle_status
@@ -2302,6 +2312,9 @@ function validationModeLabel(mode = '') {
 function riskLabel(risks: string[] = []) {
   const labels: Record<string, string> = {
     comprehensive_task: t('questionBank.risk.comprehensive', '综合题需确认'),
+    facts_unverified: t('questionBank.factEvidenceMissing', '缺少独立事实依据'),
+    facts_contradicted: t('questionBank.factEvidenceConflict', '事实前提或答案核验不通过'),
+    quality_advisory: t('questionBank.qualityAdvisory', '质量提示'),
     low_parse_confidence: t('questionBank.risk.ocr', '解析置信度低'),
     missing_answer: t('questionBank.risk.answer', '缺少答案'),
     answer_conflict: t('questionBank.risk.conflict', '答案冲突'),
@@ -2362,6 +2375,10 @@ function solutionValidation(payload: Record<string, any>) {
   return formatValue(payload.solution_validation || '-')
 }
 
+function factEvidence(payload: Record<string, any>): Record<string, any> {
+  return payload.solution_envelope?.factual_validation || {}
+}
+
 function formatValue(value: unknown) {
   if (typeof value === 'string') return value
   return JSON.stringify(value, null, 2)
@@ -2408,10 +2425,6 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-empty-state button { min-height:36px; display:inline-flex; align-items:center; gap:6px; padding:0 12px; border:1px solid #d7dde7; border-radius:8px; color:#5552c8; background:#fff; font:inherit; font-size:11.5px; font-weight:750; cursor:pointer; }
 .question-bank-empty-state .question-bank-empty-import { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .question-bank-empty-state button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
-.question-bank-panel.is-import .question-bank-workspace-body { display:block; }
-.question-bank-panel.is-generate .question-bank-workspace-main { display:grid; grid-template-rows:repeat(3,max-content) minmax(620px,1fr); align-content:start; gap:14px; overflow:auto; padding:18px 20px 20px; }
-.question-bank-panel.is-generate .question-review-workspace { min-height:620px; border:1px solid #dfe5ee; }
-.question-bank-panel.is-generate .question-bank-workspace-side :deep(.reference-tray) { min-height:100%; border:0; border-radius:0; box-shadow:none; }
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
 .question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 20px; }
 .question-generation-studio__ai{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.question-generation-studio__ai:hover:not(:disabled){border-color:#a5b4fc;background:#f8f9ff}.question-generation-studio__ai:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.question-generation-studio__ai:disabled{opacity:.45;cursor:not-allowed}.question-ai-candidate{min-height:44px;display:flex;align-items:center;gap:8px;padding:0 20px;border-block:1px solid #dfe2f5;color:#4f46e5;background:#f8f8ff;outline:0}.question-ai-candidate strong{color:#3730a3;font-size:12px}.question-ai-candidate span{margin-left:auto;color:#6b7280;font-size:11px}
@@ -2716,10 +2729,129 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
   .question-bank-workspace-body { display:block; }
   .question-bank-workspace-main { overflow:visible; }
   .question-bank-workspace-side { min-height:260px; overflow:visible; border-top:1px solid #e4e9f1; border-left:0; }
-  .question-bank-panel.is-generate .question-bank-workspace-main { overflow:visible; }
-  .question-bank-panel.is-generate .question-bank-workspace-side :deep(.reference-tray) { min-height:260px; }
 }
 
 @media (max-width: 720px) { .question-bank-page-heading { min-height:44px; align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-page-identity { width:100%; }.question-bank-workspace-status { margin-left:auto; font-size:0; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list,.question-generation-range,.question-generation-chapter-grid { grid-template-columns:1fr; }.question-generation-range>svg { display:none; }.question-generation-range>small { margin-top:0; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
+</style>
+
+<style scoped>
+.question-quantity-count { display:flex;align-items:center;justify-content:space-between;gap:12px;color:#334155;font-size:15px; }
+.question-quantity-count input { width:76px;min-height:38px;padding:6px 10px;border:1px solid #d8deeb;border-radius:8px;background:#fff;color:#334155;font:inherit; }
+.question-quantity-mode { display:grid;gap:10px;padding-block:5px; }
+.question-quantity-mode label { display:flex;align-items:center;gap:8px;font-size:15px;color:#475569;cursor:pointer; }
+.question-quantity-mode input { accent-color:#5b57e8; }
+.question-quantity-settings p { margin:0;color:#7c8799;font-size:13px;line-height:1.65; }
+.question-quantity-settings>small { color:#b42318;font-size:13px; }
+.question-quantity-count input:focus-visible { outline:2px solid #6366f1;outline-offset:2px; }
+</style>
+
+
+
+<style scoped>
+/* Match the lesson document shell: a persistent lecture rail, a reading surface,
+   and independently scrolling settings. No generation state lives in layout. */
+.question-bank-panel { height:100%; min-height:0; gap:0; overflow:hidden; }
+.question-bank-page-heading { min-height:58px; padding:8px 18px; gap:12px; background:#f7f8fc; }
+.question-bank-page-identity { flex-wrap:wrap; gap:8px; }
+.question-bank-page-identity>strong { font-size:19px; }
+.question-bank-workspace-status,.question-bank-workspace-context,.question-bank-workspace-actions button { font-size:15px; }
+.question-bank-document-surface { border:0; background:#f7f8fc; }
+.question-bank-panel .question-bank-workspace-body { display:grid; grid-template-columns:var(--column-left-width) 10px minmax(0,1fr) 10px var(--column-right-width); grid-template-rows:minmax(0,1fr); overflow:hidden; }
+.question-bank-panel .question-bank-workspace-body.settings-collapsed { grid-template-columns:var(--column-left-width) 10px minmax(0,1fr); }
+.question-bank-panel .question-chapter-index { grid-column:1; grid-row:1; grid-template-rows:52px minmax(0,1fr); border:0; border-radius:10px 10px 0 0; background:#fff; }
+.question-bank-panel .question-chapter-index>header { display:flex; grid-row:1; padding:0 12px; }
+.question-bank-panel .question-chapter-index>header strong { font-size:15px; }
+.question-bank-panel .question-chapter-index>nav { display:block; grid-row:2; padding:6px; overflow:auto; }
+.question-bank-panel .question-chapter-index>nav>div { border:0; }
+.question-bank-panel .question-chapter-index button { width:100%; min-width:0; min-height:68px; grid-template-columns:23px minmax(0,1fr) 8px; padding:10px 7px; border-radius:8px; gap:5px; }
+.question-bank-panel .question-chapter-index button>span:first-child { font-size:13px; background:transparent; }
+.question-bank-panel .question-chapter-index button strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; overflow:hidden; font-size:15px; line-height:1.5; }
+.question-bank-panel .question-chapter-index button small { font-size:13px; }
+.question-rail-empty { margin:12px; font-size:15px; color:#64748b; }
+.question-bank-panel .question-bank-workspace-main { display:flex; flex-direction:column; gap:0; padding:0; overflow:hidden; background:#f7f8fc; }
+.question-bank-panel .question-browser { flex:1 1 0; display:flex; flex-direction:column; min-height:0; border:0; background:transparent; }
+.question-bank-panel .question-index { flex:none; display:block; max-height:210px; min-height:0; overflow:auto; border:0; border-bottom:1px solid #e4e9f1; background:#fff; }
+.question-index__toolbar { padding:10px 16px; }
+.question-bank-panel .question-browser__identity strong { font-size:16px; }
+.question-browser__identity small { font-size:13px; }
+.question-bank-panel .question-browser__controls { display:flex; flex-direction:row; gap:8px; }
+.question-bank-panel .question-browser__controls label { min-width:0; flex:1; }
+.question-bank-panel .question-browser__controls input,.question-bank-panel .question-browser__controls select { min-width:0; font-size:14px; }
+.question-bank-panel .question-review-list { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 10px; overflow:visible; }
+.question-bank-panel .question-review-item { flex:1 1 115px; max-width:220px; border:0; }
+.question-bank-panel .question-review-item__summary { display:grid; grid-template-columns:26px minmax(0,1fr); gap:7px; width:100%; min-height:62px; padding:8px; border:1px solid #e4e9f1; border-radius:8px; }
+.question-bank-panel .question-review-item.is-expanded .question-review-item__summary { border-color:#b9b5f5; background:#f0efff; }
+.question-bank-panel .question-review-item__preview { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:14px; }
+.question-bank-panel .question-review-item__question>small { display:none; }
+.question-bank-panel .question-review-item__summary>.question-review-item__status { grid-column:2; font-size:12px; }
+.question-bank-panel .question-reader { flex:1 1 0; min-height:0; display:flex; flex-direction:column; overflow:hidden; background:#f7f8fc; }
+.question-bank-panel .question-reader__header { flex:none; padding:12px 18px; gap:8px; background:#f7f8fc; }
+.question-reader__header>div { flex-wrap:wrap; }
+.question-bank-panel .question-reader__chapter { display:none; }
+.question-bank-panel .question-reader__header strong { font-size:15px; }
+.question-bank-panel .question-reader__scroll { flex:1 1 0; min-height:0; overflow:auto; padding:8px 18px 24px; }
+.question-bank-panel .question-reader__footer { flex:none; flex-wrap:wrap; padding:10px 16px; }
+.question-bank-panel .question-reader__actions button,.question-bank-panel .question-reader__paper-select { font-size:14px; }
+.question-bank-panel .question-sheet :deep(.markdown-renderer),.question-bank-panel .question-sheet :deep(.math-text),.question-bank-panel .question-sheet__options :deep(.markdown-renderer) { font-size:16px; line-height:1.8; }
+.question-bank-panel .question-sheet__requirements,.question-bank-panel .question-sheet__requirements strong,.question-bank-panel .question-answer-panel>header strong,.question-bank-panel .question-review-item__solution,.question-bank-panel .question-solution-diff p,.question-bank-panel .question-solution-diff li,.question-bank-panel .question-solution-diff strong,.question-bank-panel .question-review-decision textarea { font-size:15px; line-height:1.7; }
+.question-bank-panel .question-answer-panel__locked { font-size:14px; }
+.question-bank-panel .question-bank-workspace-side { grid-column:5; grid-row:1; min-height:0; overflow:auto; overscroll-behavior:contain; border:0; background:#fff; scrollbar-width:thin; }
+.question-settings-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:52px; padding:0 16px; border-bottom:1px solid #e4e9f1; background:#fff; }
+.question-settings-heading strong { display:flex; align-items:center; gap:8px; font-size:16px; }
+.question-settings-heading strong svg { color:#5b57e8; }
+.question-settings-heading button { width:32px; height:32px; display:grid; place-items:center; border:1px solid #e4e9f1; border-radius:7px; background:#fff; color:#64748b; cursor:pointer; }
+.question-bank-panel .question-generation-studio { border:0; border-radius:0; }
+.question-bank-panel .question-generation-studio__header { min-height:48px; padding:12px 16px; flex-wrap:wrap; }
+.question-bank-panel .question-generation-studio__published,.question-bank-panel .question-generation-studio__ai { font-size:14px; }
+.question-bank-panel .question-generation-flow { padding:0 16px; }
+.question-bank-panel .question-generation-step { grid-template-columns:1fr; gap:10px; padding:16px 0; }
+.question-bank-panel .question-generation-step h4 { font-size:15px; }
+.question-bank-panel .question-generation-scope { grid-template-columns:1fr 1fr; gap:6px; }
+.question-bank-panel .question-generation-scope label { min-height:52px; padding:10px 8px; gap:6px; }
+.question-bank-panel .question-generation-scope label strong { font-size:15px; }
+.question-bank-panel .question-generation-scope label small { display:none; }
+.question-bank-panel .question-generation-range,.question-bank-panel .question-generation-chapter-grid { grid-template-columns:1fr; }
+.question-bank-panel .question-generation-range>svg { display:none; }
+.question-bank-panel .question-generation-chapter-grid { max-height:260px; overflow:auto; }
+.question-bank-panel .question-generation-chapter-grid label { min-height:50px; padding:8px; }
+.question-bank-panel .question-generation-chapter-grid strong { font-size:14px; }
+.question-bank-panel .question-intelligence-grid,.question-bank-panel .question-generation-option-list { grid-template-columns:1fr; }
+.question-bank-panel .question-intelligence-grid article,.question-bank-panel .question-generation-toggle { padding:10px 0; border:0; }
+.question-bank-panel .question-intelligence-grid strong,.question-bank-panel .question-generation-toggle strong { font-size:15px; }
+.question-bank-panel .question-intelligence-grid em { font-size:14px; }
+.question-bank-panel .question-generation-studio>footer { padding:16px; border-top:1px solid #e4e9f1; }
+.question-bank-panel .question-bank-panel__header-action,.question-bank-panel .question-bank-panel__header-buttons { width:100%; flex-direction:column; align-items:stretch; }
+.question-bank-panel .question-bank-panel__header-buttons button { min-height:42px; font-size:15px; justify-content:center; }
+.question-bank-panel .question-bank-progress { display:flex; flex-wrap:wrap; margin:12px; padding:12px; max-width:none; font-size:14px; }
+.question-bank-panel .question-bank-progress__summary { white-space:normal; }
+.question-bank-panel .question-bank-progress__summary strong { font-size:15px; }
+.question-bank-panel .question-bank-progress__popover { position:static; width:auto; min-width:0; padding:10px 0 0; border:0; box-shadow:none; background:transparent; }
+.question-bank-panel .question-bank-progress details { width:100%; }
+.question-settings-binding { border-top:1px solid #e4e9f1; padding:16px; }
+.question-settings-binding>summary { cursor:pointer; font-size:15px; font-weight:700; color:#475569; }
+.question-bank-panel .question-bank-workspace-side :deep(.reference-tray) { height:auto; min-height:0; max-height:none; border:0; border-top:1px solid #e4e9f1; border-radius:0; }
+.question-bank-panel .question-bank-workspace-side :deep(.reference-tray header strong) { font-size:15px; }
+.question-bank-panel .question-quality-details { max-height:40%; flex:none; overflow:auto; }
+@media(max-width:760px) { .question-bank-page-heading { padding:10px; }.question-bank-page-identity { width:auto; }.question-bank-panel .question-bank-workspace-body { overflow:auto; min-width:740px; } }
+</style>
+
+<style scoped>
+.question-bank-panel .question-index { flex:1 1 0; min-height:0; max-height:none; overflow:auto; border:0; background:#f7f8fc; }
+.question-bank-panel .question-review-list { display:flex; flex-direction:column; gap:12px; padding:18px; }
+.question-bank-panel .question-review-item { flex:none; width:100%; max-width:none; }
+.question-bank-panel .question-review-item__summary { grid-template-columns:34px minmax(0,1fr) auto 18px; min-height:106px; gap:12px; padding:20px 18px; border:1px solid #e2e6ee; border-radius:12px; background:#fff; }
+.question-bank-panel .question-review-item__summary:hover { border-color:#c3bff1; background:#fcfbff; }
+.question-bank-panel .question-review-item__summary:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-panel .question-review-item__number { align-self:start; width:32px; height:32px; font-size:14px; }
+.question-bank-panel .question-review-item__question { display:grid; gap:8px; min-width:0; }
+.question-bank-panel .question-review-item__preview { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; white-space:normal; font-size:16px; line-height:1.75; }
+.question-bank-panel .question-review-item__question>small { display:block; color:#7c8799; font-size:14px; }
+.question-bank-panel .question-review-item__summary>.question-review-item__status { grid-column:auto; align-self:start; margin-top:5px; font-size:13px; white-space:nowrap; }
+.question-list-open { color:#939bad; }
+.question-reader__back { flex:none; display:inline-flex; align-items:center; gap:7px; min-height:36px; padding:0 10px; border:1px solid #dfe4ec; border-radius:8px; color:#475569; background:#fff; font:inherit; font-size:15px; cursor:pointer; }
+.question-reader__back:hover { color:#4f46e5; border-color:#bcb6f2; }
+.question-reader__back:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-panel .question-reader__header { flex-wrap:wrap; }
+@media(max-width:1100px) { .question-bank-panel .question-review-item__summary { grid-template-columns:30px minmax(0,1fr) 16px; gap:9px; padding:16px 12px; }.question-bank-panel .question-review-item__summary>.question-review-item__status { grid-column:2; grid-row:2; margin:0; }.question-list-open { grid-column:3;grid-row:1; } }
 </style>

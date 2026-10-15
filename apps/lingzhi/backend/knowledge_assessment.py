@@ -14,7 +14,7 @@ ATOMIC_ASSESSMENT_SCHEMA = "atomic_assessment_v1"
 def atomic_baseline(course: dict) -> dict | None:
     base = course.get("course_knowledge_base") or {}
     adopted = base.get("lifecycle_status") == "active" or base.get("status") == "accepted"
-    atomic = base.get("tree_schema") or any(
+    atomic = base.get("tree_schema") == "knowledge_first_c17_v1" or any(
         p.get("granularity_status") == "atomic" and p.get("meta_question") for p in base.get("knowledge_points") or []
     )
     return base if adopted and atomic and base.get("revision_id") else None
@@ -166,8 +166,10 @@ def target_reference_summary(slot: dict, summary: dict) -> dict:
 
 
 def assessment_binding(slot: dict) -> dict:
+    quantity = {key: deepcopy(slot[key]) for key in ('generation_key','variant_index','quantity_schema','quantity_batch_id')
+                if key in slot} if slot.get('quantity_schema') else {}
     if slot.get("assessment_binding_schema") != ATOMIC_ASSESSMENT_SCHEMA:
-        return {}
+        return quantity
     return {
         key: deepcopy(slot.get(key))
         for key in (
@@ -181,6 +183,7 @@ def assessment_binding(slot: dict) -> dict:
             "prerequisite_knowledge_ids",
             "knowledge_revision_refs",
             "knowledge_baseline_revision",
+            *quantity,
         )
     }
 

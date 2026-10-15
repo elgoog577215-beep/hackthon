@@ -70,12 +70,10 @@
               <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
-          <div v-if="displayTree?.knowledge_points.length" class="tree-layout">
-            <nav class="tree-nav" :aria-label="t('knowledgeFirst.tree')">
-              <div class="tree-root">{{ perLesson ? lessonLabels[knowledgeLessonId] : data.title }} <span>{{ displayTree.knowledge_points.length }} {{ t('knowledgeFirst.points') }}</span></div>
-              <KnowledgeCategoryBranch v-for="root in roots" :key="root.id" :category="root" :categories="displayTree.categories" :points="displayTree.knowledge_points" :selected-id="selectedId" @select="selectedId = $event" />
-            </nav>
-            <aside ref="detailPane" class="knowledge-detail-pane" :aria-label="t('knowledgeFirst.pointDetails')">
+          <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
+            <KnowledgeMasteryTree :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectedId = $event" />
+            <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" :aria-label="t('knowledgeFirst.pointDetails')">
+            <button type="button" class="close-point-detail" @click="selectedId = ''">{{ t('knowledgeFirst.backToTree') }}</button>
             <article v-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
               <h2>{{ selectedPoint.name }}</h2><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
@@ -100,7 +98,6 @@
               </div>
               <h3>{{ t('knowledgeFirst.trace') }}</h3><dl><dt>ID</dt><dd>{{ selectedPoint.knowledge_id }}</dd><dt>{{ t('knowledgeFirst.version') }}</dt><dd>{{ selectedPoint.revision_id }}</dd><dt>{{ t('knowledgeFirst.source') }}</dt><dd>{{ selectedPoint.source_refs.join(', ') }}</dd></dl>
             </article>
-            <div v-else class="point-card point-placeholder"><h2>{{ t('knowledgeFirst.pointDetails') }}</h2><p>{{ t('knowledgeFirst.selectPointHint') }}</p></div>
             </aside>
           </div>
           <p v-else class="empty-card">{{ t(activeJob ? 'knowledgeFirst.treeGenerationInProgress' : blockingJobs.length ? 'knowledgeFirst.waitForSourceTask' : perLesson ? (selectedLesson?.can_generate ? 'knowledgeFirst.lessonTreeEmpty' : 'knowledgeFirst.lessonHandoutRequired') : derived ? (!data.can_generate_tree ? 'knowledgeFirst.handoutsRequired' : 'knowledgeFirst.noDerivedTree') : 'knowledgeFirst.noTree') }}</p>
@@ -140,7 +137,8 @@ import http from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
-import KnowledgeCategoryBranch from './KnowledgeCategoryBranch.vue'
+import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
+import { createContentKnowledgeTree } from '../utils/knowledge-tree-layout'
 import TeachingCapabilityPanel from './TeachingCapabilityPanel.vue'
 import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
@@ -218,7 +216,12 @@ const displayTree = computed(() => {
   return { ...tree, allKnowledgePoints: allPoints, categories: perLesson.value ? categories.filter((c: any) => needed.has(c.id)) : categories,
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
-const roots = computed(() => displayTree.value?.categories.filter((c: any) => !c.parent_id) || [])
+const contentTree = computed(() => createContentKnowledgeTree(
+  `${courseId.value}:${perLesson.value ? knowledgeLessonId.value : ''}`,
+  perLesson.value ? lessonLabels.value[knowledgeLessonId.value] || data.value?.title : data.value?.title,
+  displayTree.value?.categories || [],
+  displayTree.value?.knowledge_points || [],
+))
 const selectedPoint = computed(() => displayTree.value?.knowledge_points.find((p: any) => p.knowledge_id === selectedId.value))
 const relations = computed(() => displayTree.value?.relations.filter((r: any) => [r.source_id, r.target_id].includes(selectedId.value)) || [])
 const diagnoses = computed(() => displayTree.value?.misconceptions?.filter((d: any) => d.hypothesis_a && (d.knowledge_keys || []).includes(selectedPoint.value?.key)) || [])
@@ -347,7 +350,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 
 <style scoped>
 .teacher-knowledge-manager { width:100%; max-width:none; margin:0; padding:4px 8px 32px; box-sizing:border-box; }
-.manager-tools { display:flex; align-items:center; justify-content:space-between; gap:16px; color:#8a789a; font-size:14px; }.teacher-knowledge-manager .toolbar { margin:18px 0; }.teacher-knowledge-manager .tree-layout { grid-template-columns:280px minmax(0,1fr); gap:18px; }.teacher-knowledge-manager .point-card { padding:24px; }
+.manager-tools { display:flex; align-items:center; justify-content:space-between; gap:16px; color:#8a789a; font-size:14px; }.teacher-knowledge-manager .toolbar { margin:18px 0; }.teacher-knowledge-manager .point-card { padding:24px; }
 @media(max-width:900px) { .teacher-knowledge-manager .tree-layout { grid-template-columns:minmax(0,1fr); } }
 </style>
 
@@ -364,7 +367,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 </style>
 
 <style scoped>
-.tree-only{padding:0;max-width:none}.tree-only .toolbar{margin:0 0 20px;gap:12px;flex-wrap:wrap}.tree-only .toolbar h2{flex:1;margin:0;font-size:24px;color:#343b70}.tree-version{display:flex;align-items:center;gap:8px;color:#7c849b;font-size:14px}.tree-version select{max-width:260px}.tree-only .tree-layout{display:grid;grid-template-columns:minmax(320px,1fr) minmax(340px,420px);gap:20px;margin:0;align-items:start}.tree-only .tree-nav{max-height:none;overflow:visible;padding:22px 28px;box-shadow:none;border-radius:12px}.tree-only .tree-root{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 0 18px;border-bottom:1px solid #eef0f7;margin-bottom:10px}.tree-only .tree-root span{float:none}.tree-only .notice{margin:0 0 18px}
+.tree-only{padding:0;max-width:none}.tree-only .toolbar{margin:0 0 20px;gap:12px;flex-wrap:wrap}.tree-only .toolbar h2{flex:1;margin:0;font-size:24px;color:#343b70}.tree-version{display:flex;align-items:center;gap:8px;color:#7c849b;font-size:14px}.tree-version select{max-width:260px}.tree-only .tree-layout{margin:0}.tree-only .notice{margin:0 0 18px}
 </style>
 
 <style scoped>
@@ -372,7 +375,11 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 </style>
 
 <style scoped>
-.knowledge-detail-pane{min-width:0}.tree-only .knowledge-detail-pane{position:sticky;top:0;max-height:calc(100dvh - 230px);overflow:auto;scrollbar-gutter:stable;border:1px solid #e2e7f2;border-radius:12px;background:#fff}.tree-only .point-card{min-height:0;border:0;box-shadow:none;border-radius:0;padding:24px}.tree-only .point-card h2{font-size:22px;line-height:1.5;margin:14px 0}.tree-only .point-placeholder{min-height:300px;color:#8590a4}.point-placeholder p{font-size:15px}.relation+.relation{margin-top:12px}.relation button{font-weight:600;text-align:left;line-height:1.6}.relation-scope{display:block;color:#7866a9;font-size:13px;margin-bottom:8px}.relation-direction{color:#697496;font-size:14px;line-height:1.6}.related-statement{border-top:1px solid #e3e7f2;padding-top:10px;margin-top:10px;font-size:15px}.tree-only .point-card :deep(.markdown-body){overflow-wrap:anywhere}.tree-only .point-card dl{font-size:13px}.tree-only .source-evidence-heading{line-height:1.7}
-@media(max-width:1050px){.tree-only .tree-layout{grid-template-columns:minmax(270px,1fr) minmax(300px,380px);gap:14px}.tree-only .tree-nav{padding:20px}.tree-only .point-card{padding:20px}}
-@media(max-width:760px){.tree-only .tree-layout{grid-template-columns:minmax(0,1fr)}.tree-only .knowledge-detail-pane{position:static;max-height:none}.tree-only .tree-nav{max-height:50vh;overflow:auto}}
+.knowledge-detail-pane{min-width:0}.tree-only .knowledge-detail-pane{position:sticky;top:0;max-height:calc(100dvh - 230px);overflow:auto;scrollbar-gutter:stable;border:1px solid #e2e7f2;border-radius:12px;background:#fff}.tree-only .point-card{min-height:0;border:0;box-shadow:none;border-radius:0;padding:24px}.tree-only .point-card h2{font-size:22px;line-height:1.5;margin:14px 0}.relation+.relation{margin-top:12px}.relation button{font-weight:600;text-align:left;line-height:1.6}.relation-scope{display:block;color:#7866a9;font-size:13px;margin-bottom:8px}.relation-direction{color:#697496;font-size:14px;line-height:1.6}.related-statement{border-top:1px solid #e3e7f2;padding-top:10px;margin-top:10px;font-size:15px}.tree-only .point-card :deep(.markdown-body){overflow-wrap:anywhere}.tree-only .point-card dl{font-size:13px}.tree-only .source-evidence-heading{line-height:1.7}
+@media(max-width:1050px){.tree-only .point-card{padding:20px}}
+.teacher-knowledge-manager .tree-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
+.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr) minmax(340px,400px)}
+.tree-layout>.mastery-tree{min-width:0}
+.close-point-detail{margin:16px 24px 0;font-size:15px}
+@media(max-width:1200px){.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr)}.teacher-knowledge-manager .knowledge-detail-pane{position:static;max-height:none}}
 </style>

@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from assessment_quality import QUESTION_QUALITY_SCHEMA
+from assessment_fact_evidence import fact_publication_state
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
@@ -74,6 +75,7 @@ from question_bank_rebuild_runtime import (
     configure_question_bank_rebuild_runtime,
 )
 from solution_contracts import project_solution_spec
+from assessment_solution_protocol import final_solution_review_valid
 from storage import storage
 from storage_utils import save_course_compat
 from teacher_course_space import teacher_course_space_repository
@@ -270,6 +272,9 @@ class QuestionBankRebuildRequest(BaseModel):
     )
     mode: Literal["incremental", "full"] = "incremental"
     resume_existing: bool = True
+    questions_per_lesson: int | None = Field(default=None, ge=1, le=20, strict=True)
+    append_only: bool = False
+    quantity_batch_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r'^[A-Za-z0-9._-]+$')
     retrieval_enabled: bool = False
     assessment_generation_profile: Literal["complete"] = "complete"
     teacher_instruction: str = Field(default="", max_length=2000)
@@ -281,6 +286,15 @@ class QuestionBankRebuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self) -> QuestionBankRebuildRequest:
+        if self.append_only and self.questions_per_lesson is None:
+            raise ValueError('追加生成需要指定每讲数量')
+        if self.quantity_batch_id and self.questions_per_lesson is None:
+            raise ValueError('恢复数量任务需要指定每讲数量')
+        if self.questions_per_lesson is not None:
+            if self.scope == 'items' or self.knowledge_ids:
+                raise ValueError('每讲数量只适用于课程或讲次范围')
+            self.mode = 'incremental'
+            self.resume_existing = True
         if self.knowledge_ids and any(not value.strip() or len(value) > 200 for value in self.knowledge_ids):
             raise ValueError("Knowledge IDs must be nonempty and at most 200 characters")
         self.knowledge_ids = sorted({value.strip() for value in self.knowledge_ids if value.strip()})
@@ -600,6 +614,7 @@ _PRACTICE_LEVELS = {
 def _published_practice_levels_by_node(
     course: dict[str, Any],
     bundle: dict[str, Any] | None,
+    *, include_fact_review: bool = False,
 ) -> dict[str, set[str]]:
     """Revalidate saved practice slots without requiring a course checkpoint."""
 
@@ -613,7 +628,7 @@ def _published_practice_levels_by_node(
     }
     blueprint = (bundle or {}).get("assessment_blueprint") or {}
     expected_keys = slot_keys_by_node(blueprint)
-    if atomic_baseline(course):
+    if atomic_baseline(course) and not course.get('_assessment_quantity_plan'):
         current = compile_course_assessment_blueprint(course)
         if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
             return {}
@@ -622,13 +637,16 @@ def _published_practice_levels_by_node(
     for item in (bundle or {}).get("items") or []:
         node_id = str(item.get("node_id") or "")
         quality = item.get("quality_report") or {}
+        retained_review = (include_fact_review and item.get("lifecycle_status") == "needs_review"
+                           and item.get("generation_status") == "waiting_review"
+                           and "facts_unverified" in (item.get("risk_flags") or []))
         if (
             node_id not in course_node_ids
             or item.get("assessment_role") != "practice"
-            or item.get("lifecycle_status") != "approved"
-            or item.get("generation_status") != "published"
+            or (item.get("lifecycle_status") != "approved" and not retained_review)
+            or (item.get("generation_status") != "published" and not retained_review)
             or quality.get("schema_version")
-            not in {"question_quality_report_v2", QUESTION_QUALITY_SCHEMA}
+            not in {"question_quality_report_v2", "question_quality_report_v3", "question_quality_report_v4", QUESTION_QUALITY_SCHEMA}
             or quality.get("passed") is not True
         ):
             continue
@@ -649,6 +667,8 @@ def _published_practice_levels_by_node(
         solution = solutions.get(
             str(item.get("solution_revision_id") or "")
         )
+        if retained_review and fact_publication_state({"question_spec":item.get("question_spec") or {}, "solution_envelope":solution or {}}) != "unverified":
+            continue
         compiled = compile_formal_task_contract(
             hydrated,
             solution,
@@ -1019,6 +1039,15 @@ async def rebuild_question_bank(
     active = question_bank_rebuild_job_repository.active_for_course(
         course_id
     )
+    if payload.quantity_batch_id:
+        prior = question_bank_rebuild_job_repository.load(course_id, payload.quantity_batch_id)
+        plan = (prior or {}).get('quantity_plan') or {}
+        if (not prior or prior.get('actor_id') != actor_id or prior.get('status') != 'failed'
+            or prior.get('questions_per_lesson') != payload.questions_per_lesson
+            or bool(prior.get('append_only')) != payload.append_only
+            or not set(payload.node_ids).issubset(plan.get('slots') or {})
+            or plan.get('source_revision') != _question_source_revision(course)):
+            raise HTTPException(409, detail={'code':'question_quantity_resume_mismatch','message':'追加任务的范围或课程内容已变化，请重新选择生成范围。'})
     if active and not _same_rebuild_request(
         active,
         payload=payload,
@@ -1063,6 +1092,9 @@ async def rebuild_question_bank(
             teacher_instruction=payload.teacher_instruction,
             knowledge_ids=payload.knowledge_ids,
             knowledge_baseline_revision=payload.knowledge_baseline_revision,
+            questions_per_lesson=payload.questions_per_lesson,
+            append_only=payload.append_only,
+            quantity_batch_id=payload.quantity_batch_id,
         )
     )
     if created:
@@ -1086,6 +1118,9 @@ def _same_rebuild_request(
 ) -> bool:
     return bool(
         str(job.get("scope") or "") == payload.scope
+        and job.get('questions_per_lesson') == payload.questions_per_lesson
+        and bool(job.get('append_only')) == payload.append_only
+        and job.get('quantity_batch_id') == payload.quantity_batch_id
         and sorted(str(value) for value in job.get("node_ids") or [])
         == payload.node_ids
         and sorted(job.get("knowledge_ids") or []) == payload.knowledge_ids
@@ -1684,6 +1719,23 @@ async def _execute_question_bank_rebuild(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
+    if payload.questions_per_lesson is not None:
+        from assessment_quantity import build_quantity_plan
+        quantity_job = repository.load(course_id, job_id) or {}
+        quantity_plan = quantity_job.get('quantity_plan')
+        if not quantity_plan:
+            prior_quantity = repository.load(course_id, payload.quantity_batch_id) if payload.quantity_batch_id else None
+            quantity_plan = deepcopy((prior_quantity or {}).get('quantity_plan'))
+            if quantity_plan is None:
+                quantity_nodes = [str(n['node_id']) for n in course_for_bank.get('nodes') or []
+                                  if int(n.get('node_level') or 1)==2 and (payload.scope=='course' or n['node_id'] in payload.node_ids)]
+                quantity_plan = build_quantity_plan(course_for_bank,assessment_blueprint,previous=previous,
+                    node_ids=quantity_nodes,count=payload.questions_per_lesson,append_only=payload.append_only,batch_id=job_id)
+                quantity_plan['source_revision'] = source_revision
+            quantity_plan = repository.freeze_quantity_plan(job_id,quantity_plan)
+        course_for_bank['_assessment_quantity_plan'] = quantity_plan
+        course_for_bank['_question_bank_bundle'] = deepcopy(previous or {})
+        assessment_blueprint = compile_course_assessment_blueprint(course_for_bank,profile=assessment_profile,objectives=assessment_objectives)
     planned_slot_keys = slot_keys_by_node(assessment_blueprint)
     knowledge_slot_selection = _selected_knowledge_slots(course_for_bank, payload, assessment_blueprint)
     active_job = repository.load(course_id, job_id) or {}
@@ -1738,6 +1790,8 @@ async def _execute_question_bank_rebuild(
     checkpoint = deepcopy(
         course.get("question_bank_chapter_rebuild") or {}
     )
+    if payload.questions_per_lesson is not None:
+        checkpoint = {}
     checkpoint_contract_matches = bool(
         checkpoint
         and checkpoint.get("source_revision") == source_revision
@@ -1802,6 +1856,7 @@ async def _execute_question_bank_rebuild(
             and payload.resume_existing
             and not resumable_checkpoint
             and not checkpoint
+            and payload.questions_per_lesson is None
         )
         else set()
     )
@@ -1828,15 +1883,15 @@ async def _execute_question_bank_rebuild(
     for node_id in published_node_ids:
         published_practice_levels_by_node[node_id] = set(planned_slot_keys.get(node_id, []))
     preserve_saved_slots = (
-        payload.scope == "nodes" and payload.mode == "incremental"
+        (payload.scope == "nodes" or payload.questions_per_lesson is not None) and payload.mode == "incremental"
         and payload.resume_existing and not payload.knowledge_ids
     )
     if preserve_saved_slots:
-        saved_slots = _published_practice_levels_by_node(course_for_bank, previous)
+        saved_slots = _published_practice_levels_by_node(course_for_bank, previous, include_fact_review=True)
         for node_id in campaign_node_ids:
             settled = saved_slots.get(node_id, set()) & set(planned_slot_keys.get(node_id, []))
             published_practice_levels_by_node[node_id] = settled
-            if settled and settled == set(planned_slot_keys.get(node_id, [])):
+            if (settled or payload.questions_per_lesson is not None) and settled == set(planned_slot_keys.get(node_id, [])):
                 published_node_ids.add(node_id)
     resumed_item_count = sum(len(v) for v in published_practice_levels_by_node.values())
     campaign_id = (
@@ -2088,7 +2143,7 @@ async def _execute_question_bank_rebuild(
             == len(target_node_ids or [])
         )
         publication_base = deepcopy(rolling_course)
-        if payload.scope == "course":
+        if payload.scope == "course" and payload.questions_per_lesson is None:
             publication_base[
                 "question_bank_chapter_rebuild"
             ] = {
@@ -2373,11 +2428,12 @@ async def _execute_question_bank_rebuild(
             rolling_course,
             deduplicated=False,
         )
-        if payload.scope == "nodes":
+        if payload.scope in {"nodes", "items"}:
             response["review_queue"] = _scope_review_queue(
                 response.get("review_queue") or {},
                 node_ids=set(campaign_node_ids),
                 assessment_roles={"practice"},
+                revision_ids=_rebuilt_item_revision_ids(rolling_bank, item_practice_levels_by_node) if payload.scope == "items" else None,
             )
         if not (response.get("review_queue") or {}).get(
             "blocking_count"
@@ -2517,6 +2573,11 @@ async def _execute_question_bank_rebuild(
         published_course,
         deduplicated=deduplicated,
     )
+    if payload.scope in {"nodes", "items"}:
+        response["review_queue"] = _scope_review_queue(
+            response.get("review_queue") or {}, node_ids=set(campaign_node_ids), assessment_roles={"practice"},
+            revision_ids=_rebuilt_item_revision_ids(stored, item_practice_levels_by_node) if payload.scope == "items" else None,
+        )
     if not (response.get("review_queue") or {}).get(
         "blocking_count"
     ):
@@ -2581,6 +2642,12 @@ def _require_complete_generation(
     course: dict[str, Any],
 ) -> None:
     """Fail before persistence when any planned slot was discarded."""
+    for node_contracts in (course.get("_assessment_generated_contracts") or {}).values():
+        for contract in node_contracts.values():
+            if fact_publication_state(contract) == "contradicted":
+                raise RuntimeError("question_fact_verification_failed: 题面前提或答案与独立核验冲突")
+            if not final_solution_review_valid(contract):
+                raise RuntimeError("final_solution_review_missing_or_stale")
     audit = course.get("_assessment_generation_audit") or {}
     items = audit.get("items") or []
     planned_count = int(audit.get("planned_item_count") or 0)
@@ -2689,11 +2756,17 @@ def _rebuild_response(
     }
 
 
+def _rebuilt_item_revision_ids(bundle: dict, levels: dict[str, list[str]]) -> set[str]:
+    return {str(item.get("revision_id") or "") for item in bundle.get("items") or []
+            if set(item_slot_keys(item)) & set(levels.get(str(item.get("node_id") or ""), []))}
+
+
 def _scope_review_queue(
     queue: dict[str, Any],
     *,
     node_ids: set[str],
     assessment_roles: set[str],
+    revision_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Report only review work introduced by a scoped rebuild."""
     result = deepcopy(queue)
@@ -2702,6 +2775,7 @@ def _scope_review_queue(
         for item in queue.get("items") or []
         if (
             str(item.get("node_id") or "") in node_ids
+            and (revision_ids is None or str(item.get("revision_id") or "") in revision_ids)
             and str(item.get("assessment_role") or "")
             in assessment_roles
         )
@@ -2711,6 +2785,7 @@ def _scope_review_queue(
         for item in queue.get("sample_items") or []
         if (
             str(item.get("node_id") or "") in node_ids
+            and (revision_ids is None or str(item.get("revision_id") or "") in revision_ids)
             and str(item.get("assessment_role") or "")
             in assessment_roles
         )

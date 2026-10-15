@@ -235,7 +235,9 @@ def compile_course_assessment_blueprint(
     """Compile the immutable generation plan consumed by the orchestrator."""
     resolved_profile = profile or compile_course_assessment_profile(course_data)
     base = atomic_baseline(course_data)
-    if (course_data.get("course_knowledge_base") or {}).get("tree_schema") and base is None:
+    reference_base = course_data.get('course_knowledge_base') or {}
+    adopted_reference_tree = reference_base.get('tree_schema') == 'knowledge_first_generic_v1' and reference_base.get('status') == 'accepted'
+    if reference_base.get("tree_schema") and base is None and not adopted_reference_tree:
         raise ValueError("knowledge_baseline_not_adopted")
     resolved_objectives = objectives or compile_assessment_objectives(
         course_data,
@@ -395,6 +397,10 @@ def compile_course_assessment_blueprint(
                 ),
             },
         })
+    if course_data.get('_assessment_quantity_plan'):
+        from assessment_quantity import apply_quantity_plan
+        nodes = apply_quantity_plan(nodes, course_data['_assessment_quantity_plan'])
+        all_slots = [slot for node in nodes for slot in node['slots']]
     distribution = _distribution(all_slots, "question_type")
     largest_share = (
         max(distribution.values()) / len(all_slots)
