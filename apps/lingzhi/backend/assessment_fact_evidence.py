@@ -144,7 +144,7 @@ def _compute(plan: dict) -> tuple[Any, str, str]:
 def build_computed_candidate(plan: dict) -> dict:
     """Compute first and render the entire fact-bearing problem deterministically."""
     result, task, derivation = _compute(plan)
-    public = "计算模型与输入参数：\n```json\n" + json.dumps(plan, ensure_ascii=False, sort_keys=True) + "\n```"
+    public = _render_inputs(plan)
     answer = {"premises": public, "derivation": derivation, "conclusion": str(result)}
     work = {"schema_version":"worked_solution_v1", "summary":f"精确结果为 {result}。",
             "steps":[{"title":"按公开模型计算", "explanation":derivation, "result":str(result)}],
@@ -163,6 +163,22 @@ def build_computed_candidate(plan: dict) -> dict:
         "solution_graph":{"schema_version":"solution_graph_v1","steps":[{"step_id":"step_1","action":derivation,"check":str(result)}]},
         "worked_solution":work,
     }}
+
+
+def _render_inputs(plan: dict) -> str:
+    kind = plan["kind"]
+    if kind == "arithmetic":
+        return f"给定算式：`{plan['expression']}`。各数按精确有理数处理。"
+    if kind == "dynamic_array":
+        return f"数组初始已有1个元素，容量为1，接下来连续追加{plan['append_count']}次。"
+    if kind == "range_sum":
+        return f"给定数组 {json.dumps(plan['values'])}，查询闭区间 [{plan['start']}, {plan['end']}]。"
+    if kind == "treap_depth":
+        return f"节点数 n={plan['n']}，目标键 rank={plan['rank']}。"
+    if kind == "zipf_coverage":
+        return f"共有 n={plan['n']} 个样本，参数 alpha={plan['alpha']}，覆盖阈值 threshold={plan['threshold']}。"
+    return "给定初始状态与操作序列：\n```json\n" + json.dumps(
+        {"initial_state":plan["initial_state"],"operations":plan["operations"]}, ensure_ascii=False, sort_keys=True) + "\n```"
 
 
 def _public_binding(spec: dict) -> dict:
