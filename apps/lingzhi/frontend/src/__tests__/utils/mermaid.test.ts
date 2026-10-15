@@ -32,6 +32,7 @@ describe('mermaid utils', () => {
   it('不把旧 lineChart 语法交给 Mermaid 渲染器', async () => {
     await expect(renderMermaidSvg('m1', 'lineChart\nx-axis Iteration')).rejects.toThrow('Unsupported Mermaid diagram type')
     expect(mocks.render).not.toHaveBeenCalled()
+    expect(mocks.initialize).not.toHaveBeenCalled()
   })
 
   it('识别 Mermaid 返回的错误 SVG 并进入降级路径', async () => {
@@ -41,5 +42,15 @@ describe('mermaid utils', () => {
 
     await expect(renderMermaidSvg('m2', 'graph TD\nA --> B')).rejects.toThrow('Mermaid returned an error diagram')
     expect(isMermaidErrorSvg('<svg><text class="error-text">Syntax error in text</text></svg>')).toBe(true)
+  })
+
+  it('并发绘图共享首次加载，普通源码识别不加载绘图库', async () => {
+    mocks.render.mockResolvedValue({ svg: '<svg viewBox="0 0 100 100"><text>Ready</text></svg>' })
+    const results = await Promise.all([
+      renderMermaidSvg('parallel-a', 'graph TD\nA --> B'),
+      renderMermaidSvg('parallel-b', 'graph TD\nC --> D'),
+    ])
+    expect(results.every(svg => svg.includes('Ready'))).toBe(true)
+    expect(mocks.initialize).toHaveBeenCalledTimes(1)
   })
 })

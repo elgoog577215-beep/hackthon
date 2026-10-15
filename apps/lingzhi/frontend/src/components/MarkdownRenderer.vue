@@ -1,13 +1,17 @@
 <template>
-  <div ref="containerRef" v-html="renderedContent" class="markdown-renderer"></div>
+  <div ref="containerRef" class="markdown-renderer"></div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount, h, render, getCurrentInstance, useId } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, h, render, getCurrentInstance, useId } from 'vue'
 import TeachingDiagram from './TeachingDiagram.vue'
+import { activeLocale } from '../shared/i18n'
 import { renderMarkdown } from '../utils/markdown'
 import { bindInlineMarkdownSource } from '../utils/inline-markdown-source'
 import { highlightRenderedMarkdownText } from '../utils/markdown-highlight'
+import { createMarkdownDom } from '../utils/markdown-dom'
+import { createMarkdownMermaidQueue } from '../utils/markdown-mermaid-queue'
+import { createMarkdownCodeActions, MarkdownCodeExecutionError } from '../utils/markdown-code-actions'
 import logger from '../utils/logger'
 import { renderMermaidSvg } from '../utils/mermaid'
 import http from '../utils/http'
@@ -24,236 +28,146 @@ const props = withDefaults(defineProps<{
 })
 
 const containerRef = ref<HTMLElement | null>(null)
-const renderedContent = ref('')
 const appContext = getCurrentInstance()?.appContext
-const diagramPrefix = useId()
+const diagramPrefix = useId().replace(/[^\w-]/g, '-')
 const diagramHosts = new Set<Element>()
-const clearDiagrams = () => { for (const host of diagramHosts) render(null, host); diagramHosts.clear() }
-const renderTeachingDiagrams = async () => {
-    await nextTick()
-    if (!containerRef.value) return
-    let index = 0
-    for (const host of containerRef.value.querySelectorAll('.teaching-diagram-host')) {
-        const vnode = h(TeachingDiagram, { raw: decodeURIComponent(host.getAttribute('data-diagram') || ''), pending: host.getAttribute('data-pending') === 'true', instanceId: `${diagramPrefix}-${index++}` })
-        if (appContext) vnode.appContext = appContext
-        render(vnode, host)
-        diagramHosts.add(host)
-    }
+const mermaidHosts = new Set<HTMLElement>()
+const tr = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh
+let identity = 0
+let dom: ReturnType<typeof createMarkdownDom> | undefined
+let codeActions: ReturnType<typeof createMarkdownCodeActions> | undefined
+let lastHtml = ''
+let displayedContent = ''
+const decodeSource = (raw: string) => { try { return decodeURIComponent(raw) } catch { return raw } }
+
+function refreshMermaidText() {
+  if (!containerRef.value) return
+  containerRef.value.querySelectorAll<HTMLElement>('[data-mermaid-label]').forEach(el => {
+    const label = el.dataset.mermaidLabel
+    el.textContent = label === 'pending' ? tr('图表正在生成…', 'Generating diagram…')
+      : label === 'title' ? tr('图表暂不可渲染', 'Diagram cannot be rendered')
+      : label === 'summary' ? tr('查看源代码', 'View source')
+      : tr('已保留源代码，不影响继续阅读。', 'The source is preserved. You can continue reading.')
+  })
 }
 
-const escapeHtml = (val: string) => val
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-const decodeMermaidCode = (raw: string) => {
-    try {
-        return decodeURIComponent(raw)
-    } catch {
-        return raw
-    }
+const mermaidQueue = createMarkdownMermaidQueue(diagramPrefix, renderMermaidSvg, (host, result) => {
+  if (!mermaidHosts.has(host)) return
+  if (result.svg !== undefined) {
+    // renderMermaidSvg uses Mermaid's strict security mode; never insert raw Markdown here.
+    host.innerHTML = result.svg
+  } else {
+    logger.warn('Mermaid diagram fell back to source preview:', result.error instanceof Error ? result.error.message : result.error)
+    const fallback = document.createElement('div')
+    fallback.className = 'mermaid-fallback'
+    const title = document.createElement('p')
+    title.dataset.mermaidLabel = 'title'; title.setAttribute('role', 'status')
+    const note = document.createElement('p'); note.dataset.mermaidLabel = 'note'
+    const details = document.createElement('details')
+    const summary = document.createElement('summary'); summary.dataset.mermaidLabel = 'summary'
+    const pre = document.createElement('pre'); pre.textContent = decodeSource(host.dataset.code || '')
+    details.append(summary, pre); fallback.append(title, note, details); host.replaceChildren(fallback)
+    refreshMermaidText()
+  }
+  host.dataset.processed = 'true'
+  host.style.opacity = '1'
+})
+
+function removeEnhancements(node: Node) {
+  for (const host of diagramHosts) if (node.contains(host)) {
+    render(null, host); diagramHosts.delete(host)
+  }
+  for (const host of mermaidHosts) if (node.contains(host)) {
+    mermaidQueue.forget(host); mermaidHosts.delete(host)
+  }
+  codeActions?.remove(node)
 }
 
-const renderMermaid = async () => {
-    await nextTick()
-    if (!containerRef.value) return
-    
-    const mermaidDivs = containerRef.value.querySelectorAll('.mermaid')
-    if (mermaidDivs.length === 0) return
-
-    // Process each diagram individually for better error handling
-    for (const el of Array.from(mermaidDivs)) {
-        const mermaidEl = el as HTMLElement
-        
-        try {
-            // Skip if already processed successfully
-            if (mermaidEl.getAttribute('data-processed') === 'true') continue
-            
-            // Get and clean the code
-            let code = ''
-            const rawCode = mermaidEl.getAttribute('data-code')
-            if (rawCode) {
-                code = decodeURIComponent(rawCode)
-            } else {
-                code = mermaidEl.textContent || ''
-            }
-            
-            if (!code.trim()) {
-                throw new Error('Empty diagram code')
-            }
-            
-            // Clean the syntax
-            // Generate unique ID
-            const id = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`
-            const adjustedSvg = await renderMermaidSvg(id, code)
-            
-            // Update the element
-            mermaidEl.innerHTML = adjustedSvg
-            mermaidEl.setAttribute('data-processed', 'true')
-            mermaidEl.style.opacity = '1'
-            
-        } catch (err: any) {
-            logger.warn('Mermaid diagram fell back to source preview:', err?.message || err)
-            
-            // Keep reading smooth when AI-generated diagrams use unsupported syntax.
-            const rawCode = decodeMermaidCode(mermaidEl.getAttribute('data-code') || mermaidEl.textContent || '')
-            mermaidEl.innerHTML = `
-                <div class="mermaid-fallback bg-slate-50 border border-slate-200 rounded-lg p-4 my-2">
-                    <div class="flex items-center gap-2 text-slate-600 font-medium mb-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16"/><path d="M4 5h16"/><path d="M8 9v6"/><path d="M16 9v6"/><path d="M12 7v10"/></svg>
-                        图表暂不可渲染
-                    </div>
-                    <div class="text-xs text-slate-500 mb-2">已保留源代码，不影响继续阅读。</div>
-                    <details class="text-xs">
-                        <summary class="cursor-pointer text-slate-600 hover:text-slate-800">查看源代码</summary>
-                        <pre class="mt-2 p-2 bg-white rounded border border-slate-200 overflow-auto max-h-32 text-slate-600">${escapeHtml(rawCode)}</pre>
-                    </details>
-                </div>
-            `
-            mermaidEl.setAttribute('data-processed', 'true')
-            mermaidEl.style.opacity = '1'
-        }
-    }
-}
-
-const codeLanguage = (codeEl: HTMLElement) => {
-    const className = Array.from(codeEl.classList).find(name => name.startsWith('language-')) || ''
-    const raw = className.replace('language-', '').toLowerCase()
-    if (raw === 'python' || raw === 'py') return 'python'
-    if (raw === 'javascript' || raw === 'js') return 'javascript'
-    return ''
-}
-
-const enhanceCodeBlocks = async () => {
-    await nextTick()
-    if (!containerRef.value || !props.enableCodeRun) return
-    const blocks = containerRef.value.querySelectorAll('pre > code')
-    blocks.forEach((codeEl) => {
-        const code = codeEl as HTMLElement
-        const pre = code.parentElement as HTMLElement | null
-        if (!pre || pre.dataset.runEnhanced === 'true') return
-        const language = codeLanguage(code)
-        if (!language) return
-
-        pre.dataset.runEnhanced = 'true'
-        pre.classList.add('code-run-block')
-        const button = document.createElement('button')
-        button.type = 'button'
-        button.className = 'code-run-button'
-        button.textContent = '运行'
-        button.title = `运行 ${language} 代码`
-        const result = document.createElement('pre')
-        result.className = 'code-run-result'
-        result.style.display = 'none'
-
-        button.onclick = async () => {
-            button.setAttribute('disabled', 'true')
-            result.style.display = 'block'
-            result.textContent = '运行中...'
-            try {
-                const res = await http.post('/api/execute', {
-                    code: code.textContent || '',
-                    language,
-                    timeout: 10,
-                })
-                const output = [res.data?.output, res.data?.error].filter(Boolean).join('\n')
-                result.textContent = output || '无输出'
-            } catch (error) {
-                result.textContent = '运行失败'
-                ElMessage.error('代码运行失败')
-            } finally {
-                button.removeAttribute('disabled')
-            }
-        }
-
-        pre.appendChild(button)
-        pre.insertAdjacentElement('afterend', result)
+function enhanceContent() {
+  const root = containerRef.value
+  if (!root) return
+  root.querySelectorAll<HTMLElement>('.teaching-diagram-host').forEach(host => {
+    if (diagramHosts.has(host)) return
+    const vnode = h(TeachingDiagram, {
+      raw: decodeSource(host.dataset.diagram || ''),
+      pending: host.dataset.pending === 'true',
+      instanceId: diagramPrefix + '-teaching-' + (++identity),
     })
+    if (appContext) vnode.appContext = appContext
+    render(vnode, host)
+    diagramHosts.add(host)
+  })
+  root.querySelectorAll<HTMLElement>('.mermaid').forEach(host => {
+    if (mermaidHosts.has(host)) return
+    mermaidHosts.add(host)
+    if (host.dataset.pending === 'true') {
+      const status = document.createElement('p')
+      status.dataset.mermaidLabel = 'pending'; status.setAttribute('role', 'status')
+      host.replaceChildren(status)
+    } else mermaidQueue.observe(host, decodeSource(host.dataset.code || host.textContent || ''))
+  })
+  refreshMermaidText()
+  codeActions?.enhance(props.enableCodeRun)
 }
 
 const updateContent = () => {
-    // 确保处理空内容
-    if (!props.content) {
-        clearDiagrams()
-        renderedContent.value = ''
-        return
-    }
-    // 这里执行耗时的 renderMarkdown
-    let html = renderMarkdown(props.content)
-
-    if (props.inlineEditable) html = bindInlineMarkdownSource(html, props.content)
-
-    // Apply search highlighting
-    if (props.searchWords && props.searchWords.length > 0) {
-        html = highlightRenderedMarkdownText(html, props.searchWords)
-    }
-
-    if (renderedContent.value !== html) {
-        clearDiagrams()
-        renderedContent.value = html
-    }
+  if (!dom) return
+  let html = renderMarkdown(props.content || '')
+  if (props.inlineEditable) html = bindInlineMarkdownSource(html, props.content)
+  if (props.searchWords.length) html = highlightRenderedMarkdownText(html, props.searchWords)
+  const replacement = Boolean(displayedContent && props.content !== displayedContent && !props.content.startsWith(displayedContent))
+  if (html !== lastHtml || replacement) {
+    dom.update(html, replacement)
+    lastHtml = html
+    enhanceContent()
+  }
+  displayedContent = props.content || ''
 }
 
-watch(renderedContent, () => {
-    renderTeachingDiagrams()
-    renderMermaid()
-    enhanceCodeBlocks()
-}, { flush: 'post' })
-
-/**
- * Coalesce bursts of `content` changes onto animation frames.
- *
- * A streamed answer arrives as hundreds of tiny chunks (measured: 877 chunks
- * over ~6s), and re-parsing Markdown per chunk is wasteful — so updates are
- * still batched. But the previous timer-based throttle only guaranteed a
- * *leading* render plus one trailing render per window, and re-armed lazily,
- * which let the visible text sit frozen for as long as 2.8s and read as
- * "the whole answer appeared at once".
- *
- * Aligning to `requestAnimationFrame` renders at most once per frame — no
- * faster than the screen can show — while guaranteeing that every chunk is
- * reflected on the very next frame. The render is genuinely driven by arriving
- * chunks; no text is withheld or revealed on a timer.
- */
+// Keep the existing frame cadence: every arriving append reaches the next
+// frame, while settled DOM islands keep their live component and UI state.
 let pendingFrame = 0
 let lastContent = ''
-
 const scheduleUpdate = () => {
-    if (pendingFrame) return
-    if (typeof requestAnimationFrame !== 'function') {
-        updateContent()
-        return
-    }
-    pendingFrame = requestAnimationFrame(() => {
-        pendingFrame = 0
-        updateContent()
-    })
+  if (pendingFrame) return
+  if (typeof requestAnimationFrame !== 'function') { updateContent(); return }
+  pendingFrame = requestAnimationFrame(() => { pendingFrame = 0; updateContent() })
 }
 
-watch(() => [props.content, props.searchWords], () => {
-    const nextContent = props.content || ''
-    const isStreamingAppend = Boolean(
-        lastContent
-        && nextContent.length > lastContent.length
-        && nextContent.startsWith(lastContent),
-    )
-    lastContent = nextContent
-    // Token-by-token append stays frame-batched. Switching lesson/script scope
-    // is a replacement, so render it immediately instead of leaving the newly
-    // selected document blank until a later animation frame.
-    if (isStreamingAppend) {
-        scheduleUpdate()
-        return
-    }
-    if (pendingFrame) cancelAnimationFrame(pendingFrame)
-    pendingFrame = 0
-    updateContent()
+watch(() => [props.content, props.searchWords, props.inlineEditable], () => {
+  const nextContent = props.content || ''
+  const append = Boolean(lastContent && nextContent.length > lastContent.length && nextContent.startsWith(lastContent))
+  lastContent = nextContent
+  if (append) { scheduleUpdate(); return }
+  if (pendingFrame) cancelAnimationFrame(pendingFrame)
+  pendingFrame = 0
+  updateContent()
 }, { immediate: true, flush: 'sync' })
+watch(() => props.enableCodeRun, enabled => codeActions?.enhance(enabled))
+watch(activeLocale, () => { refreshMermaidText(); codeActions?.refresh() })
 
-onBeforeUnmount(() => {
-    clearDiagrams()
-    if (pendingFrame) cancelAnimationFrame(pendingFrame)
+onMounted(() => {
+  const root = containerRef.value!
+  codeActions = createMarkdownCodeActions(root, {
+    tr,
+    execute: async (code, language, signal) => {
+      const res = await http.post('/api/execute', { code, language, timeout: 10 }, { signal })
+      const output = [res.data?.output, res.data?.error].filter(Boolean).join('\n')
+      if (res.data?.success === false) throw new MarkdownCodeExecutionError(output)
+      return output
+    },
+    notify: (message, error) => { if (error) ElMessage.error(message); else ElMessage.success(message) },
+  })
+  dom = createMarkdownDom(root, removeEnhancements)
+  updateContent()
 })
 
+onBeforeUnmount(() => {
+  if (pendingFrame) cancelAnimationFrame(pendingFrame)
+  dom?.clear()
+  mermaidQueue.dispose()
+  codeActions?.dispose()
+})
 </script>
 
 <style scoped>
@@ -391,20 +305,33 @@ onBeforeUnmount(() => {
     overflow-x: auto;
 }
 
-:deep(.code-run-block) {
-    position: relative;
+:deep(.markdown-code-tools) {
+    position: static;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 0;
+}
+
+:deep(.markdown-code-tools .copy-btn),
+:deep(.markdown-code-tools span) {
+    opacity: 1;
+    font-size: 15px;
+}
+
+:deep(.copy-btn) {
+    min-height: 32px;
+    font-size: 15px;
 }
 
 :deep(.code-run-button) {
-    position: absolute;
-    top: 8px;
-    right: 8px;
     border: 1px solid rgba(148, 163, 184, 0.45);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.92);
     color: #334155;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
     line-height: 1;
     padding: 6px 8px;
@@ -427,8 +354,20 @@ onBeforeUnmount(() => {
     border-radius: 8px;
     background: #f8fafc;
     color: #334155;
-    font-size: 12px;
+    font-size: 15px;
     padding: 0.75rem;
     white-space: pre-wrap;
 }
+
+:deep(.mermaid-fallback) {
+    padding: 16px;
+    margin: 8px 0;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 15px;
+}
+
+:deep(.mermaid-fallback summary) { cursor: pointer; }
+:deep(.mermaid-fallback pre) { max-height: 160px; overflow: auto; }
 </style>

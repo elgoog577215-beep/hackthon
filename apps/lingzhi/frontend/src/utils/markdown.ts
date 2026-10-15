@@ -1,14 +1,14 @@
 import MarkdownIt from 'markdown-it';
+import type Token from 'markdown-it/lib/token.mjs';
 // import markdownItKatex from 'markdown-it-katex'; // Replaced by custom implementation
 import katex from 'katex';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
 import 'highlight.js/styles/atom-one-dark.css';
-import { prepareMermaidBlockSource, initializeMermaid } from './mermaid';
+import { prepareMermaidBlockSource } from './mermaid';
 import { recordRenderFailure } from './render-diagnostics';
-
-initializeMermaid();
+import { BoundedStringCache } from './bounded-string-cache';
 
 const MATH_TEXT_COMMANDS = new Set([
     'text',
@@ -416,6 +416,27 @@ const md = new MarkdownIt({
     }
 });
 
+// Keep closure detection inside MarkdownIt's block context: list indentation
+// and blockquote prefixes are temporarily adjusted there. A separate regex
+// over top-level lines mistakes valid nested diagrams for unfinished output.
+const fenceOnlyRules = new MarkdownIt('zero').block.ruler;
+fenceOnlyRules.enableOnly(['fence']);
+const originalFenceRule = fenceOnlyRules.getRules('')[0]!;
+md.block.ruler.at('fence', (state, startLine, endLine, silent) => {
+    const matched = originalFenceRule(state, startLine, endLine, silent);
+    if (!matched || silent || !state.env.closedFences) return matched;
+    const token = state.tokens[state.tokens.length - 1];
+    const closures = state.env.closedFences[token?.info.trim() || ''] as boolean[] | undefined;
+    if (!closures || !token) return matched;
+    const lastLine = state.line - 1;
+    const line = state.src.slice((state.bMarks[lastLine] || 0) + (state.tShift[lastLine] || 0), state.eMarks[lastLine]);
+    const mark = token.markup;
+    const closed = lastLine > startLine && (state.sCount[lastLine] || 0) - state.blkIndent < 4
+        && line.startsWith(mark) && /^(?:`+|~+)[\t ]*$/.test(line);
+    closures.push(closed);
+    return matched;
+}, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
+
 // Chinese quotation marks can touch the surrounding prose without spaces.
 // Keep MarkdownIt's delimiter pairing (including nested inline math), but
 // allow **“quoted text”** at those CJK boundaries. Code and escapes are still
@@ -490,7 +511,34 @@ const repairIndexedVariableEscape = (source: string, error: unknown): string | n
     return source.slice(0, start) + source.slice(start + 1);
 };
 
-const renderMathContent = (content: string, displayMode: boolean) => {
+// Independent of the surrounding Markdown, so completed formulas remain cheap
+// while a streaming answer grows. Only successful output is cached: failures
+// must retain their source and be attributed to the current render context.
+const mathCache = new BoundedStringCache(512, 2_000_000);
+const MATH_SANITIZE_OPTIONS = {
+    ADD_TAGS: ['span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+    ADD_ATTR: ['target', 'class', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
+};
+
+interface MathFragments {
+    prefix: string;
+    html: Map<string, string>;
+}
+let mathRenderSequence = 0;
+
+const protectRenderedMath = (html: string, source: string, fragments?: MathFragments): string => {
+    // Legacy malformed shells must retain their real spans for the existing
+    // swallowed-placeholder recovery. All ordinary formulas use inert spans.
+    if (!fragments || /MATHDISPLAYPLACEHOLDER\d+/.test(source)) return html;
+    const key = `${fragments.prefix}${fragments.html.size}`;
+    fragments.html.set(key, html);
+    return `<span data-rendered-math="${key}"></span>`;
+};
+
+const renderMathContent = (content: string, displayMode: boolean, fragments?: MathFragments) => {
+    const key = `${displayMode ? 'display' : 'inline'}:${content}`;
+    const cached = mathCache.get(key);
+    if (cached !== undefined) return protectRenderedMath(cached, content, fragments);
     try {
         let cleanedContent = content.trim();
 
@@ -507,13 +555,19 @@ const renderMathContent = (content: string, displayMode: boolean) => {
         // to the saved formula. Preserve the original source on any other error.
         for (let repairs = 0; ; repairs++) {
             try {
-                return katex.renderToString(cleanedContent, {
+                const rendered = katex.renderToString(cleanedContent, {
                     throwOnError: true,
                     displayMode,
                     output: 'html',
                     strict: false,
                     trust: true
                 });
+                // Sanitise before caching or substituting a fragment. KaTeX
+                // supports trusted HTML commands; its output is not an HTML
+                // trust boundary. The surrounding Markdown is sanitised too.
+                const sanitized = DOMPurify.sanitize(rendered, MATH_SANITIZE_OPTIONS);
+                mathCache.set(key, sanitized);
+                return protectRenderedMath(sanitized, content, fragments);
             } catch (error) {
                 const repaired = repairs < 16 ? repairIndexedVariableEscape(cleanedContent, error) : null;
                 if (repaired === null) throw error;
@@ -639,16 +693,16 @@ const mathPlugin = (md: any) => {
         return true;
     }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
 
-    md.renderer.rules.math_inline = (tokens: any, idx: number) => {
-        return renderMathContent(tokens[idx].content, false);
+    md.renderer.rules.math_inline = (tokens: any, idx: number, _options: any, env: any) => {
+        return renderMathContent(tokens[idx].content, false, env.mathFragments);
     };
     
-    md.renderer.rules.math_display = (tokens: any, idx: number) => {
-        return renderMathContent(tokens[idx].content, true);
+    md.renderer.rules.math_display = (tokens: any, idx: number, _options: any, env: any) => {
+        return renderMathContent(tokens[idx].content, true, env.mathFragments);
     };
 
-    md.renderer.rules.math_display_block = (tokens: any, idx: number) => {
-        return '<div class="katex-display">' + renderMathContent(tokens[idx].content, true) + '</div>';
+    md.renderer.rules.math_display_block = (tokens: any, idx: number, _options: any, env: any) => {
+        return '<div class="katex-display">' + renderMathContent(tokens[idx].content, true, env.mathFragments) + '</div>';
     };
 };
 
@@ -672,6 +726,9 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
   }
   
   if (info === 'mermaid') {
+    const mermaidIndex = env.mermaidIndex || 0;
+    const closed = env.mermaidClosed?.[mermaidIndex] === true;
+    env.mermaidIndex = mermaidIndex + 1;
     const code = prepareMermaidBlockSource(token.content);
 
     // Encode the code to prevent HTML tag parsing issues (e.g. A["<Label>"])
@@ -688,10 +745,11 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
     
     // Encode raw code for data attribute to ensure we have the exact original source
     const rawCode = encodeURIComponent(code);
-    return `<div class="mermaid" data-code="${rawCode}">${encodedCode}</div>`;
+    return `<div class="mermaid" data-code="${rawCode}" data-pending="${!closed}">${encodedCode}</div>`;
   }
   
   const langName = info.split(/\s+/g)[0];
+  const escapedLang = md.utils.escapeHtml(langName);
   let highlighted = '';
   if (options.highlight) {
     highlighted = options.highlight(token.content, langName, '') || '';
@@ -699,12 +757,12 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
   const code = highlighted || md.utils.escapeHtml(token.content);
   const rawCode = encodeURIComponent(token.content);
 
-  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]" data-lang="${langName}">
-            <div class="absolute top-2 right-2 flex items-center gap-2 z-10">
-                <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${langName}</span>
-                <button class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码" data-code="${rawCode}">复制</button>
+  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]" data-lang="${escapedLang}">
+            <div class="absolute top-2 right-2 flex items-center gap-2 z-10" data-code-actions>
+                <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${escapedLang}</span>
+                <button type="button" class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码" data-markdown-action="copy" data-code="${rawCode}">复制</button>
             </div>
-            <pre class="hljs p-4 rounded-lg text-sm overflow-x-auto"><code>${code}</code></pre>
+            <pre class="hljs p-4 rounded-lg text-sm overflow-x-auto"><code${langName ? ` class="language-${escapedLang}"` : ''}>${code}</code></pre>
           </div>`;
 };
 
@@ -718,9 +776,9 @@ md.renderer.rules.image = function (tokens, idx, options, _env, self) {
   return self.renderToken(tokens, idx, options);
 };
 
-// Memoization cache with simple LRU strategy
-const MAX_CACHE_SIZE = 500;
-const markdownCache = new Map<string, string>()
+// Keep only a bounded working set, not hundreds of expanding answer snapshots.
+// The source and output together use at most 2M UTF-16 chars (about 4MB payload).
+const markdownCache = new BoundedStringCache(32, 2_000_000);
 const DISPLAY_MATH_ENVIRONMENTS = 'bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|aligned|split|cases|equation|gather'
 
 // AI-generated lessons frequently contain correct LaTeX environments wrapped
@@ -802,7 +860,7 @@ const normalizeNestedDisplayEnvironments = (content: string) => {
     return normalized;
 };
 
-const protectBalancedDisplayEnvironments = (content: string) => {
+const protectBalancedDisplayEnvironments = (content: string, fragments: MathFragments) => {
     const blocks = new Map<string, string>();
     let index = 0;
     // Protect the entire explicit expression first. Extracting each matrix
@@ -813,7 +871,7 @@ const protectBalancedDisplayEnvironments = (content: string) => {
         const formula = String(display ?? inline ?? '');
         if (!hasEnvironment.test(formula)) return match;
         const id = `MATHDISPLAYPLACEHOLDER${index++}`;
-        const html = renderMathContent(String(formula), display !== undefined);
+        const html = renderMathContent(String(formula), display !== undefined, fragments);
         blocks.set(id, display !== undefined ? `<div class="katex-display">${html}</div>` : html);
         if (display === undefined) return id;
         const prefix = content.slice(content.lastIndexOf('\n', offset - 1) + 1, offset);
@@ -830,7 +888,7 @@ const protectBalancedDisplayEnvironments = (content: string) => {
     );
     normalized = normalized.replace(environmentRe, (_match, environment) => {
         const id = `MATHDISPLAYPLACEHOLDER${index++}`;
-        blocks.set(id, `<div class="katex-display">${renderMathContent(String(environment), true)}</div>`);
+        blocks.set(id, `<div class="katex-display">${renderMathContent(String(environment), true, fragments)}</div>`);
         return `\n\n${id}\n\n`;
     });
 
@@ -846,7 +904,7 @@ const protectBalancedDisplayEnvironments = (content: string) => {
 // pipe-bearing formulas in confirmed tables so augmented matrices, conditional
 // probabilities and LaTeX norm bars reach KaTeX unchanged. Escaping their pipes
 // instead would lose the distinction between `|` and the LaTeX `\|` command.
-const protectTableMath = (source: string, blocks: Map<string, string>) => {
+const protectTableMath = (source: string, blocks: Map<string, string>, fragments: MathFragments) => {
     const lines = source.split('\n');
     let inTable = false;
     return lines.map((line, index) => {
@@ -859,18 +917,22 @@ const protectTableMath = (source: string, blocks: Map<string, string>) => {
         return line.replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (match, formula) => {
             if (!String(formula).includes('|')) return match;
             const id = `MATHDISPLAYPLACEHOLDER${blocks.size}`;
-            blocks.set(id, renderMathContent(String(formula), false));
+            blocks.set(id, renderMathContent(String(formula), false, fragments));
             return id;
         });
     }).join('\n');
 };
 
 const recoverProtectedMathBlocks = (rawHtml: string, blocks: Map<string, string>) => {
+    if (blocks.size === 0) return rawHtml;
     let recovered = rawHtml;
+    let needsDomRecovery = false;
     blocks.forEach((html, id) => {
+        if (!recovered.includes(id)) needsDomRecovery = true;
         recovered = recovered.replace(new RegExp(`<p>\\s*${id}\\s*</p>`, 'g'), () => html);
         recovered = recovered.replace(new RegExp(id, 'g'), () => html);
     });
+    if (!needsDomRecovery) return recovered;
 
     // A malformed outer delimiter can make KaTeX split a placeholder across
     // many spans. Recover the whole swallowed shell and replace it with all
@@ -897,6 +959,9 @@ const recoverProtectedMathBlocks = (rawHtml: string, blocks: Map<string, string>
 };
 
 const fallbackResidualMathMarkup = (html: string) => {
+    // Sanitization has already normalized text entities. When no possible
+    // leaked marker remains, reparsing/walking every KaTeX span does no work.
+    if (!/MATHDISPLAYPLACEHOLDER\d+|\\(?:begin|end|frac|left|right|mathbf|mathbb)\b|\$\$/.test(html)) return html;
     const container = document.createElement('div');
     container.innerHTML = html;
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
@@ -1277,25 +1342,20 @@ export const renderMarkdown = (content: string) => {
     if (!content) return '';
     
     // Check cache
-    if (markdownCache.has(content)) {
-        return markdownCache.get(content) || ''
-    }
+    const cached = markdownCache.get(content);
+    if (cached !== undefined) return cached;
     // Track the real fence closures before legacy preview repairs append a
     // synthetic closing fence. A complete JSON object in an unfinished stream
     // is still pending until its original Markdown fence has closed.
     const diagramClosed: boolean[] = [];
-    let originalFence = '', originalDiagram = false;
-    for (const line of content.split('\n')) {
-        const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-        if (!fence) continue;
-        const mark = fence[1] || '', tail = fence[2] || '';
-        if (!originalFence) { originalFence = mark; originalDiagram = tail.trim() === 'lingzhi-diagram'; }
-        else if (mark[0] === originalFence[0] && mark.length >= originalFence.length && !tail.trim()) {
-            if (originalDiagram) diagramClosed.push(true);
-            originalFence = ''; originalDiagram = false;
-        }
+    const mermaidClosed: boolean[] = [];
+    const originalSource = content.replace(/\r\n?/g, '\n').replace(/\0/g, '\uFFFD');
+    const originalBlocks: Token[] = [];
+    if (/(?:`{3,}|~{3,})|(?:^|\n)[\t >]*(?: {4}|\t)/.test(originalSource)) {
+        md.block.parse(originalSource, md, {
+            closedFences: { 'lingzhi-diagram': diagramClosed, mermaid: mermaidClosed }
+        }, originalBlocks);
     }
-    if (originalFence && originalDiagram) diagramClosed.push(false);
 
     // Fast path: If content looks simple (no code, no math delimiters, no obvious math symbols), 
     // skip the heavy robust preprocessing.
@@ -1311,23 +1371,38 @@ export const renderMarkdown = (content: string) => {
         !content.includes('{') &&
         !content.includes('^')) {
         
-        const html = md.render(content);
+        const html = md.render(content, { diagramClosed, diagramIndex: 0, mermaidClosed, mermaidIndex: 0 });
         const result = DOMPurify.sanitize(html, {
             ADD_TAGS: ['math-field'], 
             ADD_ATTR: ['target']
         });
         
-        // Cache management
-        if (markdownCache.size > MAX_CACHE_SIZE) {
-            const firstKey = markdownCache.keys().next().value;
-            if (firstKey) markdownCache.delete(firstKey);
-        }
         markdownCache.set(content, result);
         return result;
     }
 
+    // Protect every code block before any math repair. MarkdownIt's source
+    // maps cover longer/tilde fences, indented code and nested list/quote code;
+    // a three-backtick regex lets LaTeX examples leak into formula processing.
+    const codeBlockMap = new Map<string, string>();
+    let codeBlockId = 0;
+    const lineOffsets = [0];
+    for (let cursor = 0; cursor < originalSource.length; cursor++) {
+        if (originalSource[cursor] === '\n') lineOffsets.push(cursor + 1);
+    }
+    let normalized = originalSource;
+    for (const token of originalBlocks.slice().reverse()) {
+        if (!token.map || !['fence', 'code_block'].includes(token.type)) continue;
+        const start = lineOffsets[token.map[0]] ?? originalSource.length;
+        const end = lineOffsets[token.map[1]] ?? originalSource.length;
+        const value = originalSource.slice(start, end);
+        let id: string;
+        do { id = `__CODE_BLOCK_${codeBlockId++}__`; } while (originalSource.includes(id));
+        codeBlockMap.set(id, value.endsWith('\n') ? value.slice(0, -1) : value);
+        normalized = normalized.slice(0, start) + id + (value.endsWith('\n') ? '\n' : '') + normalized.slice(end);
+    }
+
     // --- Pre-processing for Robustness ---
-    let normalized = content;
     normalized = normalizeNestedDisplayEnvironments(normalized);
     normalized = normalizeLegacyDisplayShells(normalized);
     normalized = normalized.replace(/\$\$\s*([=+\-])\s*\$\$/g, (_match, op) => `$$\n${op}\n$$`);
@@ -1342,18 +1417,6 @@ export const renderMarkdown = (content: string) => {
         return /(\\right|\\end\{[a-zA-Z0-9*]+\}|[)\]}])\s*$/.test(before) ? '$$\n$$' : '\n$$';
     });
     normalized = normalized.replace(/\${3,}/g, () => '$$');
-
-    // Protection: Mask code blocks to prevent math heuristics from messing up code
-    // We replace code blocks with placeholders, then restore them at the end.
-    const codeBlockMap = new Map<string, string>();
-    let codeBlockId = 0;
-    
-    // Mask fenced code blocks (```...```)
-    normalized = normalized.replace(/^```[\s\S]*?^```/gm, (match) => {
-        const id = `__CODE_BLOCK_${codeBlockId++}__`;
-        codeBlockMap.set(id, match);
-        return id;
-    });
 
     // Mask inline code (`...`)
     // Note: This regex is simple and might not handle escaped backticks perfectly, but good enough for protection
@@ -1548,13 +1611,23 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
     normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
 
-    const protectedDisplayMath = protectBalancedDisplayEnvironments(normalized)
+    // The token is private to this synchronous render and absent from the
+    // input. Restoration matches a complete empty span only, never a token in
+    // text, an attribute, a URL or a code example. Whole-document Markdown
+    // parsing remains intact, including later reference definitions.
+    let mathPrefix: string;
+    do {
+        const nonce = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+        mathPrefix = `lzmath-${nonce}-${++mathRenderSequence}-`;
+    } while (content.includes(mathPrefix));
+    const mathFragments: MathFragments = { prefix: mathPrefix, html: new Map() };
+    const protectedDisplayMath = protectBalancedDisplayEnvironments(normalized, mathFragments)
     normalized = protectedDisplayMath.normalized
     normalized = normalized.replace(
         /(MATHDISPLAYPLACEHOLDER\d+)\s*\n\s*([+\-=])\s*\n\s*(MATHDISPLAYPLACEHOLDER\d+)/g,
         (_match, left, operator, right) => `${left}\n\n$${operator}$\n\n${right}`
     )
-    normalized = protectTableMath(normalized, protectedDisplayMath.blocks)
+    normalized = protectTableMath(normalized, protectedDisplayMath.blocks, mathFragments)
 
 
     // NOTE: Do not run additional auto-wrapping heuristics after restoring valid
@@ -1571,12 +1644,11 @@ export const renderMarkdown = (content: string) => {
              normalized = normalized.replace(key, () => value);
         });
 
-        const rawHtml = recoverProtectedMathBlocks(md.render(normalized, { diagramClosed, diagramIndex: 0 }), protectedDisplayMath.blocks);
-        sanitized = DOMPurify.sanitize(rawHtml, {
-            ADD_TAGS: ['span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-            ADD_ATTR: ['target', 'class', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
-        });
+        const rawHtml = recoverProtectedMathBlocks(md.render(normalized, { diagramClosed, diagramIndex: 0, mermaidClosed, mermaidIndex: 0, mathFragments }), protectedDisplayMath.blocks);
+        sanitized = DOMPurify.sanitize(rawHtml, MATH_SANITIZE_OPTIONS);
         sanitized = fallbackResidualMathMarkup(sanitized);
+        sanitized = sanitized.replace(/<span data-rendered-math="([^"]+)"><\/span>/g,
+            (span, key: string) => mathFragments.html.get(key) ?? span);
     } catch (e) {
         // Whole-block failure: the output is the raw text with no Markdown
         // structure at all. That is the most severe degradation and used to be
@@ -1585,11 +1657,6 @@ export const renderMarkdown = (content: string) => {
         sanitized = DOMPurify.sanitize(normalized)
     }
 
-    // Cache result (limit cache size)
-    if (markdownCache.size > MAX_CACHE_SIZE) {
-        const firstKey = markdownCache.keys().next().value
-        if (firstKey) markdownCache.delete(firstKey)
-    }
     markdownCache.set(content, sanitized)
     
     return sanitized;

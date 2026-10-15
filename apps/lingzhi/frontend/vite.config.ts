@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import path from 'path'
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
@@ -12,8 +13,16 @@ const resolvedNodeModules = fs.existsSync(localNodeModules)
   : localNodeModules
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command, isPreview }) => ({
   base: process.env.VITE_BASE_PATH || '/',
+  // Worktrees can share node_modules, and separate dev servers can optimize
+  // different dependency sets. Never let one replace another live server's
+  // hashed chunks. Keep HMR restarts in this process on the same cache.
+  cacheDir: command === 'serve' && !isPreview
+    ? path.join(localNodeModules, '.vite-servers',
+      createHash('sha256').update(frontendRoot).digest('hex').slice(0, 12),
+      String(process.pid))
+    : undefined,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -55,4 +64,4 @@ server: {
       }
     }
   }
-})
+}))

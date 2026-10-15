@@ -1,5 +1,3 @@
-import mermaid from 'mermaid'
-
 const KNOWN_DIAGRAM_TYPES = new Set([
   'graph',
   'flowchart',
@@ -65,12 +63,20 @@ const MERMAID_CONFIG = {
   },
 }
 
-let isInitialized = false
-
-export const initializeMermaid = () => {
-  if (isInitialized) return
-  mermaid.initialize(MERMAID_CONFIG)
-  isInitialized = true
+// Ordinary text, formulas and native teaching diagrams do not need Mermaid's
+// layout engines. Share the first import so simultaneous charts initialize once.
+let mermaidPromise: Promise<typeof import('mermaid')['default']> | null = null
+const loadMermaid = () => {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
+      mermaid.initialize(MERMAID_CONFIG)
+      return mermaid
+    }).catch((error) => {
+      mermaidPromise = null
+      throw error
+    })
+  }
+  return mermaidPromise
 }
 
 const repairMermaidLabelText = (label: string): string => {
@@ -246,11 +252,11 @@ export const isMermaidErrorSvg = (svgMarkup: string): boolean => {
 }
 
 export const renderMermaidSvg = async (id: string, code: string): Promise<string> => {
-  initializeMermaid()
   if (!isRenderableMermaidSource(code)) {
     throw new Error('Unsupported Mermaid diagram type')
   }
   const cleaned = normalizeMermaidCode(code)
+  const mermaid = await loadMermaid()
   const { svg } = await mermaid.render(id, cleaned)
   if (isMermaidErrorSvg(svg)) {
     throw new Error('Mermaid returned an error diagram')

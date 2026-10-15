@@ -11,6 +11,7 @@
 # =============================================================================
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 import subprocess
 import tempfile
 import time
@@ -19,6 +20,8 @@ import os
 import sys
 import platform
 import logging
+import shlex
+import shutil
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -30,8 +33,8 @@ router = APIRouter(prefix="/api", tags=["code_execution"])
 
 # 支持的语言配置（移除 bash/shell/typescript 以缩小攻击面）
 SUPPORTED_LANGUAGES = {
-    "python": {"extension": ".py", "command": ["python3"], "timeout": 10},
-    "javascript": {"extension": ".js", "command": ["node"], "timeout": 10},
+    "python": {"extension": ".py", "timeout": 10},
+    "javascript": {"extension": ".js", "timeout": 10},
 }
 
 # 代码长度限制（字符数）
@@ -144,7 +147,6 @@ def _truncate_output(output: str, max_length: int = MAX_OUTPUT_LENGTH) -> str:
 def _cleanup_temp_dir(dir_path: str):
     """清理临时目录"""
     try:
-        import shutil
         if dir_path and os.path.exists(dir_path):
             shutil.rmtree(dir_path, ignore_errors=True)
     except Exception:
@@ -167,10 +169,45 @@ def _build_sandbox_command(base_command: list, file_path: str, language: str) ->
         "ulimit -t 10;",        # CPU 时间 10 秒
     ]
 
-    inner_cmd = " ".join(base_command + [file_path])
-    shell_cmd = " ".join(limits) + " " + inner_cmd
+    # Runtime and temporary paths can contain spaces or shell metacharacters.
+    # exec also makes subprocess.run's timeout target the runtime itself.
+    inner_cmd = shlex.join(base_command + [file_path])
+    shell_cmd = " ".join(limits) + " exec " + inner_cmd
 
     return ["bash", "-c", shell_cmd]
+
+
+def _runtime_command(language: str) -> list[str]:
+    if language == "python":
+        return [sys.executable]
+    executable = shutil.which("node")
+    if not executable:
+        raise FileNotFoundError("JavaScript runtime is unavailable")
+    return [executable]
+
+
+def _sandbox_environment(temp_dir: str, runtime: str) -> dict[str, str]:
+    # Resolve executables before reducing the environment. Never copy the host
+    # environment: it can contain model credentials and service access tokens.
+    runtime_directory = os.path.dirname(runtime)
+    system = platform.system()
+    safe_env = {
+        "PATH": runtime_directory if system == "Windows" else runtime_directory + os.pathsep + os.defpath,
+        "HOME": temp_dir,
+        "TMPDIR": temp_dir,
+        "TMP": temp_dir,
+        "TEMP": temp_dir,
+        "LANG": "C.UTF-8",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
+    if system == "Windows":
+        # Required by Windows subprocess/runtime DLL resolution. Only these OS
+        # paths are inherited; PATH, PYTHONPATH and arbitrary variables are not.
+        for name in ("SystemRoot", "WINDIR"):
+            if os.environ.get(name):
+                safe_env[name] = os.environ[name]
+    return safe_env
 
 
 @router.post("/execute")
@@ -194,7 +231,14 @@ async def execute_code(req: ExecuteCodeRequest):
             execution_time=0, language=language
         )
 
-    start_time = time.time()
+    # A teaching snippet may run until timeout. Keep other requests and SSE
+    # heartbeats responsive while the subprocess and temporary files finish.
+    return await run_in_threadpool(_execute_code, req.code, language, timeout)
+
+
+def _execute_code(code: str, language: str, timeout: int) -> ExecuteCodeResponse:
+    lang_config = SUPPORTED_LANGUAGES[language]
+    start_time = time.perf_counter()
     temp_dir = None
 
     try:
@@ -202,32 +246,32 @@ async def execute_code(req: ExecuteCodeRequest):
         temp_dir = tempfile.mkdtemp(prefix="sandbox_")
         file_path = os.path.join(temp_dir, f"code{lang_config['extension']}")
         with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(req.code)
+            f.write(code)
 
         # 构建沙箱命令
-        cmd = _build_sandbox_command(lang_config["command"], file_path, language)
+        runtime = _runtime_command(language)
+        cmd = _build_sandbox_command(runtime, file_path, language)
 
         # 设置受限环境变量（不继承宿主环境）
-        safe_env = {
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
-            "HOME": temp_dir,
-            "TMPDIR": temp_dir,
-            "LANG": "en_US.UTF-8",
-        }
+        safe_env = _sandbox_environment(temp_dir, runtime[0])
 
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             cwd=temp_dir,
             env=safe_env,
         )
 
-        execution_time = (time.time() - start_time) * 1000
+        execution_time = (time.perf_counter() - start_time) * 1000
 
         output = _truncate_output(result.stdout)
         error = _truncate_output(result.stderr) if result.stderr else None
+        if result.returncode != 0 and not error:
+            error = f"执行失败：进程退出码 {result.returncode}"
 
         return ExecuteCodeResponse(
             success=result.returncode == 0, output=output, error=error,
@@ -235,7 +279,7 @@ async def execute_code(req: ExecuteCodeRequest):
         )
 
     except subprocess.TimeoutExpired:
-        execution_time = (time.time() - start_time) * 1000
+        execution_time = (time.perf_counter() - start_time) * 1000
         return ExecuteCodeResponse(
             success=False, output="",
             error=f"执行超时：代码运行超过 {timeout} 秒",
@@ -243,7 +287,7 @@ async def execute_code(req: ExecuteCodeRequest):
         )
 
     except Exception as e:
-        execution_time = (time.time() - start_time) * 1000
+        execution_time = (time.perf_counter() - start_time) * 1000
         logger.error(f"Code execution error: {e}")
         return ExecuteCodeResponse(
             success=False, output="",

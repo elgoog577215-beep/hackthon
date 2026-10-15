@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import pytest
+from starlette.requests import Request
 
 from ai_qa_service import AIQAService
 from ai_teacher_state import AITeacherRepository
@@ -116,11 +116,13 @@ async def _request(repository_service, question="什么是线性相关？", **ex
         **extra,
     )
 
-    class _Request:
-        headers = {"X-User-Id": "u1"}
-        state = SimpleNamespace()
-
-    response = await assistant_router.ask_question_events(request, _Request())
+    http_request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/api/ask_events",
+        "headers": [(b"x-user-id", b"u1")],
+    })
+    response = await assistant_router.ask_question_events(request, http_request)
     return response.body_iterator
 
 
