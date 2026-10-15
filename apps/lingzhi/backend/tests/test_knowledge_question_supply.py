@@ -41,7 +41,8 @@ def test_request_requires_frozen_baseline_and_cannot_expand_to_full_rebuild():
     from fastapi import HTTPException
     payload = dict(scope="nodes", node_ids=["n"], knowledge_ids=["k"], knowledge_baseline_revision="kb")
     request = QuestionBankRebuildRequest(**payload)
-    course = {"course_knowledge_base": {"status": "accepted", "tree_schema": "atomic", "revision_id": "kb"}}
+    course = {"course_knowledge_base": {"status": "accepted", "tree_schema": "atomic", "revision_id": "kb",
+        "knowledge_points": [{"knowledge_id": "k", "granularity_status": "atomic", "meta_question": "检查本知识", "section_refs": ["n"]}]}}
     blueprint = {"nodes": [{"node_id": "n", "slots": [{"generation_key": "only-k", "primary_knowledge_ids": ["k"]}]}]}
     assert _selected_knowledge_slots(course, request, blueprint) == {"n": ["only-k"]}
     course["course_knowledge_base"]["revision_id"] = "new"

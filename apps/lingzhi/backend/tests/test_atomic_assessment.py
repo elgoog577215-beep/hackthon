@@ -182,10 +182,10 @@ async def test_orchestrator_uses_each_target_and_resumes_only_requested_slot(mon
 
 
 @pytest.mark.asyncio
-async def test_validated_single_point_question_becomes_one_profile_evidence():
+async def test_model_reviewed_single_point_waits_for_facts_and_adds_no_profile_evidence():
     from assessment_orchestrator import AssessmentGenerationOrchestrator
     from backend.tests.test_assessment_generation_orchestrator import _course
-    from knowledge_mastery import build_knowledge_profile, freeze_knowledge_refs
+    from knowledge_mastery import build_knowledge_profile
     from question_bank import approved_formal_tasks, build_question_bank
 
     course = _course()
@@ -203,39 +203,23 @@ async def test_validated_single_point_question_becomes_one_profile_evidence():
     bank = build_question_bank(prepared)
     assert len(bank["items"]) == 1
     tasks = approved_formal_tasks(bank)
-    assert len(tasks) == 1, [(i.get("quality_report"), i.get("lifecycle_status")) for i in bank["items"]]
-    task = tasks[0]
-    assert task["concept_ids"] == ["division"]
-    assert task["knowledge_revision_refs"] == {"division": "division-v1"}
-    from practice_grading import PracticeGrader
-
-    graded = await PracticeGrader.grade(
-        object.__new__(PracticeGrader), task, {"submitted_answer_payload": {"selected_option_id": "A"}}
-    )
-    assert graded["passed"] is True
-    assert graded["mastery_eligible"] is True
-    attempt = {
-        "attempt_id": "a1",
-        "user_id": "u",
-        "course_id": course["course_id"],
-        "course_version_id": "cv1",
-        "task_revision_id": task["revision_id"],
-        "concept_ids": task["concept_ids"],
-        "status": "graded",
-        "knowledge_revision_refs": freeze_knowledge_refs(course["course_knowledge_base"], task),
-        "result": graded,
-    }
+    assert tasks == []
+    item = bank['items'][0]
+    assert item['lifecycle_status'] == 'needs_review'
+    assert 'facts_unverified' in item['risk_flags']
+    assert item['primary_knowledge_ids'] == ['division']
+    assert item['knowledge_revision_refs'] == {'division': 'division-v1'}
     profile = build_knowledge_profile(
         course["course_knowledge_base"],
         course_id=course["course_id"],
         course_version_id="cv1",
         user_id="u",
-        attempts=[attempt],
+        attempts=[],
         events=[],
     )
-    assert profile["summary"]["assessed_count"] == 1
-    assert profile["nodes"][0]["assessment_count"] == 1
-    assert profile["nodes"][0]["independent_count"] == 1
+    assert profile["summary"]["assessed_count"] == 0
+    assert profile["nodes"][0]["assessment_count"] == 0
+    assert profile["nodes"][0]["independent_count"] == 0
 
 
 def pilot_course():
@@ -345,7 +329,7 @@ def test_prerequisites_do_not_become_primary_targets_and_unknown_refs_are_ignore
     assert slot["prerequisite_knowledge_ids"] == ["division"]
 
 
-def test_api_publishes_atomic_slots_and_checkpoints_exact_ids(monkeypatch, tmp_path):
+def test_api_retains_atomic_fact_review_slots_and_checkpoints_exact_ids(monkeypatch, tmp_path):
     from assessment_orchestrator import AssessmentGenerationOrchestrator
     from backend.tests.test_assessment_generation_orchestrator import _course
     from backend.tests.test_question_bank_api import _client
@@ -372,16 +356,18 @@ def test_api_publishes_atomic_slots_and_checkpoints_exact_ids(monkeypatch, tmp_p
     )
     assert response.status_code == 202, response.json()
     job = client.get(response.json()["status_url"], headers={"X-User-Id": "teacher-1"}).json()
-    assert job["status"] in {"completed", "waiting_review"}, job
+    assert job["status"] == "waiting_review", job
     bank = repo.load_bundle("course-api")
-    assert len([i for i in bank["items"] if i["lifecycle_status"] == "approved"]) == 1
+    assert len(bank['items']) == 1
+    assert bank['items'][0]['lifecycle_status'] == 'needs_review'
+    assert bank['items'][0]['primary_knowledge_ids'] == ['division']
+    assert bank['items'][0]['knowledge_revision_refs'] == {'division': 'division-v1'}
     checkpoint = repo.course_storage.course["question_bank_chapter_rebuild"]
     assert checkpoint["published_practice_levels_by_node"]["thermo-1"] == [bank["items"][0]["generation_key"]]
     assert bank["generation_audit"]["planned_item_count"] == 1
-    assert bank["generation_audit"]["published_item_count"] == 1
+    assert bank["generation_audit"]["published_item_count"] == 0
     tasks = repo.asset_repository.load_bundle("course-api")["assets"]["questions"]
-    assert len(tasks) == 1
-    assert tasks[0]["concept_ids"] == ["division"]
+    assert tasks == []
 
 
 @pytest.mark.asyncio
