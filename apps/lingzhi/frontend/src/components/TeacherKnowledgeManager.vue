@@ -36,7 +36,7 @@
             <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
             <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
           </select></label>
-          <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
+          <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || staleTreeSource || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
           <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
@@ -46,6 +46,17 @@
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
           <button type="button" :disabled="lessonOptions.at(-1)?.lesson_id === knowledgeLessonId" @click="stepLesson(1)">{{ t('knowledgeFirst.nextLesson') }}</button>
         </div>
+        <section v-if="sourceComparison" class="knowledge-source-version" :class="{ 'needs-review': staleTreeSource }" role="status" data-testid="knowledge-source-version">
+          <strong>{{ t(staleTreeSource ? 'knowledgeFirst.sourceNeedsReview' : 'knowledgeFirst.sourceVersionTitle') }}</strong>
+          <p v-if="staleTreeSource">{{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}</p>
+          <details><summary>{{ t('knowledgeFirst.sourceVersionDetails') }}</summary>
+            <dl v-for="source in sourceComparison.sources" :key="source.lessonId">
+              <dt>{{ source.title }}</dt>
+              <dd><span>{{ t('knowledgeFirst.recordedHandoutVersion') }}</span><code>{{ source.recorded || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
+              <dd><span>{{ t('knowledgeFirst.currentHandoutVersion') }}</span><code>{{ source.current || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
+            </dl>
+          </details>
+        </section>
         <section v-for="job in sourceBlockingJobs" :key="job.id" class="notice job" role="status" data-testid="knowledge-source-blocker">
           <strong>{{ blockingJobLabel(job) }}</strong>
           <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
@@ -102,7 +113,7 @@
           </div>
           <p v-else class="empty-card">{{ t(activeJob ? 'knowledgeFirst.treeGenerationInProgress' : blockingJobs.length ? 'knowledgeFirst.waitForSourceTask' : perLesson ? (selectedLesson?.can_generate ? 'knowledgeFirst.lessonTreeEmpty' : 'knowledgeFirst.lessonHandoutRequired') : derived ? (!data.can_generate_tree ? 'knowledgeFirst.handoutsRequired' : 'knowledgeFirst.noDerivedTree') : 'knowledgeFirst.noTree') }}</p>
           <div v-if="!treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="adopt-bar"><p>{{ t(derived ? 'knowledgeFirst.derivedAdoptHint' : generic ? 'knowledgeFirst.genericAdoptHint' : displayTree.teaching_assessment ? 'knowledgeFirst.candidateWarning' : 'knowledgeFirst.adoptHint') }}</p>
-            <button class="primary" :disabled="busy || activeJobs.length > 0 || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button></div>
+            <button class="primary" :disabled="busy || activeJobs.length > 0 || staleTreeSource || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button></div>
         </section>
         <section v-else class="handout-layout">
           <aside class="lecture-nav"><h2>{{ t('knowledgeFirst.handouts') }}</h2><button v-for="h in data.handouts" :key="h.topic" :class="{ active: lesson === h.topic }" @click="lesson = h.topic; handoutChoice = ''">{{ h.title }}<small>{{ h.revisions.length ? t('knowledgeFirst.generated') : t('knowledgeFirst.pending') }}</small></button></aside>
@@ -219,6 +230,19 @@ const displayTree = computed(() => {
   return { ...tree, allKnowledgePoints: allPoints, categories: perLesson.value ? categories.filter((c: any) => needed.has(c.id)) : categories,
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
+const sourceComparison = computed(() => {
+  if (!derived.value || !displayTree.value) return null
+  const recordedSources = (displayTree.value.source_handouts || []) as { lesson_id?: string; key?: string; title?: string; script_revision_id?: string }[]
+  const sources = recordedSources.filter(source => !perLesson.value || (source.lesson_id || source.key) === knowledgeLessonId.value).map(source => {
+    const lessonId = source.lesson_id || source.key || ''
+    const current = (data.value?.source_handouts || []).find((item: any) => (item.lesson_id || item.key) === lessonId)
+    return { lessonId, title: lessonLabels.value[lessonId] || source.title || lessonId,
+      recorded: source.script_revision_id || '', current: current?.script_revision_id || '' }
+  })
+  if (!sources.length) return null // Older material trees may have no handout provenance.
+  return { sources, stale: sources.some(source => !source.recorded || !source.current || source.recorded !== source.current) }
+})
+const staleTreeSource = computed(() => Boolean(sourceComparison.value?.stale))
 const contentTree = computed(() => createContentKnowledgeTree(
   `${courseId.value}:${perLesson.value ? knowledgeLessonId.value : ''}`,
   perLesson.value ? lessonLabels.value[knowledgeLessonId.value] || data.value?.title : data.value?.title,
@@ -308,7 +332,7 @@ async function generate(topic: string) {
   else { tab.value = 'handout'; handoutChoice.value = '' }
   await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value } : {}) })
 }
-async function adopt() { if (!canAdoptSelection.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`); if (!error.value) treeChoice.value = data.value.knowledge_revision }
+async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`); if (!error.value) treeChoice.value = data.value.knowledge_revision }
 async function recheck(id: string) { treeChoice.value = 'candidate'; tab.value = 'tree'; await mutate(`recheck/${id}`, { request_id: createUuid() }) }
 async function loadMaterials() {
   if (!generic.value || derived.value || !data.value?.can_edit) return
@@ -376,6 +400,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 
 <style scoped>
 .knowledge-lesson-switch{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 20px}.knowledge-lesson-switch select{min-width:0;max-width:560px;flex:1}.knowledge-lesson-switch button{white-space:nowrap}
+.knowledge-source-version{margin:0 0 18px;padding:14px 18px;border:1px solid #e3deef;border-radius:10px;background:#faf9fd;font-size:15px;line-height:1.7;color:#635678;overflow-wrap:anywhere}.knowledge-source-version.needs-review{background:#fff8eb;border-color:#eddfc2;color:#78613d}.knowledge-source-version p{margin:4px 0 8px}.knowledge-source-version summary{cursor:pointer}.knowledge-source-version dl{margin:12px 0 0}.knowledge-source-version dt{font-weight:600}.knowledge-source-version dd{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0}.knowledge-source-version dd span{min-width:120px}.knowledge-source-version code{font-size:14px;overflow-wrap:anywhere}
 </style>
 
 <style scoped>

@@ -14,6 +14,70 @@ const state = () => ({ enabled: true, source_mode: 'handouts', workflow: 'knowle
   title: '计算机系统', document_revision: 'd', knowledge_revision: 'base', tree: tree(), history: [tree()], jobs: [], handouts: [],
   can_generate_tree: true, source_handouts: [{ lesson_id: 'cpu' }, { lesson_id: 'memory' }],
   lesson_options: [{ lesson_id: 'cpu', title: '处理器', can_generate: true }, { lesson_id: 'memory', title: '主存', can_generate: true }], candidates: [] })
+
+it('explains that an adopted tree retains an older handout without starting generation', async () => {
+  const v: any = state()
+  v.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'handout-current' }]
+  v.tree.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'handout-used' }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const notice = w.get('[data-testid="knowledge-source-version"]')
+  expect(notice.text()).toContain('讲义来源需要核对')
+  expect(notice.text()).toContain('保留原讲义版本')
+  expect(notice.text()).toContain('handout-used')
+  expect(notice.text()).toContain('handout-current')
+  expect(w.get('.mastery-tree').text()).toContain('CPU知识')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('prevents adopting a candidate after its handout source changes', async () => {
+  const v: any = state()
+  v.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'current' }]
+  v.candidates = [{ job_id: 'candidate-job', lesson_id: 'cpu', tree: { ...tree('candidate-v1'), source_handouts: [{ lesson_id: 'cpu', script_revision_id: 'old' }] } }]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-source-version"]').text()).toContain('暂不能采用')
+  const adopt = w.findAll('button').find(b => b.text() === '采用这版知识树')!
+  expect(adopt.attributes('disabled')).toBeDefined()
+  await adopt.trigger('click'); await flushPromises()
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('compares only the selected lecture and treats a missing current source as unavailable', async () => {
+  const v: any = state()
+  v.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'cpu-same' }]
+  v.tree.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'cpu-same' }, { lesson_id: 'memory', script_revision_id: 'memory-old' }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-source-version"]').classes()).not.toContain('needs-review')
+  expect(w.get('[data-testid="knowledge-source-version"]').text()).not.toContain('memory-old')
+  await w.get('select[aria-label="讲次"]').setValue('memory')
+  expect(w.get('[data-testid="knowledge-source-version"]').classes()).toContain('needs-review')
+  expect(w.get('[data-testid="knowledge-source-version"]').text()).toContain('未记录可用版本')
+  expect(w.get('.mastery-tree').text()).toContain('主存知识')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('shows handout version differences in English', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => en })))
+  await setLocale('en')
+  const v: any = state()
+  v.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'new-handout' }]
+  v.tree.source_handouts = [{ lesson_id: 'cpu', script_revision_id: 'old-handout' }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const notice = w.get('[data-testid="knowledge-source-version"]')
+  expect(notice.text()).toContain(en.knowledgeFirst.sourceNeedsReview)
+  expect(notice.text()).toContain(en.knowledgeFirst.recordedHandoutVersion)
+  expect(notice.text()).not.toContain('讲义来源')
+  w.unmount()
+})
 afterEach(() => vi.useRealTimers())
 
 it('allows another lecture while showing the selected lecture task', async () => {
