@@ -135,6 +135,15 @@ def test_review_queue_survives_publication_policy_and_job_finishes_as_review(tmp
     assert final["error"] is None
 
 
+def test_item_rebuild_status_does_not_include_unrelated_pending_questions():
+    from routers.question_bank import _scope_review_queue
+    queue={"items":[{"revision_id":"new","node_id":"n","assessment_role":"practice"},
+                     {"revision_id":"old","node_id":"n","assessment_role":"practice"}], "sample_items":[]}
+    scoped=_scope_review_queue(queue,node_ids={"n"},assessment_roles={"practice"},revision_ids={"new"})
+    assert scoped["blocking_count"] == 1
+    assert scoped["items"][0]["revision_id"] == "new"
+
+
 async def test_wrong_premise_is_blocked_even_when_all_model_roles_agree():
     from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
     from assessment_orchestrator import AssessmentGenerationOrchestrator
