@@ -393,6 +393,49 @@ def _multi_section_outline(labels):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("repair_input_tokens, succeeds", [(20_000, True), (29_000, False)])
+async def test_joint_plan_structural_repair_reserves_output_that_fits_without_dropping_the_draft(monkeypatch, repair_input_tokens, succeeds):
+    from course_generation_budget import CourseGenerationBudgetExceeded
+
+    monkeypatch.setenv("COURSE_GENERATION_CONTEXT_WINDOW_TOKENS", "32768")
+    monkeypatch.setenv("COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", "16000")
+    plan = _multi_section_outline(["核心定义", "条件应用"])
+    plan["chapters"][0]["node_id"] = "L1-1"
+    course = {"course_id":"repair-budget", "course_name":"修复预算", "course_plan":plan, "course_outline":plan}
+    service = CourseService()
+    requests = []
+    original_response = ""
+    valid_response = ""
+
+    monkeypatch.setattr(service, "estimate_request_tokens", lambda prompt, system_prompt="": repair_input_tokens if "原响应：" in prompt else 4000)
+
+    async def fake_call(prompt, system_prompt, **kwargs):
+        nonlocal original_response, valid_response
+        requests.append((prompt, kwargs))
+        if len(requests) == 1:
+            valid_response = _combined_teacher_lesson_v4_response(system_prompt)
+            payload = json.loads(valid_response)
+            payload["sections"][0]["owned_knowledge_keys"].append("UNKNOWN-KEY")
+            original_response = json.dumps(payload, ensure_ascii=False)
+            return original_response
+        assert original_response in prompt
+        return valid_response
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    if not succeeds:
+        with pytest.raises(CourseGenerationBudgetExceeded):
+            await service.prepare_teacher_lesson_plan(course_data=course, lesson_unit_id="L1-1")
+        assert len(requests) == 1
+        return
+    result = await service.prepare_teacher_lesson_plan(course_data=course, lesson_unit_id="L1-1")
+    assert len(requests) == 2
+    assert requests[0][1]["max_tokens"] == 16000
+    assert 5024 <= requests[1][1]["max_tokens"] < 16000
+    assert repair_input_tokens + requests[1][1]["max_tokens"] + service._generation_budget.context_reserve_tokens <= 32768
+    assert [section["node_id"] for section in result["plan"]["sections"]] == ["L2-1-1", "L2-1-2"]
+
+
+@pytest.mark.asyncio
 async def test_teacher_lesson_plan_uses_one_joint_model_response_and_resumes(
     monkeypatch,
 ):

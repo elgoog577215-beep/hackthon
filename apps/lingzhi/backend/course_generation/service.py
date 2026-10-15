@@ -2763,12 +2763,25 @@ class CourseService(AIBase):
             heartbeat_message: str,
             phase_detail: dict[str, Any],
             structural_repair: bool = False,
+            required_repair_output_tokens: int = 0,
         ) -> str:
             input_tokens = self.estimate_request_tokens(
                 user_prompt,
                 system_prompt,
             )
-            if input_tokens + self._teaching_plan_budget.max_output_tokens + self._generation_budget.context_reserve_tokens > self._generation_budget.context_window_tokens:
+            output_tokens = self._teaching_plan_budget.max_output_tokens
+            available_output_tokens = (
+                self._generation_budget.context_window_tokens
+                - self._generation_budget.context_reserve_tokens
+                - input_tokens
+            )
+            if structural_repair:
+                # A repair carries the existing full response as input. Reserve
+                # enough output to reproduce it, within the real context window.
+                output_tokens = min(output_tokens, available_output_tokens)
+                if output_tokens < max(2000, required_repair_output_tokens):
+                    raise CourseGenerationBudgetExceeded("教案结构修复的剩余空间不足以保留完整原稿。")
+            if input_tokens + output_tokens + self._generation_budget.context_reserve_tokens > self._generation_budget.context_window_tokens:
                 raise CourseGenerationBudgetExceeded("教案输入与输出预留超过模型上下文预算。")
             telemetry = []
             stream_batch_id = str(phase_detail.get("batch_id") or "")
@@ -2859,9 +2872,7 @@ class CourseService(AIBase):
                                 self._generation_budget.max_input_chars
                                 + (self._teaching_plan_budget.max_output_tokens * 4 if structural_repair else 0)
                             ),
-                            max_output_tokens=(
-                                self._teaching_plan_budget.max_output_tokens
-                            ),
+                            max_output_tokens=output_tokens,
                             telemetry_sink=telemetry.append,
                             start_on_provider_request=combine_knowledge_and_plan,
                             wall_timeout_seconds=600 if combine_knowledge_and_plan else None,
@@ -3139,6 +3150,7 @@ class CourseService(AIBase):
                         heartbeat_message="正在修复本讲教案的结构错误",
                         phase_detail={"artifact_type": "course_teaching_plan_batch", "batch_id": batch_id + ":structure-repair"},
                         structural_repair=True,
+                        required_repair_output_tokens=self.estimate_request_tokens(str(response or ""), "") + 1024,
                     )
                 if not skeleton_report.get("passed") or not batch_report.get("passed"):
                     issues = [

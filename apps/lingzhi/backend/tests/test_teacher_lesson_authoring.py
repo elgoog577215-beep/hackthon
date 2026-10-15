@@ -4891,6 +4891,7 @@ def test_generate_all_plans_retries_only_ready_lesson_with_failed_attempt(
         "course-1",
         failed["id"],
         status="failed",
+        parent_job_id="same-original-batch",
         request_snapshot={"generation_contract_version": "lesson_plan_single_v2"},
         error={
             "code": "lesson_plan_generation_failed",
@@ -4908,6 +4909,7 @@ def test_generate_all_plans_retries_only_ready_lesson_with_failed_attempt(
         "course-1",
         cancelled["id"],
         status="cancelled",
+        parent_job_id="same-original-batch",
         error={"retryable": True},
     )
     source = {**lecture_course_data(), "blueprint_revision_id": "outline-v1"}
