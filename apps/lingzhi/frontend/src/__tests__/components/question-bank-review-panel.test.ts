@@ -278,6 +278,36 @@ describe('QuestionBankReviewPanel', () => {
     expect(audit.text()).toContain('item-history-1')
   })
 
+  it('keeps generation controls in the right pane while browsing and preserves settings when collapsed', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
+    const side = wrapper.get('[data-testid="question-settings-pane"]')
+    expect(side.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
+    expect(wrapper.get('.question-bank-workspace-main').find('[data-testid="question-generation-studio"]').exists()).toBe(false)
+    await side.get('input[type="checkbox"]').setValue(false)
+    await side.get('[data-testid="collapse-question-settings"]').trigger('click')
+    expect(side.isVisible()).toBe(false)
+    await wrapper.get('[data-testid="expand-question-settings"]').trigger('click')
+    expect(side.isVisible()).toBe(true)
+    expect((side.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect(post).not.toHaveBeenCalled()
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+  })
+
+  it('keeps empty lectures available in the left rail without starting generation on navigation', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', chapterOptions: [
+      { node_id: 'section-1', number: 1, title: '已有题的讲次' },
+      { node_id: 'empty-lesson', number: 2, title: '还没有题的讲次' },
+    ] } })
+    await flushPromises()
+    const rail = wrapper.get('[data-testid="question-lesson-rail"]')
+    await rail.get('[data-testid="question-chapter-empty-lesson"]').trigger('click')
+    expect(wrapper.get('.question-bank-workspace-main').text()).toContain('没有符合条件的题目')
+    expect(rail.get('[data-testid="question-chapter-empty-lesson"]').attributes('aria-current')).toBe('page')
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="question-settings-pane"]').find('[data-testid="generate-question-bank"]').exists()).toBe(true)
+  })
+
   it('按讲次分层浏览题目并只显示当前讲次题目', async () => {
     get.mockResolvedValueOnce({
       data: {
