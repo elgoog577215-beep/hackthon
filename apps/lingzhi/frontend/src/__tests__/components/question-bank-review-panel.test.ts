@@ -344,7 +344,9 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('第一讲第二题')
     expect(wrapper.text()).not.toContain('第二讲唯一题目')
 
+    wrapper.get('.question-reader__scroll').element.scrollTop = 220
     await wrapper.get('[data-testid="question-chapter-lesson-2"]').trigger('click')
+    expect(wrapper.get('.question-reader__scroll').element.scrollTop).toBe(0)
 
     expect(wrapper.get('[data-testid="question-chapter-lesson-2"]').attributes('aria-current')).toBe('page')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
