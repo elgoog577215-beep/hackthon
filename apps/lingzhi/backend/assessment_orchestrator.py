@@ -81,7 +81,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v31"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v32"
 
 
 def _out_tokens(limit: int) -> int:
@@ -794,6 +794,36 @@ class UniversalAssessmentModel(AIBase):
                 "invalid_assessment_batch_quality_items"
             )
         return result
+
+    async def evaluate_computed_target(self, public_question_spec, objective, slot, *, call_policy=None):
+        """The program owns facts; the model only assesses teaching alignment."""
+        response = await self._assessment_llm_call(
+            call_policy,
+            "这道题由有界程序先计算再生成，题面参数、定义、完整答案和评分依据已由同一确定性计算合同核验。"
+            "你只检查教学适配，不重新求解、推算答案或评判数学正确性；这里不会提供答案。"
+            "判断：是否考查给定目标、作答形式是否支持要求的动作、题面是否足够清楚、难度是否适配。"
+            "有限参数的计算题可以作为应用与结果核对；不要要求它同时完成整章的证明或项目。"
+            "只输出JSON：{\"target_matches\":true,\"action_supported\":true,\"clear\":true,"
+            "\"difficulty_fits\":true,\"confidence\":0.95,\"evidence\":[\"简短的教学适配依据\"]}。\n"
+            + json.dumps({"question":_model_public_question(public_question_spec),"objective":objective,"slot":slot},ensure_ascii=False),
+            system_prompt="只评审课程目标与题目任务的对应关系，不充当计算器或事实裁判。",
+            retry_count=1, enable_thinking=False, use_fast_model=True, raise_on_failure=True,
+            reject_truncated=True, max_tokens=_out_tokens(2048), json_mode=True, model_role="assessment_reviewer",
+        )
+        value = self._extract_json(response) if response else None
+        if not isinstance(value,dict):
+            raise AIProviderRequestError("invalid_computed_target_review")
+        checks = {key:value.get(key) is True for key in ("target_matches","action_supported","clear")}
+        issues = [{"code":code,"severity":"critical","message":message} for key,code,message in (
+            ("target_matches","OBJECTIVE_MISMATCH","题目与教学目标不匹配"),
+            ("action_supported","OBSERVABLE_ACTION_MISSING","作答形式不能承载任务动作"),
+            ("clear","TASK_UNCLEAR","题面表达需要澄清"),
+        ) if not checks[key]]
+        return {"passed":all(checks.values()),"confidence":value.get("confidence",0),
+                "solution_consistent":True,"issues":issues,"evidence":value.get("evidence") or [],
+                "dimensions":{"curriculum_targeting":20 if checks["target_matches"] else 0,
+                              "answerability_and_completeness":15,"clarity":5 if checks["clear"] else 0,
+                              "difficulty_fit":10 if value.get("difficulty_fits") is True else 5}}
 
     async def _assessment_llm_call(
         self,
@@ -3065,6 +3095,18 @@ class AssessmentGenerationOrchestrator:
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
     ) -> dict[str, Any]:
         expected_hash = delivery_hash(contract)
+        if fact_publication_state(contract) == "verified":
+            evaluator = getattr(self.model,"evaluate_computed_target",None)
+            if not callable(evaluator):
+                return attest_final_solution_review(contract, {"passed":False,"confidence":0,"solution_consistent":True,
+                    "issues":[{"code":"SEMANTIC_REVIEW_UNAVAILABLE","severity":"major","message":"缺少教学目标适配检查"}]}, expected_hash)
+            call_policy = resolve_assessment_generation_policy(None).call_policy("review", {"slot":slot})
+            audit["semantic_evaluation_calls"] += 1
+            report = await _timed_model_call(audit,role="reviewer",operation="curriculum_only",batch_size=1,call_policy=call_policy,
+                call=lambda:_call_model_method(evaluator, _model_public_question(contract["question_spec"]),deepcopy(objective),deepcopy(slot),call_policy=call_policy))
+            report = _normalize_semantic_report(report)
+            report.update(solution_consistent=True,reviewer_triggered=True,review_scope="curriculum_alignment")
+            return attest_final_solution_review(contract,report,expected_hash)
         report = await self._review_solution(
             contract, independent=independent, objective=objective, slot=slot,
             audit=audit, semantic_batcher=semantic_batcher,
