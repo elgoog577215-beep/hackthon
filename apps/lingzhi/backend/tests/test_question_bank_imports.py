@@ -148,6 +148,18 @@ def test_numbered_short_question_type_labels_are_not_discarded_as_section_headin
     assert not drafts[0]['prompt'].startswith('1.')
 
 
+def test_created_session_returns_the_persisted_revision_when_clock_advances(tmp_path, monkeypatch):
+    import question_bank_imports
+    doc = _parsed_document()
+    drafts, pages = extract_question_drafts(doc)
+    ticks = iter(f'2030-01-01T00:00:00.{i:06d}+00:00' for i in range(20))
+    monkeypatch.setattr(question_bank_imports, '_now', lambda: next(ticks))
+    repo = QuestionBankImportRepository(tmp_path / 'advancing-clock')
+    asset = type('Asset', (), {'asset_id': 'mat-import', 'filename': 'source.pdf', 'extension': '.pdf', 'size_bytes': 100})()
+    created = repo.create(course_id='c', actor_id='owner', asset=asset, document=doc, questions=drafts, source_pages=pages)
+    assert created == repo.load('c', created['import_id'])
+
+
 def test_unreviewed_reextraction_retains_previous_drafts_and_refuses_reviewed_or_stale_session(tmp_path):
     import pytest
     doc=_parsed_document();drafts,pages=extract_question_drafts(doc)
