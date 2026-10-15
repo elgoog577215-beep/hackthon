@@ -20,6 +20,7 @@ def test_model_confidence_cannot_certify_a_false_treap_premise():
     ({"kind": "range_sum", "values": [1,2,3,4,5], "start": 0, "end": 2}, 6),
     ({"kind": "treap_depth", "n": 3, "rank": 2}, "1"),
     ({"kind": "zipf_coverage", "n": 10, "alpha": 1, "threshold": "9/10"}, 8),
+    ({"kind": "state_operations", "initial_state": [1], "operations": [{"op":"append","value":2}]}, [1,2]),
 ])
 def test_computed_plans_bind_the_whole_question_and_reject_answer_mutation(plan, expected):
     from assessment_fact_evidence import build_computed_candidate, evaluate_fact_evidence
@@ -151,3 +152,28 @@ def test_publication_boundary_rechecks_fact_evidence_instead_of_cached_approval(
     candidate["solution"]["canonical_answer"]["conclusion"] = "wrong"
     _apply_tiered_review_policy([item], {}, solution_envelopes={"s":candidate["solution"]})
     assert item["lifecycle_status"] != "approved"
+
+
+def test_public_fact_status_never_contains_private_answers_or_counterexamples():
+    from assessment_fact_evidence import build_computed_candidate, apply_fact_evidence
+    c=build_computed_candidate({"kind":"treap_depth","n":3,"rank":2})
+    contract={"question_spec":c["question_spec"],"solution_envelope":c["solution"]}
+    apply_fact_evidence(contract)
+    visible=contract["solution_validation"]["factual_validation"]
+    assert "result" not in visible and "counterexample" not in visible
+    assert contract["solution_envelope"]["factual_validation"]["result"] == "1"
+
+
+def test_proof_references_are_resolved_against_frozen_server_evidence_not_model_citations():
+    from assessment_fact_evidence import apply_fact_evidence
+    quote="每次扩容将容量翻倍。"
+    contract={"question_spec":{"stimulus":{"rendered_text":quote}, "task":{"rendered_text":"证明摊还界。"}},
+              "solution_envelope":{"canonical_answer":"待核验的证明", "premise_bindings":[
+                  {"claim":quote,"quote":quote,"reference_id":"book-1"},
+                  {"claim":quote,"quote":quote,"reference_id":"invented-citation"}],
+                  "factual_source_evidence":[{"reference_id":"book-1","reference_excerpt":quote,"source_type":"course_materials"}]}}
+    report=apply_fact_evidence(contract)
+    assert report["status"] == "unverified", "quotation is traceability, not a mathematical correctness oracle"
+    assert report["source_bindings"][0]["status"] == "matched"
+    assert report["source_bindings"][1]["status"] == "missing_reference"
+    assert report["source_bindings"][0]["source_snapshot_hash"]
