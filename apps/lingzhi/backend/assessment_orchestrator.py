@@ -41,7 +41,7 @@ from assessment_independent_solvers import IndependentSolverRegistry
 from assessment_solution_protocol import (
     SOLUTION_PROTOCOL, OPEN_VALIDATORS, delivery_hash, delivery_solution, review_solution_payload, attest_final_solution_review,
 )
-from assessment_fact_evidence import apply_fact_evidence, fact_publication_state
+from assessment_fact_evidence import apply_fact_evidence, fact_publication_state, build_computed_candidate, computed_independent_solution
 from dynamic_array_solver import public_dynamic_array_inputs
 from assessment_measurement_design import (
     attach_measurement_designs, candidate_from_measurement_design, evidence_recovery_action, measurement_design_prompt,
@@ -2901,8 +2901,10 @@ class AssessmentGenerationOrchestrator:
             )
             or ""
         )
-        independent: dict[str, Any] | None = None
-        if generation_policy.prefer_local_solver and _local_solver_applicable(
+        independent: dict[str, Any] | None = computed_independent_solution(public_spec)
+        if independent is not None:
+            audit["local_independent_solution_count"] = int(audit.get("local_independent_solution_count") or 0) + 1
+        if independent is None and generation_policy.prefer_local_solver and _local_solver_applicable(
             public_spec,
         ):
             independent = self.local_solvers.solve(public_spec)
@@ -3863,6 +3865,21 @@ def _contract_from_candidate(
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
     candidate, normalization = _normalize_candidate_layout(candidate)
+    plan = (candidate.get("question_spec") or {}).get("computation_plan")
+    if plan is not None:
+        response = (base.get("question_spec") or {}).get("input_contract") or {}
+        if response.get("mode") != "structured_fields" or {f.get("field_id") for f in response.get("fields") or []} != {"premises","derivation","conclusion"}:
+            raise AIProviderRequestError("invalid_computation_plan_input_contract")
+        try:
+            computed = build_computed_candidate(plan)
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise AIProviderRequestError("invalid_computation_plan:" + str(exc)) from exc
+        draft = candidate.get("question_spec") or {}
+        if any(key in draft and draft[key] != computed["question_spec"][key] for key in ("stimulus","task","constraints","options")):
+            raise AIProviderRequestError("invalid_computation_plan_rendering")
+        if (candidate.get("solution") or {}).get("canonical_answer", computed["solution"]["canonical_answer"]) != computed["solution"]["canonical_answer"]:
+            raise AIProviderRequestError("invalid_computation_plan_answer")
+        candidate = computed
     if normalization:
         base = {**base, "candidate_normalization": normalization}
     question_draft = candidate.get("question_spec") or {}
@@ -3966,6 +3983,7 @@ def _contract_from_candidate(
         "response_contract",
         "options",
         "solver_contract",
+        "computation_plan",
     ):
         if field in question_draft:
             public_spec[field] = deepcopy(question_draft[field])
@@ -3981,6 +3999,7 @@ def _contract_from_candidate(
         "worked_solution",
         "hidden_tests",
         "measurement_plan",
+        "premise_bindings",
     ):
         if field in solution_draft:
             value = deepcopy(solution_draft[field])

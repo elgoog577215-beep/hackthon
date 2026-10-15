@@ -4349,6 +4349,17 @@ def _apply_tiered_review_policy(
 ) -> None:
     """Publish validated questions by default and quarantine hard blockers."""
     for item in items:
+        from assessment_fact_evidence import fact_publication_state
+        fact_state = fact_publication_state({
+            "question_spec": item.get("question_spec") or {},
+            "solution_envelope": (solution_envelopes or {}).get(str(item.get("solution_revision_id") or "")) or {},
+        })
+        if fact_state in {"unverified", "contradicted"}:
+            item["review_required"] = True
+            item["risk_flags"] = list(dict.fromkeys([*item.get("risk_flags", []), "facts_" + fact_state]))
+        if fact_state == "contradicted":
+            item["quality_report"] = {**(item.get("quality_report") or {}), "passed": False,
+                                      "issues": [{"code":"TASK_PREMISE_FALSE", "severity":"critical", "message":"事实前提或答案与独立程序核验冲突"}]}
         mandatory_reason = _mandatory_review_reason(item)
         latest_decision = next(
             (
@@ -4371,7 +4382,7 @@ def _apply_tiered_review_policy(
             item["lifecycle_status"] = "rejected"
             item["review_status"] = "rejected"
             item["generation_status"] = "rework_requested"
-        elif latest_decision == "approved":
+        elif latest_decision == "approved" and fact_state != "contradicted":
             _set_review_tier(
                 item,
                 (
