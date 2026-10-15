@@ -769,6 +769,19 @@
                   <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
                   <pre><MathText :content="solutionValidation(solutions[selectedQuestion.revision_id] || {})" /></pre>
                 </details>
+                <section v-if="factEvidence(solutions[selectedQuestion.revision_id] || {}).status" class="question-solution-diff__analysis" data-testid="question-fact-evidence">
+                  <strong>{{ t('questionBank.factEvidenceTitle', '事实核验依据') }}</strong>
+                  <p>{{ factEvidence(solutions[selectedQuestion.revision_id] || {}).status === 'verified'
+                    ? t('questionBank.factEvidenceVerified', '程序已按公开参数重新计算，并核对题面与答案。')
+                    : t('questionBank.factEvidencePendingHint', '已生成，待事实复核。引用可用于核对原文，不等于证明题目正确。') }}</p>
+                  <ul v-if="factEvidence(solutions[selectedQuestion.revision_id] || {}).source_bindings?.length">
+                    <li v-for="(binding, index) in factEvidence(solutions[selectedQuestion.revision_id] || {}).source_bindings" :key="index">
+                      <MathText :content="String(binding.claim || '')" />
+                      <p>{{ binding.status === 'matched' ? t('questionBank.factSourceMatched', '已定位资料原文') : t('questionBank.factSourceMissing', '引用尚未匹配资料原文') }} · {{ binding.reference_id }}</p>
+                      <blockquote><MathText :content="String(binding.quote || '')" /></blockquote>
+                    </li>
+                  </ul>
+                </section>
               </section>
             </section>
 
@@ -2365,6 +2378,10 @@ function formatSolutionStep(step: unknown) {
 
 function solutionValidation(payload: Record<string, any>) {
   return formatValue(payload.solution_validation || '-')
+}
+
+function factEvidence(payload: Record<string, any>): Record<string, any> {
+  return payload.solution_envelope?.factual_validation || {}
 }
 
 function formatValue(value: unknown) {

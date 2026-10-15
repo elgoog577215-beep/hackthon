@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from assessment_quality import QUESTION_QUALITY_SCHEMA
+from assessment_fact_evidence import fact_publication_state
 from assessment_blueprint import (
     ASSESSMENT_BLUEPRINT_SCHEMA,
     compile_course_assessment_blueprint,
@@ -2400,7 +2401,7 @@ def _generated_course_items(
             if (
                 isinstance(generated_quality, dict)
                 and generated_quality.get("schema_version")
-                in {"question_quality_report_v2", "question_quality_report_v3", QUESTION_QUALITY_SCHEMA}
+                in {"question_quality_report_v2", "question_quality_report_v3", "question_quality_report_v4", QUESTION_QUALITY_SCHEMA}
             ):
                 item["quality_report"] = {
                     **deepcopy(generated_quality),
@@ -4349,7 +4350,6 @@ def _apply_tiered_review_policy(
 ) -> None:
     """Publish validated questions by default and quarantine hard blockers."""
     for item in items:
-        from assessment_fact_evidence import fact_publication_state
         fact_state = fact_publication_state({
             "question_spec": item.get("question_spec") or {},
             "solution_envelope": (solution_envelopes or {}).get(str(item.get("solution_revision_id") or "")) or {},

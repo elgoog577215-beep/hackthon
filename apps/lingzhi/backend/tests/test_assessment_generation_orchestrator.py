@@ -640,7 +640,7 @@ async def test_malformed_nested_candidate_is_regenerated_not_discarded():
     assert first["attempts"][0]["issue_codes"] == [
         "MODEL_OUTPUT_SCHEMA_INVALID"
     ]
-    assert first["final_decision"] == "publish"
+    assert first["final_decision"] == "teacher_review"  # No independent fact evidence in this model fixture.
 
 
 async def test_slots_generate_with_bounded_concurrency(monkeypatch):
@@ -969,7 +969,7 @@ async def test_task_length_preflight_repairs_before_independent_solving():
     assert mastery["attempts"][0]["next_action"] == "repair"
     assert model.repair_calls == 2
     assert model.solve_calls == 4
-    assert mastery["final_decision"] == "publish"
+    assert mastery["final_decision"] == "teacher_review"
 
 
 async def test_choice_generation_uses_fast_non_thinking_json_mode(
@@ -1472,7 +1472,7 @@ async def test_ordinary_lecture_solver_error_retries_solution_without_reauthorin
     assert row["attempts"][0]["next_action"] == "solve"
     assert model.generate_calls == 1 and model.repair_calls == 0
     assert model.solve_calls == 2
-    assert row["final_decision"] == "publish"
+    assert row["final_decision"] == "teacher_review"
 
 
 async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthoring():
@@ -1508,7 +1508,7 @@ async def test_rubric_error_repairs_only_grading_without_resolving_or_reauthorin
     row = prepared["_assessment_generation_audit"]["items"][0]
     assert row["attempts"][0]["next_action"] == "rubric"
     assert model.generate_calls == model.repair_calls == model.solve_calls == 1
-    assert row["final_decision"] == "publish"
+    assert row["final_decision"] == "teacher_review"
     assert model.reviewed_questions[0]["task"] == model.reviewed_questions[1]["task"]
     contract = prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
     assert contract["solution_envelope"]["canonical_answer"] == model.repair_input["solution"]["canonical_answer"]
@@ -1537,7 +1537,7 @@ async def test_final_author_attempt_can_finish_one_grading_only_correction():
     assert model.generate_calls == 2
     assert model.repair_calls == 1
     assert row["attempts"][1]["next_action"] == "rubric"
-    assert row["final_decision"] == "publish"
+    assert row["final_decision"] == "teacher_review"
 
 
 async def test_single_node_repair_runs_its_practice_levels_concurrently(

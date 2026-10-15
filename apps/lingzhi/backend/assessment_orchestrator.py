@@ -81,7 +81,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v30"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v31"
 
 
 def _out_tokens(limit: int) -> int:
@@ -3492,6 +3492,7 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "MATERIAL_BINDING_INVALID": "题目材料不足或未参与求解",
         "PROMPT_SOLUTION_CONTRADICTION": "题面与答案矛盾",
         "EXPLANATION_CONTRADICTION": "答案解析前后矛盾",
+        "TASK_PREMISE_FALSE": "题面前提或答案被独立程序核验否定",
         "RUBRIC_ANSWER_MISMATCH": "评分规则与已核对的解答不一致",
         "FINAL_SOLUTION_REVIEW_MISSING": "最终答案或解析尚未通过一致性复核",
         "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
@@ -3876,7 +3877,7 @@ def _contract_from_candidate(
         except (ValueError, TypeError, ArithmeticError) as exc:
             raise AIProviderRequestError("invalid_computation_plan:" + str(exc)) from exc
         draft = candidate.get("question_spec") or {}
-        if any(key in draft and draft[key] != computed["question_spec"][key] for key in ("stimulus","task","constraints","options")):
+        if any(draft.get(key) and draft[key] != computed["question_spec"][key] for key in ("stimulus","task","constraints","options")):
             raise AIProviderRequestError("invalid_computation_plan_rendering")
         if (candidate.get("solution") or {}).get("canonical_answer", computed["solution"]["canonical_answer"]) != computed["solution"]["canonical_answer"]:
             raise AIProviderRequestError("invalid_computation_plan_answer")
@@ -5316,6 +5317,16 @@ def _solver_contract_kind_hint() -> str:
 def _authoring_quality_directive() -> str:
     """Shared writing instructions; full contracts remain in local validation."""
     return (
+        "计算计划分支：仅当input_mode=structured_fields且field_id恰为premises、derivation、conclusion，"
+        "并且计算模型确实考查锁定目标时，可返回{question_spec:{computation_plan:计划},solution:{}}。"
+        "这一分支不填写stimulus/task或答案，程序先计算再完整渲染题面；不要混入自行编写的前提。"
+        "支持的计划为{kind:arithmetic,expression:纯数字四则式}、{kind:dynamic_array,append_count:1到32的整数}、"
+        "{kind:range_sum,values:整数数组,start:起始下标,end:结束下标}、{kind:treap_depth,n:1到32的整数,rank:1到n}、"
+        "{kind:zipf_coverage,n:1到64的整数,alpha:0到4的整数,threshold:分数字符串}、"
+        "{kind:state_operations,initial_state:列表或字典,operations:append/pop/set/delete操作列表}。"
+        "不适配目标时使用普通题面分支，computation_plan为null。普通题的事实前提在solution.premise_bindings中"
+        "给出claim、quote、reference_id；quote必须逐字来自content_evidence且claim必须出现在题面，缺来源时留空，不能编造。"
+        "以下完整文本结构要求只适用于普通题面分支。"
         "生成和任何定向修复都必须遵守：task.rendered_text最多300个字符，"
         "英文、公式、标点和换行均计数，建议控制在120至200字符。"
         "task只写作答动作；将必要背景、数据、代码放入stimulus，限制放constraints，"
@@ -5373,6 +5384,7 @@ def _authoring_quality_directive() -> str:
 def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -> dict[str, Any]:
     candidate_schema = {
         "question_spec": {
+            "computation_plan": None,
             "stimulus": {
                 "rendered_text": (
                     "完整题目材料；代码必须使用带语言标记的"
@@ -5398,6 +5410,7 @@ def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -
             },
         },
         "solution": {
+            "premise_bindings": [],
             "validation_mode": (
                 "必须逐字等于对应assessment_slot.validation_mode"
             ),

@@ -6300,6 +6300,11 @@
     "save": "Save note"
   },
   "questionBank": {
+    "factEvidenceTitle": "Factual evidence",
+    "factEvidenceVerified": "The program recomputed the public inputs and checked the question and answer.",
+    "factEvidencePendingHint": "Generated; factual verification pending. A matching quotation supports source lookup, not proof of correctness.",
+    "factSourceMatched": "Matched to the source excerpt",
+    "factSourceMissing": "Quotation has not been matched to a source excerpt",
     "regenerateWaitingReview": "Questions generated; factual verification pending",
     "factsPending": "Generated; factual verification pending",
     "factsPendingShort": "Fact review pending",

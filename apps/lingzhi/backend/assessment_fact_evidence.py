@@ -171,7 +171,7 @@ def _public_binding(spec: dict) -> dict:
     # input shape and field identities do.
     response = spec.get("input_contract") or {}
     payload["input_contract"] = {"mode":response.get("mode"), "fields":[
-        {"field_id":f.get("field_id"),"kind":f.get("kind"),"required":f.get("required")}
+        {"field_id":f.get("field_id"),"kind":"text" if f.get("kind") in {"short_text","rich_text"} else f.get("kind"),"required":f.get("required")}
         for f in response.get("fields") or []]}
     return payload
 

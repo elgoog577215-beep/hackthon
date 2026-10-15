@@ -21,7 +21,7 @@ from solution_contracts import worked_solution_is_complete
 from assessment_solution_protocol import final_solution_review_valid
 from assessment_fact_evidence import fact_publication_state
 
-QUESTION_QUALITY_SCHEMA = "question_quality_report_v4"
+QUESTION_QUALITY_SCHEMA = "question_quality_report_v5"
 QUALITY_WEIGHTS = {
     "correctness_and_verifiability": 25,
     "curriculum_targeting": 20,
@@ -71,6 +71,7 @@ _REPAIRABLE_HARD_CODES = {
 }
 
 _REGENERATE_CURRENT_QUESTION_CODES = {
+    "TASK_PREMISE_FALSE",
     "SCHEMA_INVALID",
     "INPUT_CONTRACT_MISMATCH",
     "BLUEPRINT_CONTRACT_CHANGED",

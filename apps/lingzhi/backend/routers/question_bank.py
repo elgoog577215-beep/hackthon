@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from assessment_quality import QUESTION_QUALITY_SCHEMA
+from assessment_fact_evidence import fact_publication_state
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
@@ -633,7 +634,7 @@ def _published_practice_levels_by_node(
             or (item.get("lifecycle_status") != "approved" and not retained_review)
             or (item.get("generation_status") != "published" and not retained_review)
             or quality.get("schema_version")
-            not in {"question_quality_report_v2", "question_quality_report_v3", QUESTION_QUALITY_SCHEMA}
+            not in {"question_quality_report_v2", "question_quality_report_v3", "question_quality_report_v4", QUESTION_QUALITY_SCHEMA}
             or quality.get("passed") is not True
         ):
             continue
@@ -654,6 +655,8 @@ def _published_practice_levels_by_node(
         solution = solutions.get(
             str(item.get("solution_revision_id") or "")
         )
+        if retained_review and fact_publication_state({"question_spec":item.get("question_spec") or {}, "solution_envelope":solution or {}}) != "unverified":
+            continue
         compiled = compile_formal_task_contract(
             hydrated,
             solution,
@@ -2378,11 +2381,12 @@ async def _execute_question_bank_rebuild(
             rolling_course,
             deduplicated=False,
         )
-        if payload.scope == "nodes":
+        if payload.scope in {"nodes", "items"}:
             response["review_queue"] = _scope_review_queue(
                 response.get("review_queue") or {},
                 node_ids=set(campaign_node_ids),
                 assessment_roles={"practice"},
+                revision_ids=_rebuilt_item_revision_ids(rolling_bank, item_practice_levels_by_node) if payload.scope == "items" else None,
             )
         if not (response.get("review_queue") or {}).get(
             "blocking_count"
@@ -2522,6 +2526,11 @@ async def _execute_question_bank_rebuild(
         published_course,
         deduplicated=deduplicated,
     )
+    if payload.scope in {"nodes", "items"}:
+        response["review_queue"] = _scope_review_queue(
+            response.get("review_queue") or {}, node_ids=set(campaign_node_ids), assessment_roles={"practice"},
+            revision_ids=_rebuilt_item_revision_ids(stored, item_practice_levels_by_node) if payload.scope == "items" else None,
+        )
     if not (response.get("review_queue") or {}).get(
         "blocking_count"
     ):
@@ -2588,6 +2597,8 @@ def _require_complete_generation(
     """Fail before persistence when any planned slot was discarded."""
     for node_contracts in (course.get("_assessment_generated_contracts") or {}).values():
         for contract in node_contracts.values():
+            if fact_publication_state(contract) == "contradicted":
+                raise RuntimeError("question_fact_verification_failed: 题面前提或答案与独立核验冲突")
             if not final_solution_review_valid(contract):
                 raise RuntimeError("final_solution_review_missing_or_stale")
     audit = course.get("_assessment_generation_audit") or {}
@@ -2698,11 +2709,17 @@ def _rebuild_response(
     }
 
 
+def _rebuilt_item_revision_ids(bundle: dict, levels: dict[str, list[str]]) -> set[str]:
+    return {str(item.get("revision_id") or "") for item in bundle.get("items") or []
+            if set(item_slot_keys(item)) & set(levels.get(str(item.get("node_id") or ""), []))}
+
+
 def _scope_review_queue(
     queue: dict[str, Any],
     *,
     node_ids: set[str],
     assessment_roles: set[str],
+    revision_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Report only review work introduced by a scoped rebuild."""
     result = deepcopy(queue)
@@ -2711,6 +2728,7 @@ def _scope_review_queue(
         for item in queue.get("items") or []
         if (
             str(item.get("node_id") or "") in node_ids
+            and (revision_ids is None or str(item.get("revision_id") or "") in revision_ids)
             and str(item.get("assessment_role") or "")
             in assessment_roles
         )
@@ -2720,6 +2738,7 @@ def _scope_review_queue(
         for item in queue.get("sample_items") or []
         if (
             str(item.get("node_id") or "") in node_ids
+            and (revision_ids is None or str(item.get("revision_id") or "") in revision_ids)
             and str(item.get("assessment_role") or "")
             in assessment_roles
         )

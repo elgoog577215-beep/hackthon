@@ -6300,6 +6300,11 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "factEvidenceTitle": "事实核验依据",
+    "factEvidenceVerified": "程序已按公开参数重新计算，并核对题面与答案。",
+    "factEvidencePendingHint": "已生成，待事实复核。引用可用于核对原文，不等于证明题目正确。",
+    "factSourceMatched": "已定位资料原文",
+    "factSourceMissing": "引用尚未匹配资料原文",
     "regenerateWaitingReview": "题目已生成，待事实复核",
     "factsPending": "已生成，待事实复核",
     "factsPendingShort": "待事实复核",

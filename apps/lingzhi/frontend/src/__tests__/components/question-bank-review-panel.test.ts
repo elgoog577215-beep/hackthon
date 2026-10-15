@@ -257,7 +257,7 @@ describe('QuestionBankReviewPanel', () => {
     )
     expect(wrapper.text()).toContain('4 / 4')
     expect(wrapper.text()).toContain('已发布')
-    expect(wrapper.text()).toContain('1 道高风险题等待发布前确认')
+    expect(wrapper.text()).toContain('1 道题等待发布前复核')
     expect(wrapper.text()).toContain('浏览全部题目')
     expect(wrapper.text()).toContain('thermodynamics')
     expect(wrapper.get('[data-testid="question-diversity-monitor"]').text())
