@@ -342,8 +342,7 @@ class QuestionBankImportRepository:
         })
         for question in session["questions"]:
             question["import_id"] = import_id
-        self.save(session)
-        return session
+        return self.save(session)
 
     def save(self, session: dict[str, Any]) -> dict[str, Any]:
         stored = refresh_import_session(session)
