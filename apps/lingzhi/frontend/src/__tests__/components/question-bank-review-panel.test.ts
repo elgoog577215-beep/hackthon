@@ -60,6 +60,9 @@ describe('QuestionBankReviewPanel', () => {
             solution_envelope: {
               canonical_answer: '应包含跨章节证据链。',
               rubric: [{ criterion: '证据对应', points: 4 }],
+              factual_validation: { status: 'unverified', source_bindings: [
+                { reference_id: 'course-source-1', claim: '每次扩容将容量翻倍。', quote: '每次扩容将容量翻倍。', status: 'matched' },
+              ] },
             },
             solution_spec: {
               summary: '先定位章节结论，再建立跨章节证据关系。',
@@ -1142,6 +1145,8 @@ describe('QuestionBankReviewPanel', () => {
     })
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="question-fact-evidence"]').exists()).toBe(false)
+
     await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     await wrapper.get('[data-testid="load-question-solution"]').trigger('click')
     await flushPromises()
@@ -1149,6 +1154,8 @@ describe('QuestionBankReviewPanel', () => {
     expect(get).toHaveBeenCalledWith(
       '/api/courses/course-1/question-bank/items/revision-1/solution',
     )
+    expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('每次扩容将容量翻倍。')
+    expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('待事实复核')
     expect(wrapper.text()).toContain('应包含跨章节证据链')
     expect(wrapper.text()).toContain('先定位章节结论')
     expect(wrapper.text()).toContain('用第二章证据验证结论')

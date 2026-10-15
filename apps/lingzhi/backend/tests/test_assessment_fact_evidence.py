@@ -157,6 +157,7 @@ def test_production_compiles_a_plan_before_rendering_instead_of_trusting_authore
     from backend.tests.test_assessment_solution_protocol import example
     base, _, validation = example()
     base["question_spec"].update(build_computed_candidate({"kind":"treap_depth","n":3,"rank":2})["question_spec"])
+    base["question_spec"]["input_contract"]["fields"][-1]["kind"] = "short_text"
     candidate = {"question_spec":{"computation_plan":{"kind":"treap_depth","n":3,"rank":2}},"solution":{}}
     contract = _contract_from_candidate(base, candidate)
     independent = computed_independent_solution(contract["question_spec"])
@@ -164,6 +165,13 @@ def test_production_compiles_a_plan_before_rendering_instead_of_trusting_authore
     _apply_independent_validation(contract, validation, independent)
     assert contract["solution_validation"]["factual_validation"]["status"] == "verified"
     assert contract["solution_envelope"]["canonical_answer"]["conclusion"] == "1"
+
+
+def test_generation_wire_offers_computation_plan_and_traceable_premises():
+    from assessment_orchestrator import _generation_prompt_v2
+    prompt=_generation_prompt_v2({"assessment_slot":{"input_mode":"structured_fields"}},compact=True)
+    assert '"computation_plan"' in prompt
+    assert '"premise_bindings"' in prompt
 
 
 def test_publication_boundary_rechecks_fact_evidence_instead_of_cached_approval():
