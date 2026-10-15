@@ -6034,7 +6034,7 @@
         "never": "不再提醒",
         "neverHint": "不再就这件事提醒我",
         "actions": {
-          "confirmVersionChange": "课程有更新等待你确认",
+          "confirmVersionChange": "学习状态待衔接到当前版本",
           "resumeDiagnostic": "你有一次诊断没有完成",
           "resumeRemediation": "你有一次补救练习没有完成",
           "resumeValidation": "你有一次独立验证没有完成",

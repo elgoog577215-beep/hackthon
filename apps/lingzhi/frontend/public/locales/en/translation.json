@@ -6034,7 +6034,7 @@
         "never": "Stop reminding me",
         "neverHint": "Never remind me about this again",
         "actions": {
-          "confirmVersionChange": "A course update is waiting for your confirmation",
+          "confirmVersionChange": "Align your learning state with the current version",
           "resumeDiagnostic": "You have an unfinished diagnostic",
           "resumeRemediation": "You have an unfinished remediation exercise",
           "resumeValidation": "You have an unfinished independent check",

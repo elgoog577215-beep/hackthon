@@ -67,7 +67,7 @@ watch(() => props.suggestion?.trigger_id, (triggerId) => {
 }, { immediate: true })
 
 const ACTION_LABELS: Record<string, [string, string]> = {
-  confirm_version_change: ['courseWorkspace.aiTeacher.suggestion.actions.confirmVersionChange', '课程有更新等待你确认'],
+  confirm_version_change: ['courseWorkspace.aiTeacher.suggestion.actions.confirmVersionChange', '学习状态待衔接到当前版本'],
   resume_diagnostic: ['courseWorkspace.aiTeacher.suggestion.actions.resumeDiagnostic', '你有一次诊断没有完成'],
   resume_remediation: ['courseWorkspace.aiTeacher.suggestion.actions.resumeRemediation', '你有一次补救练习没有完成'],
   resume_validation: ['courseWorkspace.aiTeacher.suggestion.actions.resumeValidation', '你有一次独立验证没有完成'],
