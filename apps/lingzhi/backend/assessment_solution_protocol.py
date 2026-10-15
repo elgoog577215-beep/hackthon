@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from course_versioning import stable_hash
 from solution_contracts import worked_solution_is_complete
+from assessment_fact_evidence import fact_publication_state
 
 SOLUTION_PROTOCOL = "assessment_solution_protocol_v1"
 OPEN_VALIDATORS = {"expert_rubric_validator", "language_rubric_validator"}
@@ -45,11 +46,12 @@ def attest_final_solution_review(contract: dict, report: dict, expected_hash: st
         })
     accepted = bool(result.get("passed") is True and result.get("solution_consistent") is True
                     and float(result.get("confidence") or 0) >= .85 and stable and same_answer and complete)
+    pending_facts = fact_publication_state(contract) == "unverified"
     protocol.update(reviewed_delivery_hash=expected_hash, accepted=accepted,
-                    resolution="independent_supported" if accepted else "unresolved")
+                    resolution=("pending_fact_review" if pending_facts else "independent_supported") if accepted else "unresolved")
     validation = contract.setdefault("solution_validation", {})
     validation["passed"] = accepted
-    validation["status"] = "semantic_validated" if accepted else "pending_semantic_review"
+    validation["status"] = ("needs_fact_review" if pending_facts else "semantic_validated") if accepted else "pending_semantic_review"
     validation["independent_solution_present"] = True
     validation.setdefault("checks", {})["final_solution_review"] = accepted
     contract["domain_validation"] = deepcopy(validation)

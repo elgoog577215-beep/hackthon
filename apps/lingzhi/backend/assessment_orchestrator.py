@@ -797,10 +797,17 @@ class UniversalAssessmentModel(AIBase):
 
     async def evaluate_computed_target(self, public_question_spec, objective, slot, *, call_policy=None):
         """The program owns facts; the model only assesses teaching alignment."""
+        return await self._evaluate_target_alignment(public_question_spec,objective,slot,fact_status="verified",call_policy=call_policy)
+
+    async def evaluate_unverified_target(self, public_question_spec, objective, slot, *, call_policy=None):
+        return await self._evaluate_target_alignment(public_question_spec,objective,slot,fact_status="unverified",call_policy=call_policy)
+
+    async def _evaluate_target_alignment(self, public_question_spec, objective, slot, *, fact_status, call_policy=None):
+        fact_notice = ("这道题由有界程序先计算再生成，题面参数、定义、完整答案和评分依据已由确定性计算合同核验。"
+                       if fact_status == "verified" else "这道题的事实前提尚无完整独立证据，将保留为待事实复核候选，不会自动发布。")
         response = await self._assessment_llm_call(
             call_policy,
-            "这道题由有界程序先计算再生成，题面参数、定义、完整答案和评分依据已由同一确定性计算合同核验。"
-            "你只检查教学适配，不重新求解、推算答案或评判数学正确性；这里不会提供答案。"
+            fact_notice + "你只检查教学适配，不重新求解、推算答案或评判数学正确性；这里不会提供答案。"
             "判断：是否考查给定目标、作答形式是否支持要求的动作、题面是否足够清楚、难度是否适配。"
             "有限参数的计算题可以作为应用与结果核对；不要要求它同时完成整章的证明或项目。"
             "只输出JSON：{\"target_matches\":true,\"action_supported\":true,\"clear\":true,"
@@ -3095,8 +3102,9 @@ class AssessmentGenerationOrchestrator:
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
     ) -> dict[str, Any]:
         expected_hash = delivery_hash(contract)
-        if fact_publication_state(contract) == "verified":
-            evaluator = getattr(self.model,"evaluate_computed_target",None)
+        fact_state = fact_publication_state(contract)
+        evaluator = getattr(self.model,"evaluate_computed_target" if fact_state == "verified" else "evaluate_unverified_target",None)
+        if fact_state == "verified" or (fact_state == "unverified" and not slot.get("assessment_binding_schema") and callable(evaluator)):
             if not callable(evaluator):
                 return attest_final_solution_review(contract, {"passed":False,"confidence":0,"solution_consistent":True,
                     "issues":[{"code":"SEMANTIC_REVIEW_UNAVAILABLE","severity":"major","message":"缺少教学目标适配检查"}]}, expected_hash)
