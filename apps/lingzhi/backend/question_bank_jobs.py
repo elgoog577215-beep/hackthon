@@ -338,13 +338,16 @@ class QuestionBankRebuildJobRepository:
     ) -> dict[str, Any]:
         with self._lock:
             path, job = self._load_by_job_id(job_id)
-            job["status"] = "completed"
+            waiting = int((result.get("review_queue") or {}).get("blocking_count") or 0) > 0
+            job["status"] = "waiting_review" if waiting else "completed"
             job["current_stage"] = "publication"
             job["current_stage_index"] = 9
             job["progress"] = 100
             for stage in job["stages"]:
                 stage["status"] = "completed"
-            job["message"] = "题库重建并发布完成"
+            if waiting:
+                job["stages"][-1]["status"] = "waiting_review"
+            job["message"] = "题目已生成，待事实复核；已发布题目保留" if waiting else "题库重建并发布完成"
             job["result"] = deepcopy(result)
             job["error"] = None
             job["completed_at"] = _now()

@@ -4266,6 +4266,7 @@ def _apply_independent_validation(
     contract["risk_flags"] = [
         str(issue["code"]) for issue in issues
     ]
+    apply_fact_evidence(contract)
 
 
 def _attach_learner_worked_solution(

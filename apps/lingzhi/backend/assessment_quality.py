@@ -19,6 +19,7 @@ from question_choice_grading import canonical_option_ids
 from question_evidence_guard import independent_evidence_admitted
 from solution_contracts import worked_solution_is_complete
 from assessment_solution_protocol import final_solution_review_valid
+from assessment_fact_evidence import fact_publication_state
 
 QUESTION_QUALITY_SCHEMA = "question_quality_report_v4"
 QUALITY_WEIGHTS = {
@@ -145,6 +146,7 @@ def evaluate_question_contract_quality(
     )
     issues: list[dict[str, Any]] = []
     hard_checks = {
+        "factual_evidence": fact_publication_state(contract) != "contradicted",
         "final_solution_review": final_solution_review_valid(contract),
         "independent_evidence": not bool(contract.get("assessment_binding_schema")) or independent_evidence_admitted(contract),
         "schema": spec.get("schema_version") == "question_spec_v2",
@@ -238,6 +240,7 @@ def evaluate_question_contract_quality(
         ),
         "validation": ("VALIDATION_FAILED", "独立求解或验证未通过"),
         "final_solution_review": ("FINAL_SOLUTION_REVIEW_MISSING", "最终题面与答案尚未通过同版本的完整评审"),
+        "factual_evidence": ("TASK_PREMISE_FALSE", "题面前提或答案与独立程序核验结果冲突"),
         "markdown": ("MARKDOWN_INVALID", "Markdown或代码围栏不完整"),
         "code_rendering": (
             "CODE_MATERIAL_NOT_RENDERABLE",
