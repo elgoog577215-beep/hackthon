@@ -11,6 +11,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from copy import deepcopy
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -1162,6 +1163,34 @@ def _script_facts(lesson: dict[str, Any]) -> tuple[bool, Availability, SourceSta
     return last_good, availability, source, stale
 
 
+def _superseded_by_teacher_revision(lesson: dict[str, Any], stage: str, task: dict[str, Any],
+                                    availability: Availability) -> bool:
+    """A later usable owner edit is not the unfinished output of an old task.
+
+    Keep the original job in history. Only its association with the *current*
+    asset is superseded; live and paused tasks retain their controls, and an
+    edit with unknown timing or stale sources cannot clear a recovery state.
+    """
+    if availability != Availability.USABLE or str(task.get("status") or "") not in {
+        "failed", "cancelled", "completed", "completed_with_warnings",
+    }:
+        return False
+    fields = {"lesson_plan": ("revisions", "working_revision_id"),
+              "script": ("script_revisions", "working_script_revision_id")}
+    if stage not in fields:
+        return False
+    revisions, pointer = fields[stage]
+    revision = _working_revision(lesson.get(revisions), str(lesson.get(pointer) or "")) or {}
+    if revision.get("generation_source") != "teacher_edit":
+        return False
+    try:
+        edited = datetime.fromisoformat(str(revision.get("created_at") or "").replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(str(task.get("updated_at") or task.get("completed_at") or "").replace("Z", "+00:00"))
+        return edited.utcoffset() is not None and finished.utcoffset() is not None and edited > finished
+    except (ValueError, TypeError):
+        return False
+
+
 def _ppt_facts(lesson: dict[str, Any]) -> tuple[bool, Availability, SourceState, bool]:
     plan_readiness = teacher_lesson_plan_readiness(lesson)
     script_readiness = teacher_lesson_script_readiness(lesson, plan_readiness=plan_readiness)
@@ -1624,6 +1653,7 @@ def compile_course_production_state(
             lesson_task = _latest(
                 item for item in tasks_by_stage[stage]
                 if _lesson_id(item) == lesson_id
+                and not _superseded_by_teacher_revision(lesson, stage, item, facts[1])
             )
             state = _asset_state(
                 stage=stage,

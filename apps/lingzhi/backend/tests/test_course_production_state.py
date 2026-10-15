@@ -112,6 +112,47 @@ def test_completed_latest_lecture_keeps_older_recovery_target_in_stage_identity_
     assert stage["latest_attempt"]["task_ids"] == ["latest-completed"]
 
 
+@pytest.mark.parametrize("stage", ["lesson_plan", "script"])
+def test_later_usable_teacher_edit_supersedes_old_terminal_job_without_erasing_history(stage):
+    lesson = _ready_lesson(1)
+    revisions = "revisions" if stage == "lesson_plan" else "script_revisions"
+    lesson[revisions][0].update(generation_source="teacher_edit", created_at="2026-10-15T10:20:00Z")
+    jobs = {"old-failed": {"id": "old-failed", "type": f"teacher_lesson_{'plan' if stage == 'lesson_plan' else 'script'}_generation",
+                           "lesson_unit_id": "lesson-1", "status": "failed",
+                           "updated_at": "2026-10-15T05:53:00+00:00",
+                           "error": {"code": "lesson_script_output_incomplete", "retryable": True}}}
+    authoring = {"lessons": {"lesson-1": lesson}, "jobs": jobs}
+    before = deepcopy(authoring)
+    result = compile_course_production_state(_course(1), authoring_state=authoring)
+    asset = result["lessons"][0]["stages"][stage]
+    assert asset["display_state"] == "available"
+    assert asset["task_state"] == "idle"
+    assert not asset["task_ids"] and not asset["allowed_actions"]
+    assert result["stages"][stage]["counts"]["available"] == 1
+    assert result["stages"][stage].get("latest_attempt") is None
+    assert authoring == before
+
+
+@pytest.mark.parametrize("status,edit_time,task_time,stale", [
+    ("running", "2026-10-15T10:00:00Z", "2026-10-15T05:00:00Z", False),
+    ("paused", "2026-10-15T10:00:00Z", "2026-10-15T05:00:00Z", False),
+    ("failed", "2026-10-15T05:00:00Z", "2026-10-15T10:00:00Z", False),
+    ("failed", "", "2026-10-15T05:00:00Z", False),
+    ("failed", "2026-10-15T10:00:00Z", "", False),
+    ("failed", "2026-10-15T10:00:00", "2026-10-15T05:00:00Z", False),
+    ("failed", "2026-10-15T10:00:00Z", "2026-10-15T05:00:00Z", True),
+])
+def test_teacher_edit_keeps_live_paused_newer_or_unverifiable_recovery(status, edit_time, task_time, stale):
+    lesson = _ready_lesson(1)
+    lesson["script_revisions"][0].update(generation_source="teacher_edit", created_at=edit_time)
+    if stale:
+        lesson["script_revisions"][0]["source_lesson_plan_revision_id"] = "old-plan"
+    job = {"id": "original", "type": "teacher_lesson_script_generation", "lesson_unit_id": "lesson-1",
+           "status": status, "updated_at": task_time, "error": {"code": "lesson_script_output_incomplete", "retryable": True}}
+    result = compile_course_production_state(_course(1), authoring_state={"lessons": {"lesson-1": lesson}, "jobs": {"original": job}})
+    assert result["lessons"][0]["stages"]["script"]["task_ids"] == ["original"]
+
+
 def test_projection_contract_locks_schema_and_enums():
     result = compile_course_production_state(
         _course(1),
