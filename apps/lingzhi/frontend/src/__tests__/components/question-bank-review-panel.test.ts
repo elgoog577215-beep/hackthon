@@ -19,6 +19,7 @@ const {
 vi.mock('@/utils/http', () => ({
   default: { get, post },
   teacherReadRequestConfig: (config = {}) => config,
+  teacherRequestConfig: (config = {}) => ({ ...config, identityScope: 'teacher' }),
 }))
 vi.mock('@/utils/question-bank-rebuild', () => ({
   resumeQuestionBankRebuild,
@@ -552,6 +553,7 @@ describe('QuestionBankReviewPanel', () => {
         note: '',
         expected_bundle_revision_id: 'qbb-1',
       },
+      { identityScope: 'teacher' },
     )
     expect(get).toHaveBeenCalledTimes(2)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
@@ -738,6 +740,8 @@ describe('QuestionBankReviewPanel', () => {
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('重新选择')
+    expect(wrapper.text()).toContain('题目生成未启动')
+    expect(wrapper.text()).not.toContain('等待生成')
     expect(wrapper.text()).not.toContain('Request failed with status code 422')
   })
 
@@ -1160,6 +1164,7 @@ describe('QuestionBankReviewPanel', () => {
 
     expect(get).toHaveBeenCalledWith(
       '/api/courses/course-1/question-bank/items/revision-1/solution',
+      { identityScope: 'teacher' },
     )
     expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('每次扩容将容量翻倍。')
     expect(wrapper.get('[data-testid="question-fact-evidence"]').text()).toContain('待事实复核')
@@ -1211,6 +1216,7 @@ describe('QuestionBankReviewPanel', () => {
         material_asset_ids: ['material-1'],
         teacher_instruction: '增加一道应用题',
       }),
+      { identityScope: 'teacher' },
     )
   })
 })
