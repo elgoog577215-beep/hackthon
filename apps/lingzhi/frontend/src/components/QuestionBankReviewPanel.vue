@@ -779,6 +779,17 @@
           </div>
         </section>
 
+        <section class="question-generation-step question-quantity-settings" :aria-label="t('questionBank.quantity.title', '生成数量与方式')">
+          <h4>{{ t('questionBank.quantity.title', '生成数量与方式') }}</h4>
+          <label class="question-quantity-count"><span>{{ t('questionBank.quantity.count', '每讲生成数量') }}</span><input v-model.number="questionsPerLesson" data-testid="questions-per-lesson" type="number" min="1" max="20" step="1" :disabled="rebuilding" /></label>
+          <div class="question-quantity-mode">
+            <label><input v-model="appendOnly" type="radio" :value="true" :disabled="rebuilding" />{{ t('questionBank.quantity.append', '追加生成') }}</label>
+            <label><input v-model="appendOnly" type="radio" :value="false" :disabled="rebuilding" />{{ t('questionBank.quantity.fill', '补齐到指定数量') }}</label>
+          </div>
+          <p>{{ appendOnly ? t('questionBank.quantity.appendHint', '每个所选讲次新增指定数量，保留全部已有题目，并检查重复。') : t('questionBank.quantity.fillHint', '每个所选讲次只补足数量差额，已有题目保留，不减少现有题目。') }}</p>
+          <small v-if="!quantityValid" role="alert">{{ t('questionBank.quantity.invalid', '请输入 1 到 20 之间的整数。') }}</small>
+        </section>
+
         <section class="question-generation-step" aria-labelledby="question-intelligence-title">
           <h4 id="question-intelligence-title">{{ t('questionBank.studio.intelligence', '智能编排') }}</h4>
           <div class="question-intelligence-grid">
@@ -806,7 +817,7 @@
               <span>
                 <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
               </span>
-              <input v-model="keepPublished" type="checkbox" />
+              <input type="checkbox" checked disabled />
             </label>
             <label class="question-generation-toggle">
               <span>
@@ -831,7 +842,7 @@
               type="button"
               data-testid="continue-course-question-bank"
               :disabled="loading || rebuilding || !generationScopeReady"
-              @click="rebuild(undefined, true)"
+              @click="rebuild(undefined, undefined, false)"
             >
               <RefreshCw :size="14" :class="{ spin: rebuilding }" />
               {{ rebuilding
@@ -842,7 +853,7 @@
               type="button"
               data-testid="generate-question-bank"
               class="question-generation-primary"
-              :disabled="loading || rebuilding || !generationScopeReady"
+              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid"
               @click="startGeneration"
             >
               <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
@@ -1039,6 +1050,8 @@ const props = withDefaults(defineProps<{
   initialWorkspaceMode: 'bank',
 })
 interface QuestionBankAiCandidate {
+  questions_per_lesson?: number
+  append_only?: boolean
   candidate_id: string
   base_bundle_revision_id: string
   scope: 'course' | 'nodes'
@@ -1114,7 +1127,9 @@ const rangeStartNodeId = ref('')
 const rangeEndNodeId = ref('')
 const selectedChapterNodeIds = ref<string[]>([])
 const retrievalEnabled = ref(false)
-const keepPublished = ref(true)
+const questionsPerLesson = ref(3)
+const appendOnly = ref(true)
+const quantityValid = computed(() => Number.isInteger(questionsPerLesson.value) && questionsPerLesson.value >= 1 && questionsPerLesson.value <= 20)
 const pendingAiCandidate = ref<QuestionBankAiCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 let rebuildAbortController: AbortController | null = null
@@ -1938,14 +1953,11 @@ function handlePaperCreated() {
 }
 
 function startGeneration() {
-  if (!generationScopeReady.value) return
+  if (!generationScopeReady.value || !quantityValid.value) return
   const nodeIds = generationScope.value === 'course'
     ? undefined
     : generationNodeIds.value
-  return rebuild(
-    nodeIds,
-    questionBankMissing.value ? false : keepPublished.value,
-  )
+  return rebuild(nodeIds)
 }
 
 function aiCandidateStorageKey() {
@@ -1994,7 +2006,9 @@ async function requestAiCandidate(value: string) {
     node_ids: scope === 'nodes' ? [...generationNodeIds.value] : [],
     material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
-    mode: keepPublished.value ? 'incremental' : 'full',
+    questions_per_lesson: questionsPerLesson.value,
+    append_only: appendOnly.value,
+    mode: 'incremental',
     retrieval_enabled: retrievalEnabled.value,
     created_at: new Date().toISOString(),
   }
@@ -2022,6 +2036,8 @@ async function resolveAiCandidate(accept: boolean) {
           resume_existing: true,
           retrieval_enabled: candidate.retrieval_enabled,
           teacher_instruction: candidate.teacher_instruction,
+          questions_per_lesson: candidate.questions_per_lesson,
+          append_only: candidate.append_only,
         },
         teacherRequestConfig(),
       )
@@ -2056,7 +2072,7 @@ function focusReferenceSources() {
   workspaceSideRef.value?.querySelector<HTMLElement>('button, [tabindex]')?.focus()
 }
 
-async function rebuild(nodeId?: string | string[], resumeExisting = true) {
+async function rebuild(nodeId?: string | string[], retryJob?: QuestionBankRebuildJob, useQuantity = true) {
   if (!props.courseId || rebuilding.value) return
   const courseId = props.courseId
   rebuildAbortController?.abort()
@@ -2076,11 +2092,16 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         request_id: createUuid(),
         scope: scopedNodeIds.length ? 'nodes' : 'course',
         node_ids: scopedNodeIds,
-        mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
+        mode: useQuantity || scopedNodeIds.length ? 'incremental' : 'full',
         retrieval_enabled: retrievalEnabled.value,
         material_asset_ids: effectiveMaterialAssetIds.value,
         teacher_instruction: '',
-        ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
+        resume_existing: true,
+        ...(useQuantity && (!retryJob || retryJob.questions_per_lesson) ? {
+          questions_per_lesson: retryJob?.questions_per_lesson ?? questionsPerLesson.value,
+          append_only: retryJob?.append_only ?? appendOnly.value,
+          ...(retryJob ? { quantity_batch_id: retryJob.quantity_plan?.batch_id || retryJob.quantity_batch_id || retryJob.job_id } : {}),
+        } : {}),
       },
       {
         maxPolls: scopedNodeIds.length ? 450 : 3600,
@@ -2118,7 +2139,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
 
 async function retryFailedChapters() {
   if (!failedChapterNodeIds.value.length) return
-  await rebuild(failedChapterNodeIds.value, true)
+  await rebuild(failedChapterNodeIds.value, rebuildJob.value || undefined)
 }
 
 function isAbortError(error: any) {
@@ -2712,6 +2733,17 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 
 @media (max-width: 720px) { .question-bank-page-heading { min-height:44px; align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-page-identity { width:100%; }.question-bank-workspace-status { margin-left:auto; font-size:0; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list,.question-generation-range,.question-generation-chapter-grid { grid-template-columns:1fr; }.question-generation-range>svg { display:none; }.question-generation-range>small { margin-top:0; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
+</style>
+
+<style scoped>
+.question-quantity-count { display:flex;align-items:center;justify-content:space-between;gap:12px;color:#334155;font-size:15px; }
+.question-quantity-count input { width:76px;min-height:38px;padding:6px 10px;border:1px solid #d8deeb;border-radius:8px;background:#fff;color:#334155;font:inherit; }
+.question-quantity-mode { display:grid;gap:10px;padding-block:5px; }
+.question-quantity-mode label { display:flex;align-items:center;gap:8px;font-size:15px;color:#475569;cursor:pointer; }
+.question-quantity-mode input { accent-color:#5b57e8; }
+.question-quantity-settings p { margin:0;color:#7c8799;font-size:13px;line-height:1.65; }
+.question-quantity-settings>small { color:#b42318;font-size:13px; }
+.question-quantity-count input:focus-visible { outline:2px solid #6366f1;outline-offset:2px; }
 </style>
 
 

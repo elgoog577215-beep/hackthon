@@ -1735,6 +1735,7 @@ class AssessmentGenerationOrchestrator:
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         quality_lock = asyncio.Lock()
+        quantity_history = historical_questions_for_node(prepared,node_id='') if prepared.get('_assessment_quantity_plan') else None
         slot_parallelism = self.slot_concurrency
         if callable(
             getattr(
@@ -1778,7 +1779,7 @@ class AssessmentGenerationOrchestrator:
                 if not objective:
                     return
                 contracts[node_id] = {}
-                accepted_questions = historical_questions_for_node(
+                accepted_questions = quantity_history if quantity_history is not None else historical_questions_for_node(
                     prepared,
                     node_id=node_id,
                 )
@@ -1858,7 +1859,7 @@ class AssessmentGenerationOrchestrator:
                             blueprint=slot_blueprint,
                             reference_package=reference_package,
                             practice_level=actual_level,
-                            variant_index=PRACTICE_LEVELS.index(actual_level),
+                            variant_index=int(selected_slot.get('variant_index',PRACTICE_LEVELS.index(actual_level))),
                             audit=audit,
                             accepted_questions=accepted_questions,
                             quality_lock=quality_lock,
@@ -2109,7 +2110,7 @@ class AssessmentGenerationOrchestrator:
             if slot is None:
                 continue
             practice_level = slot["practice_level"]
-            variant_index = PRACTICE_LEVELS.index(practice_level)
+            variant_index = int(slot.get('variant_index',PRACTICE_LEVELS.index(practice_level)))
             objective = slot.get("target_objective") or chapter_objective
             if slot.get("assessment_binding_schema"):
                 content_evidence = deepcopy(slot.get("target_content_evidence") or [])

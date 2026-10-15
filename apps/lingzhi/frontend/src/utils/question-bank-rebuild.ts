@@ -16,11 +16,18 @@ export interface QuestionBankRebuildRequest {
   material_asset_ids?: string[]
   mode: 'incremental' | 'full'
   resume_existing?: boolean
+  questions_per_lesson?: number
+  append_only?: boolean
+  quantity_batch_id?: string
   retrieval_enabled?: boolean
   teacher_instruction?: string
 }
 
 export interface QuestionBankRebuildJob {
+  questions_per_lesson?: number
+  append_only?: boolean
+  quantity_batch_id?: string | null
+  quantity_plan?: { batch_id: string }
   job_id: string
   status: QuestionBankRebuildStatus
   progress: number

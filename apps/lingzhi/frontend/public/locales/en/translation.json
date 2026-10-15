@@ -6301,6 +6301,15 @@
     "save": "Save note"
   },
   "questionBank": {
+    "quantity": {
+      "title": "Quantity and generation mode",
+      "count": "Questions per lecture",
+      "append": "Append questions",
+      "fill": "Fill to the target count",
+      "appendHint": "Add this many questions to each selected lecture, retain existing questions, and check for duplicates.",
+      "fillHint": "Generate only the shortfall for each selected lecture. Existing questions are retained and never reduced.",
+      "invalid": "Enter a whole number from 1 to 20."
+    },
     "backToList": "Back to question list",
     "settingsPane": "AI generation settings",
     "collapseSettings": "Collapse generation settings",

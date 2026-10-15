@@ -64,8 +64,13 @@ class QuestionBankRebuildJobRepository:
         teacher_instruction: str = "",
         knowledge_ids: list[str] | None = None,
         knowledge_baseline_revision: str = "",
+        questions_per_lesson: int | None = None,
+        append_only: bool = False,
+        quantity_batch_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
+        if questions_per_lesson is not None and (type(questions_per_lesson) is not int or not 1 <= questions_per_lesson <= 20):
+            raise ValueError('questions_per_lesson must be between 1 and 20')
         normalized_scope = str(scope or "course")
         normalized_mode = str(mode or "incremental")
         normalized_knowledge = sorted({str(value).strip() for value in knowledge_ids or [] if str(value).strip()})
@@ -115,6 +120,7 @@ class QuestionBankRebuildJobRepository:
             {
                 "course_id": normalized_course_id,
                 "request_id": request_key,
+                **({'questions_per_lesson':questions_per_lesson,'append_only':bool(append_only),'quantity_batch_id':quantity_batch_id} if questions_per_lesson is not None else {}),
                 "scope": normalized_scope,
                 **({"knowledge_ids": normalized_knowledge,
                     "knowledge_baseline_revision": knowledge_baseline_revision} if normalized_knowledge else {}),
@@ -148,6 +154,9 @@ class QuestionBankRebuildJobRepository:
                         teacher_instruction=normalized_teacher_instruction,
                         knowledge_ids=normalized_knowledge,
                         knowledge_baseline_revision=knowledge_baseline_revision,
+                        questions_per_lesson=questions_per_lesson,
+                        append_only=append_only,
+                        quantity_batch_id=quantity_batch_id,
                     ):
                         continue
                     active_worker_id = str(
@@ -171,6 +180,9 @@ class QuestionBankRebuildJobRepository:
                 "course_id": normalized_course_id,
                 "request_id": request_id,
                 "request_key": request_key,
+                "questions_per_lesson": questions_per_lesson,
+                "append_only": bool(append_only),
+                "quantity_batch_id": quantity_batch_id,
                 "scope": normalized_scope,
                 "knowledge_ids": normalized_knowledge,
                 "knowledge_baseline_revision": knowledge_baseline_revision,
@@ -396,6 +408,15 @@ class QuestionBankRebuildJobRepository:
             self._write(path, job)
             return deepcopy(job)
 
+    def freeze_quantity_plan(self, job_id: str, plan: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            path, job = self._load_by_job_id(job_id)
+            if job.get('quantity_plan') is not None:
+                return deepcopy(job['quantity_plan'])
+            job['quantity_plan'] = deepcopy(plan)
+            self._write(path, job)
+            return deepcopy(plan)
+
     def freeze_retrieval_package(
         self,
         job_id: str,
@@ -518,9 +539,15 @@ def _same_active_scope(
     teacher_instruction: str,
     knowledge_ids: list[str] | None = None,
     knowledge_baseline_revision: str = "",
+    questions_per_lesson: int | None = None,
+    append_only: bool = False,
+    quantity_batch_id: str | None = None,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
+        and job.get('questions_per_lesson') == questions_per_lesson
+        and bool(job.get('append_only')) == bool(append_only)
+        and job.get('quantity_batch_id') == quantity_batch_id
         and str(job.get("scope") or "") == scope
         and sorted(job.get("knowledge_ids") or []) == (knowledge_ids or [])
         and str(job.get("knowledge_baseline_revision") or "") == knowledge_baseline_revision

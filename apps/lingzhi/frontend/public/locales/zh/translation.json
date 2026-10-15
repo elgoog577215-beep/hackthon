@@ -6301,6 +6301,15 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "quantity": {
+      "title": "生成数量与方式",
+      "count": "每讲生成数量",
+      "append": "追加生成",
+      "fill": "补齐到指定数量",
+      "appendHint": "每个所选讲次新增指定数量，保留全部已有题目，并检查重复。",
+      "fillHint": "每个所选讲次只补足数量差额，已有题目保留，不减少现有题目。",
+      "invalid": "请输入 1 到 20 之间的整数。"
+    },
     "backToList": "返回题目列表",
     "settingsPane": "AI 出题设置",
     "collapseSettings": "收起出题设置",

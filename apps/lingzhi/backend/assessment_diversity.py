@@ -586,7 +586,7 @@ def historical_questions_for_node(
         for item in pool or []:
             if (
                 not isinstance(item, dict)
-                or str(item.get("node_id") or "") != str(node_id)
+                or (not course_data.get('_assessment_quantity_plan') and str(item.get("node_id") or "") != str(node_id))
             ):
                 continue
             identity = str(

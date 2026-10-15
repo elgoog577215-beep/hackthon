@@ -166,8 +166,10 @@ def target_reference_summary(slot: dict, summary: dict) -> dict:
 
 
 def assessment_binding(slot: dict) -> dict:
+    quantity = {key: deepcopy(slot[key]) for key in ('generation_key','variant_index','quantity_schema','quantity_batch_id')
+                if key in slot} if slot.get('quantity_schema') else {}
     if slot.get("assessment_binding_schema") != ATOMIC_ASSESSMENT_SCHEMA:
-        return {}
+        return quantity
     return {
         key: deepcopy(slot.get(key))
         for key in (
@@ -181,6 +183,7 @@ def assessment_binding(slot: dict) -> dict:
             "prerequisite_knowledge_ids",
             "knowledge_revision_refs",
             "knowledge_baseline_revision",
+            *quantity,
         )
     }
 

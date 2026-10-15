@@ -395,6 +395,10 @@ def compile_course_assessment_blueprint(
                 ),
             },
         })
+    if course_data.get('_assessment_quantity_plan'):
+        from assessment_quantity import apply_quantity_plan
+        nodes = apply_quantity_plan(nodes, course_data['_assessment_quantity_plan'])
+        all_slots = [slot for node in nodes for slot in node['slots']]
     distribution = _distribution(all_slots, "question_type")
     largest_share = (
         max(distribution.values()) / len(all_slots)

@@ -131,16 +131,18 @@ class DeterministicAssessmentOrchestrator:
                 "objective_practice",
                 "mastery_check",
             )
-            for practice_level in node_levels:
-                variant_index = (
+            for generation_key in node_levels:
+                slot = slot_for(blueprint,node_id=node_id,practice_level=generation_key)
+                practice_level = slot['practice_level']
+                variant_index = slot.get('variant_index', (
                     "concept_check",
                     "objective_practice",
                     "mastery_check",
-                ).index(practice_level)
+                ).index(practice_level))
                 slot = slot_for(
                     blueprint,
                     node_id=node_id,
-                    practice_level=practice_level,
+                    practice_level=generation_key,
                 )
                 contract = generate_universal_question_contract(
                     prepared,
@@ -247,10 +249,13 @@ class DeterministicAssessmentOrchestrator:
                     and practice_level == self.fail_practice_level
                 ):
                     contract["generation_status"] = "discarded"
-                contracts[node_id][practice_level] = contract
+                from knowledge_assessment import assessment_binding
+                contract.update(assessment_binding(slot))
+                contracts[node_id][generation_key] = contract
                 item_audit = {
                     "node_id": node_id,
                     "practice_level": practice_level,
+                    **({'generation_key':generation_key} if slot.get('generation_key') else {}),
                     "final_decision": (
                         "discard"
                         if contract.get("generation_status")

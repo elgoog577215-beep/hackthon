@@ -320,12 +320,12 @@ describe('QuestionBankReviewPanel', () => {
     const side = wrapper.get('[data-testid="question-settings-pane"]')
     expect(side.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
     expect(wrapper.get('.question-bank-workspace-main').find('[data-testid="question-generation-studio"]').exists()).toBe(false)
-    await side.get('input[type="checkbox"]').setValue(false)
+    await side.get('[data-testid="questions-per-lesson"]').setValue('5')
     await side.get('[data-testid="collapse-question-settings"]').trigger('click')
     expect(side.isVisible()).toBe(false)
     await wrapper.get('[data-testid="expand-question-settings"]').trigger('click')
     expect(wrapper.get('[data-testid="question-settings-pane"]').isVisible()).toBe(true)
-    expect((side.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect((side.get('[data-testid="questions-per-lesson"]').element as HTMLInputElement).value).toBe('5')
     expect(post).not.toHaveBeenCalled()
     expect(runQuestionBankRebuild).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -740,6 +740,9 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
+        resume_existing: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -781,6 +784,9 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: ['mat-primary', 'mat-reference'],
+        questions_per_lesson: 3,
+        append_only: true,
+        resume_existing: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -960,10 +966,12 @@ describe('QuestionBankReviewPanel', () => {
         request_id: expect.any(String),
         scope: 'course',
         node_ids: [],
-        mode: 'full',
+        mode: 'incremental',
         resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -1002,10 +1010,12 @@ describe('QuestionBankReviewPanel', () => {
         request_id: expect.any(String),
         scope: 'course',
         node_ids: [],
-        mode: 'full',
-        resume_existing: false,
+        mode: 'incremental',
+        resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        questions_per_lesson: 3,
+        append_only: true,
         teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
