@@ -78,3 +78,31 @@ def test_unknown_proof_is_retained_for_fact_review_even_when_model_awards_full_m
     assert contract["review_required"]
     assert not contract["solution_validation"]["auto_publish_eligible"]
     assert "facts_unverified" in contract["risk_flags"]
+
+
+async def test_generation_retains_unknown_facts_without_publishing_or_repeating_generation():
+    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    from assessment_orchestrator import AssessmentGenerationOrchestrator
+    model = RepairingModel()
+    prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1":["mastery_check"]})
+    contract = prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
+    assert contract["solution_validation"]["factual_validation"]["status"] == "unverified"
+    assert contract["review_required"]
+    assert model.generate_calls == model.solve_calls == 1
+    assert model.repair_calls == 0
+    assert prepared["_assessment_generation_audit"]["items"][0]["final_decision"] == "teacher_review"
+
+
+def test_review_queue_survives_publication_policy_and_job_finishes_as_review(tmp_path):
+    from question_bank import _mandatory_review_reason
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    item = {"source_type":"generated", "quality_report":{"passed":True},
+            "solution_validation":{"passed":True}, "risk_flags":["facts_unverified"], "review_required":True}
+    assert _mandatory_review_reason(item) == "risk:facts_unverified"
+    repo = QuestionBankRebuildJobRepository(tmp_path)
+    job,_ = repo.create_job("facts", request_id="facts-1", scope="nodes", node_ids=["n1"], mode="incremental", actor_id="teacher")
+    final = repo.complete(job["job_id"], result={"review_queue":{"blocking_count":1,"items":[item]}})
+    assert final["status"] == "waiting_review"
+    assert "待事实复核" in final["message"]
+    assert final["error"] is None
