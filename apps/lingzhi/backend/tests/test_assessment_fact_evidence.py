@@ -197,6 +197,34 @@ def test_generation_wire_offers_computation_plan_and_traceable_premises():
     assert '"premise_bindings"' in prompt
 
 
+def test_empty_optional_computation_plan_does_not_reject_an_ordinary_candidate():
+    from assessment_orchestrator import _contract_from_candidate
+    from backend.tests.test_assessment_generation_orchestrator import _proposal
+    from backend.tests.test_assessment_solution_protocol import example
+    base,_,_=example()
+    candidate={"question_spec":{"stimulus":{"rendered_text":"给定数列。"},"task":{"rendered_text":"计算并说明。"},"computation_plan":{}},
+               "solution":{"validation_mode":"expert_rubric_validator","canonical_answer":{"conclusion":"11"}}}
+    assert _contract_from_candidate(base,candidate)["question_spec"]["task"]["rendered_text"] == "计算并说明。"
+
+
+async def test_last_schema_failure_keeps_the_actual_diagnostic_and_candidate():
+    from assessment_orchestrator import AssessmentGenerationOrchestrator
+    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    class InvalidModel(RepairingModel):
+        async def generate_candidate(self,context):
+            candidate=await super().generate_candidate(context)
+            candidate["question_spec"]["computation_plan"]={"kind":"unregistered_kind"}
+            return candidate
+    prepared=await AssessmentGenerationOrchestrator(model=InvalidModel()).prepare_course(
+        _course(),node_ids=["thermo-1"],practice_levels_by_node={"thermo-1":["mastery_check"]})
+    c=prepared["_assessment_generated_contracts"]["thermo-1"]["mastery_check"]
+    assert c["generation_status"] == "discarded"
+    artifact=c["solution_envelope"]["generation_failure_artifact"]
+    assert artifact["candidate"]["question_spec"]["computation_plan"]["kind"] == "unregistered_kind"
+    assert "invalid_computation_plan" in artifact["message"]
+    assert "invalid_assessment_generation_json_after" not in artifact["message"]
+
+
 async def test_verified_computation_uses_model_only_for_curriculum_not_factual_rejudging():
     from assessment_fact_evidence import build_computed_candidate, computed_independent_solution
     from assessment_orchestrator import AssessmentGenerationOrchestrator, _apply_independent_validation
