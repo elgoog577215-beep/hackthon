@@ -675,7 +675,9 @@
                 <span>{{ sourceLabel(selectedQuestion.source_records) }}</span>
                 <span>{{ validationModeLabel(selectedQuestion.validation_mode) }}</span>
                 <span :data-status="selectedQuestion.quality_report?.passed ? 'passed' : 'failed'">
-                  {{ selectedQuestion.quality_report?.passed
+                  {{ selectedQuestion.lifecycle_status !== 'approved' && selectedQuestion.risk_flags?.includes('facts_unverified')
+                    ? t('questionBank.qualityAwaitingFacts', '结构检查通过，事实待复核')
+                    : selectedQuestion.quality_report?.passed
                     ? t('questionBank.qualityPassed', '质量检查通过')
                     : t('questionBank.qualityFailed', '需要修正') }}
                 </span>

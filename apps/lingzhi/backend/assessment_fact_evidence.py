@@ -311,7 +311,10 @@ def _source_bindings(spec: dict, solution: dict) -> list[dict]:
 
 
 def fact_publication_state(contract: dict) -> str:
-    if (contract.get("question_spec") or {}).get("factual_evidence_schema") != FACT_SCHEMA:
+    marker = (contract.get("question_spec") or {}).get("factual_evidence_schema")
+    if marker is None:
         return "legacy"
+    if marker != FACT_SCHEMA:
+        return "unverified"
     # Recompute at the boundary: a stored/model-written 'verified' flag is not authority.
     return evaluate_fact_evidence(contract.get("question_spec") or {}, contract.get("solution_envelope") or {}).get("status", "unverified")
