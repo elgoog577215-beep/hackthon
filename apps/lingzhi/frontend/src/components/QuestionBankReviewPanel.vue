@@ -1531,7 +1531,7 @@ const rebuildHeadline = computed(() => {
   if (status === 'waiting_review') {
     return t(
       'questionBank.regenerateWaitingReview',
-      '题目已生成，部分高风险题目待审核',
+      '题目已生成，待事实复核',
     )
   }
   if (status === 'failed') {
@@ -2269,6 +2269,7 @@ function itemStatusLabel(item: QuestionBankItem) {
     return t('questionBank.status.rework', '已下架 · 等待重做')
   }
   if (item.lifecycle_status === 'needs_review') {
+    if (item.risk_flags?.includes('facts_unverified')) return t('questionBank.factsPending', '已生成，待事实复核')
     return `${t('questionBank.status.mandatory', '发布前审核')} · ${riskLabel(item.risk_flags)}`
   }
   return item.lifecycle_status
@@ -2282,6 +2283,7 @@ function shortItemStatusLabel(item: QuestionBankItem) {
     return t('questionBank.status.reworkShort', '重做中')
   }
   if (item.lifecycle_status === 'needs_review') {
+    if (item.risk_flags?.includes('facts_unverified')) return t('questionBank.factsPendingShort', '待事实复核')
     return t('questionBank.status.reviewShort', '待审核')
   }
   return item.lifecycle_status
@@ -2302,6 +2304,9 @@ function validationModeLabel(mode = '') {
 function riskLabel(risks: string[] = []) {
   const labels: Record<string, string> = {
     comprehensive_task: t('questionBank.risk.comprehensive', '综合题需确认'),
+    facts_unverified: t('questionBank.factEvidenceMissing', '缺少独立事实依据'),
+    facts_contradicted: t('questionBank.factEvidenceConflict', '事实前提或答案核验不通过'),
+    quality_advisory: t('questionBank.qualityAdvisory', '质量提示'),
     low_parse_confidence: t('questionBank.risk.ocr', '解析置信度低'),
     missing_answer: t('questionBank.risk.answer', '缺少答案'),
     answer_conflict: t('questionBank.risk.conflict', '答案冲突'),

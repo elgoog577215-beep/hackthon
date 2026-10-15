@@ -6300,6 +6300,13 @@
     "save": "Save note"
   },
   "questionBank": {
+    "regenerateWaitingReview": "Questions generated; factual verification pending",
+    "factsPending": "Generated; factual verification pending",
+    "factsPendingShort": "Fact review pending",
+    "factEvidenceMissing": "Independent factual evidence is missing",
+    "factEvidenceConflict": "A premise or answer conflicts with verification",
+    "qualityAdvisory": "Quality note",
+    "exceptionReviewHint": "Independently verified questions are available; {count} questions await publication review",
     "outputTruncated": "Question generation or verification reached the output length limit. Unfinished questions were stopped; published questions are preserved. Continue to generate only the missing questions.",
     "regenerateFailed": "Question generation is incomplete; published questions remain available",
     "readingRegion": "Question content and explanation",

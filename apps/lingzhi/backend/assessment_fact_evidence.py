@@ -206,10 +206,26 @@ def _treap_counterexample(spec: dict) -> dict | None:
             "method":"exact_uniform_root_recurrence"}
 
 
+def _numeric_counterexample(spec: dict) -> dict | None:
+    task = str((spec.get("task") or {}).get("rendered_text") or "")
+    if re.search(r"是否|判断|反驳|找出.*错误", task): return None
+    text = str((spec.get("stimulus") or {}).get("rendered_text") or "").replace("$", "")
+    pattern = r"(?:^|[。；\n])\s*已知\s*([0-9.()+*/\-\s]+?)\s*(>=|<=|==|!=|=|>|<|≥|≤|≠)\s*([0-9.()+*/\-\s]+)(?=[。；\n]|$)"
+    for match in re.finditer(pattern, text):
+        try: left, right = _arithmetic(match[1].strip()), _arithmetic(match[3].strip())
+        except (ValueError, ArithmeticError): continue
+        op = match[2]
+        valid = {"=":left==right,"==":left==right,"!=":left!=right,"≠":left!=right,
+                 ">":left>right,"<":left<right,">=":left>=right,"≥":left>=right,"<=":left<=right,"≤":left<=right}[op]
+        if not valid:
+            return {"claim":match[0].strip(),"left":str(left),"right":str(right),"operator":op,"method":"exact_rational_comparison"}
+    return None
+
+
 def evaluate_fact_evidence(spec: dict, solution: dict) -> dict:
     evidence = {"schema_version":FACT_SCHEMA, "status":"unverified", "reason":"independent_fact_evidence_missing",
                 "question_hash":stable_hash(_public_binding(spec), prefix="factq_")}
-    counterexample = _treap_counterexample(spec)
+    counterexample = _numeric_counterexample(spec) or _treap_counterexample(spec)
     if counterexample:
         return {**evidence,"status":"contradicted","reason":"public_premise_counterexample", "counterexample":counterexample}
     candidate = _bound_computation(spec)

@@ -601,6 +601,7 @@ _PRACTICE_LEVELS = {
 def _published_practice_levels_by_node(
     course: dict[str, Any],
     bundle: dict[str, Any] | None,
+    *, include_fact_review: bool = False,
 ) -> dict[str, set[str]]:
     """Revalidate saved practice slots without requiring a course checkpoint."""
 
@@ -623,11 +624,14 @@ def _published_practice_levels_by_node(
     for item in (bundle or {}).get("items") or []:
         node_id = str(item.get("node_id") or "")
         quality = item.get("quality_report") or {}
+        retained_review = (include_fact_review and item.get("lifecycle_status") == "needs_review"
+                           and item.get("generation_status") == "waiting_review"
+                           and "facts_unverified" in (item.get("risk_flags") or []))
         if (
             node_id not in course_node_ids
             or item.get("assessment_role") != "practice"
-            or item.get("lifecycle_status") != "approved"
-            or item.get("generation_status") != "published"
+            or (item.get("lifecycle_status") != "approved" and not retained_review)
+            or (item.get("generation_status") != "published" and not retained_review)
             or quality.get("schema_version")
             not in {"question_quality_report_v2", "question_quality_report_v3", QUESTION_QUALITY_SCHEMA}
             or quality.get("passed") is not True
@@ -1833,7 +1837,7 @@ async def _execute_question_bank_rebuild(
         and payload.resume_existing and not payload.knowledge_ids
     )
     if preserve_saved_slots:
-        saved_slots = _published_practice_levels_by_node(course_for_bank, previous)
+        saved_slots = _published_practice_levels_by_node(course_for_bank, previous, include_fact_review=True)
         for node_id in campaign_node_ids:
             settled = saved_slots.get(node_id, set()) & set(planned_slot_keys.get(node_id, []))
             published_practice_levels_by_node[node_id] = settled
