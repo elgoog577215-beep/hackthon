@@ -6,6 +6,12 @@ from ppt_layout_execution import FONT_PATH, file_digest, _font
 
 def project_formula(source):
     """Project supported notation before confirmation, keeping raw source intact."""
+    # A standalone artifact can include the exact quote's math delimiters.
+    # Unwrap only a complete matched span before both matrix and scalar paths;
+    # the teaching element and its literal source binding remain unchanged.
+    match = _MATH_SPAN.fullmatch(source.strip())
+    if match:
+        source = next(value for value in match.groups() if value is not None)
     matrix = project_matrix(source)
     if matrix is not None:
         return matrix
