@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuestionBankReviewPanel from '@/components/QuestionBankReviewPanel.vue'
 import { setLocale } from '@/shared/i18n'
 import zhMessages from '@/../public/locales/zh/translation.json'
+import enMessages from '@/../public/locales/en/translation.json'
 
 const { get, post } = vi.hoisted(() => ({
   get: vi.fn(),
@@ -1113,6 +1114,26 @@ describe('QuestionBankReviewPanel', () => {
       }),
       expect.any(Object),
     )
+  })
+
+  it.each([
+    ['zh', '题目已生成，待事实复核'],
+    ['en', 'Questions generated; factual verification pending'],
+  ] as const)('事实待复核显示为完成生成而非失败：%s', async (locale, expected) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
+    await setLocale(locale)
+    runQuestionBankRebuild.mockImplementationOnce(async (_course, _body, options) => {
+      const job = { job_id: 'fact-review', status: 'waiting_review', progress: 100, status_url: '/jobs/fact-review', error: null }
+      options.onUpdate(job)
+      return job
+    })
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', initialWorkspaceMode: 'generate' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="question-bank-progress"]').text()).toContain(expected)
+    expect(wrapper.find('[data-testid="retry-failed-question-bank-chapters"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
   })
 
   it('教师可按需读取私有答案与独立验证差异', async () => {

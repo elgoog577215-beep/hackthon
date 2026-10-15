@@ -14,6 +14,20 @@ def test_model_confidence_cannot_certify_a_false_treap_premise():
     assert report["counterexample"]["claimed"] == "5/6"
 
 
+@pytest.mark.parametrize("claim", ["已知 16384/8=1024。", "已知 2+3+1+5=8。", "已知 1+2+3=9。", "已知 0.8852>=0.90。"])
+def test_false_numeric_premises_have_executable_counterexamples(claim):
+    from assessment_fact_evidence import evaluate_fact_evidence
+    report=evaluate_fact_evidence({"stimulus":{"rendered_text":claim}, "task":{"rendered_text":"据此计算。"}}, {})
+    assert report["status"] == "contradicted"
+    assert report["counterexample"]["method"] == "exact_rational_comparison"
+
+
+def test_question_asking_to_refute_a_false_statement_is_not_itself_rejected():
+    from assessment_fact_evidence import evaluate_fact_evidence
+    report=evaluate_fact_evidence({"stimulus":{"rendered_text":"已知 1+2+3=9。"}, "task":{"rendered_text":"判断上述说法是否正确并反驳。"}}, {})
+    assert report["status"] == "unverified"
+
+
 @pytest.mark.parametrize("plan,expected", [
     ({"kind": "arithmetic", "expression": "16384/8"}, 2048),
     ({"kind": "dynamic_array", "append_count": 4}, 11),
@@ -93,6 +107,18 @@ async def test_generation_retains_unknown_facts_without_publishing_or_repeating_
     assert model.generate_calls == model.solve_calls == 1
     assert model.repair_calls == 0
     assert prepared["_assessment_generation_audit"]["items"][0]["final_decision"] == "teacher_review"
+
+
+async def test_pending_fact_review_is_a_retained_slot_when_resuming():
+    from backend.tests.test_assessment_generation_orchestrator import RepairingModel, _course
+    from assessment_orchestrator import AssessmentGenerationOrchestrator
+    from question_bank import build_question_bank
+    from routers.question_bank import _published_practice_levels_by_node
+    prepared = await AssessmentGenerationOrchestrator(model=RepairingModel()).prepare_course(
+        _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1":["mastery_check"]})
+    bank = build_question_bank(prepared)
+    retained = _published_practice_levels_by_node(prepared, bank, include_fact_review=True)
+    assert "mastery_check" in retained["thermo-1"]
 
 
 def test_review_queue_survives_publication_policy_and_job_finishes_as_review(tmp_path):
