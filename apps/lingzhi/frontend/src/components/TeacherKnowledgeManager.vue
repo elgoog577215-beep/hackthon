@@ -127,7 +127,7 @@
               <p v-if="handout.source_terminology_revision" class="muted">{{ t('knowledgeFirst.termVersion') }} · <code>{{ handout.source_terminology_revision }}</code></p>
               <HandoutReadingGuide :target="handoutRoot" :title="currentLesson?.title || data.title" />
               <HandoutReadingLayout :show-map="conceptSections.some(section => section.nodes.length || section.sourceStatus)">
-              <template #aside><HandoutConceptMap :sections="conceptSections" :target="handoutRoot" /></template>
+              <template #aside><HandoutConceptMap class="handout-reading-aside" :sections="conceptSections" :target="handoutRoot" /></template>
               <section v-for="block in handoutBlocks" :id="`knowledge-handout-${block.block_id}`" :key="block.block_id" class="reading-block">
                 <HandoutContentBlock :content-type="block.content_type || block.role" :title="block.title" :answer-to="block.answer_to"><MarkdownRenderer :content="block.content" /></HandoutContentBlock>
                 <div class="ref-chips"><button v-for="r in block.knowledge_refs" :key="r.knowledge_id" :title="r.revision_id" @click="showSource(handout.source_knowledge_revision, r.knowledge_id)">{{ refName(handout.source_knowledge_revision, r.knowledge_id) }} ↗</button></div>
@@ -391,7 +391,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 </style>
 
 <style scoped>
-.source-evidence{margin-top:20px}.source-evidence-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:14px;color:#7c849b}.source-evidence summary{font-size:15px;cursor:pointer;color:#697496;margin-top:10px}.source-evidence blockquote{overflow-wrap:anywhere}.handout-reader{container-type:inline-size;min-width:0}.handout-reader :deep(.handout-reading-body),.handout-reader :deep(.handout-concept-map){width:100%;box-sizing:border-box}.source-steps{flex-wrap:wrap}
+.source-evidence{margin-top:20px}.source-evidence-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:14px;color:#7c849b}.source-evidence summary{font-size:15px;cursor:pointer;color:#697496;margin-top:10px}.source-evidence blockquote{overflow-wrap:anywhere}.handout-reader{container-type:inline-size;min-width:0}.handout-reader :deep(.handout-reading-body){width:100%;box-sizing:border-box}.source-steps{flex-wrap:wrap}
 </style>
 
 <style scoped>

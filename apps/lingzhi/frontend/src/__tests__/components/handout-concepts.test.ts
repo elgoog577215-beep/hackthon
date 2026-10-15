@@ -24,6 +24,33 @@ beforeEach(async () => {
 })
 
 describe('Handout concept relationships', () => {
+  it('按被外层裁切的滚动区限制侧栏高度，并跟随窗口调整', async () => {
+    const host = document.createElement('div'), scrollport = document.createElement('div')
+    host.style.overflowY = 'hidden'
+    scrollport.style.overflowY = 'auto'
+    let hostHeight = 440
+    host.getBoundingClientRect = () => ({ top: 80 } as DOMRect)
+    scrollport.getBoundingClientRect = () => ({ top: 120 } as DOMRect)
+    Object.defineProperty(host, 'clientHeight', { get: () => hostHeight })
+    Object.defineProperty(scrollport, 'clientHeight', { value: 460 })
+    host.append(scrollport)
+    document.body.append(host)
+    const wrapper = mount(HandoutConceptMap, { attachTo: scrollport, props: { sections: [] }, attrs: { class: 'handout-reading-aside' } })
+    await nextTick()
+    expect((wrapper.element as HTMLElement).style.getPropertyValue('--handout-aside-available-height')).toBe('352px')
+    hostHeight = 340
+    window.dispatchEvent(new Event('resize'))
+    await nextTick()
+    expect((wrapper.element as HTMLElement).style.getPropertyValue('--handout-aside-available-height')).toBe('252px')
+    wrapper.unmount()
+    host.remove()
+  })
+  it('独立工具栏的概念图由外层滚动，不额外限制自身高度', async () => {
+    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading) } })
+    await nextTick()
+    expect((wrapper.element as HTMLElement).style.getPropertyValue('--handout-aside-available-height')).toBe('')
+    wrapper.unmount()
+  })
   it.each(['zh', 'en'] as const)('shows reference coverage and gaps in %s without calling it mastery', async locale => {
     await setLocale(locale)
     const section = buildHandoutConceptSections(plans, reading)[0]!

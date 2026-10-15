@@ -1,5 +1,5 @@
 <template>
-  <aside class="handout-concept-map" :aria-label="tr('title')" data-handout-print-exclude>
+  <aside ref="panel" class="handout-concept-map" :aria-label="tr('title')" :style="availableHeight == null ? undefined : { '--handout-aside-available-height': `${availableHeight}px` }" tabindex="0" data-handout-print-exclude>
     <header><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
     <nav v-if="sections.length > 1" class="concept-sections" :aria-label="tr('sections')">
       <button v-for="section in sections" :key="section.id" :aria-pressed="current?.id === section.id" @click="chooseSection(section.id)"><MathText :content="section.title" /></button>
@@ -70,6 +70,7 @@ const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElem
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)
+const panel = ref<HTMLElement | null>(null), availableHeight = ref<number | null>(null)
 const markerId = `handout-arrow-${useId().replace(/[^\w-]/g, '')}`
 const current = computed(() => props.sections.find(section => section.id === currentId.value) || props.sections[0])
 const layers = computed(() => current.value ? conceptLayers(current.value) : [])
@@ -109,6 +110,25 @@ function jump(anchor: string) {
 }
 function chooseSection(id: string) { currentId.value = id; jump(current.value?.anchor || '') }
 function selectConcept(node: HandoutConcept) { selected.value = node.id; if (node.anchor) jump(node.anchor) }
+// A reading aside lives inside a scrolling workbench, not necessarily the viewport.
+function fitReadingAside() {
+  if (!panel.value?.classList.contains('handout-reading-aside')) return
+  let top = 0, bottom = window.innerHeight, foundScrollport = false
+  for (let parent = panel.value.parentElement; parent; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY
+    if (!foundScrollport) {
+      if (!/^(auto|scroll)$/.test(overflow)) continue
+      foundScrollport = true
+    }
+    if (!/^(auto|scroll|hidden|clip)$/.test(overflow)) continue
+    const rect = parent.getBoundingClientRect()
+    const contentTop = rect.top + parent.clientTop
+    top = Math.max(top, contentTop)
+    bottom = Math.min(bottom, contentTop + parent.clientHeight)
+  }
+  // Keep the same 24px clearance as the sticky reading layout on both ends.
+  availableHeight.value = Math.max(0, Math.floor(bottom - top - 48))
+}
 function draw() {
   const root = graph.value
   if (!root || !current.value) { paths.value = []; return }
@@ -129,7 +149,7 @@ function draw() {
     return [{ relation, path, x: (x1 + x2) / 2, y: lateral ? y1 - 29 : middle - 5 }]
   })
 }
-let frame = 0, observer: ResizeObserver | undefined
+let frame = 0, observer: ResizeObserver | undefined, panelObserver: ResizeObserver | undefined
 function followReading() {
   if (!props.target) return
   const pane = props.target.closest('.pane-body, .script-document')
@@ -141,16 +161,22 @@ function followReading() {
   }
   currentId.value = id
 }
-function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { followReading(); draw() }) }
+function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { fitReadingAside(); followReading(); draw() }) }
 watch(() => props.sections, async () => { await nextTick(); followReading(); draw() }, { deep: true, immediate: true })
 watch(current, async (value, previous) => { if (value?.id !== previous?.id) selected.value = ''; await nextTick(); draw() })
 watch(graph, node => { observer?.disconnect(); if (node) observer?.observe(node) })
-onMounted(() => { observer = new ResizeObserver(draw); if (graph.value) observer.observe(graph.value); window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule); draw() })
-onBeforeUnmount(() => { observer?.disconnect(); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); cancelAnimationFrame(frame) })
+onMounted(() => {
+  panelObserver = new ResizeObserver(fitReadingAside)
+  if (panel.value?.classList.contains('handout-reading-aside')) {
+    for (let parent = panel.value.parentElement; parent; parent = parent.parentElement) panelObserver.observe(parent)
+  }
+  fitReadingAside()
+  observer = new ResizeObserver(draw); if (graph.value) observer.observe(graph.value); window.addEventListener('scroll', schedule, true); window.addEventListener('resize', schedule); draw() })
+onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); cancelAnimationFrame(frame) })
 </script>
 
 <style scoped>
-.handout-concept-map{color:#354052;font:15px/1.65 var(--handout-sans);border:1px solid #e1ddec;background:#fbfafc;min-width:0;overflow:hidden}
+.handout-concept-map{color:#354052;font:15px/1.65 var(--handout-sans);border:1px solid #e1ddec;background:#fbfafc;min-width:0;overflow:auto;overflow-wrap:anywhere}
 .handout-concept-map header{padding:20px 20px 14px;border-bottom:1px solid #e7e2ee}.concept-eyebrow{color:#806298;font-size:12px;letter-spacing:1.5px;font-weight:700}.handout-concept-map h3{font:700 21px/1.5 var(--handout-sans);margin:4px 0 8px;color:#403254}.handout-concept-map header p{margin:0;color:#687182;font-size:15px}.concept-section-title{padding:16px 20px 0;display:flex;justify-content:space-between;gap:10px;font-weight:700}.concept-section-title>span:last-child{font-weight:400;color:#806298;white-space:nowrap;font-size:13px}.concept-sections{padding:12px;display:flex;flex-wrap:wrap;gap:6px}.concept-sections button{background:#fff;border:1px solid #e0d8ea;padding:5px 9px;font:15px/1.5 var(--handout-sans);color:inherit;cursor:pointer}.concept-sections button[aria-pressed=true]{background:var(--lz-action-bg);color:var(--lz-action-text);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);box-shadow:var(--lz-action-shadow)}
 .concept-graph{position:relative;padding:40px 18px 16px}.concept-edges{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}.concept-edges marker path{fill:#9575b5}.concept-edge>path{fill:none;stroke:#9575b5;stroke-width:1.6}.concept-edge.is-contrasts_with>path{stroke:#a96172;stroke-dasharray:4 3}.concept-edge.is-equivalent_to>path{stroke:#488889}.concept-edge text{font:13px var(--handout-sans);fill:#6e4a9c;paint-order:stroke;stroke:#fbfafc;stroke-width:5px;text-anchor:middle}.concept-edge.is-muted{opacity:.17}.concept-row{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:46px 48px;margin-bottom:54px}.concept-row:last-child{margin-bottom:0}.concept-row button{position:relative;border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);background:var(--lz-action-bg);padding:9px 10px;max-width:100%;font:600 15px/1.5 var(--handout-sans);color:var(--lz-action-text);cursor:pointer;overflow-wrap:anywhere;box-shadow:var(--lz-action-shadow)}.concept-row button:hover,.concept-row button.selected{background:var(--lz-action-bg);color:var(--lz-action-text);border-color:var(--lz-action-border-hover)}.concept-row button.external{border-style:dashed}.concept-row small{display:block;font-size:12px;font-weight:400}
 .concept-detail{margin:0 16px 16px;padding:14px 16px;background:#f0ebf7;border-left:3px solid #6e4a9c}.concept-detail p{margin:8px 0;font:15px/1.65 var(--handout-sans)}.concept-jump,.concept-relations-heading button{border:0;background:none;padding:4px 0;font:15px/1.6 var(--handout-sans);color:#6e4a9c;cursor:pointer}.concept-relations{padding:0 20px 18px}.concept-relations-heading{display:flex;justify-content:space-between;align-items:center;margin:10px 0}.concept-relations h4{font:700 16px/1.6 var(--handout-sans);margin:0}.concept-relations article{padding:14px 0;border-top:1px solid #e6e1ec}.concept-pair{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:650}.concept-pair>span:nth-child(2){color:#806298}.concept-relation-type{display:inline-block;color:#6e4a9c;font-size:13px;margin:4px 0}.concept-relations article p{margin:4px 0;font:15px/1.65 var(--handout-sans)}.concept-relations b{font-weight:650;margin-right:6px}.concept-relations ol{margin:8px 0;padding-left:20px;font-size:15px}.concept-source{color:#737c8b;font-size:13px!important}.concept-empty{padding:12px 20px;color:#737c8b;font-size:15px}.concept-detail .concept-empty{padding:0}.handout-concept-map footer{padding:12px 20px;border-top:1px solid #e7e2ee;color:#737c8b;font-size:13px}.handout-concept-map button:focus-visible{outline:3px solid #328dcc;outline-offset:3px}@media print{.handout-concept-map{display:none}}
@@ -159,6 +185,6 @@ onBeforeUnmount(() => { observer?.disconnect(); window.removeEventListener('scro
 .concept-coverage summary{cursor:pointer;font-weight:700}.concept-coverage p{color:#685d74;font-size:15px;line-height:1.6}
 .coverage-table-wrap{overflow:auto}.concept-coverage table{width:100%;border-collapse:collapse;font-size:15px}.concept-coverage th,.concept-coverage td{padding:9px 5px;border-bottom:1px solid #e5dfeb;text-align:left;vertical-align:top}
 .concept-coverage th{font-weight:500}.concept-coverage td{text-align:center}.concept-coverage small{display:block;color:#73526e;font-size:13px}.concept-coverage button{border:0;background:transparent;color:#654386;font:inherit;text-align:left;padding:0;cursor:pointer}
-.handout-concept-map button:focus-visible,.concept-coverage summary:focus-visible{outline:3px solid #7953a0;outline-offset:3px}
+.handout-concept-map:focus-visible,.handout-concept-map button:focus-visible,.concept-coverage summary:focus-visible{outline:3px solid #7953a0;outline-offset:3px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 </style>
