@@ -366,6 +366,7 @@ def test_api_retains_atomic_fact_review_slots_and_checkpoints_exact_ids(monkeypa
     assert checkpoint["published_practice_levels_by_node"]["thermo-1"] == [bank["items"][0]["generation_key"]]
     assert bank["generation_audit"]["planned_item_count"] == 1
     assert bank["generation_audit"]["published_item_count"] == 0
+    assert bank["generation_audit"]["retained_review_item_count"] == 1
     tasks = repo.asset_repository.load_bundle("course-api")["assets"]["questions"]
     assert tasks == []
 

@@ -2104,7 +2104,8 @@ async def _execute_question_bank_rebuild(
                 ASSESSMENT_PROMPT_TEMPLATE_VERSION
             ),
             "planned_item_count": sum(len(planned_slot_keys.get(n, [])) for n in campaign_node_ids),
-            "published_item_count": len(audit_by_slot),
+            "published_item_count": sum(item.get('final_decision') == 'publish' for item in audit_by_slot.values()),
+            "retained_review_item_count": sum(item.get('final_decision') == 'teacher_review' for item in audit_by_slot.values()),
             "failure_count": 0,
             "items": list(audit_by_slot.values()),
             "chapter_publication": True,
