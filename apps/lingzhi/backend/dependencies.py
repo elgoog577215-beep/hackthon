@@ -71,11 +71,25 @@ def get_teacher_lesson_authoring_repository():
 
 async def get_course_or_404(course_id: str) -> dict:
     """获取课程数据，如果不存在则抛出404"""
+    from course_exchange import remote_course_context
+    remote = remote_course_context.get()
+    if remote and remote.get("course_id") == course_id:
+        from copy import deepcopy
+        return deepcopy(remote)
     try:
         repository = get_course_document_repository()
         data = await run_in_threadpool(repository.load_course_view, course_id)
     except CourseDocumentNotFound:
         raise HTTPException(status_code=404, detail="Course not found")
+    from course_learning_access import learner_request_course
+    if learner_request_course.get() == course_id:
+        from course_learning_projection import public_course
+        disclosed = await run_in_threadpool(public_course, data)
+        data = {**data, **disclosed}
+        tree = data.get("course_knowledge_base") or {}
+        if isinstance(tree, dict) and tree.get("source_mode") == "handouts" and tree.get("knowledge_points"):
+            from handout_knowledge import visible_handout_tree
+            data["course_knowledge_base"] = visible_handout_tree(tree, disclosed["course_document"], data.get("teacher_handouts") or {})
     return data
 
 

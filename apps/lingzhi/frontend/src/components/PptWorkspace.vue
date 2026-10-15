@@ -1791,9 +1791,9 @@ onUnmounted(() => {
 .ppt-workspace-state__task-actions { display:flex; gap:8px; margin-top:14px; }
 .ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }
 .ppt-workspace-state__back { position:absolute; top:22px; left:22px; width:40px; height:40px; display:grid; place-items:center; border:1px solid #d4dae4; border-radius:10px; color:#526174; background:#fff; cursor:pointer; }
-.ppt-workspace-state__build { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
+.ppt-workspace-state__build { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:0 18px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); font-size:13px; font-weight:700; cursor:pointer; }
 .ppt-workspace-state__build:disabled { cursor:not-allowed; opacity:.5; box-shadow:none; }
-.ppt-workspace-state__upgrade-logic { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:22px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
+.ppt-workspace-state__upgrade-logic { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:22px; padding:0 18px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); font-size:13px; font-weight:700; cursor:pointer; }
 .ppt-workspace-state__upgrade-logic:disabled { cursor:wait; opacity:.65; box-shadow:none; }
 .ppt-workspace-state__logic-error { color:#a12828 !important; }
 .ppt-workspace-state__engine { display:inline-flex; align-items:center; min-height:28px; padding:0 10px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:11px; font-weight:800; }
@@ -1819,7 +1819,7 @@ onUnmounted(() => {
 .ppt-workspace-preparation h2{font-size:20px;margin:0 0 12px;color:#27344a}
 .ppt-workspace-preparation p{font-size:15px;line-height:1.7;margin:0 0 20px}
 .ppt-workspace-preparation button{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:8px 16px;border:1px solid #d7ddeb;border-radius:8px;background:#fff;color:#3f4880;cursor:pointer;font-size:15px}
-.ppt-workspace-preparation button.is-primary{background:#5141d9;border-color:#5141d9;color:#fff}
+.ppt-workspace-preparation button.is-primary{background:var(--lz-action-bg);border-color:var(--lz-action-border);color:var(--lz-action-text);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);box-shadow:var(--lz-action-shadow)}
 .ppt-workspace-preparation button:disabled{opacity:.55;cursor:not-allowed}
 .ppt-workspace-preparation button:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
 .ppt-workspace-preparation.is-generator{padding:0;overflow:hidden}

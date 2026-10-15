@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import asyncio
 import hashlib
 import json
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -21,6 +22,7 @@ from learning_records import learning_record_repository, enrich_record_payload, 
 from teaching_diagrams import teaching_diagram_prompt
 
 router = APIRouter(prefix="/study-dialogues", tags=["study_dialogues"])
+STUDY_RESPONSE_TIMEOUT_SECONDS = 120
 
 
 class OpenDialogue(BaseModel):
@@ -159,6 +161,29 @@ async def open_dialogue(course_id: str, payload: OpenDialogue, request: Request)
                                   title=quote[:35] or str(node.get("node_name", "")), greeting=greeting)
 
 
+def _study_response_json(raw: str):
+    text = raw.strip()
+    fence = re.fullmatch(r'```(?:json)?[ \t]*\r?\n(.*)\r?\n```', text, re.S)
+    if fence:
+        text = fence[1].strip()
+    # Some Qwen responses wrap JSON or leave LaTeX backslashes unescaped.
+    # Repair only the decoder's exact invalid escape; preserve already valid
+    # escapes and reject other damage, incomplete objects and extra prose.
+    for _ in range(128):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            if exc.msg not in {'Invalid \\escape', 'Invalid \\uXXXX escape'}:
+                raise
+            position = exc.pos
+            if text[position] == 'u' and position and text[position - 1] == '\\':
+                position -= 1
+            if text[position] != '\\':
+                raise
+            text = text[:position] + '\\' + text[position:]
+    raise ValueError('too many invalid JSON escapes')
+
+
 async def _model(data, *, action, language):
     from ai_service import ai_service
     instruction = (
@@ -189,10 +214,17 @@ async def _model(data, *, action, language):
         raw = await asyncio.wait_for(ai_service._call_llm(
             json.dumps(data, ensure_ascii=False), system_prompt=instruction, json_mode=True,
             max_tokens=2200, max_attempts=1, retry_count=1, reject_truncated=True,
-            raise_on_failure=True, request_timeout_seconds=50), timeout=55)
-        result = json.loads(raw or "")
+            raise_on_failure=True, request_timeout_seconds=STUDY_RESPONSE_TIMEOUT_SECONDS),
+            timeout=STUDY_RESPONSE_TIMEOUT_SECONDS + 5)
+        result = _study_response_json(raw or "")
         if not isinstance(result, dict):
             raise ValueError("invalid output")
+        if (action == "discuss" and "draft" not in result
+                and isinstance(result.get("reply"), str) and result["reply"].strip()):
+            # A complete reply can omit a note update, especially for a
+            # clarification. Keep the existing draft; never invent one or
+            # repeat the model request merely to supply this optional update.
+            result["draft"] = None
         if action == "check":
             if (result.get("passed") is not None and type(result["passed"]) is not bool) or not isinstance(result.get("feedback"), str):
                 raise ValueError("invalid check")

@@ -174,6 +174,17 @@ describe('QuestionBankReviewPanel', () => {
     })
   })
 
+  it('allows keyboard users to focus the question reading region and scroll its full contents', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' }, attachTo: document.body })
+    await flushPromises()
+    const reader = wrapper.get('.question-reader__scroll')
+    expect(reader.attributes('tabindex')).toBe('0')
+    expect(reader.attributes('aria-label')).toBeTruthy()
+    ;(reader.element as HTMLElement).focus()
+    expect(document.activeElement).toBe(reader.element)
+    wrapper.unmount()
+  })
+
   it('用同一个课程题库外壳承载管理、导入和 AI 生成任务', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },

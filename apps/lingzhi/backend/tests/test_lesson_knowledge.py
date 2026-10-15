@@ -19,6 +19,83 @@ def one_lesson_response(lid, name=None):
     return data
 
 
+@pytest.mark.parametrize('kind', ['teacher_lesson_script_generation', 'teacher_lesson_plan_generation', 'course_knowledge_tree_generation'])
+def test_other_lecture_generation_does_not_block_selected_tree(svc, kind):
+    handouts(svc)
+    other = svc.authoring.create_job('c-pilot', 'tree' if kind == 'course_knowledge_tree_generation' else 'memory',
+        job_type=kind, request_id='other', source_outline_revision_id='outline')
+    svc.authoring.update_job('c-pilot', other['id'], status='running', knowledge_lesson_id='memory' if kind == 'course_knowledge_tree_generation' else '')
+    view = svc.view('c-pilot', source_mode='handouts')
+    job, created = svc.start('c-pilot', 'tree', 'cpu-new', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    assert created and job['knowledge_lesson_id'] == 'cpu'
+    assert svc.authoring.get_job('c-pilot', other['id'])['status'] == 'running'
+
+
+@pytest.mark.parametrize('scope', ['cpu', 'whole-course'])
+def test_same_lecture_and_course_wide_jobs_still_block_and_are_visible(svc, scope):
+    handouts(svc)
+    blocker = svc.authoring.create_job('c-pilot', scope, job_type='teacher_lesson_script_generation', request_id='blocker')
+    svc.authoring.update_job('c-pilot', blocker['id'], status='running', progress=35)
+    view = svc.view('c-pilot', source_mode='handouts')
+    with pytest.raises(CourseDocumentConflict):
+        svc.start('c-pilot', 'tree', 'blocked', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    assert view['active_jobs'][0]['id'] == blocker['id']
+    option = next(l for l in view['lesson_options'] if l['lesson_id'] == 'cpu')
+    assert option['blocking_job_ids'] == [blocker['id']]
+    svc.authoring.update_job('c-pilot', blocker['id'], status='failed')
+    view = svc.view('c-pilot', source_mode='handouts')
+    assert view['active_jobs'] == []
+    assert next(l for l in view['lesson_options'] if l['lesson_id'] == 'cpu')['blocking_job_ids'] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed_lesson', ['cpu', 'memory'])
+async def test_parallel_handout_completion_only_invalidates_its_own_tree(svc, changed_lesson):
+    handouts(svc)
+    async def call(*args, **kwargs):
+        state = svc.authoring.load('c-pilot')
+        state['lessons'][changed_lesson]['script_revisions'][0]['sections'][0]['blocks'][0]['content'] += ' 已更新。'
+        svc.authoring._save(state)
+        return json.dumps(one_lesson_response('cpu'), ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test', client=None)
+    view = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'source-race', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+    await svc.run('c-pilot', job['id'])
+    result = svc.authoring.get_job('c-pilot', job['id'])
+    assert result['status'] == ('failed' if changed_lesson == 'cpu' else 'completed')
+
+
+def test_same_lesson_duplicate_request_reuses_the_job(svc):
+    handouts(svc)
+    view = svc.view('c-pilot', source_mode='handouts')
+    args = ('c-pilot', 'tree', 'same-request', view['knowledge_revision'], view['document_revision'])
+    first, created = svc.start(*args, source_mode='handouts', lesson_id='cpu')
+    second, repeated = svc.start(*args, source_mode='handouts', lesson_id='cpu')
+    assert created and not repeated and first['id'] == second['id']
+    with pytest.raises(CourseDocumentConflict):
+        svc.start('c-pilot', 'tree', 'another-request', view['knowledge_revision'], view['document_revision'], source_mode='handouts', lesson_id='cpu')
+
+
+def test_published_course_reader_cannot_see_owner_blocking_jobs(svc):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
+    from routers.knowledge_first import router
+    handouts(svc)
+    svc.storage.update_course_data('c-pilot', lambda raw: {**raw, 'is_published': True})
+    blocker = svc.authoring.create_job('c-pilot', 'cpu', job_type='teacher_lesson_script_generation', request_id='private')
+    svc.authoring.update_job('c-pilot', blocker['id'], status='running')
+    app = FastAPI()
+    app.include_router(router, prefix='/api')
+    app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
+    with TestClient(app) as client:
+        response = client.get('/api/courses/c-pilot/knowledge-first?source_mode=handouts', headers={'X-User-Id': 'reader'})
+    assert response.status_code == 200
+    assert response.json()['active_jobs'] == response.json()['blocking_job_ids'] == response.json()['jobs'] == []
+    assert not response.json()['can_edit']
+
+
 @pytest.mark.asyncio
 async def test_single_lesson_generation_is_scoped_and_preserves_other_lesson_and_history(svc):
     handouts(svc)

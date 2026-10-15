@@ -674,6 +674,10 @@ def _legacy_required_parts(question_type: str) -> list[str]:
 
 def project_practice_contracts(assets: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(assets)
+    if result.get("exchange_release_id"):
+        # Published task inputs are already compiled by their sole publisher.
+        # Never infer new grading contracts from a public question projection.
+        return result
     mastery_bindings = {
         str(revision_id)
         for criterion in result.get("mastery_criteria") or []

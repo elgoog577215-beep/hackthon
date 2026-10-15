@@ -18,13 +18,12 @@ describe('purposeful motion contract', () => {
     expect(workspace).toContain('<Transition name="workspace-surface" mode="out-in">')
   })
 
-  it('keeps the create dialog entrance subtle and honors reduced motion everywhere', () => {
+  it('honors reduced motion across the calendar, workspaces and native create dialog', () => {
     const app = source('App.vue')
     const home = source('views/TeacherTeachingCalendarView.vue')
     const workspace = source('views/CourseWorkspaceView.vue')
     const create = source('views/TeacherCourseCreateView.vue')
 
-    expect(create).toContain('animation:course-create-dialog-in .24s')
     for (const target of [app, home, workspace, create]) {
       expect(target).toMatch(/prefers-reduced-motion:\s*reduce/)
     }

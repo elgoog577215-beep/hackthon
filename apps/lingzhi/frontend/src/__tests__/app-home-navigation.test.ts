@@ -20,9 +20,10 @@ vi.mock('@/stores/generation', () => ({
 describe('App home navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('VITE_STUDY_APP_URL', '')
   })
 
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
   it.each([false, true])('keeps home navigation correct across routes (school deployment: %s)', async (schoolDeployment) => {
     vi.spyOn(http, 'isQizhiAuthRequired').mockReturnValue(schoolDeployment)

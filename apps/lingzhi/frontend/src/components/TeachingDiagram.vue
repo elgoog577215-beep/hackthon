@@ -33,6 +33,19 @@
         }}
         <span>{{ error }}</span>
       </p>
+      <section
+        v-if="svg && readingRows.length"
+        class="diagram-labels"
+        :aria-label="tr('图例与数据', 'Labels and data')"
+      >
+        <h6>{{ tr("图例与数据", "Labels and data") }}</h6>
+        <dl tabindex="0" :aria-label="tr('图例与数据', 'Labels and data')">
+          <div v-for="(row, index) in readingRows" :key="index">
+            <dt>{{ row.label }}</dt>
+            <dd v-if="row.value">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </section>
       <figcaption>
         <p>{{ spec?.summary || fallback.summary }}</p>
         <p v-if="spec?.source || fallback.source" class="diagram-source">
@@ -94,6 +107,7 @@
       <dialog
         ref="largeDialog"
         class="diagram-dialog"
+        :aria-label="spec?.title"
         @click="closeOnBackdrop"
         @close="onClose"
       >
@@ -121,6 +135,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useId } from "vue";
 import { activeLocale } from "../shared/i18n";
+import { diagramReadingRows } from "../utils/teaching-diagram-layout";
 import {
   parseTeachingDiagram,
   teachingDiagramSvg,
@@ -154,6 +169,9 @@ const spec = computed(() => result.value.spec),
   error = computed(() => result.value.error);
 const largeSvg = computed(() =>
   spec.value ? teachingDiagramSvg(spec.value, id + "-large") : "",
+);
+const readingRows = computed(() =>
+  spec.value ? diagramReadingRows(spec.value) : [],
 );
 const fallback = computed(() => {
   try {
@@ -189,7 +207,10 @@ function onClose() {
   trigger?.focus();
 }
 function closeOnBackdrop(event: MouseEvent) {
-  if (event.target === largeDialog.value) largeDialog.value?.close();
+  const dialog = largeDialog.value;
+  if (!dialog || event.target !== dialog) return;
+  const rect = dialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
 }
 function download() {
   if (!svg.value) return;
@@ -215,6 +236,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  container-type: inline-size;
   border: 1px solid #dbe3ed;
   background: white;
   min-width: 0;
@@ -257,6 +279,7 @@ button {
 }
 button:focus-visible,
 summary:focus-visible,
+.diagram-labels dl:focus-visible,
 .diagram-scroll:focus-visible {
   outline: 3px solid #328dcc;
   outline-offset: 2px;
@@ -273,9 +296,40 @@ summary:focus-visible,
 }
 .diagram-scroll :deep(svg) {
   display: block;
+  margin-inline: auto;
   max-width: 100%;
   height: auto;
   flex: none;
+}
+.diagram-labels {
+  display: none;
+  padding: 10px 16px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.diagram-labels h6 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #475569;
+}
+.diagram-labels dl {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.diagram-labels dl > div {
+  padding: 6px 0;
+  border-top: 1px solid #eef2f7;
+}
+.diagram-labels dt {
+  font-weight: 600;
+}
+.diagram-labels dd {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  color: #475569;
 }
 figcaption {
   padding: 10px 18px;
@@ -352,10 +406,48 @@ figcaption p {
 .diagram-dialog .diagram-scroll :deep(svg) {
   max-width: none;
 }
+@container (max-width: 600px) {
+  header {
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  h5 {
+    font-size: 16px;
+  }
+  .diagram-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+  button {
+    padding: 6px 8px;
+    font-size: 15px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .diagram-scroll {
+    padding: 8px;
+  }
+  .diagram-labels {
+    display: block;
+  }
+  figcaption {
+    padding: 10px 14px;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .diagram-data {
+    margin-inline: 14px;
+  }
+}
 @media print {
   .diagram-tools,
   .diagram-data,
   .diagram-dialog {
+    display: none;
+  }
+  .diagram-labels {
     display: none;
   }
   .diagram-scroll {

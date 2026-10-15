@@ -1,9 +1,12 @@
 import { taskProgressStep } from '@/utils/course-progress'
 import { createUuid } from '@/utils/client-id'
+import { getStudyIdentity, getStudyToken } from '../utils/study-identity'
 import { defineStore } from 'pinia'
 import http, {
   activeIdentityHeaders,
   identityReadRequestConfig,
+  getIdentityForScope,
+  getQizhiAccessToken,
   learnerIdentityHeaders,
   teacherRequestConfig,
   withApiBase,
@@ -16,6 +19,7 @@ import { type CourseGenerationOptions } from '@/shared/prompt-config'
 import { useNoteStore } from './notes'
 import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
+import { toAppError } from '../utils/app-error'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
 import {
@@ -68,7 +72,12 @@ const downloadBlob = (blob: Blob, filename: string) => {
 type CourseProjection = 'published' | 'generation_preview' | 'teacher_lesson_summary'
 type CourseListSurface = 'student' | 'teacher'
 
-const courseListRequests = new WeakMap<object, Map<CourseListSurface, Promise<void>>>()
+const courseListRequests = new WeakMap<object, Map<string, Promise<void>>>()
+const courseListContexts = new WeakMap<object, string>()
+const courseListContext = (surface: CourseListSurface) => {
+    const scope = surface === 'teacher' ? 'teacher' : 'learner'
+    return `${surface}:${getIdentityForScope(scope)}:${getQizhiAccessToken() || (scope === 'learner' ? getStudyToken() : '')}`
+}
 
 function courseListRequestMap(store: object) {
     let requests = courseListRequests.get(store)
@@ -157,6 +166,7 @@ export const useCourseStore = defineStore('course', {
     currentGenerationQualityReport: null as Record<string, unknown> | null,
     currentTeachingPlan: null as CourseTeachingPlanProjection | null,
     loading: false,
+    courseLoadError: null as string | null,
     courseListError: null as string | null,
 
     // --- Annotations（fetchCourseAnnotations 桥接 Notes 系统） ---
@@ -265,12 +275,15 @@ export const useCourseStore = defineStore('course', {
 
     async fetchCourseList(options: { surface?: CourseListSurface; background?: boolean } = {}) {
         const surface = options.surface || 'student'
+        const context = courseListContext(surface)
+        if (courseListContexts.has(this) && courseListContexts.get(this) !== context) this.courseList = []
+        courseListContexts.set(this, context)
         if (!options.background) {
             this.loading = true
             this.courseListError = null
         }
         const requests = courseListRequestMap(this)
-        const pending = requests.get(surface)
+        const pending = requests.get(context)
         if (pending) {
             try {
                 await pending
@@ -281,12 +294,17 @@ export const useCourseStore = defineStore('course', {
         }
         const request = (async () => {
             try {
-                const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+                const authorizedStudent = surface === 'student' && getStudyIdentity()?.role === 'student'
+                const endpoint = surface === 'teacher' ? '/api/teacher/courses' : authorizedStudent ? '/api/study/courses' : '/api/courses'
                 const res = await http.get(endpoint, identityReadRequestConfig(
                     surface === 'teacher' ? 'teacher' : 'learner',
                     { silentError: options.background === true },
                 ))
-                this.courseList = res.data
+                if (courseListContexts.get(this) !== context || courseListContext(surface) !== context) return
+                this.courseList = authorizedStudent ? res.data.map((course: { course_id: string; title: string; section_count: number }) => ({
+                    course_id: course.course_id, course_name: course.title, node_count: course.section_count,
+                    generation_status: 'completed', created_at: '', updated_at: '',
+                })) : res.data
                 if (surface === 'teacher') {
                     const next = { ...this.teacherProductionStates }
                     this.courseList.forEach(course => {
@@ -300,16 +318,17 @@ export const useCourseStore = defineStore('course', {
                 }
                 this.courseListError = null
             } catch (error) {
+                if (courseListContexts.get(this) !== context || courseListContext(surface) !== context) return
                 logger.error(error)
                 this.courseListError = error instanceof Error ? error.message : String(error)
                 // Keep the last successful list so offline task actions do not disappear.
             }
         })()
-        requests.set(surface, request)
+        requests.set(context, request)
         try {
             await request
         } finally {
-            if (requests.get(surface) === request) requests.delete(surface)
+            if (requests.get(context) === request) requests.delete(context)
             if (!options.background) this.loading = false
         }
     },
@@ -354,6 +373,7 @@ export const useCourseStore = defineStore('course', {
         projection: CourseProjection = 'published',
     ) {
         const loadVersion = ++this.courseLoadVersion
+        this.courseLoadError = null
         this.loading = loading
         this.currentCourseId = courseId
         this.currentCourseProjection = projection
@@ -383,7 +403,9 @@ export const useCourseStore = defineStore('course', {
 
         try {
             if (options.teacherTrial) {
-                const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher'))
+                const { data } = await http.get(`/api/teacher/courses/${courseId}/preview`, identityReadRequestConfig('teacher', {
+                    silentError: options.silentError,
+                }))
                 if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
                 this.teacherPreviewSnapshot = data
                 this.applyCourseDocumentEnvelope({
@@ -402,7 +424,9 @@ export const useCourseStore = defineStore('course', {
                 const taskTypeQuery = options.taskType
                     ? `?task_type=${encodeURIComponent(options.taskType)}`
                     : ''
-                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, identityReadRequestConfig(
+                const taskRes = getStudyIdentity()?.role === 'student' && options.previewSurface !== 'teacher'
+                  ? { data: { status: 'none' } }
+                  : await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, identityReadRequestConfig(
                     options.previewSurface === 'teacher' ? 'teacher' : 'learner', {
                     silentError: options.silentError,
                     },
@@ -498,7 +522,10 @@ export const useCourseStore = defineStore('course', {
         } catch (error) {
             if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
             logger.error(error)
-            if (!options.silentError) ElMessage.error('加载课程失败')
+            this.courseLoadError = toAppError(error, {
+                fallback: t('courseWorkspace.readingState.failedHelp', '暂时无法读取课程内容，请重新加载。'),
+            }).summary
+            if (!options.silentError) ElMessage.error(t('courseWorkspace.readingState.failed', '课程加载失败'))
             this.currentCourseId = ''
             this.currentNode = null
             this.currentCourseVersionId = ''
@@ -515,7 +542,7 @@ export const useCourseStore = defineStore('course', {
             genStore.generationStatus = 'idle'
             genStore.generationProgress = 0
         } finally {
-            if (this.currentCourseId === courseId && this.courseLoadVersion === loadVersion) {
+            if (this.courseLoadVersion === loadVersion) {
                 this.loading = false
             }
         }

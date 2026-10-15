@@ -71,7 +71,7 @@ async function load() {
         if(adopted) { sourceTitle.value=String(response.data.title || ''); library.value=adopted; examples.value=knowledgeFirstStudyExamples(response.data,adopted) }
       } catch { /* A legacy course can legitimately have no knowledge-first source. */ }
     }
-    if(!library.value) throw new Error(t('knowledgeProfile.noTreeHint'))
+    if(!library.value) return
     if(!preview) {
       try { const model=await learner.load(id); if(current()) personal.value=model?.knowledge_profile || null }
       catch { if(current()) personalError.value=true }

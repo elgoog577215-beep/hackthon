@@ -1,4 +1,10 @@
 {
+  "columnLayout": {
+    "left": "Resize left panel",
+    "right": "Resize right panel",
+    "value": "{width} pixels",
+    "hint": "Drag to resize; use arrow keys to adjust; double-click or press Enter to reset"
+  },
   "studyDialogue": {
     "gatewayError": "The model gateway returned 502 and cannot reach the inference service. Your input is preserved; retry after service recovers.",
     "localConflict": "A recovered local draft differs from the latest server version. Your text is preserved; load the latest conversation and compare before saving.",
@@ -132,7 +138,9 @@
     "previous": "Previous",
     "next": "Next",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "continue": "Continue",
+    "back": "Back"
   },
   "appError": {
     "centerLabel": "Error feedback",
@@ -588,6 +596,39 @@
     "createCourse": "Create course"
   },
   "courseWorkbench": {
+    "scriptFailure": {
+      "savedParts": "{completed}/{total} complete parts have been saved.",
+      "savedFragment": "Received text fragments have been saved, but no complete section is available yet.",
+      "noContent": "No savable text was generated in this attempt. Any existing handout remains unchanged.",
+      "attempts": "This task has been attempted {count} times.",
+      "sourceChanged": "The lesson plan or reference material has changed. The original task cannot continue using outdated content.",
+      "useLatest": "Check the latest lesson plan and materials, then regenerate. Do not resume the outdated task.",
+      "saveFailure": "The handout could not be saved. This is a saving-service issue, not a problem with your teaching requirements.",
+      "saveAction": "Keep the current page open and ask your maintainer to check saving and disk space. Do not immediately regenerate the whole lecture.",
+      "missingInput": "The lesson plan or reference materials are incomplete, so the handout has no complete generation basis.",
+      "missingAction": "Check that the lesson plan is saved. Complete its objectives, scope and necessary references before regenerating.",
+      "authorization": "Access authorization for the AI generation service is unavailable.",
+      "authorizationAction": "Ask your maintainer to check service authorization. Editing the lesson plan will not resolve this issue.",
+      "capacity": "The AI service is limiting requests, or its available quota is insufficient.",
+      "capacityAction": "Try again later. If this persists, ask your maintainer to check capacity and quota. Repeatedly editing the lesson plan is unnecessary.",
+      "timeoutSeconds": "The AI service returned no new handout text for {seconds} seconds, so this attempt stopped.",
+      "timeout": "The AI service took too long to return text, so this attempt stopped.",
+      "retry": "You can continue later with the original settings. Continuing does not automatically reduce the lecture scope.",
+      "avoidRepeat": "The same settings have failed repeatedly. Avoid repeatedly clicking Continue.",
+      "reduceScope": "If this lecture combines several topics or long code examples, try narrowing the lesson plan and then regenerate. This is an option to try, not proof that the plan is wrong.",
+      "serviceUnknown": "We can confirm that no text arrived, but cannot tell from this failure alone whether the service was busy or processing the input slowly. Contact your maintainer if it persists.",
+      "structure": "The returned handout structure is incomplete and cannot yet be saved as a complete handout.",
+      "structureAction": "Continue to fill unfinished parts. If the same issue repeats, ask your maintainer to check the output format rather than repeatedly editing otherwise valid teaching content.",
+      "service": "The AI service disconnected or could not respond. This handout is unfinished.",
+      "serviceAction": "Continue later with the same settings. If it still fails, ask your maintainer to check the service connection. There is currently no evidence that the lesson plan needs changing.",
+      "saveRequirements": "The generated content did not meet handout saving requirements and cannot yet be used as a complete handout.",
+      "requirementsAction": "Check whether the lesson plan and reference materials are complete. If the missing requirement is unclear, ask your maintainer to inspect this task rather than regenerating blindly.",
+      "unknown": "A system error occurred while processing the handout. Its specific cause is not yet known.",
+      "unknownAction": "Ask your maintainer to inspect this failed task. Do not repeatedly generate or modify teaching content in response to internal errors.",
+      "nextSteps": "What you can do",
+      "openPlan": "View this lesson plan",
+      "stageIssue": "Some handouts are unfinished. Select an unfinished lecture to see guidance."
+    },
     "outlineStream": {
       "validating": "Checking and saving the outline",
       "received": "Received {count} characters; assembling the outline",
@@ -681,7 +722,7 @@
     "outlineFlow": {
       "readyToContinue": "Lecture plan ready",
       "title": "Outline generation steps",
-      "courseInfo": "Enter course information",
+      "courseInfo": "Course information",
       "lightPlan": "Initial lesson sequence",
       "fullOutline": "Full outline",
       "generateFull": "Generate full outline",
@@ -1413,7 +1454,7 @@
       "lessonHelp": "Plan each session",
       "questionBank": "Question bank",
       "questionBankHelp": "Optional · questions and papers",
-      "script": "Script",
+      "script": "Handouts",
       "scriptHelp": "Lightweight editable content",
       "ppt": "PPT",
       "pptHelp": "Content alignment with script"
@@ -1428,7 +1469,7 @@
       "description": "Create formal files quickly from school templates"
     },
     "form": {
-      "lectureCount": "Planned lessons",
+      "lectureCount": "Planned lectures",
       "learningGoal": "Teaching goal",
       "learningGoalPlaceholder": "Students will be able to…",
       "totalHours": "Total hours",
@@ -3557,7 +3598,7 @@
     "notebook": "Notebook",
     "notebookHint": "View notes and learning markers for this course",
     "questionBook": "Question book",
-    "questionBookHint": "View, generate, and complete questions for this course",
+    "questionBookHint": "View course questions, practice and answer history",
     "learningTabs": "Learning tools",
     "resourceTabs": "Resource tools",
     "records": "Learning records",
@@ -5394,6 +5435,18 @@
     }
   },
   "courseWorkspace": {
+    "readingState": {
+      "loading": "Loading course content…",
+      "failed": "Course could not be loaded",
+      "failedHelp": "Course content is temporarily unavailable. Please reload.",
+      "retry": "Reload",
+      "previewEmpty": "No handouts to preview yet",
+      "previewEmptyHelp": "This course has no handouts to preview yet. Return to the preparation workspace to prepare handouts.",
+      "empty": "No reading content yet",
+      "emptyHelp": "This course currently has no reading content.",
+      "selectCourse": "Start your learning journey",
+      "selectCourseHelp": "Select a course or chapter on the left to start reading."
+    },
     "backToTop": "Back to the top of the course",
     "navigation": "Course workspace",
     "openCourseTree": "Open course outline",
@@ -5605,7 +5658,13 @@
       "stepwiseNoFlaw": "No faulty step found",
       "stepCorrect": "This step holds",
       "stepFlawed": "This step has a problem",
-      "stepUnclear": "No visible basis for this step"
+      "stepUnclear": "No visible basis for this step",
+      "refreshQuestion": "Another question",
+      "refreshing": "Changing question",
+      "refreshDraftWarning": "Your unsubmitted draft will be preserved as an abandoned attempt. Switch to another question?",
+      "questionStimulus": "Question material",
+      "answerTask": "Your task",
+      "answerTaskHint": "Read the requirements before answering"
     },
     "practiceAnalysis": {
       "title": "Question analysis and this judgment",
@@ -5912,10 +5971,16 @@
       "evidenceSummary": "Learning evidence · {level}",
       "quickExplain": "Explain differently",
       "quickExplainPrompt": "Explain the current content in a simpler way.",
+      "quickExplainQuotePrompt": "Explain the passage I quoted in a simpler way.",
       "quickExample": "Give an example",
       "quickExamplePrompt": "Give a concrete example based on the current content.",
+      "quickExampleQuotePrompt": "Explain the passage I quoted with a concrete example.",
       "quickCheck": "Check my understanding",
       "quickCheckPrompt": "Start with one short question that checks whether I truly understand the current content. Do not reveal the answer yet.",
+      "quickCheckQuotePrompt": "Ask one short question to check my understanding of the quoted passage. Do not give the answer yet.",
+      "quickDiagram": "Help me with a diagram",
+      "quickDiagramPrompt": "Draw a clear diagram to help me understand the current content. Highlight the key concepts, relationships or steps, and briefly explain how to read it. Include the actual diagram.",
+      "quickDiagramQuotePrompt": "Draw a clear diagram to help me understand the passage I quoted. Highlight the key concepts, relationships or steps, and briefly explain how to read it. Include the actual diagram.",
       "explainRuntimePrompt": "Explain why I should take this learning action now and cite the evidence:",
       "retrieval": "Web retrieval",
       "retrievalOn": "Enabled for this conversation",
@@ -6263,6 +6328,33 @@
   "questionBank": {
     "outputTruncated": "Question generation or verification reached the output length limit. Unfinished questions were stopped; published questions are preserved. Continue to generate only the missing questions.",
     "regenerateFailed": "Question generation is incomplete; published questions remain available",
+    "readingRegion": "Question content and explanation",
+    "binding": {
+      "saveFailed": "Could not save the binding. Please try again later.",
+      "title": "Questions and atomic knowledge",
+      "summary": "{bound} bound · {unbound} unbound · {pending} need confirmation · {stale} outdated",
+      "noTree": "Generate and adopt a knowledge tree first. Questions will then be matched automatically.",
+      "bind": "Bind knowledge points",
+      "working": "Binding knowledge points…",
+      "help": "Select only the knowledge actually assessed. Multiple targets need individual scoring before mastery can be inferred. An association does not establish an error cause.",
+      "question": "Select a question",
+      "retry": "Retry automatic matching",
+      "staleHint": "The knowledge tree has changed. Check and rebind this question. Past attempts retain their original knowledge revisions.",
+      "search": "Filter knowledge points",
+      "searchPlaceholder": "Search names or statements",
+      "select": "Select actual assessment targets (up to 5)",
+      "noMatches": "No matching knowledge points",
+      "selected": "{count} selected",
+      "save": "Save binding",
+      "clear": "Mark as needing confirmation",
+      "bound": "Bound",
+      "unbound": "Unbound",
+      "pending": "Needs confirmation",
+      "stale": "Knowledge tree updated",
+      "loadFailed": "Could not load knowledge bindings. Refresh to try again.",
+      "conflict": "The course or question bank is being updated. Refresh before binding again.",
+      "failed": "Automatic binding is unavailable. Saved questions are unaffected. Select points manually or try again later."
+    },
     "scopeLoading": "Loading course lectures",
     "scopeLoadingHelp": "Loading the question scope. The question bank will appear when ready.",
     "scopeLoadFailed": "Could not load course lectures",
@@ -6904,6 +6996,10 @@
     "globalChange": "Global changes"
   },
   "courseFiles": {
+    "headerActions": {
+      "change": "Changes",
+      "preview": "Student view"
+    },
     "spaceLabel": "Course file space",
     "sameSource": "Content alignment",
     "teacherAgent": "AI assistant",
@@ -7095,7 +7191,7 @@
       "documentTypes": {
         "outline": "Course outline",
         "lessonPlan": "Lesson plan",
-        "script": "Script",
+        "script": "Handout",
         "ppt": "PPT",
         "questionBank": "Question banks and exams",
         "schoolMaterial": "Course administration",
@@ -7263,7 +7359,8 @@
       "companionDocuments": "Other administration materials",
       "companionDocument": "Administration material",
       "folder": "Folder",
-      "file": "Uploaded original"
+      "file": "Uploaded original",
+      "trash": "Recycle bin"
     },
     "status": {
       "ready": "Ready",
@@ -7774,6 +7871,11 @@
     }
   },
   "knowledgeFirst": {
+    "treeGenerationInProgress": "This lecture’s knowledge tree is being generated. The candidate will appear automatically when ready.",
+    "waitForSourceTask": "Knowledge generation becomes available when the source task finishes.",
+    "handoutTask": "Handout generation in progress",
+    "lessonPlanTask": "Lesson plan generation in progress",
+    "courseTask": "Course task in progress",
     "lastGenerationFailed": "Previous generation failed",
     "incoming": "Incoming relation",
     "outgoing": "Outgoing relation",
@@ -7807,7 +7909,7 @@
     "prepareCourse": "Course information · Optional materials",
     "prepareHandouts": "Outline → Lesson plans → Handouts",
     "extractKnowledge": "Extract → Review and adopt",
-    "handoutsRequired": "No saved handouts yet. Prepare course information and generate handouts in the workbench. Uploads are optional.",
+    "handoutsRequired": "No saved handouts yet. Complete the course outline and a lecture handout before building its knowledge tree. Uploads are optional.",
     "sourceVersions": "View source handout versions",
     "viewHandouts": "View handouts",
     "prepareHandoutAction": "Prepare handouts",
@@ -7978,7 +8080,7 @@
     "failed": "The question could not be completed. Check the generation status before retrying."
   },
   "companionWelcome": {
-    "message": "Hi, I’m your Lingzhi companion—select text to take a note or ask me a question, and use the bottom toolbar to explore your notes and knowledge tree.",
+    "message": "Hi, I am your learning companion. Select text to take notes or ask a question. The course toolbar opens practice, mistakes, knowledge and learning overview.",
     "dismiss": "Got it"
   },
   "handoutConcepts": {
@@ -8029,5 +8131,87 @@
     "originPinned": "From the knowledge version cited by this handout · Read arrows by relationship type",
     "page": "Page",
     "slide": "Slide"
+  },
+  "courseCreationFlow": {
+    "help": "Set the goals and lecture plan, choose your sources, then enter one preparation workspace.",
+    "stepsLabel": "Create course steps",
+    "steps": {
+      "goal": "Course goals",
+      "schedule": "Lecture plan",
+      "source": "Starting sources"
+    },
+    "goalTitle": "What should students learn in this course?",
+    "goalHelp": "These settings feed the outline and handouts. You can adjust them in the workspace.",
+    "learningGoal": "Learning goal",
+    "goalPlaceholder": "For example: understand linear algebra and use matrices and linear systems to solve practical problems.",
+    "scheduleTitle": "Organize the course by lecture",
+    "scheduleHelp": "The outline sets each lecture’s scope. Plans, handouts and PPTs belong to those same lectures.",
+    "hierarchy": "Course → Lecture N → Plan, handout and PPT",
+    "hierarchyHelp": "The knowledge tree and question bank support the course. Uploaded files are sources, not a separate course.",
+    "scheduleOptional": "Additional academic details and weekly timetable (optional)",
+    "sourceTitle": "How would you like to start?",
+    "sourceHelp": "Both options use the same course. Creating it does not start an AI request.",
+    "blankHelp": "Prepare an outline, then produce plans and handouts by lecture. You can add sources later.",
+    "materialsHelp": "Upload existing textbooks, plans or slides after creation, confirm their roles, then continue preparation.",
+    "summaryHours": "{lectures} lectures · {hours} class hours",
+    "nextBlank": "Next: preparation workspace → course outline. Your goals and schedule are already included.",
+    "nextMaterials": "Next: upload existing files → confirm source roles → preparation workspace.",
+    "noAutoGeneration": "Creation saves settings. You start generation and publication separately.",
+    "creating": "Creating…",
+    "createAndPrepare": "Create and prepare",
+    "next": "Next",
+    "openSavedCourse": "Open saved course",
+    "savedEntryFailed": "Your course was saved, but the workspace did not open. Retry opening the same course or return to your library."
+  },
+  "courseWorkspaceFlow": {
+    "settings": "Course settings",
+    "settingsHelp": "Goals, lectures, hours and academic schedule",
+    "production": "Teaching content",
+    "supporting": "Supporting resources",
+    "knowledgeHint": "Build knowledge and connections from saved handouts",
+    "stageScope": "One course outline; all other content uses the same lectures",
+    "publicationHelp": "Preparation draft → published version → authorized study → learning feedback",
+    "scopeCourse": "Whole course",
+    "scopeLecture": "Lecture {number}",
+    "scopeKnowledge": "Knowledge and connections in handouts",
+    "publication": "Publication",
+    "access": "Student access",
+    "feedback": "Learning feedback",
+    "deliveryTitle": "Publication and student learning",
+    "grantBeforePublish": "Grant student access, then publish the current version. Publish again after changing handouts.",
+    "previewHelp": "Student preview is a trial. Formal study starts in the student’s course library.",
+    "skipImport": "Upload later; enter workspace",
+    "importContext": "Your course is created. Upload files and confirm their roles, then return to the same workspace.",
+    "generationOptions": "Adjust purpose, discipline and teaching approach",
+    "generateNext": "After generating the course outline, prepare plans and handouts for those same lectures.",
+    "handoutBeforePublish": "There is no student-readable handout yet. Save public handout content before publishing.",
+    "readingUnverified": "Student-readable content could not be verified. Refresh before publishing.",
+    "studentSpace": "Student study space",
+    "returnWorkbench": "Return to preparation workbench",
+    "returnStudy": "Return to my study space"
+  },
+  "studentWorkspace": {
+    "home": "Learning home",
+    "homeHelp": "Continue a course, or prepare study and revision handouts from your own sources.",
+    "newMaterial": "Create a handout",
+    "systematic": "Systematic learning",
+    "systematicHelp": "Connect the material and concepts to build a complete understanding.",
+    "exam": "Exam preparation",
+    "examHelp": "Revise the exam scope and return to course practice and mistakes.",
+    "personalMaterials": "Personal handouts",
+    "materialsHelp": "Your generated handouts and notes retain their own sources.",
+    "allMaterials": "All handouts",
+    "noMaterials": "No personal handouts yet. Start with your sources or an authorized course.",
+    "reading": "Handout",
+    "practice": "Practice",
+    "mistakes": "Mistakes",
+    "knowledge": "Knowledge tree",
+    "overview": "Learning overview",
+    "tools": "Course learning workspace",
+    "courseTools": "Course tools",
+    "coursePath": "My learning plan",
+    "courseHelp": "Reading, practice, mistakes, knowledge and overview use the same course and learning records.",
+    "backReading": "Return to handout",
+    "space": "Learning space"
   }
 }

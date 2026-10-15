@@ -553,7 +553,7 @@ async def test_qwen_json_mode_requests_structured_provider_output(
 
 
 @pytest.mark.asyncio
-async def test_qwen_splits_user_prompt_into_lossless_wire_safe_text_parts(
+async def test_qwen_keeps_canonical_text_before_http_transport(
     monkeypatch,
 ):
     captured = {}
@@ -587,14 +587,7 @@ async def test_qwen_splits_user_prompt_into_lossless_wire_safe_text_parts(
         "role": "system",
         "content": "You are a helpful assistant.",
     }
-    parts = captured["messages"][1]["content"]
-    assert isinstance(parts, list)
-    assert all(part["type"] == "text" and len(part["text"]) <= 32 for part in parts)
-    assert "".join(part["text"] for part in parts) == prompt
-    assert not any(
-        "Directory.CreateDirectory(Path.GetDirectoryName(savePath));" in part["text"]
-        for part in parts
-    )
+    assert captured["messages"][1]["content"] == prompt
 
 
 @pytest.mark.asyncio
@@ -625,6 +618,15 @@ async def test_non_primary_model_keeps_plain_string_message_content(monkeypatch)
 
     assert await service._call_llm(prompt, retry_count=1) == "answer"
     assert captured["messages"][1]["content"] == prompt
+
+
+@pytest.mark.parametrize('length', [32768, 32769, 36072, 64000, 192000])
+def test_long_qwen_request_keeps_one_complete_teaching_message(length):
+    unit = '红黑树旋转；跳表概率分析；B+树分裂。\n```cpp\nnode->left = child;\n```\n\\[h=\\log n\\] 🧪'
+    prompt = (unit * (length // len(unit) + 1))[:length]
+    messages = AIBase._request_messages(prompt=prompt, system_prompt='保留全部教学内容', model_id='qwen3.8-27b')
+    assert messages[1]['content'] == prompt
+    assert messages[0]['content'] == '保留全部教学内容'
 
 
 @pytest.mark.asyncio
@@ -702,9 +704,7 @@ async def test_qwen_uses_vllm_thinking_body_for_stream_calls(monkeypatch):
         "enable_thinking": True,
         "chat_template_kwargs": {"enable_thinking": True},
     }
-    assert "".join(
-        part["text"] for part in captured["messages"][1]["content"]
-    ) == prompt
+    assert captured["messages"][1]["content"] == prompt
 
 
 @pytest.mark.asyncio

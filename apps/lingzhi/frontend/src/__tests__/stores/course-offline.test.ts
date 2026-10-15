@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCourseStore } from '@/stores/course'
 import http from '@/utils/http'
+import { setStudyIdentity, STUDY_SESSION_KEY } from '@/utils/study-identity'
 
 
 describe('course list offline continuity', () => {
@@ -11,7 +12,37 @@ describe('course list offline continuity', () => {
   })
 
   afterEach(() => {
+    sessionStorage.removeItem(STUDY_SESSION_KEY)
+    setStudyIdentity(null)
     window.history.replaceState({}, '', '/')
+  })
+
+  it('正式学生通过授权课程库读取导航，不探测教师课程列表', async () => {
+    sessionStorage.setItem(STUDY_SESSION_KEY, 'student-session')
+    setStudyIdentity({ id: 'local-student:a', username: 'student_a', role: 'student' })
+    const get = vi.spyOn(http, 'get').mockResolvedValue({ data: [{ course_id: 'course-a', title: '授权课程', section_count: 2 }] } as any)
+    const store = useCourseStore()
+    await store.fetchCourseList({ surface: 'student' })
+    expect(get).toHaveBeenCalledExactlyOnceWith('/api/study/courses', expect.objectContaining({ identityScope: 'learner' }))
+    expect(store.courseList[0]).toMatchObject({ course_id: 'course-a', course_name: '授权课程', node_count: 2 })
+  })
+
+  it('学生切换账号后不合并旧身份请求，也不接受旧课程列表的迟到响应', async () => {
+    sessionStorage.setItem(STUDY_SESSION_KEY, 'session-a')
+    setStudyIdentity({ id: 'local-student:a', username: 'a', role: 'student' })
+    let release = (_: unknown) => {}
+    const oldResponse = new Promise(resolve => { release = resolve })
+    const get = vi.spyOn(http, 'get').mockReturnValueOnce(oldResponse as any)
+      .mockResolvedValueOnce({ data: [{ course_id: 'course-b', title: 'B 的课程', section_count: 1 }] } as any)
+    const store = useCourseStore()
+    const oldRead = store.fetchCourseList()
+    sessionStorage.setItem(STUDY_SESSION_KEY, 'session-b')
+    setStudyIdentity({ id: 'local-student:b', username: 'b', role: 'student' })
+    await store.fetchCourseList()
+    release({ data: [{ course_id: 'private-a', title: 'A 的私有课程', section_count: 1 }] })
+    await oldRead
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(store.courseList.map(c => c.course_id)).toEqual(['course-b'])
   })
 
   it('刷新失败时保留最后一次成功课程列表', async () => {

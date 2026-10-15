@@ -162,13 +162,13 @@ def auth_error_response(exc: QizhiAuthError) -> JSONResponse:
 
 
 class QizhiIdentityMiddleware(BaseHTTPMiddleware):
-    """Require Qizhi teacher/admin sessions for production API requests."""
+    """Verify roles for teaching APIs and the explicit learner domains."""
 
     def __init__(self, app, *, verifier: QizhiIdentityVerifier) -> None:
         super().__init__(app)
         self.verifier = verifier
-        # Student identity is admitted only to its owned domain. The teacher
-        # API and WebSocket keep their existing teacher/admin role contract.
+        # Learning APIs still require ownership or an explicit course grant.
+        # Teacher production APIs and task WebSockets require teacher/admin.
         self.study_verifier = QizhiIdentityVerifier(
             verifier.verify_url, allowed_roles={"student", "teacher", "admin"},
             timeout_seconds=verifier.timeout_seconds, cache_ttl_seconds=verifier.cache_ttl_seconds,
@@ -180,11 +180,20 @@ class QizhiIdentityMiddleware(BaseHTTPMiddleware):
         call_next: RequestResponseEndpoint,
     ) -> Response:
         path = request.url.path
+        from course_exchange import INTERNAL_PREFIX, require_peer
+        if path.startswith(INTERNAL_PREFIX):
+            from fastapi import HTTPException
+            try:
+                request.state.exchange_peer = require_peer(request).peer_id
+            except HTTPException as exc:
+                return JSONResponse(status_code=exc.status_code, content={"detail":exc.detail})
+            return await call_next(request)
         protected = path.startswith("/api/") and path != "/api/health"
         if not self.verifier.enabled or not protected or request.method == "OPTIONS":
             return await call_next(request)
         try:
-            resolver = self.study_verifier if path.startswith("/api/study/") else self.verifier
+            from course_learning_access import learner_api_allowed
+            resolver = self.study_verifier if learner_api_allowed(path, request.method) else self.verifier
             identity = await resolver.resolve(request.headers.get("Authorization"))
         except QizhiAuthError as exc:
             return auth_error_response(exc)

@@ -91,6 +91,8 @@ def _match_rate_limit(
     """根据路径匹配速率限制规则"""
     if path == "/api/study/materials" and method.upper() == "POST":
         return 5, 60
+    if path.startswith('/api/study/materials/') and path.endswith('/assistant') and method.upper() == 'POST':
+        return 10, 60
     if path.startswith("/api/study/materials/") and path.endswith("/continue"):
         return 5, 60
     if (

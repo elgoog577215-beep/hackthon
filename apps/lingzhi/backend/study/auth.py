@@ -92,5 +92,7 @@ def study_identity(request: Request) -> dict:
     identity = getattr(request.state, "qizhi_identity", None)
     if identity:
         return {"id": identity.actor_id, "username": identity.actor_id, "role": identity.role}
+    if getattr(request.state, "local_study_identity", None):
+        return request.state.local_study_identity
     from storage import storage
     return LocalStudyAuth(storage).resolve(request.headers.get("Authorization", ""))

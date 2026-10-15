@@ -1,7 +1,7 @@
 <template>
   <aside class="course-navigator glass-panel-elevated" :aria-label="t('learningNavigator.title', '课程目录')">
     <header>
-      <button type="button" :title="t('learningNavigator.back', '返回课程库')" :aria-label="t('learningNavigator.back')" @click="emit('back')">
+      <button type="button" :title="backLabel || t('learningNavigator.back', '返回课程库')" :aria-label="backLabel || t('learningNavigator.back')" @click="emit('back')">
         <ArrowLeft :size="16" />
       </button>
       <div v-if="productionMode && !courseStore.courseTree.length" class="navigator-production-label">
@@ -68,10 +68,12 @@ import { navigationNodeMatches } from '../utils/course-navigation'
 
 const props = withDefaults(defineProps<{
   activeBlockId?: string
+  backLabel?: string
   productionMode?: boolean
   generationTask?: Task
 }>(), {
   activeBlockId: '',
+  backLabel: '',
   productionMode: false,
   generationTask: undefined,
 })

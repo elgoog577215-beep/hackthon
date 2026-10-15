@@ -6,7 +6,7 @@
     </div>
 
     <div
-        v-if="courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
+        v-if="flatNodes.length > 0 && courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
         class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
@@ -37,17 +37,17 @@
                 <!-- Dialog Content -->
                 <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
                     <!-- Header -->
-                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                    <div class="reading-dialog-heading px-6 py-5 flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                                <el-icon class="text-white" :size="24"><Download /></el-icon>
+                            <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+                                <el-icon class="text-primary-600" :size="24"><Download /></el-icon>
                             </div>
                             <div>
-                                <h3 class="text-lg font-bold text-white">{{ exportDialog.title }}</h3>
-                                <p class="text-sm text-white/80">{{ exportDialog.subtitle }}</p>
+                                <h3 class="text-lg font-bold text-slate-800">{{ exportDialog.title }}</h3>
+                                <p class="text-sm text-slate-500">{{ exportDialog.subtitle }}</p>
                             </div>
                         </div>
-                        <button @click="closeExportDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                        <button @click="closeExportDialog" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all">
                             <el-icon :size="20"><Close /></el-icon>
                         </button>
                     </div>
@@ -128,7 +128,7 @@
                         <button 
                             @click="executeExport" 
                             :disabled="exportDialog.loading"
-                            class="px-5 py-2 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="lz-action-button px-5 py-2 font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <el-icon v-if="exportDialog.loading" class="is-loading"><Loading /></el-icon>
                             <el-icon v-else><Download /></el-icon>
@@ -146,17 +146,17 @@
             <div v-if="settingsDialog.visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeSettingsDialog"></div>
                 <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
-                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                    <div class="reading-dialog-heading px-6 py-5 flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                                <el-icon class="text-white" :size="24"><Setting /></el-icon>
+                            <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+                                <el-icon class="text-primary-600" :size="24"><Setting /></el-icon>
                             </div>
                             <div>
-                                <h3 class="text-lg font-bold text-white">阅读设置</h3>
-                                <p class="text-sm text-white/80">自定义阅读体验</p>
+                                <h3 class="text-lg font-bold text-slate-800">阅读设置</h3>
+                                <p class="text-sm text-slate-500">自定义阅读体验</p>
                             </div>
                         </div>
-                        <button @click="closeSettingsDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                        <button @click="closeSettingsDialog" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all">
                             <el-icon :size="20"><Close /></el-icon>
                         </button>
                     </div>
@@ -200,7 +200,7 @@
                     </div>
                     <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                         <button @click="closeSettingsDialog" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/50 rounded-lg transition-all">取消</button>
-                        <button @click="applySettings" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-all flex items-center gap-2">
+                        <button @click="applySettings" class="lz-action-button px-4 py-2 font-medium transition-colors flex items-center gap-2">
                             <el-icon><Check /></el-icon>应用设置
                         </button>
                     </div>
@@ -210,7 +210,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @keyup="handleSelectionKeyUp" @click="handleContentClick">
         <InlineAnnotationLayer ref="annotationLayerRef" :notes="displayedQuotedNotes" @open="openInlineRecord" />
         <InlineRecordPopover
             ref="inlinePopoverRef"
@@ -361,29 +361,16 @@
       
       <!-- Mobile Notes Drawer moved to end -->
 
-      <!-- Empty Selection Guide -->
-      <div v-else-if="!courseStore.currentCourseId" class="flex flex-col items-center justify-center h-full text-slate-400 animate-in fade-in zoom-in duration-500">
-          <div class="w-32 h-32 bg-slate-50 rounded-full flex items-center justify-center mb-6 shadow-inner relative overflow-hidden">
-              <div class="absolute inset-0 bg-gradient-to-tr from-slate-100 to-transparent opacity-50"></div>
-              <el-icon :size="48" class="opacity-30 text-slate-500"><Notebook /></el-icon>
-          </div>
-          <h3 class="text-xl font-bold text-slate-600 mb-2">开始您的学习之旅</h3>
-          <p class="text-sm font-medium opacity-60">请从左侧选择一个课程或章节开始阅读</p>
-      </div>
-      
-      <!-- Loading State -->
-      <div v-else-if="isGenerationPreview" class="generation-empty-state">
-          <LoaderCircle :size="22" class="generation-empty-state__spin" />
-          <div>
-              <strong>{{ t('courseGeneration.workspace.preparing', '正在准备课程结构') }}</strong>
-              <span>{{ t('courseGeneration.workspace.contentWillAppear', '目录与正文会随着真实生成结果逐步出现') }}</span>
-          </div>
-      </div>
-
-      <div v-else class="flex flex-col items-center justify-center h-64 gap-4">
-          <div class="w-12 h-12 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin"></div>
-          <p class="text-sm text-slate-500 font-medium animate-pulse">正在加载精彩内容...</p>
-      </div>
+      <CourseReadingState
+          v-else
+          :loading="courseStore.loading"
+          :error="courseStore.courseLoadError"
+          :course-selected="Boolean(courseStore.currentCourseId)"
+          :teacher-preview="props.teacherPreview"
+          :generation-preview="isGenerationPreview"
+          @retry="emit('retryLoad')"
+          @return-workbench="emit('returnWorkbench')"
+      />
 
     </div>
 
@@ -404,6 +391,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
+import CourseReadingState from './CourseReadingState.vue'
 import type { StudyRequest } from '../types/study-dialogue'
 import { useNoteStore } from '../stores/notes'
 import { createInlineRecordPersistence } from '../composables/inline-record-persistence'
@@ -414,7 +402,7 @@ import CourseNode from './CourseNode.vue'
 import { isLessonNavigation, structuralLessonAliases } from '../utils/course-navigation'
 import InlineAnnotationLayer from './InlineAnnotationLayer.vue'
 import InlineRecordPopover from './InlineRecordPopover.vue'
-import { Download, Notebook, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
+import { Download, Close, ChatLineSquare, Timer, ArrowUp, ChatDotRound, Loading, Setting, Check } from '@element-plus/icons-vue'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
@@ -423,6 +411,7 @@ import 'dayjs/locale/zh-cn'
 import logger from '../utils/logger'
 import { captureViewportAnchor, resolvedAnchorScrollTop } from '@/utils/learning-position'
 import { buildTextQuoteAnchor, resolveTextQuoteAnchor } from '@/utils/text-anchor'
+import { learningSelectionQuote } from '@/utils/learning-selection'
 import { t } from '@/shared/i18n'
 import { Cloud, CloudOff, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { CourseBlockEditTarget, Note } from '@/stores/types'
@@ -440,6 +429,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'retryLoad'): void
+  (e: 'returnWorkbench'): void
   (e: 'studyDialogue', payload: StudyRequest): void
   (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
   (e: 'startPractice', node: any, taskRevisionId?: string): void
@@ -1810,7 +1801,13 @@ watch(() => visibleNotes.value, () => {
 
 
 // Selection Handling
-const handleMouseUp = (_e: MouseEvent) => {
+const handleSelectionKeyUp = (event: KeyboardEvent) => {
+    if (event.key === 'Shift' || (event.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key))) {
+        handleMouseUp(event)
+    }
+}
+
+const handleMouseUp = (_e: MouseEvent | KeyboardEvent) => {
     if (isGenerationPreview.value) {
         selectionMenu.value.visible = false
         return
@@ -1828,7 +1825,13 @@ const handleMouseUp = (_e: MouseEvent) => {
     
     const selection = window.getSelection()
     if (selection && selection.toString().trim().length > 0) {
-        const range = selection.getRangeAt(0)
+        const range = selection.getRangeAt(0).cloneRange()
+        const container = document.getElementById('content-scroll-container')
+        const quote = container && learningSelectionQuote(range, container, new Set(courseStore.nodes.map(node => node.node_id)))
+        if (!quote) {
+            selectionMenu.value.visible = false
+            return
+        }
         const rect = range.getBoundingClientRect()
         
         // Detect Scale of the Teleport Target (Body)
@@ -1880,10 +1883,25 @@ const handleMouseUp = (_e: MouseEvent) => {
             range: range
         }
 
+        // Carry the reference into the existing assistant without sending a question.
+        emit('quoteAsk', quote)
+
         // Precise Adjustment after Render (Fix for P1: Scaling/Overflow Alignment)
-        nextTick(() => {
+        nextTick(async () => {
+            if (selectionMenu.value.range !== range || !range.startContainer.isConnected) return
+            // Update virtual lecture offsets before keeping the selected text in view.
+            measureVisibleNodeHeights()
+            await nextTick()
+            if (selectionMenu.value.range !== range || !range.startContainer.isConnected) return
+            const moved = range.getBoundingClientRect().top - rect.top
+            container.scrollTop += moved
             const menuEl = document.getElementById('selection-menu')
             if (menuEl) {
+                // Opening the companion can reflow the selected paragraph.
+                const rect = range.getBoundingClientRect()
+                const originalX = isScaled
+                    ? (rect.left - bodyRect.left + rect.width / 2) / scaleX
+                    : rect.left + rect.width / 2
                 // Use offsetWidth/Height to get the "layout" size, ignoring the scale-in animation
                 // getBoundingClientRect() would return the scaled-down size during the transition
                 const actualWidth = menuEl.offsetWidth
@@ -1966,8 +1984,7 @@ const handleAsk = () => {
         ? (props.studyDialogues ? studySelectionAnchor : buildTextQuoteAnchor)(selectionMenu.value.range, nodeElement, text)
         : undefined
 
-    if (props.studyDialogues) emit('studyDialogue', { kind:'explain', quote:text, nodeId, anchor })
-    else emit('quoteAsk', { text, nodeId, anchor })
+    emit('quoteAsk', { text, nodeId, anchor })
     
     // Hide menu
     selectionMenu.value.visible = false
@@ -2456,12 +2473,6 @@ defineExpose({
 </script>
 
 <style scoped>
-.generation-empty-state { height:260px; display:flex; align-items:center; justify-content:center; gap:13px; color:var(--lz-text-muted); }
-.generation-empty-state__spin { flex:0 0 auto; color:var(--lz-brand); animation:generation-empty-spin .9s linear infinite; }
-.generation-empty-state div { min-width:0; display:flex; flex-direction:column; gap:3px; }
-.generation-empty-state strong { color:var(--lz-text-strong); font-size:13px; }
-.generation-empty-state span { font-size:11px; }
-@keyframes generation-empty-spin { to { transform:rotate(360deg); } }
 .record-later-option {
     min-height: 30px;
     border-radius: 6px;

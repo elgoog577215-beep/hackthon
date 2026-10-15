@@ -80,7 +80,7 @@
             <ClipboardCheck v-else :size="23" />
           </span>
           <div>
-            <small>{{ t('questionBook.readyWhenNeeded', '需要时再生成') }}</small>
+            <small v-if="canRebuildQuestionBank">{{ t('questionBook.readyWhenNeeded', '需要时再生成') }}</small>
             <strong>{{ canRebuildQuestionBank ? t('questionBook.emptyTitle', '这里还没有题目') : emptyState.title }}</strong>
             <p>{{ canRebuildQuestionBank
               ? t('questionBook.emptyBody', '课程默认不生成题目。选择范围后，系统会结合课程目标自动出题。')
@@ -591,6 +591,7 @@ import { splitPracticeQuestionMarkdown } from '../utils/practice-question-markdo
 import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
 import { createUuid } from '../utils/client-id'
+import { isPublishedExchangeCourse } from '../shared/student-workspace'
 import {
   runQuestionBankRebuild,
   type QuestionBankRebuildJob,
@@ -664,7 +665,7 @@ const hintDisplayRows = computed<HintDisplayRow[]>(() => {
   }
   return rows.sort((left, right) => Number(left.level) - Number(right.level))
 })
-const canRebuildQuestionBank = computed(() => isQuestionBankRepairReason(
+const canRebuildQuestionBank = computed(() => !isPublishedExchangeCourse(props.courseId) && isQuestionBankRepairReason(
   workspace.practice?.practice_availability?.reason_code,
 ))
 const currentNodeLabel = computed(() => props.nodeLabel || t('courseWorkspace.allCourse', '全课程'))
@@ -1230,12 +1231,16 @@ function formatSolutionValue(value: unknown) {
   font-weight: 700;
 }
 
+.primary-command:focus-visible {
+  outline: 2px solid var(--lz-action-focus);
+  outline-offset: 2px;
+}
+
 .question-book-views button:focus-visible,
 .question-bank-rebuild__scope button:focus-visible,
 .refresh-question-command:focus-visible,
 .icon-command:focus-visible,
 .text-command:focus-visible,
-.primary-command:focus-visible,
 .targeted-retry-command:focus-visible {
   outline: 2px solid var(--lz-brand);
   outline-offset: 2px;
@@ -1668,9 +1673,24 @@ function formatSolutionValue(value: unknown) {
 
 .support-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
-.icon-command,
-.text-command,
 .primary-command {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  box-shadow: var(--lz-action-shadow);
+}
+
+.icon-command,
+.text-command {
   min-height: 36px;
   display: inline-flex;
   align-items: center;
@@ -1686,18 +1706,21 @@ function formatSolutionValue(value: unknown) {
 }
 
 .icon-command { width: 38px; padding: 0; }
-.icon-command:disabled,
-.text-command:disabled,
 .primary-command:disabled { opacity: .45; cursor: not-allowed; }
+.icon-command:disabled,
+.text-command:disabled { opacity: .45; cursor: not-allowed; }
 
 .icon-command:hover:not(:disabled),
 .text-command:hover:not(:disabled) { border-color: var(--lz-brand); color: var(--lz-brand-strong); }
 
 .primary-command {
-  border-color: var(--lz-brand-strong);
-  color: #fff;
-  background: var(--lz-brand-strong);
+  border-color: var(--lz-action-border);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
   font-weight: 700;
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
 }
 
 .primary-command:hover:not(:disabled) { filter: brightness(.96); }
@@ -1924,7 +1947,8 @@ function formatSolutionValue(value: unknown) {
 .history-row-actions { display: flex; align-items: center; gap: 10px; }
 
 .practice-workspace { font-size:var(--text-base); line-height:1.6; }
-.question-book-empty__intro p,.question-bank-rebuild__scope button,.question-bank-rebuild__retrieval strong,.text-command,.primary-command { font-size:var(--text-sm); }
+.primary-command { font-size:var(--text-sm); color: var(--lz-action-text); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
+.question-book-empty__intro p,.question-bank-rebuild__scope button,.question-bank-rebuild__retrieval strong,.text-command { font-size:var(--text-sm); }
 .question-bank-rebuild__scope { width:max-content; max-width:100%; }
 .question-book-empty__intro { width:min(420px,100%); }
 .question-book-empty__intro>div { min-width:0; }
@@ -2017,7 +2041,7 @@ function formatSolutionValue(value: unknown) {
   .support-actions { gap: 4px; }
   .icon-command { width: 34px; min-height: 34px; }
   .text-command { width: 36px; min-height: 34px; padding: 0; font-size: 0; }
-  .primary-command { min-height: 36px; padding: 0 10px; }
+  .primary-command { min-height: 36px; padding: 0 10px; color: var(--lz-action-text); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
 
   .hint-result,
   .guidance-turn,

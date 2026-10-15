@@ -110,6 +110,91 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+class KnowledgeBindingRequest(BaseModel):
+    mode: Literal["auto", "manual"] = "auto"
+    expected_bundle_revision_id: str = Field(min_length=1, max_length=200)
+    knowledge_baseline_revision: str = Field(min_length=1, max_length=200)
+    revision_id: str = Field(default="", max_length=200)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
+    retry_pending: bool = False
+    revision_ids: list[str] | None = Field(default=None, max_length=8)
+
+
+async def _owned_binding_course(course_id: str, actor: str) -> dict:
+    course = await get_course_or_404(course_id)
+    if course.get("owner_id") != actor:
+        raise HTTPException(404, detail={"code": "question_bank_unavailable"})
+    return course
+
+
+def _binding_bundle(course_id: str) -> dict:
+    bundle = question_bank_repository.load_bundle(course_id)
+    if not bundle:
+        raise HTTPException(404, detail={"code": "question_bank_not_built"})
+    return bundle
+
+
+@router.get("/knowledge-bindings")
+async def get_question_knowledge_bindings(
+    course_id: str, x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    from question_bank_knowledge import binding_view
+
+    course = await _owned_binding_course(course_id, require_user_id(x_user_id))
+    bundle = _binding_bundle(course_id)
+    return {**binding_view(course, bundle), "can_edit": True}
+
+
+@router.post("/knowledge-bindings")
+async def update_question_knowledge_bindings(
+    course_id: str, payload: KnowledgeBindingRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> dict:
+    from question_bank_knowledge import bind_questions, binding_view
+
+    actor = require_user_id(x_user_id)
+    course = await _owned_binding_course(course_id, actor)
+    bundle = _binding_bundle(course_id)
+
+    def check_current(latest_course: dict, latest_bundle: dict) -> None:
+        _require_expected_revision(latest_bundle, payload.expected_bundle_revision_id)
+        if (latest_course.get("course_knowledge_base") or {}).get("revision_id") != payload.knowledge_baseline_revision:
+            raise HTTPException(409, detail={"code": "knowledge_baseline_changed"})
+        if question_bank_rebuild_job_repository.active_for_course(course_id):
+            raise HTTPException(409, detail={"code": "question_bank_generation_active"})
+
+    check_current(course, bundle)
+    if not binding_view(course, bundle)["tree_ready"]:
+        raise HTTPException(409, detail={"code": "knowledge_tree_required"})
+    try:
+        updated = await bind_questions(
+            course, bundle, mode=payload.mode, revision_id=payload.revision_id,
+            knowledge_ids=payload.knowledge_ids, retry_pending=payload.retry_pending,
+            revision_ids=payload.revision_ids,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "question_revision_missing"}) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail={"code": "knowledge_binding_invalid"}) from exc
+    except Exception as exc:
+        # Provider responses may contain endpoint information; never send them to the browser.
+        raise HTTPException(503, detail={"code": "knowledge_binding_unavailable"}) from exc
+    latest_course = await _owned_binding_course(course_id, actor)
+    check_current(latest_course, _binding_bundle(course_id))
+    if updated.get("bundle_revision_id") != bundle.get("bundle_revision_id"):
+        stored = question_bank_repository.save_bundle(course_id, updated, activate=False)
+        try:
+            question_bank_repository.activate_bundle(
+                course_id, stored["bundle_revision_id"],
+                expected_current_revision_id=payload.expected_bundle_revision_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, detail={"code": "question_bank_changed"}) from exc
+    else:
+        stored = bundle
+    return {**binding_view(latest_course, stored), "can_edit": True}
+
+
 async def _question_bank_course(course_id: str) -> dict[str, Any]:
     """Project a generated teacher course without exposing drafts globally.
 

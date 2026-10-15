@@ -1314,7 +1314,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         }
         return response.data
       } catch (error) {
-        if (this.courseId === courseId) this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))
+        if (this.courseId === courseId) {
+          // A batch may have accepted a child before a later conflict. Read the
+          // canonical state before rendering failure; never replay the POST.
+          try { await this.load(courseId, { afterCurrent: true }) } catch { /* Preserve the original command error. */ }
+          if (this.courseId === courseId) this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))
+        }
         throw error
       }
     },

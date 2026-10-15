@@ -270,7 +270,7 @@ defineExpose({prepareToLeave, context, runContextAction, sources, dirty})
 .upload-area{display:flex!important;flex-direction:column;width:100%;min-height:126px;border:1px dashed var(--lz-border)!important;margin-top:12px;justify-content:center}
 .upload-area strong{font-size:15px;font-weight:500}.upload-area span{font-size:13px}
 .selection-footer{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--lz-border);padding-top:20px;margin-top:28px;gap:24px}.selection-footer>span{font-size:15px;color:var(--lz-text-secondary)}
-.ppt-project-workspace button.primary{background:var(--lz-brand-strong);color:#fff;padding:9px 18px}.ppt-project-workspace button.primary:hover:not(:disabled){filter:brightness(.94);background:var(--lz-brand-strong)}
+.ppt-project-workspace button.primary{background:var(--lz-action-bg);color:var(--lz-action-text);padding:9px 18px;border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);box-shadow:var(--lz-action-shadow)}.ppt-project-workspace button.primary:hover:not(:disabled){filter:brightness(.94);background:var(--lz-action-bg)}
 .existing-projects{margin-top:32px}.existing-projects>button{display:flex;width:100%;border-bottom:1px solid var(--lz-border);border-radius:0;padding:12px 0;text-align:left}.existing-projects>button span{flex:1;min-width:0;overflow-wrap:anywhere}
 .project-message{display:flex;align-items:center;gap:16px;padding:12px 24px;color:var(--lz-text-secondary);font-size:15px}.project-message.is-error{color:#922e2e;background:#fff4f1}
 .project-progress{display:flex;align-items:center;gap:14px;padding:18px 24px}.project-progress progress{height:4px;width:140px;accent-color:var(--lz-brand-strong)}.project-progress button{margin-left:auto}

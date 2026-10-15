@@ -418,7 +418,7 @@ button[data-theme="grid-notebook"] .deck-theme-preview { background-image:linear
 .deck-generator__panel > footer { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:26px; padding:21px 34px 26px; border-top:1px solid #e3e9f0; }
 .deck-generator__panel > footer > div { display:flex; align-items:center; gap:8px; color:#6c7a8d; font-size:12px; }
 .deck-generator__panel > footer > div svg { color:#16856b; }
-.deck-generator__panel > footer > button { min-height:43px; display:flex; align-items:center; gap:8px; padding:0 22px; border:0; border-radius:12px; color:#fff; background:#2f63da; box-shadow:0 9px 22px rgba(47,99,218,.24); font-weight:750; }
+.deck-generator__panel > footer > button { min-height:43px; display:flex; align-items:center; gap:8px; padding:0 22px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); font-weight:750; }
 .deck-generator__panel > footer > button:disabled { opacity:.7; }
 .spinning { animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -449,6 +449,6 @@ button[data-theme="grid-notebook"] .deck-theme-preview { background-image:linear
 .deck-generator__advanced{padding:20px 22px 0}.deck-generator__advanced>summary{font-size:15px;cursor:pointer;color:#475467;margin-bottom:12px}
 .is-inline .deck-generator__panel>footer{margin-top:20px;padding:16px 22px;justify-content:flex-end}
 .is-inline .deck-generator__panel>footer>div{display:none}
-.is-inline .deck-generator__panel>footer>button{min-height:40px;border-radius:8px;background:#5141d9;box-shadow:none;font-size:15px}
+.is-inline .deck-generator__panel>footer>button{min-height:40px;border-radius:var(--lz-action-radius);background:var(--lz-action-bg);box-shadow:var(--lz-action-shadow);font-size:15px;color:var(--lz-action-text);border:1px solid var(--lz-action-border)}
 .is-inline button:focus-visible{outline:2px solid #5b57e8;outline-offset:3px}
 </style>

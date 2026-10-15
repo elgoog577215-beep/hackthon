@@ -1,7 +1,13 @@
 <template>
   <div class="study-space">
-    <header class="study-header">
-      <RouterLink to="/study" class="study-brand"><span class="brand-symbol"><GraduationCap :size="24" /></span><span><strong>{{ c('brand') }}</strong><small>{{ c('subtitle') }}</small></span></RouterLink>
+    <header class="study-header glass-panel-elevated">
+      <RouterLink to="/study" class="study-brand"><img src="/qizhi-favicon.svg" alt="启智" /><span><strong>启智</strong><small>{{ c('brand') }}</small></span></RouterLink>
+      <nav v-if="user && !materialId && !creating" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
+        <button :class="{ active: !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')">{{ t('studentWorkspace.home') }}</button>
+        <button :class="{ active: route.query.view === 'courses' }" @click="openStudySection('courses')">{{ c('authorizedCourses') }}</button>
+        <button :class="{ active: route.query.view === 'materials' }" @click="goLibrary">{{ c('library') }}</button>
+        <button data-testid="student-create-handout" @click="startNew()"><Plus :size="16" />{{ c('create') }}</button>
+      </nav>
       <div class="study-header-actions">
         <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
         <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
@@ -23,20 +29,25 @@
       <div v-else class="study-login-card"><h2>{{ c('login') }}</h2><p>{{ c('disabledLogin') }}</p><button v-if="qizhiAuth" class="study-primary" @click="redirectToQizhiLogin">{{ c('unifiedLogin') }}</button></div>
     </main>
 
-    <div v-else class="study-workspace" :class="{ 'is-reading': !!materialId }">
-      <aside class="study-navigation">
-        <span class="study-eyebrow">PERSONAL LEARNING</span>
-        <button :class="{ active: !materialId && !creating }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
-        <button :class="{ active: creating }" @click="startNew"><Plus :size="19" />{{ c('create') }}</button>
+    <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId, 'is-library': !materialId && !creating }" :style="columnLayoutStyle">
+      <aside v-if="materialId || creating" class="study-navigation">
+        <span class="study-eyebrow">{{ t('studentWorkspace.space') }}</span>
+        <button :class="{ active: !materialId && !creating && !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')"><BookOpen :size="19" />{{ t('studentWorkspace.home') }}</button>
+        <button :class="{ active: !materialId && !creating && route.query.view === 'materials' }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
+        <button data-testid="student-create-handout" :class="{ active: creating }" @click="startNew()"><Plus :size="19" />{{ c('create') }}</button>
+        <button :class="{ active: !materialId && !creating && route.query.view === 'courses' }" @click="openStudySection('courses')"><GraduationCap :size="19" />{{ c('authorizedCourses') }}</button>
         <div class="recent-materials"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" :class="{ active: materialId === item.id }"><span class="material-dot" :class="item.purpose" /><span>{{ item.title }}<small>{{ c(item.purpose) }}</small></span></RouterLink></div>
         <p class="study-nav-hint"><LockKeyhole :size="16" />{{ c('savedHint') }}</p>
       </aside>
 
+      <ColumnResizeHandle v-if="materialId || creating" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
-        <div v-if="!creating" class="study-library">
-          <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew"><Plus :size="18" />{{ c('create') }}</button></div>
+        <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" :key="user.id" :user-id="user.id" @source="createFromCourse" />
+        <StudentLearningHome v-else-if="!creating && route.query.view !== 'materials'" :user-id="user.id" :materials="library" @create="startNew" @source="createFromCourse" />
+        <div v-else-if="!creating" class="study-library">
+          <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew()"><Plus :size="18" />{{ c('create') }}</button></div>
           <div v-if="library.length" class="study-material-grid"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" class="study-material-card"><span class="material-mode" :class="item.purpose"><Target v-if="item.purpose === 'exam_prep'" :size="18" /><BookOpen v-else :size="18" />{{ c(item.purpose) }}</span><h2>{{ item.title }}</h2><p>{{ c(item.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><footer><span class="study-status" :class="item.status">{{ statusLabel(item.status) }}</span><ArrowUpRight :size="22" /></footer></RouterLink></div>
-          <div v-else class="study-empty"><div class="empty-books"><BookOpen :size="46" /></div><h2>{{ c('emptyLibrary') }}</h2><p>{{ c('emptyHint') }}</p><button class="study-primary" @click="startNew">{{ c('create') }}<ArrowRight :size="18" /></button></div>
+          <div v-else class="study-empty"><div class="empty-books"><BookOpen :size="46" /></div><h2>{{ c('emptyLibrary') }}</h2><p>{{ c('emptyHint') }}</p><button class="study-primary" @click="startNew()">{{ c('create') }}<ArrowRight :size="18" /></button></div>
         </div>
         <form v-else class="study-create" @submit.prevent="generate">
           <div class="study-page-heading"><div><span class="study-eyebrow">CREATE YOUR HANDOUT</span><h1>{{ c('create') }}</h1><p>{{ c('intro') }}</p></div></div>
@@ -55,19 +66,22 @@
       <template v-else>
         <div class="study-reading-pane">
           <div class="study-reading-toolbar"><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
-          <div v-if="material" ref="readingTarget" class="study-document-scroll">
+          <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="toolTab = 'assistant'">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
+          <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
             <article class="study-handout">
               <header class="study-handout-cover"><span class="study-eyebrow">{{ c(material.purpose) }}</span><h1>{{ material.title }}</h1><p>{{ c(material.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><div class="handout-rule" /></header>
               <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
               <HandoutTableOfContents v-if="readingSections.length" :entries="readingSections.map(section => ({ id: section.anchor, title: section.title }))" collapsible />
-              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
+              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
               <p v-if="materialStatus === 'completed'" class="study-end"><Check :size="17" />{{ c('finishReading') }}</p>
             </article>
           </div>
         </div>
+        <ColumnResizeHandle v-if="material" v-bind="rightColumnHandle" />
         <aside v-if="material" class="study-reading-tools">
           <div class="study-tool-tabs"><button v-for="tab in toolTabs" :key="tab" :class="{ active: toolTab === tab }" @click="toolTab = tab">{{ c(tab) }}</button></div>
-          <div v-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
+          <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
+          <div v-else-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
           <div v-else-if="toolTab === 'sources'" class="study-source-list"><h3>{{ c('sources') }}</h3><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><code>{{ source.source_sha256.slice(0, 12) }}</code><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
           <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
           <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
@@ -85,11 +99,17 @@ import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutTableOfContents from '../components/HandoutTableOfContents.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
+import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
-import { activeLocale, setLocale } from '../shared/i18n'
+import { activeLocale, setLocale, t } from '../shared/i18n'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
+import StudentCourseLibrary from '../components/StudentCourseLibrary.vue'
+import StudentLearningHome from '../components/StudentLearningHome.vue'
+import { setStudyIdentity } from '../utils/study-identity'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
 import { clearQizhiAccessToken, isQizhiAuthRequired, redirectToQizhiLogin } from '../utils/http'
+import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 
 const router = useRouter(), route = useRoute()
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
@@ -98,10 +118,45 @@ const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), mater
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
 const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
-const toolTabs = ['note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('note')
+const toolTabs = ['assistant', 'note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('assistant')
+const activeChapter = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
+const assistantContext = computed(() => {
+  if (selectedPassage.value) return selectedPassage.value
+  const section = material.value?.revisions[0]?.sections.find(s => s.id === activeChapter.value) || material.value?.revisions[0]?.sections[0]
+  return { section_id: section?.id || '', section_title: section?.title || '', block_id: '', block_title: '', quote: '' }
+})
+function followChapter() {
+  const root = readingTarget.value; if (!root) return
+  const boundary = root.getBoundingClientRect().top + 100
+  const chapters = Array.from(root.querySelectorAll<HTMLElement>('[data-section-id]'))
+  const visible = chapters.filter(node => node.getBoundingClientRect().top <= boundary).at(-1) || chapters[0]
+  if (visible) activeChapter.value = visible.dataset.sectionId || ''
+}
+function selectPassage() {
+  const selection = window.getSelection(), root = readingTarget.value
+  if (!selection || !root || selection.isCollapsed || !selection.rangeCount) return
+  const range = selection.getRangeAt(0)
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
+  const start = range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement
+  const end = range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement
+  const sid = start?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId
+  if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) return
+  const section = material.value?.revisions[0]?.sections.find(s => s.id === sid)
+  const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
+  const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
+  const quote = selection.toString().trim()
+  if (!section || !quote || quote.length > 3000) return
+  selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', quote }
+}
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
+const studyLayoutRoot = ref<HTMLElement | null>(null)
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
+  storageKey: 'lingzhi:personal-study:columns', left: 240, right: 360, leftMin: 170, rightMin: 280,
+  leftVisible: () => Boolean(materialId.value || creating.value),
+  rightVisible: () => Boolean(materialId.value && material.value),
+})
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
@@ -118,7 +173,7 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
@@ -130,14 +185,16 @@ async function loadLibrary() { const current = epoch; const result = await Promi
 async function connect() {
   const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled
   if (!studySession.get() && !qizhiAuth) return
-  try { user.value = await studyApi.me(); restoreDraft(); await loadLibrary(); await openMaterial() }
+  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); await loadLibrary(); await openMaterial() }
   catch (cause) { showError(cause) }
 }
-async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); await openMaterial() }) }
+async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else await openMaterial() }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await loadLibrary(); await openMaterial() } }) }
-async function goLibrary() { creating.value = false; await router.push('/study'); await action(loadLibrary) }
-async function startNew() { await router.push('/study'); creating.value = true; await action(loadLibrary) }
+async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
+async function goLibrary() { await openStudySection('materials') }
+async function startNew(purpose?: StudyPurpose) { await router.push('/study'); creating.value = true; if (purpose) form.purpose = purpose; await action(loadLibrary) }
+async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
   sources.value.unshift(source)
   if (!source.sections.length) { error.value = source.error || c('sourceFailed'); return }
@@ -168,6 +225,7 @@ async function generate() {
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
   material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
+  activeChapter.value = ''; selectedPassage.value = null; toolTab.value = 'assistant'
   if (!id || !user.value) return
   async function refresh(first = false) {
     try {
@@ -194,8 +252,11 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 </script>
 
 <style scoped>
+.study-selection-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 20px;background:#eeeafa;color:#6b59a2;font:15px/1.6 var(--handout-sans)}.study-selection-actions span{flex:1}.study-selection-actions button{padding:4px 8px}
+.study-reading-tools{display:flex;flex-direction:column;min-height:0}.study-tool-tabs{flex:none}.study-reading-tools:has(.personal-assistant){overflow:hidden;width:360px}.study-reading-tools:has(.personal-assistant) .study-tool-tabs{padding-inline:5px;gap:0}
+@media(max-width:1200px){.study-reading-tools:has(.personal-assistant){width:320px}}
 .study-space{height:100%;min-height:0;display:flex;flex-direction:column;color:#263449;background:#f5f6fc;font:15px/1.6 var(--lz-font-sans,Inter,"Microsoft YaHei",sans-serif)}
-.study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;border:1px solid #dbe0ed;border-radius:10px;background:white;color:#43536d;padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover{background:#eeedf9;color:#5145a4}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid #9385ed;outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:#6551c7;border-color:#6551c7;color:white;font-weight:650;padding:12px 20px;box-shadow:0 4px 10px #6551c71b}.study-space .study-primary:hover{background:#5140ac;color:white}
+.study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;border:1px solid #dbe0ed;border-radius:10px;background:white;color:#43536d;padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover{background:#eeedf9;color:#5145a4}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid #9385ed;outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:var(--lz-action-bg);border-color:var(--lz-action-border);color:var(--lz-action-text);font-weight:650;padding:12px 20px;box-shadow:var(--lz-action-shadow);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius)}.study-space .study-primary:hover{background:var(--lz-action-bg);color:var(--lz-action-text)}
 .study-header{height:82px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 30px;background:#ffffffed;border-bottom:1px solid #e4e7f0;gap:20px}.study-brand{display:flex;align-items:center;gap:12px}.brand-symbol{width:46px;height:46px;display:grid;place-items:center;background:#eee9fb;color:#6551c7;border-radius:15px}.study-brand strong{font-size:20px;display:block}.study-brand small{font-size:15px;color:#8190a4}.study-header-actions{display:flex;align-items:center;gap:18px}.study-header-actions button{border:0;background:transparent;padding:7px}.study-user{display:flex;align-items:center;gap:7px;color:#647187}.study-eyebrow{font-size:15px;color:#7b6ca4;font-weight:650;letter-spacing:.09em}.study-error{flex:none;padding:10px 28px;background:#fff1f1;color:#a14253;display:flex;align-items:center;justify-content:space-between;gap:16px}.study-error button{padding:5px 12px;color:inherit}
 .study-login-page{flex:1;overflow:auto;display:grid;grid-template-columns:minmax(0,570px) 410px;justify-content:center;align-items:center;gap:90px;padding:45px}.login-story h1{font-size:40px;line-height:1.3;letter-spacing:-.02em;margin:15px 0 20px}.login-story>p{font-size:18px;color:#748399;margin-bottom:35px}.login-purpose{display:flex;gap:18px;margin-top:25px;padding:20px 0;border-top:1px solid #dfe3f0}.login-purpose svg{color:#7662bd;margin-top:7px;flex:none}.login-purpose h3{font-size:18px;margin:0 0 6px}.login-purpose p{margin:0;color:#718096}.study-login-card{padding:36px;background:white;border:1px solid #e2e5ef;border-radius:22px;box-shadow:0 16px 50px #58688910}.study-login-card h2{font-size:25px;margin:12px 0}.study-login-card>p{color:#7b889c;margin-bottom:25px}.study-login-card .study-primary{width:100%;margin-top:14px}.study-login-card .study-text-button{display:flex;margin:17px auto 0;border:0;color:#6551c7}
 .study-workspace{flex:1;min-height:0;display:flex}.study-navigation{width:240px;flex:none;padding:28px 18px;display:flex;flex-direction:column;border-right:1px solid #e2e5ef;background:#fbfcff;overflow:auto}.study-navigation>.study-eyebrow{padding:0 11px;margin-bottom:25px;font-size:15px;letter-spacing:.02em}.study-navigation>button{justify-content:flex-start;border:0;background:transparent;margin-bottom:8px;padding:12px;color:#69778b}.study-navigation>button.active{color:#6651bd;background:#eeeafb;font-weight:650}.recent-materials{display:flex;flex-direction:column;gap:5px;margin-top:27px;border-top:1px solid #e6e8f1;padding-top:19px}.recent-materials a{display:flex;gap:10px;padding:11px;border-radius:10px;overflow-wrap:anywhere}.recent-materials a:hover,.recent-materials a.active{background:#f0edf9}.recent-materials small{display:block;font-size:15px;color:#8390a2;margin-top:4px}.material-dot{margin-top:9px;width:7px;height:7px;flex:none;border-radius:50%;background:#7e6db8}.material-dot.exam_prep{background:#4682b2}.study-nav-hint{display:flex;align-items:flex-start;gap:9px;margin-top:auto;padding:35px 10px 0;color:#8a94a5;font-size:15px}.study-nav-hint svg{flex:none;margin-top:5px}
@@ -204,4 +265,24 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:#f3f4f9}.study-reading-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex:none;padding:13px 20px;background:white;border-bottom:1px solid #e4e7f0}.study-reading-toolbar button{border:0;font-size:15px;background:transparent;padding:5px 9px}.study-document-scroll{min-height:0;overflow:auto;scroll-behavior:smooth;padding:32px 32px 70px}.study-handout{max-width:950px;margin:auto;min-width:0;background:white;border:1px solid #e0e5ef;box-shadow:0 6px 25px #49567105;padding:40px 45px;color:#272e3d;font:18px/1.95 var(--handout-serif)}.study-handout-cover h1{font:700 32px/1.45 var(--handout-serif);margin:12px 0 16px}.study-handout-cover p{font:15px/1.8 var(--handout-sans);color:#7a879a;margin:0}.handout-rule{height:1px;background:#dce2ec;margin:26px 0}.study-section-kicker{font:15px/1.6 var(--handout-sans);color:#8c96a7;margin-top:30px}.study-handout-section{scroll-margin-top:25px}.study-handout-section h2{font:700 25px/1.6 var(--handout-serif);margin:8px 0 20px}.study-handout-section>div[id]{min-width:0;scroll-margin-top:25px}.study-progress{border:1px solid #dcd4ed;background:#faf7ff;padding:17px 20px;font:15px/1.8 var(--handout-sans);margin-bottom:24px;display:flex;flex-direction:column;gap:12px}.study-progress progress{width:100%;height:5px;accent-color:#8066c6}.study-progress button{align-self:flex-start}.study-draft{border-top:1px dashed #d3d8e6;padding:15px 0}.study-draft>span{font:15px/1.6 var(--handout-sans);color:#8792a5}.study-end{display:flex;gap:9px;justify-content:center;align-items:center;color:#8698a0;font:15px/1.8 var(--handout-sans);padding-top:30px;border-top:1px solid #e3e8ee;margin-top:35px}.study-reading-tools{width:300px;flex:none;overflow:auto;background:#fcfdff;border-left:1px solid #dfe4ef}.study-tool-tabs{display:flex;justify-content:space-around;gap:3px;padding:18px 10px;border-bottom:1px solid #e4e8f0}.study-tool-tabs button{padding:7px 6px;border:0;font-size:15px;color:#7e8899;background:transparent}.study-tool-tabs button.active{color:#715ab3;background:#efebfa}.study-note,.study-source-list{padding:23px}.study-note h3,.study-source-list h3{font-size:18px;margin:0 0 12px}.study-note>p{color:#8c97a8;font-size:15px;margin:0 0 22px}.study-note textarea{font-size:15px;line-height:1.9;min-height:290px}.study-note .study-primary{width:100%}.study-note-status{font-size:15px;color:#7d909b;min-height:27px;margin:10px 0}.study-source-list article{border:1px solid #dce2ed;border-radius:10px;background:white;padding:15px;margin-top:16px}.study-source-list strong{font-size:15px;display:block;margin:8px 0;overflow-wrap:anywhere}.study-source-list p{font-size:15px;color:#7e899b;margin:7px 0}.study-source-list code{font-size:15px;color:#9ba4b4}.study-reading-tools :deep(.handout-concept-map){position:static;border:0;max-height:none;overflow:visible}.study-reading-tools :deep(.concept-eyebrow){font-size:15px}
 @media(max-width:1200px){.study-navigation{width:190px;padding:25px 12px}.study-reading-tools{width:270px}.study-library,.study-create{padding:35px 30px}.study-document-scroll{padding:24px 18px 60px}.study-handout{padding:30px 25px}.study-login-page{gap:45px}.study-brand small{display:none}}
 @media(max-width:980px){.study-navigation{width:165px}.study-header{padding:0 20px}.study-header-actions{gap:10px}.study-reading-tools{width:235px}.study-user{max-width:180px;overflow:hidden}.study-login-page{grid-template-columns:minmax(0,1fr) 350px;gap:30px;padding:30px}.login-story h1{font-size:31px}.study-purpose-options{gap:12px}.study-reading-toolbar{flex-wrap:wrap}.study-handout{padding:25px 18px}}
+.study-workspace{min-width:0;overflow:hidden}
+.study-workspace>.study-navigation{box-sizing:border-box;width:var(--column-left-width);min-width:0;overflow-wrap:anywhere}
+.study-workspace>.study-reading-tools{box-sizing:border-box;width:var(--column-right-width);min-width:0}
+.study-workspace>.study-reading-tools .study-tool-tabs{flex-wrap:wrap}
+</style>
+
+<style scoped>
+.study-space { padding: 10px; gap: 10px; box-sizing: border-box; background: transparent; }
+.study-header { min-height: 60px; height: auto; padding: 8px 20px; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.82); }
+.study-brand { flex: none; gap: 10px; }
+.study-brand > img { width: 34px; height: 34px; }
+.study-brand strong { color: #312e81; }
+.study-brand small { font-size: 15px; }
+.study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.study-surface-navigation button { padding: 7px 10px; border: 0; background: transparent; white-space: nowrap; }
+.study-surface-navigation button.active { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
+.study-header-actions { flex: none; gap: 10px; }
+.study-workspace { gap: 8px; }
+.study-workspace.is-library .study-main-scroll { border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.76); box-shadow: var(--lz-shadow-panel); }
+@media(max-width:1100px) { .study-header-actions .study-user { display: none; } }
 </style>

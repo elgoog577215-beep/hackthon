@@ -42,6 +42,14 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
     if not req.course_id:
         raise HTTPException(status_code=422, detail="course_id is required")
     course = await get_course_or_404(req.course_id)
+    from course_learning_access import trusted_student
+    if trusted_student(request):
+        if req.perspective != "learner":
+            raise HTTPException(403, "学生提问不能使用教师修改模式")
+        from course_learning_projection import public_course
+        course = public_course(course)
+        if req.node_id and req.node_id not in {node["node_id"] for node in course.get("nodes") or [] if node.get("content_blocks")}:
+            raise HTTPException(404, "学习内容不存在或未获授权")
     user_id = require_user_id(request.headers.get("X-User-Id"))
     learning_scope = LearnerCourseScope.from_course(
         course,

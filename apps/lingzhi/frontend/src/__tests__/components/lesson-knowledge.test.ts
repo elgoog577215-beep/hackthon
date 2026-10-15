@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Manager from '@/components/TeacherKnowledgeManager.vue'
 import http from '@/utils/http'
 import { setLocale } from '@/shared/i18n'
@@ -14,6 +14,73 @@ const state = () => ({ enabled: true, source_mode: 'handouts', workflow: 'knowle
   title: '计算机系统', document_revision: 'd', knowledge_revision: 'base', tree: tree(), history: [tree()], jobs: [], handouts: [],
   can_generate_tree: true, source_handouts: [{ lesson_id: 'cpu' }, { lesson_id: 'memory' }],
   lesson_options: [{ lesson_id: 'cpu', title: '处理器', can_generate: true }, { lesson_id: 'memory', title: '主存', can_generate: true }], candidates: [] })
+afterEach(() => vi.useRealTimers())
+
+it('allows another lecture while showing the selected lecture task', async () => {
+  const v: any = state()
+  v.jobs = [{ id: 'memory-tree', type: 'course_knowledge_tree_generation', knowledge_lesson_id: 'memory', status: 'running', progress: 20 }]
+  v.active_jobs = v.jobs
+  v.lesson_options[0].blocking_job_ids = []
+  v.lesson_options[1].blocking_job_ids = ['memory-tree']
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const generate = () => w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!
+  expect(generate().attributes('disabled')).toBeUndefined()
+  await w.get('select[aria-label="讲次"]').setValue('memory')
+  expect(generate().attributes('disabled')).toBeDefined()
+  w.unmount()
+})
+
+it('shows a blocking handout and refreshes when that job completes without restarting it', async () => {
+  vi.useFakeTimers()
+  const v: any = state()
+  v.active_jobs = [{ id: 'cpu-handout', type: 'teacher_lesson_script_generation', lesson_unit_id: 'cpu', status: 'running', progress: 35 }]
+  v.lesson_options[0].blocking_job_ids = ['cpu-handout']
+  const get = vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const generate = () => w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!
+  expect(generate().attributes('disabled')).toBeDefined()
+  expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('讲义')
+  expect(w.text()).not.toContain('本讲还没有知识树，点击“生成本讲知识树”开始。')
+  get.mockResolvedValue({ data: { ...v, active_jobs: [], lesson_options: state().lesson_options } })
+  await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+  expect(generate().attributes('disabled')).toBeUndefined()
+  expect(w.find('[data-testid="knowledge-source-blocker"]').exists()).toBe(false)
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('reconciles a conflicting start response with the accepted background task', async () => {
+  const v: any = state()
+  const get = vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const job = { id: 'cpu-tree', type: 'course_knowledge_tree_generation', knowledge_lesson_id: 'cpu', status: 'running', progress: 15, message: '正在生成' }
+  get.mockResolvedValue({ data: { ...v, jobs: [job], active_jobs: [job], lesson_options: [{ ...v.lesson_options[0], blocking_job_ids: [job.id] }, v.lesson_options[1]] } })
+  vi.mocked(http.post).mockRejectedValue({ response: { status: 409, data: { detail: '已有生成任务' } } })
+  await w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!.trigger('click'); await flushPromises()
+  expect(w.find('[role="alert"]').exists()).toBe(false)
+  expect(w.get('[role="status"]').text()).toContain('正在生成')
+  expect(w.text()).not.toContain('本讲还没有知识树，点击“生成本讲知识树”开始。')
+  expect(http.post).toHaveBeenCalledTimes(1)
+  w.unmount()
+})
+
+it('explains a blocked source task in English and stops observing after unmount', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => en })))
+  await setLocale('en')
+  const v: any = state()
+  v.active_jobs = [{ id: 'plan', type: 'teacher_lesson_plan_generation', lesson_unit_id: 'cpu', status: 'pending', progress: 0 }]
+  v.lesson_options[0].blocking_job_ids = ['plan']
+  const get = vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('Lesson plan generation in progress')
+  expect(w.get('[data-testid="knowledge-source-blocker"]').text()).toContain('source task finishes')
+  w.unmount()
+  const calls = get.mock.calls.length
+  await vi.advanceTimersByTimeAsync(4000)
+  expect(get).toHaveBeenCalledTimes(calls)
+})
 beforeEach(async () => {
   vi.restoreAllMocks()
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zh })))

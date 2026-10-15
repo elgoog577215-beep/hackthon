@@ -3,11 +3,13 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn() }))
+const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api, studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
+import zh from '../../../public/locales/zh/translation.json'
+import en from '../../../public/locales/en/translation.json'
 import StudyView from '@/views/StudyView.vue'
-import { activeLocale } from '@/shared/i18n'
+import { activeLocale, setLocale } from '@/shared/i18n'
 
 const user = { id: 'student-a', username: 'student_a', role: 'student' }
 const source = { id: 'mat-123', filename: '两章资料.md', status: 'parsed', warnings: [], error: '', sections: [{ id: 'blk-1', title: '第一章', characters: 300 }, { id: 'blk-3', title: '第二章', characters: 400 }] }
@@ -17,24 +19,38 @@ let wrapper: VueWrapper | undefined
 async function page(path = '/study') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/study/:materialId?', name: 'study', component: StudyView }, { path: '/courses', component: { template: '<div />' } }] })
   await router.push(path); await router.isReady()
-  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { global: { plugins: [createPinia(), router], stubs: { MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: true, HandoutTableOfContents: true } } })
+  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { attachTo: document.body, global: { plugins: [createPinia(), router], stubs: { PersonalHandoutAssistant: true, MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: true, HandoutTableOfContents: true } } })
   await flushPromises()
   return { wrapper, router }
 }
 
-beforeEach(() => {
-  vi.clearAllMocks(); sessionStorage.clear(); activeLocale.value = 'zh'
+beforeEach(async () => {
+  vi.clearAllMocks(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/en/') ? en : zh }))); await setLocale('zh')
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
-  api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
+  api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.useRealTimers() })
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('keeps the home, authorized courses, and personal materials within the authenticated student space', async () => {
+    const { wrapper, router } = await page()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    expect(api.courses).toHaveBeenCalledTimes(1)
+    await router.push('/study?view=materials'); await flushPromises()
+    expect(wrapper.find('.study-library').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(false)
+    await wrapper.get('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
+    expect(wrapper.find('.study-create').exists()).toBe(true)
+    await wrapper.findAll('.study-navigation button').find(button => button.text() === '教师授权课程')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.study-create').exists()).toBe(false)
+    expect(router.currentRoute.value.query.view).toBe('courses')
+  })
   it('uses owned materials and source ranges for two learning purposes without teacher setup', async () => {
     const { wrapper } = await page()
     expect(wrapper.text()).toContain('student_a')
-    expect(wrapper.text()).toContain('第一份讲义')
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.findAll('.source-selection')).toHaveLength(2)
     expect(wrapper.findAll('.study-purpose-options button')).toHaveLength(2)
     expect(wrapper.text()).not.toMatch(/教师预览|课程代码|学分|教案确认|teacherPreview/)
@@ -44,7 +60,7 @@ describe('personal study handouts', () => {
 
   it('prevents duplicate submissions and passes the exact selected range and purpose', async () => {
     const { wrapper, router } = await page()
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     await wrapper.findAll('.source-selection input')[1]!.setValue(true)
     await wrapper.get('input[placeholder="例如：线性代数前两章复习"]').setValue('方程组备考')
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
@@ -63,6 +79,7 @@ describe('personal study handouts', () => {
 
   it('keeps an unsaved note after save failure and saves it to its material revision on retry', async () => {
     const { wrapper } = await page('/study/material-a')
+    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '已保存的理解')
     await wrapper.get('.study-note textarea').setValue('新的理解与问题')
     api.note.mockRejectedValueOnce(new Error('保存失败')).mockResolvedValueOnce({})
@@ -75,10 +92,25 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).toContain('笔记已保存')
   })
 
+  it('opens the assistant by default and binds a real reading selection to the exact owned block', async () => {
+    const { wrapper } = await page('/study/material-a')
+    const assistant = wrapper.getComponent({ name: 'PersonalHandoutAssistant' })
+    expect(assistant.props()).toMatchObject({ ownerId: 'student-a', materialId: 'material-a', revisionId: 'revision-a', context: { section_id: 's1', block_id: '', quote: '' } })
+    const body = wrapper.get('[data-block-id="b1"]').element
+    const range = document.createRange(); range.selectNodeContents(body)
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+    await wrapper.get('.study-document-scroll').trigger('pointerup')
+    expect(assistant.props('context')).toMatchObject({ section_id: 's1', section_title: '第一章', block_id: 'b1', block_title: '向量', quote: '真实讲义正文' })
+    await wrapper.get('.study-selection-actions button:last-child').trigger('click')
+    expect(assistant.props('context')).toMatchObject({ block_id: '', quote: '' })
+    selection.removeAllRanges()
+  })
+
   it('restores private note drafts without copying one student’s draft to another', async () => {
     sessionStorage.setItem('lingzhi-study-note:student-a:material-a:revision-a', '未提交的草稿')
     sessionStorage.setItem('lingzhi-study-note:student-b:material-a:revision-a', '另一人的笔记')
     const { wrapper } = await page('/study/material-a')
+    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '未提交的草稿')
     expect(wrapper.text()).not.toContain('另一人的笔记')
     expect(api.note).not.toHaveBeenCalled()
@@ -96,7 +128,7 @@ describe('personal study handouts', () => {
   it('renders the corresponding English creation flow', async () => {
     activeLocale.value = 'en'
     const { wrapper } = await page()
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('Choose your sources')
     expect(wrapper.text()).toContain('Deep understanding')
     expect(wrapper.text()).toContain('Exam preparation')
@@ -106,7 +138,7 @@ describe('personal study handouts', () => {
 
   it('retries the same submission id after a lost response but uses a new id for changed input', async () => {
     const { wrapper } = await page()
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     await wrapper.find('.source-selection input').setValue(true)
     await wrapper.get('input[placeholder="例如：线性代数前两章复习"]').setValue('原讲义')
     api.generate.mockRejectedValue(new Error('连接中断'))
@@ -121,7 +153,7 @@ describe('personal study handouts', () => {
 
   it('discards an old owner’s late source response after logout and a different login', async () => {
     const { wrapper } = await page()
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     await wrapper.find('.study-source-actions button').trigger('click')
     await wrapper.find('.study-paste input').setValue('A 的私有资料')
     await wrapper.find('.study-paste textarea').setValue('A 的私有正文')
@@ -136,7 +168,7 @@ describe('personal study handouts', () => {
     resolve({ ...source, filename: 'A 的私有资料.md' }); await flushPromises()
     expect(wrapper.text()).toContain('student_b')
     expect(wrapper.text()).not.toContain('A 的私有资料')
-    await wrapper.find('.study-navigation>button:nth-of-type(2)').trigger('click'); await flushPromises()
+    await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.findAll('.source-selection')).toHaveLength(0)
     expect(wrapper.get('input[placeholder="例如：线性代数前两章复习"]').element).toHaveProperty('value', '')
   })

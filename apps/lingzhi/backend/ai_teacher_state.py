@@ -364,10 +364,34 @@ class AITeacherRepository:
     def _conversation(self, data: dict[str, Any], conversation_id: str) -> dict[str, Any] | None:
         return next((item for item in data["conversations"] if item.get("conversation_id") == conversation_id), None)
 
-    def _guard(self, user_id: str, course_id: str, *, write: bool = False):
-        return _RepositoryGuard(self, user_id, course_id, write=write)
+    def material_conversation(self, user_id: str, material_id: str, revision_id: str, update=None) -> dict:
+        """The same conversation store with a typed personal-material scope.
 
-    def _key(self, user_id: str, course_id: str) -> str:
+        Course APIs cannot address this namespace, and no course is fabricated.
+        A read of an empty workspace does not create a conversation or event.
+        """
+        with self._guard(user_id, material_id, write=update is not None, resource_type="personal_material") as data:
+            cid = "aic_" + hashlib.sha256(revision_id.encode()).hexdigest()[:32]
+            conversation = self._conversation(data, cid)
+            if conversation is None:
+                conversation = {"conversation_id": cid, "user_id": user_id, "course_id": "",
+                    "resource_ref": {"type": "personal_material", "id": material_id, "revision_id": revision_id},
+                    "title": "个人讲义学习对话", "revision": 1, "retrieval_enabled": False, "messages": [],
+                    "created_at": _now(), "updated_at": _now()}
+                if update is not None:
+                    data["conversations"].append(conversation)
+            if update is not None:
+                update(conversation)
+                conversation["revision"] += 1
+                conversation["updated_at"] = _now()
+            return deepcopy(conversation)
+
+    def _guard(self, user_id: str, course_id: str, *, write: bool = False, resource_type: str = "course"):
+        return _RepositoryGuard(self, user_id, course_id, write=write, resource_type=resource_type)
+
+    def _key(self, user_id: str, course_id: str, resource_type: str = "course") -> str:
+        if resource_type != "course":
+            return hashlib.sha256(json.dumps([resource_type, user_id, course_id]).encode()).hexdigest()
         return hashlib.sha256(f"{user_id}\0{course_id}".encode("utf-8")).hexdigest()
 
     def _path(self, key: str) -> Path:
@@ -416,9 +440,9 @@ class AITeacherRepository:
 
 
 class _RepositoryGuard:
-    def __init__(self, repository: AITeacherRepository, user_id: str, course_id: str, *, write: bool):
+    def __init__(self, repository: AITeacherRepository, user_id: str, course_id: str, *, write: bool, resource_type: str = "course"):
         self.repository = repository
-        self.key = repository._key(user_id, course_id)
+        self.key = repository._key(user_id, course_id, resource_type)
         self.path = repository._path(self.key)
         self.write = write
         self.lock = repository._lock(self.key)

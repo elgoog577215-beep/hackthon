@@ -89,6 +89,9 @@ class PracticeAttemptRepository:
                 str(item.get("task_revision_id") or item.get("question_revision_id") or "") == task_revision_id
                 for item in attempts
             )
+            exposure = next((item for item in reversed(attempts)
+                             if str(item.get("task_revision_id") or item.get("question_revision_id") or "") == task_revision_id
+                             and item.get("solution_revealed")), None)
             attempt = _sanitize_attempt(payload)
             attempt.update({
                 "attempt_id": requested_id or f"pa_{uuid.uuid4().hex}",
@@ -101,7 +104,8 @@ class PracticeAttemptRepository:
                 "answer_payload": _sanitize_value(payload.get("answer_payload") or {}),
                 "revealed_hint_levels": [],
                 "revealed_hints": [],
-                "solution_revealed": False,
+                "solution_revealed": bool(exposure),
+                "solution_exposure_origin_attempt_id": exposure.get("attempt_id", "") if exposure else "",
                 "ai_support_level": 0,
                 "active_seconds": 0,
                 "revision": 1,

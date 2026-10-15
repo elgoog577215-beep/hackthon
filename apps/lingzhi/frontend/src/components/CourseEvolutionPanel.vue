@@ -1311,7 +1311,7 @@ onUnmounted(clearProgressPoll)
    tells the learner a broad scope is still safe to pick. */
 .request-scope-control small { min-width:0; color:#94a3b8; font-size:7px; line-height:1.4; overflow-wrap:anywhere; }
 .request-scope-control button.active small { color:#6366f1; }
-.generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid #7c3aed; border-radius:6px; color:#fff; background:#7c3aed; font-size:9px; font-weight:700; cursor:pointer; }
+.generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); font-size:9px; font-weight:700; cursor:pointer; box-shadow:var(--lz-action-shadow); }
 .generate-plan:disabled,.challenge-suggestion button:disabled { opacity:.55; cursor:not-allowed; }
 .generation-error { display:flex; align-items:flex-start; gap:5px; margin:0; color:#b91c1c; font-size:8px; line-height:1.4; }
 .whole-course-scan-summary { width:100%; display:grid; grid-template-columns:32px minmax(0,1fr) 18px; align-items:center; gap:9px; margin:0 0 8px; padding:10px; border:1px solid #c7d2fe; border-radius:9px; color:#4338ca; background:#fff; text-align:left; cursor:pointer; }
@@ -1412,7 +1412,7 @@ onUnmounted(clearProgressPoll)
 .scope-control button.active { color:#6d28d9; background:#fff; box-shadow:0 1px 4px rgba(15,23,42,.08); font-weight:700; }
 .evolution-actions { display:flex; gap:5px; margin-top:8px; }
 .evolution-actions button,.applied-growth button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 8px; border:1px solid #d1d5db; border-radius:6px; color:#64748b; background:#fff; font-size:9px; cursor:pointer; }
-.evolution-actions button.primary { color:#fff; border-color:#7c3aed; background:#7c3aed; }
+.evolution-actions button.primary { color:var(--lz-action-text); border-color:var(--lz-action-border); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .applied-growth { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:7px; color:#2563eb; }
 article[data-effect="effective"] .applied-growth { color:#15803d; }
 article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"] .applied-growth { color:#b45309; }
@@ -1462,9 +1462,10 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .evolution-panel--workspace .request-scope-control>button.active { border-color:#8580f5; background:#f1f2ff; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
 .evolution-panel--workspace .request-scope-control b { font-size:13px; }
 .evolution-panel--workspace .request-scope-control small { margin-top:3px; color:#758198; font-size:11px; line-height:1.5; }
-.evolution-panel--workspace .generate-plan,.evolution-panel--workspace .challenge-suggestion button { min-height:46px; border-color:#5148dc; border-radius:10px; background:#5148dc; font-size:13px; }
-.evolution-panel--workspace .generate-plan:hover:not(:disabled),.evolution-panel--workspace .challenge-suggestion button:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
-.evolution-panel--workspace .generate-plan:focus-visible,.evolution-panel--workspace button:focus-visible,.evolution-panel--workspace input:focus-visible { outline:3px solid rgba(99,102,241,.22); outline-offset:2px; }
+.evolution-panel--workspace .generate-plan,.evolution-panel--workspace .challenge-suggestion button { min-height:46px; border-color:var(--lz-action-border); border-radius:var(--lz-action-radius); background:var(--lz-action-bg); font-size:13px; color:var(--lz-action-text); border:1px solid var(--lz-action-border); box-shadow:var(--lz-action-shadow); }
+.evolution-panel--workspace .generate-plan:hover:not(:disabled),.evolution-panel--workspace .challenge-suggestion button:hover:not(:disabled) { border-color:var(--lz-action-border-hover); background:var(--lz-action-bg); }
+.evolution-panel--workspace .generate-plan:focus-visible { outline:2px solid var(--lz-action-focus); outline-offset:2px; }
+.evolution-panel--workspace button:focus-visible,.evolution-panel--workspace input:focus-visible { outline:3px solid rgba(99,102,241,.22); outline-offset:2px; }
 .evolution-panel--workspace .generation-error { font-size:12px; }
 .evolution-panel--workspace .growth-insight-switcher { gap:10px; margin:0; }
 .evolution-panel--workspace .growth-insight-switcher button { grid-template-columns:18px minmax(0,1fr) auto; gap:9px; min-height:48px; padding:9px 12px; border-radius:10px; font-size:12px; }

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/action-controls.css";
 @config "../tailwind.config.js";
 
 /* ============================================
@@ -39,15 +40,15 @@
   --color-success: #10b981;
   --color-success-light: #d1fae5;
   --color-success-dark: #059669;
-  
+
   --color-warning: #f59e0b;
   --color-warning-light: #fef3c7;
   --color-warning-dark: #d97706;
-  
+
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
   --color-error-dark: #dc2626;
-  
+
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
   --color-info-dark: #2563eb;
@@ -101,12 +102,12 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.03);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.06), 0 8px 10px -6px rgb(0 0 0 / 0.03);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.12);
-  
+
   /* Premium Glow Effects */
   --shadow-glow-primary: 0 0 20px rgba(99, 102, 241, 0.3);
   --shadow-glow-accent: 0 0 20px rgba(168, 85, 247, 0.25);
   --shadow-glow-soft: 0 0 40px rgba(99, 102, 241, 0.15);
-  
+
   /* Inner Shadows */
   --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.02);
   --shadow-inner-subtle: inset 0 1px 2px 0 rgb(0 0 0 / 0.03);
@@ -228,7 +229,7 @@ body {
   /* Font Families */
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', monospace;
-  
+
   /* Font Sizes - Refined Scale */
   --text-xs: 0.875rem;     /* 14px */
   --text-sm: 0.9375rem;    /* 15px */
@@ -238,13 +239,13 @@ body {
   --text-2xl: 1.5rem;      /* 24px */
   --text-3xl: 1.875rem;    /* 30px */
   --text-4xl: 2.25rem;     /* 36px */
-  
+
   /* Line Heights */
   --leading-tight: 1.25;
   --leading-snug: 1.375;
   --leading-normal: 1.6;
   --leading-relaxed: 1.75;
-  
+
   /* Letter Spacing */
   --tracking-tight: -0.02em;
   --tracking-normal: 0;
@@ -485,40 +486,20 @@ body {
   padding: 10px 20px;
   font-size: var(--text-sm);
   font-weight: 500;
-  color: white;
-  background: var(--gradient-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md), var(--shadow-glow-primary);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
   cursor: pointer;
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
 }
 
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.3),
-    transparent
-  );
-  transition: left 0.5s ease;
-}
-
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-lg), var(--shadow-glow-primary);
-}
-
-.btn-primary:hover::before {
-  left: 150%;
+  box-shadow: var(--lz-action-shadow-hover);
 }
 
 .btn-primary:active {
@@ -526,8 +507,9 @@ body {
 }
 
 .btn-primary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), var(--shadow-glow-primary);
+  outline: 2px solid var(--lz-action-focus);
+  box-shadow: var(--lz-action-shadow-hover);
+  outline-offset: 2px;
 }
 
 .btn-secondary {
@@ -548,25 +530,12 @@ body {
   overflow: hidden;
 }
 
-.btn-secondary::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.9);
   border-color: var(--color-primary-300);
   color: var(--color-primary-600);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-}
-
-.btn-secondary:hover::before {
-  opacity: 1;
 }
 
 .btn-secondary:active {
@@ -647,14 +616,17 @@ body {
 
 /* Icon Button Variants */
 .btn-icon-primary {
-  background: var(--gradient-primary);
-  border-color: transparent;
-  color: white;
+  background: var(--lz-action-bg);
+  border-color: var(--lz-action-border);
+  color: var(--lz-action-text);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
+  box-shadow: var(--lz-action-shadow);
 }
 
 .btn-icon-primary:hover {
-  color: white;
-  box-shadow: var(--shadow-glow-primary);
+  color: var(--lz-action-text);
+  box-shadow: var(--lz-action-shadow-hover);
 }
 
 .btn-icon-ghost {
@@ -910,13 +882,13 @@ body {
 
 /* Slide Up with Fade */
 @keyframes slide-up-fade {
-  from { 
-    opacity: 0; 
+  from {
+    opacity: 0;
     transform: translateY(20px);
     filter: blur(8px);
   }
-  to { 
-    opacity: 1; 
+  to {
+    opacity: 1;
     transform: translateY(0);
     filter: blur(0);
   }

@@ -24,7 +24,8 @@ def teaching_diagram_prompt() -> str:
 使用独立的 ```lingzhi-diagram 代码围栏，内部只写一个合法 JSON 对象。通用字段：schema_version="teaching_diagram_v1",type=下表ID,title=短标题,summary=完整可读结论及必要条件,source=当前已提供的来源定位或“假设示例”（不得伪造引用）。其余只写所选图型的数据字段。不输出 SVG、HTML、CSS、脚本、外部图片或布局坐标；定量/空间图需要的坐标只能来自内容数据。
 共享对象定义：nodes=[{id:唯一短ID,label:名称,detail:完整说明可选,parent:父ID可选,group:组ID可选,kind:decision可选}]；edges=[{from:节点ID,to:节点ID,label:关系/条件可选,kind:return|inheritance|composition|association可选,value:真实流量可选}]；groups=[{id:组ID,label:组名}]。items 的字段按下表填写。所有文字为纯文本，保留完整标签和来源；数值为有限 JSON 数字，缺测用 null，不当成零。节点最多24、边最多48、数据项最多32；复杂图分为概览和完整细节，不静默截断或丢节点。禁止猜测关系，树必须单父无环，集合成员必须明确。
 量图必须提供单位/量规；条形从零开始，时间轴/甘特按真实间隔，漏斗按真实递减数值，瀑布图 start 是起始总量且 items 仅是有符号变化（不重复终值），桑基中间节点入流等于出流且无环，雷达3–8个共同 axes、series.values 同长且 scale=[0,量规上限]，象限给真实 x_domain/y_domain。集合图2–3个 sets，嵌套 nodes.parent 确实表示包含；普通循环不使用需共同 hub 状态的 loop。架构变化 before/after 复用相同节点 ID，不能只凭标题推断变化。
-可选图型（完整44种）：
+学科图解：二维向量与线性组合使用 vector_plot，from/to 必须对应题设坐标或正文已展示的计算，平移向量保留真实首尾。矩阵消元使用 matrix_steps，每步列出完整矩阵及本步行操作，不能省略中间数据。解的分类按已给条件使用 flowchart，不用雷达、漏斗或装饰性统计图替代数学含义。
+可选图型（共享注册表）：
 """ + choices + """
 示例（实际输出时围栏闭合，内容按当前来源替换）：
 ```lingzhi-diagram

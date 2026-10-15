@@ -46,6 +46,8 @@
     {"id":"dependency_graph","zh":"依赖图","en":"Dependency graph","family":"graph","use":"多父依赖或已明确的循环","data":"nodes,edges(label:依赖语义)"},
     {"id":"uml_class","zh":"UML 类图","en":"UML class","family":"entity","use":"类、成员、继承与组合","data":"nodes(detail:属性与方法),edges(kind:inheritance|composition|association,label 可选)"},
     {"id":"story_map","zh":"故事地图","en":"Story map","family":"story","use":"叙事主线按发布批次切分","data":"groups(id,label:主线),rows:发布批次,nodes(group:主线ID,row:批次名称)"},
-    {"id":"database_schema","zh":"数据库结构","en":"Database schema","family":"entity","use":"物理表、SQL 类型、约束与外键","data":"nodes(detail:完整字段与约束),edges(label:外键列映射)"}
+    {"id":"database_schema","zh":"数据库结构","en":"Database schema","family":"entity","use":"物理表、SQL 类型、约束与外键","data":"nodes(detail:完整字段与约束),edges(label:外键列映射)"},
+    {"id":"vector_plot","zh":"二维向量图","en":"2D vector diagram","family":"vectors","use":"有明确二维坐标的向量、平移与线性组合；箭头首尾直接取源数据，两个轴使用同一单位长度","data":"vectors:[{label,from:[x,y],to:[x,y]}],x_label,y_label；最多8个向量；坐标必须来自题设或正文已展示的计算"},
+    {"id":"matrix_steps","zh":"矩阵变换步骤","en":"Matrix transformation steps","family":"matrix_steps","use":"逐步呈现来源中的矩阵消元、变换或回代；每步数据及操作文字完整保留","data":"steps:[{label,operation:本步操作可选,values:数字或短纯文本的二维数组}]；最多6步，矩阵行列相同且各不超过6；不写LaTeX代码"}
   ]
 }

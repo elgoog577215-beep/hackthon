@@ -554,8 +554,8 @@ async function removeResult() {
 .inline-ai-composer { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 30px 34px; align-items:end; gap:6px; margin-top:10px; padding:7px 7px 7px 11px; border:1px solid rgba(165,180,252,.72); border-radius:10px; background:#fff; box-shadow:0 4px 14px rgba(79,70,229,.06); }
 .inline-ai-composer textarea { width:100%; min-height:40px; max-height:120px; resize:vertical; border:0; padding:3px 0; color:var(--lz-text); background:transparent; font:inherit; font-size:12px; line-height:1.5; outline:none; }
 .inline-ai-composer textarea::placeholder { color:var(--lz-text-muted); }
-.inline-ai-composer button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:9px; color:#fff; background:var(--lz-brand-strong); cursor:pointer; }
-.inline-ai-composer button:disabled { color:#a5b4fc; background:#eef2ff; cursor:not-allowed; }
+.inline-ai-composer button { width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); color:var(--lz-action-text); background:var(--lz-action-bg); cursor:pointer; box-shadow:var(--lz-action-shadow); }
+.inline-ai-composer button:disabled { color:var(--lz-action-disabled-text); background:var(--lz-action-disabled-bg); cursor:not-allowed; }
 .inline-ai-composer .cancel-composer-action { width:30px; color:var(--lz-text-muted); background:transparent; }
 .inline-ai-composer .cancel-composer-action:hover,.inline-ai-composer .cancel-composer-action:focus-visible { color:var(--lz-text-strong); background:var(--lz-surface-soft); outline:none; }
 .inline-ai-result__actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:11px; padding-top:10px; border-top:1px solid rgba(199,210,254,.62); }

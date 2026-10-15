@@ -1879,7 +1879,7 @@ async def test_single_teacher_course_returns_new_projection_and_preserves_course
     monkeypatch.setattr(courses, "get_teacher_lesson_authoring_repository", lambda: repository)
     monkeypatch.setattr(courses, "get_task_manager_optional", lambda: manager)
 
-    result = await courses.get_course("course-1", SimpleNamespace(headers={}))
+    result = await courses.get_course("course-1", SimpleNamespace(headers={}, state=SimpleNamespace()))
 
     assert result["course_name"] == "设计思维"
     assert result["preparation_summary"]["planned_lessons"] == 1

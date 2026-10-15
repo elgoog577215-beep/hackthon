@@ -3,6 +3,7 @@ import type { AxiosInstance, AxiosError, AxiosRequestConfig, InternalAxiosReques
 import { trackApiAction } from './usage-tracker';
 import { publishAppError, toAppError } from './app-error';
 import { createUuid } from './client-id';
+import { getStudyIdentity, getStudyToken } from './study-identity';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
@@ -59,6 +60,8 @@ const createLearnerId = () => {
 };
 
 export const getLearnerIdentity = (): string => {
+  const student = getStudyIdentity();
+  if (student && (getStudyToken() || QIZHI_AUTH_REQUIRED)) return student.id;
   if (CONFIGURED_LEARNER_USER_ID && CONFIGURED_LEARNER_USER_ID !== 'default_user') {
     return CONFIGURED_LEARNER_USER_ID;
   }
@@ -187,7 +190,9 @@ export const learnerIdentityHeaders = (
   const headers = new Headers(initial);
   const normalized = userId.trim();
   if (normalized) headers.set('X-User-Id', normalized);
-  return applyQizhiAuthorization(headers);
+  applyQizhiAuthorization(headers);
+  if (!headers.has('Authorization') && getStudyToken()) headers.set('Authorization', `Bearer ${getStudyToken()}`);
+  return headers;
 };
 
 /**
@@ -345,7 +350,8 @@ http.interceptors.request.use(
       config.headers.delete('Content-Type');
     }
     config.usageStartedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-    const token = getQizhiAccessToken();
+    const scope = config.identityScope || activeIdentityScope;
+    const token = getQizhiAccessToken() || (scope === 'learner' ? getStudyToken() : '');
     if (token) config.headers.set('Authorization', `Bearer ${token}`);
     return applyLearnerIdentity(
       config,

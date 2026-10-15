@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { activeIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { isTeacherPreviewCourse } from '../utils/teacher-preview'
+import { isPublishedExchangeCourse } from '../shared/student-workspace'
 import { useCourseStore } from './course'
 import { postGenerationStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
@@ -69,7 +70,6 @@ export function unresolvedMistakeAttempts(attempts: PracticeAttempt[]): Practice
     const needsReview = (
       attempt.status === 'grading'
       || attempt.result?.passed === false
-      || attempt.result?.mastery_eligible === false
     )
     return needsReview && !supersededOriginIds.has(attempt.attempt_id)
   })
@@ -303,7 +303,8 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async loadDiagnosticWorkflow(courseId: string, nodeId?: string) {
-      if (isTeacherPreviewCourse(courseId)) { this.diagnosticWorkflow = null; return null }
+      // Published exchange courses expose practice and runtime, not the local authoring workflow.
+      if (isTeacherPreviewCourse(courseId) || isPublishedExchangeCourse(courseId)) { this.diagnosticWorkflow = null; return null }
       const res = await http.get(`/api/courses/${courseId}/diagnostics/active`, {
         params: nodeId ? { node_id: nodeId } : undefined,
       })

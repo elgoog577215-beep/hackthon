@@ -103,7 +103,7 @@ function decline(reason: 'not_now' | 'never') {
 .ai-suggestion__copy p { margin:2px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
 .ai-suggestion__commands { grid-column:2; display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:9px; }
 .ai-suggestion__commands button { min-height:30px; display:inline-flex; align-items:center; padding:0 10px; border-radius:8px; font-size:10px; font-weight:650; cursor:pointer; }
-.ai-suggestion__primary { border:0; color:#fff; background:var(--lz-brand-strong); }
+.ai-suggestion__primary { border:1px solid var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .ai-suggestion__secondary { border:1px solid rgba(199,210,254,.78); color:var(--lz-text-secondary); background:rgba(255,255,255,.86); }
 .ai-suggestion__quiet { border:0; color:var(--lz-text-muted); background:transparent; }
 .ai-suggestion__secondary:hover,.ai-suggestion__quiet:hover { color:var(--lz-brand-strong); background:#fff; }

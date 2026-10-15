@@ -159,6 +159,33 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
 }
 
 describe('teacher course workbench outline streaming', () => {
+  it('shows resumed lesson work instead of a stale batch start failure', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', source_outline_revision_id: 'outline-1',
+      sections: [{ section_node_id: 's1', title: '内容' }],
+      arrangement: { source_state: 'current', blocks: [{ block_id: 'b', section_node_id: 's1', name: '讲解' }] },
+      plan: { working_revision_id: '', source_state: 'current', current_revision: null, ppt_assets: [] },
+      script: { current_revision_id: '', source_state: 'current', ready: false, sections: [] },
+    }] as any
+    vi.spyOn(store, 'generateAllLessons').mockImplementation(async () => {
+      store.jobs = [{ id: 'resumed', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation', status: 'running',
+        progress: 20, message: '正在生成教案', parent_job_id: 'batch', batch_size: 1 }] as any
+      store.error = '原任务的来源或状态已变化'
+      throw new Error(store.error)
+    })
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    await wrapper.get('[data-testid="lesson-course-preview-generate"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('教案生成未开始')
+    expect(wrapper.text()).not.toContain('原任务的来源或状态已变化')
+    store.jobs[0]!.status = 'completed'
+    store.lessons[0]!.plan.ready = true
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('教案生成未开始')
+    expect(wrapper.text()).not.toContain('原任务的来源或状态已变化')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
@@ -254,7 +281,7 @@ describe('teacher course workbench outline streaming', () => {
       return { schema_version: 'teacher_lesson_authoring_view_v1', course_id: courseId, outline_revision_id: 'outline-1', lessons: lessonStore.lessons, jobs: [] }
     })
     const wrapper = mountWorkbench({ initialStage: initialStage as any })
-    if (initialStage === 'foundation') await wrapper.get('.companion-entry button').trigger('click')
+    if (initialStage === 'foundation') await wrapper.findAll('.companion-entry button').find(button => button.text() === '题库')!.trigger('click')
     await flushPromises()
     expect(load).toHaveBeenCalledWith('course-1')
     expect(wrapper.findComponent({ name: 'QuestionBankReviewPanel' }).exists()).toBe(true)
@@ -269,7 +296,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
-    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
+    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['知识树', '题库', '评分细则', '考试课程材料自查清单'])
     expect(wrapper.findAll('.companion-entry button').every(button => button.findAll('svg').length === 1)).toBe(true)
     expect(wrapper.find('.stage-rail > footer').exists()).toBe(false)
     expect(wrapper.findAll('.stage-state')).toHaveLength(3) // PPT projects can span lectures and report their own state.
@@ -2455,7 +2482,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.get('.context-pane-heading').text()).toContain('上游教案已变化')
+    expect(wrapper.get('.context-pane-heading').text()).toContain('本讲教案或参考资料已变化')
     expect(wrapper.get('.context-pane-heading').text()).toContain('讲义生成中断')
     expect(wrapper.get('.context-pane-heading').text()).not.toContain('继续时仅生成未完成内容')
     expect(wrapper.find('.context-pane-heading .primary-status-action').exists()).toBe(false)

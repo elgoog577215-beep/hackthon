@@ -30,7 +30,7 @@ from teaching_design import (
 )
 from teaching_diagrams import teaching_diagram_prompt
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v38"
+PROMPT_CONTRACT_VERSION = "course_prompt_v39"
 
 
 def handout_course_context(metadata: dict[str, Any]) -> dict[str, Any]:

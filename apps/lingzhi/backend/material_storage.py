@@ -119,6 +119,7 @@ class MaterialRepository:
         upload: Any,
         *,
         upload_batch_id: str = "",
+        deduplication_scope: str = "",
         max_bytes: int | None = None,
         max_batch_files: int | None = None,
         max_batch_bytes: int | None = None,
@@ -166,7 +167,7 @@ class MaterialRepository:
             sha256 = digest.hexdigest()
 
             async with self._upload_lock:
-                existing = self._find_by_hash(sha256)
+                existing = self._find_by_hash(sha256, deduplication_scope=deduplication_scope)
                 if existing:
                     temp_path.unlink(missing_ok=True)
                     return existing
@@ -203,6 +204,7 @@ class MaterialRepository:
                     sha256=sha256,
                     source_name=source_name,
                     upload_batch_id=upload_batch_id,
+                    deduplication_scope=deduplication_scope,
                     uploaded_at=now,
                     updated_at=now,
                 )
@@ -218,6 +220,7 @@ class MaterialRepository:
         filename: str,
         content: str,
         upload_batch_id: str = "legacy",
+        deduplication_scope: str = "",
     ) -> MaterialAsset:
         class _TextUpload:
             def __init__(self, name: str, value: str) -> None:
@@ -237,6 +240,7 @@ class MaterialRepository:
         return await self.save_upload(
             _TextUpload(filename, content),
             upload_batch_id=upload_batch_id,
+            deduplication_scope=deduplication_scope,
         )
 
     def bind_asset(self, asset_id: str, course_id: str) -> MaterialAsset:
@@ -324,11 +328,11 @@ class MaterialRepository:
                 total_bytes += int(data.get("size_bytes") or 0)
         return count, total_bytes
 
-    def _find_by_hash(self, sha256: str) -> MaterialAsset | None:
+    def _find_by_hash(self, sha256: str, *, deduplication_scope: str = "") -> MaterialAsset | None:
         for path in self.root.glob("mat-*/manifest.json"):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                if data.get("sha256") == sha256:
+                if data.get("sha256") == sha256 and data.get("deduplication_scope", "") == deduplication_scope:
                     asset = MaterialAsset.model_validate(data)
                     if (path.parent / asset.source_name).exists():
                         return asset

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from course_learning_availability import project_course_learning_availability
+from course_learning_access import trusted_student
 from course_knowledge_map import project_learning_assets_to_knowledge
 from dependencies import get_course_or_404
 from learner_context import require_user_id
@@ -34,6 +35,12 @@ class CriterionConfirmation(BaseModel):
 async def get_learning_assets(course_id: str, request: Request, node_id: str | None = None):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
     user_id = require_user_id(request.headers.get("X-User-Id"))
+    if course.get("exchange_origin"):
+        filtered = _without_solutions(_public_learning_assets(course.get("learning_assets") or {}, node_id=node_id))
+        filtered["checklist"] = _project_checklist(course, filtered.get("checklist") or [], user_id=user_id)
+        return {"schema_version":"learning_assets_api_v1", "course_id":course_id,
+                "course_version_id":course["current_course_version_id"], "bundle_revision_id":course["current_course_version_id"],
+                "plan":{}, "quality_report":{}, "course_availability":project_course_learning_availability(course), "assets":filtered}
     migrate_legacy_learning_state(course)
     assets = project_learning_assets_to_knowledge(
         course,
@@ -46,6 +53,8 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
         assets,
     )
     filtered = _public_learning_assets(assets, node_id=node_id)
+    if trusted_student(request):
+        filtered = _without_solutions(filtered)
     filtered["checklist"] = _project_checklist(
         course,
         filtered.get("checklist") or [],
@@ -64,14 +73,18 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
 
 
 @router.get("/practice")
-async def get_practice(course_id: str, node_id: str | None = None):
+async def get_practice(course_id: str, request: Request, node_id: str | None = None):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
+    if course.get("exchange_origin"):
+        return {"course_id":course_id, "course_version_id":course["current_course_version_id"], "node_id":node_id,
+                "questions":_without_solutions(_public_learning_assets(course.get("learning_assets") or {}, node_id=node_id)).get("questions") or []}
     assets = project_learning_assets_to_knowledge(
         course,
         deepcopy(course.get("learning_assets") or {}),
     )
     assets = current_question_assets(course, assets, load_active_question_bank(course, repository=question_bank_repository))
-    questions = _public_learning_assets(assets, node_id=node_id).get("questions") or []
+    public_assets = _public_learning_assets(assets, node_id=node_id)
+    questions = (_without_solutions(public_assets) if trusted_student(request) else public_assets).get("questions") or []
     return {
         "course_id": course_id,
         "course_version_id": course.get("current_course_version_id"),
@@ -117,6 +130,13 @@ async def confirm_criterion(
         result={"status": "self_confirmed" if confirmation.confirmed else "not_started"},
     )
     return {"status": "recorded", "event_id": event["event_id"]}
+
+
+def _without_solutions(assets: dict[str, list[dict[str, Any]]]) -> dict[str, list[dict[str, Any]]]:
+    from routers.practice import _student_question_payload
+    return {kind: [_student_question_payload(item) for item in items]
+            if kind in {"questions", "final_assessment"} else items
+            for kind, items in assets.items()}
 
 
 def _public_learning_assets(

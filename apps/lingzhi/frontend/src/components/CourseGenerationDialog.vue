@@ -936,10 +936,12 @@ async function submit() {
 .material-section :deep(section) { margin: 0; }
 .generation-dialog__footer { min-height: 64px; display: flex; align-items: center; justify-content: flex-end; gap: 18px; padding: 10px 18px; border-top: 1px solid var(--lz-border); background: #fff; }
 .footer-actions { display: flex; gap: 8px; flex: 0 0 auto; }
-.primary-button,.secondary-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.primary-button { border: 1px solid var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+.primary-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; border-radius: var(--lz-action-radius); font-size: 12px; font-weight: 700; cursor: pointer; color: var(--lz-action-text); border: 1px solid var(--lz-action-border); box-shadow: var(--lz-action-shadow); }
+.secondary-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.primary-button { border: 1px solid var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); border-radius: var(--lz-action-radius); box-shadow: var(--lz-action-shadow); }
 .secondary-button { border: 1px solid var(--lz-border); color: var(--lz-text-secondary); background: #fff; }
-.primary-button:disabled,.secondary-button:disabled { cursor: not-allowed; opacity: .55; }
+.primary-button:disabled { cursor: not-allowed; opacity: .55; }
+.secondary-button:disabled { cursor: not-allowed; opacity: .55; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -962,7 +964,7 @@ async function submit() {
 .generation-dialog--course-space .production-mode-options button { min-height:58px; align-content:center; justify-items:start; padding-inline:14px; text-align:left; }
 .generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .generation-dialog--course-space .generation-dialog__footer { min-height:60px; padding:10px 18px; border-top-color:#edf0f5; background:#fbfcff; }
-.generation-dialog--course-space .primary-button { min-width:156px; border-color:#6757ef; background:#6757ef; box-shadow:0 8px 18px rgba(103,87,239,.18); }
+.generation-dialog--course-space .primary-button { min-width:156px; border-color:var(--lz-action-border); background:var(--lz-action-bg); box-shadow:var(--lz-action-shadow); color: var(--lz-action-text); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); }
 @media (max-width: 760px) {
   .generation-dialog-layer,.generation-dialog-layer:has(.generation-dialog--course-space) { align-items: end; padding: 0; }
   .generation-dialog { width: 100%; max-height: calc(100vh - 56px); border-radius: 14px 14px 0 0; }

@@ -1,4 +1,7 @@
 import catalog from "../../../shared/teaching-diagrams-v1.json";
+import { teachingDiagramMarkers, teachingDiagramStyle } from './teaching-diagram-layout';
+import { diagramTextLines, diagramTextTokens, diagramTextWidth } from './teaching-diagram-text';
+export { diagramTextLines } from './teaching-diagram-text';
 
 export const teachingDiagramCatalog = catalog;
 export type DiagramNode = {
@@ -69,6 +72,8 @@ export type TeachingDiagram = {
   effect?: string;
   before?: { nodes: DiagramNode[]; edges: DiagramEdge[] };
   after?: { nodes: DiagramNode[]; edges: DiagramEdge[] };
+  vectors?: { label: string; from: number[]; to: number[] }[];
+  steps?: { label: string; operation: string; values: (number | string)[][] }[];
 };
 export type DiagramScene = { width: number; height: number; body: string };
 
@@ -274,6 +279,23 @@ export function parseTeachingDiagram(raw: string): TeachingDiagram {
   unique(d.rows);
   unique(d.columns);
   const family = entry!.family;
+  if (family === 'vectors') {
+    d.vectors = array(r.vectors, 8).map(raw => {
+      const v = record(raw), from = array(v.from, 2).map(number), to = array(v.to, 2).map(number);
+      need(from.length === 2 && to.length === 2 && [...from, ...to].every(x => Math.abs(x) <= 1e6), 'Need bounded 2D coordinates / 需要有限二维坐标');
+      return { label: string(v.label, 240), from, to };
+    });
+    need(d.vectors.length, 'Missing vectors / 缺少向量');
+  }
+  if (family === 'matrix_steps') {
+    d.steps = array(r.steps, 6).map(raw => {
+      const s = record(raw), values = array(s.values, 6).map(row => array(row, 6).map(v => typeof v === 'number' ? number(v) : string(v, 20)));
+      need(values.length && values[0]!.length && values.every(row => row.length === values[0]!.length), 'Matrix dimensions disagree / 矩阵行列不一致');
+      need(values.flat().every(v => typeof v !== 'string' || !/[\\\n]/.test(v)), 'Use plain matrix values / 矩阵元素使用短纯文本');
+      return { label: string(s.label, 240), operation: s.operation === undefined ? '' : string(s.operation, 240), values };
+    });
+    need(d.steps.length && d.steps.every(s => s.values.length === d.steps![0]!.values.length && s.values[0]!.length === d.steps![0]!.values[0]!.length), 'Steps need matching matrices / 各步矩阵维度需要一致');
+  }
   if (
     [
       "graph",
@@ -635,41 +657,6 @@ const colors = [
   "#64748b",
   "#0d9488",
 ];
-export function diagramTextLines(value: string, width = 200): string[] {
-  const result: string[] = [];
-  for (const paragraph of value.split("\n")) {
-    let line = "",
-      used = 0;
-    for (const token of paragraph.match(/[^\x00-\xff]|[a-zA-Z0-9_]+|\s+|./g) ||
-      []) {
-      const size = [...token].reduce(
-        (sum, char) => sum + (/[^\x00-\xff]/.test(char) ? 16 : 8),
-        0,
-      );
-      if (used + size > width && line) {
-        result.push(line);
-        line = "";
-        used = 0;
-      }
-      if (size > width) {
-        for (const char of token) {
-          if (used + 8 > width && line) {
-            result.push(line);
-            line = "";
-            used = 0;
-          }
-          line += char;
-          used += 8;
-        }
-      } else {
-        line += token;
-        used += size;
-      }
-    }
-    result.push(line);
-  }
-  return result;
-}
 const txt = (
   x: number,
   y: number,
@@ -705,12 +692,7 @@ const line = (
 const label = (x: number, y: number, text: string, width = 160) => {
   const ls = diagramTextLines(text, width);
   const actual = Math.max(
-    ...ls.map((line) =>
-      [...line].reduce(
-        (sum, char) => sum + (/[^\x00-\xff]/.test(char) ? 16 : 8),
-        0,
-      ),
-    ),
+    ...ls.map(diagramTextWidth),
   );
   return (
     rect(
@@ -724,11 +706,12 @@ const label = (x: number, y: number, text: string, width = 160) => {
   );
 };
 type Box = { x: number; y: number; w: number; h: number };
-const nodeHeight = (n: DiagramNode, width = 216) =>
-  30 +
-  (diagramTextLines(n.label, width).length +
-    (n.detail ? diagramTextLines(n.detail, width).length + 1 : 0)) *
-    21;
+const nodeHeight = (n: DiagramNode, width = 216) => {
+  const textWidth = n.kind === 'decision' ? (width + 24) / 2 : width;
+  const height = 30 + (diagramTextLines(n.label, textWidth).length +
+    (n.detail ? diagramTextLines(n.detail, textWidth).length + 1 : 0)) * 21;
+  return n.kind === 'decision' ? height * 2 : height;
+};
 const boxNode = (n: DiagramNode, b: Box, focal = false) => {
   const headingHeight = diagramTextLines(n.label, b.w - 24).length * 21;
   const shape =
@@ -742,7 +725,17 @@ const boxNode = (n: DiagramNode, b: Box, focal = false) => {
           focal ? "#eef2ff" : "#fff",
           focal ? "#4338ca" : "#94a3b8",
         );
-  return `<g data-node-id="${e(n.id)}">${shape}${txt(b.x + b.w / 2, b.y + 25, n.label, b.w - 24)}${n.detail ? line(b.x, b.y + headingHeight + 17, b.x + b.w, b.y + headingHeight + 17) + txt(b.x + 12, b.y + headingHeight + 39, n.detail, b.w - 24, "start", "#475569") : ""}</g>`;
+  if (n.kind === 'decision') {
+    // Text stays inside the diamond's central rectangle, rather than using
+    // the full width near its narrow top and bottom corners.
+    const width = b.w / 2, heading = diagramTextLines(n.label, width).length * 21;
+    const total = heading + (n.detail ? 21 + diagramTextLines(n.detail, width).length * 21 : 0);
+    const x = b.x + b.w / 2, y = b.y + b.h / 2 - total / 2 + 16;
+    return `<g data-node-id="${e(n.id)}">${shape}${txt(x, y, n.label, width)}${n.detail ? line(x - width / 2, y + heading - 7, x + width / 2, y + heading - 7) + txt(x, y + heading + 21, n.detail, width, 'middle', '#475569') : ''}</g>`;
+  }
+  const total = headingHeight + (n.detail ? 18 + diagramTextLines(n.detail, b.w - 24).length * 21 : 0);
+  const top = b.y + (b.h - total) / 2;
+  return `<g data-node-id="${e(n.id)}">${shape}${txt(b.x + b.w / 2, top + 16, n.label, b.w - 24)}${n.detail ? line(b.x + 12, top + headingHeight + 9, b.x + b.w - 12, top + headingHeight + 9) + txt(b.x + 12, top + headingHeight + 34, n.detail, b.w - 24, "start", "#475569") : ""}</g>`;
 };
 const connect = (
   a: Box,
@@ -805,55 +798,135 @@ function graphScene(d: TeachingDiagram, marker: string): DiagramScene {
   };
   const roots = d.nodes.filter((n) => !d.edges.some((e) => e.to === n.id));
   for (const n of [...roots, ...d.nodes]) if (!colors.has(n.id)) visit(n.id);
-  const levels = diagramRanks(d.nodes, forward),
-    cyclic = forward.length !== d.edges.length;
-  const counts = levels.map(
-    (level) => levels.filter((r) => r === level).length,
-  );
-  const width = Math.max(
-    900,
-    Math.max(...counts) * 280 + 160 + d.edges.length * 14,
-  );
-  const rowHeight =
-    Math.max(80, ...d.nodes.map((n) => nodeHeight(n))) +
-    Math.max(
-      135,
-      ...d.edges.map(
-        (edge) => diagramTextLines(edge.label || "", 160).length * 21 + 60,
-      ),
-    );
-  const height =
-    (Math.max(...levels) + 1) * rowHeight +
-    90 +
-    (cyclic ? d.edges.length * 30 : 0);
-  const boxes = d.nodes.map((n, i) => {
-    const same = levels
-      .map((r, j) => (r === levels[i]! ? j : -1))
-      .filter((j) => j >= 0);
-    return {
-      x: 60 + same.indexOf(i) * 280,
-      y: 50 + levels[i]! * rowHeight,
-      w: 240,
-      h: Math.max(70, nodeHeight(n)),
+  const levels = diagramRanks(d.nodes, forward);
+  const index = new Map(d.nodes.map((node, i) => [node.id, i]));
+  const outgoing = d.nodes.map(node => forward.filter(edge => edge.from === node.id).length);
+  const incoming = d.nodes.map(node => forward.filter(edge => edge.to === node.id).length);
+  const layers = Array.from({ length: Math.max(...levels) + 1 }, (_, rank) =>
+    d.nodes.map((_, i) => i).filter(i => levels[i] === rank));
+  const dimensions = d.nodes.map(node => {
+    const longest = Math.max(0, ...diagramTextTokens(node.label).map(diagramTextWidth));
+    const w = node.kind === 'decision' ? 240
+      : Math.min(280, Math.max(160, Math.min(224, diagramTextWidth(node.label) + 32), longest + 32));
+    return { w, h: Math.max(56, nodeHeight(node, w - 24)), inset: node.kind === 'decision' ? 16 : 0 };
+  });
+  // Order peers by their neighbours, rather than by the model's JSON order.
+  // This keeps parallel chains aligned and puts a merge between its inputs.
+  const positions = new Map<number, number>();
+  const order = (layer: number[], backwards: boolean) => {
+    const score = (i: number) => {
+      const neighbours = forward.filter(edge => (backwards ? edge.from : edge.to) === d.nodes[i]!.id)
+        .map(edge => positions.get(index.get(backwards ? edge.to : edge.from)!))
+        .filter((x): x is number => x !== undefined);
+      return neighbours.length ? neighbours.reduce((a, b) => a + b, 0) / neighbours.length : positions.get(i) || 0;
     };
+    layer.sort((a, b) => score(a) - score(b));
+    layer.forEach((i, j) => positions.set(i, (j + .5) / layer.length));
+  };
+  layers.forEach(layer => layer.forEach((i, j) => positions.set(i, (j + .5) / layer.length)));
+  for (let pass = 0; pass < 3; pass++) {
+    layers.forEach(layer => order(layer, false));
+    [...layers].reverse().forEach(layer => order(layer, true));
+  }
+  const peerGap = 64, padding = 28;
+  const rowWidths = layers.map(layer => layer.reduce((sum, i) => sum + dimensions[i]!.w + dimensions[i]!.inset * 2, 0) + (layer.length - 1) * peerGap);
+  const contentWidth = Math.max(...rowWidths);
+  const rowHeights = layers.map(layer => Math.max(...layer.map(i => dimensions[i]!.h + dimensions[i]!.inset * 2)));
+  const boxes: Box[] = [];
+  layers.forEach((layer, rank) => {
+    let left = padding + (contentWidth - rowWidths[rank]!) / 2;
+    for (const i of layer) {
+      const size = dimensions[i]!;
+      boxes[i] = { x: left + size.inset, y: 0, w: size.w, h: size.h };
+      left += size.w + size.inset * 2 + peerGap;
+    }
+  });
+  const edgeSpan = (from: number, to: number) => {
+    const a = boxes[from]!, b = boxes[to]!;
+    return Math.abs(a.x + a.w / 2 - b.x - b.w / 2);
+  };
+  const edgeLabelWidth = (from: number, to: number) => {
+    const span = edgeSpan(from, to);
+    return span < 64 ? 160 : Math.min(160, span - 16);
+  };
+  const gaps = layers.map((_, rank) => Math.max(56, ...d.edges.filter(edge => levels[index.get(edge.from)!] === rank && levels[index.get(edge.to)!] === rank + 1)
+    .map(edge => {
+      if (!edge.label) return 56;
+      const w = edgeLabelWidth(index.get(edge.from)!, index.get(edge.to)!);
+      const textHeight = diagramTextLines(edge.label, w).length * 21;
+      const from = index.get(edge.from)!, to = index.get(edge.to)!;
+      return edgeSpan(from, to) < 64
+        ? outgoing[from]! > 1 || incoming[to]! > 1 ? 2 * (textHeight + 24) : textHeight + 36
+        : 2 * (textHeight + 20);
+    })));
+  let bottom = padding;
+  const rowTops: number[] = [], rowBottoms: number[] = [];
+  layers.forEach((layer, rank) => {
+    rowTops[rank] = bottom;
+    for (const i of layer) boxes[i]!.y = bottom + (rowHeights[rank]! - boxes[i]!.h) / 2;
+    rowBottoms[rank] = bottom + rowHeights[rank]!;
+    bottom += rowHeights[rank]! + (rank < layers.length - 1 ? gaps[rank]! : 0);
   });
   const ports = boxes.map((box, i) =>
     d.nodes[i]!.kind === "decision"
       ? { x: box.x - 16, y: box.y - 16, w: box.w + 32, h: box.h + 32 }
       : box,
   );
-  const outerX = Math.max(...ports.map((box) => box.x + box.w));
+  let width = contentWidth + padding * 2;
+  let height = bottom + padding;
+  // Outside lanes must also clear labels beside a narrow, straight chain.
+  // Reserve their extent before routing any edge, regardless of JSON order.
+  for (const edge of d.edges) {
+    const from = index.get(edge.from)!, to = index.get(edge.to)!;
+    if (!edge.label || levels[to]! !== levels[from]! + 1 || edgeSpan(from, to) >= 64) continue;
+    const a = boxes[from]!, b = boxes[to]!;
+    width = Math.max(width, Math.max(a.x + a.w / 2, b.x + b.w / 2) + 12 + Math.min(160, diagramTextWidth(edge.label)) + padding);
+  }
+  let outerX = width;
   const edgeSvg = d.edges
-    .map((edge, i) =>
-      connect(
-        ports[d.nodes.findIndex((n) => n.id === edge.from)]!,
-        ports[d.nodes.findIndex((n) => n.id === edge.to)]!,
-        edge,
-        marker,
-        i,
-        outerX,
-      ),
-    )
+    .map(edge => {
+      const from = index.get(edge.from)!, to = index.get(edge.to)!;
+      const a = ports[from]!, b = ports[to]!;
+      const sx = a.x + a.w / 2, tx = b.x + b.w / 2;
+      let route: string, x: number, y: number, anchor = 'middle', labelWidth = 160;
+      const labelHeight = diagramTextLines(edge.label || '', labelWidth).length * 21;
+      if (levels[to]! === levels[from]! + 1) {
+        // Use the space between rows even when neighbouring cards have different heights.
+        const mid = (rowBottoms[levels[from]!]! + rowTops[levels[to]!]!) / 2;
+        route = `M${sx} ${a.y + a.h} V${mid} H${tx} V${b.y}`;
+        if (Math.abs(sx - tx) < 64) {
+          // A vertical connector stays continuous; its label reads alongside it.
+          x = Math.max(sx, tx) + 12; y = mid - labelHeight / 2 + 16; anchor = 'start';
+          // A central branch's label belongs below the shared rail; a central
+          // input's label belongs above it. Sibling connectors stay clear of it.
+          if (outgoing[from]! > 1) {
+            x = tx + 12; y = (mid + rowTops[levels[to]!]! - labelHeight) / 2 + 16;
+          } else if (incoming[to]! > 1) {
+            x = sx + 12; y = (rowBottoms[levels[from]!]! + mid - labelHeight) / 2 + 16;
+          }
+          width = Math.max(width, x + Math.min(labelWidth, diagramTextWidth(edge.label || '')) + padding);
+        } else {
+          // Branch labels sit above their own horizontal segment, clear of the shared stem.
+          labelWidth = edgeLabelWidth(from, to);
+          x = (sx + tx) / 2;
+          y = mid - 12 - (diagramTextLines(edge.label || '', labelWidth).length - 1) * 21;
+        }
+      } else {
+        // Skipped ranks, repeats and self loops use an outside lane, so they cannot
+        // cut through an intervening card or its text.
+        const startY = rowBottoms[levels[from]!]! + 8, endY = rowTops[levels[to]!]! - 8;
+        outerX += 24;
+        route = `M${sx} ${a.y + a.h} V${startY} H${outerX} V${endY} H${tx} V${b.y}`;
+        x = outerX + 12; y = Math.max(padding + 16, (startY + endY) / 2 - labelHeight / 2 + 16); anchor = 'start';
+        const labelSpace = Math.min(labelWidth, diagramTextWidth(edge.label || ''));
+        width = Math.max(width, x + labelSpace + padding);
+        outerX += labelSpace + 16;
+        height = Math.max(height, startY + padding, y + labelHeight - 16 + padding);
+      }
+      const actualMarker = edge.kind === 'inheritance' ? `${marker}-inheritance`
+        : edge.kind === 'composition' ? `${marker}-composition` : marker;
+      return `<g data-from="${e(edge.from)}" data-to="${e(edge.to)}">${path(route, edge.kind === 'return' ? '#94a3b8' : '#64748b', 1.7, actualMarker)}${edge.label ? txt(x, y, edge.label, labelWidth, anchor) : ''}</g>`;
+    })
     .join("");
   return {
     width,
@@ -955,7 +1028,7 @@ const fmt = (v: number) => Number(v.toPrecision(6)).toString();
 export function teachingDiagramSvg(d: TeachingDiagram, id: string): string {
   const marker = `td-${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scene = buildTeachingDiagramScene(d, marker);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}" role="img" aria-labelledby="${marker}-title ${marker}-desc"><title id="${marker}-title">${e(d.title)}</title><desc id="${marker}-desc">${e(d.summary + "\n" + d.source)}</desc><style>text{font-family:system-ui,"Microsoft YaHei",sans-serif}svg{background:#fff}path,line,rect,polygon,circle{vector-effect:non-scaling-stroke}</style><defs><marker id="${marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker><marker id="${marker}-inheritance" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1L11 6L1 11Z" fill="#fff" stroke="#64748b"/></marker><marker id="${marker}-composition" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="11" markerHeight="8" orient="auto"><path d="M1 6L8 1L15 6L8 11Z" fill="#64748b"/></marker></defs>${scene.body}</svg>`;
+  return `<svg class="teaching-diagram-svg" xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}" role="img" aria-labelledby="${marker}-title ${marker}-desc"><title id="${marker}-title">${e(d.title)}</title><desc id="${marker}-desc">${e(d.summary + "\n" + d.source)}</desc><style>${teachingDiagramStyle}</style><defs>${teachingDiagramMarkers(marker)}</defs>${scene.body}</svg>`;
 }
 
 export function buildTeachingDiagramScene(
@@ -963,6 +1036,8 @@ export function buildTeachingDiagramScene(
   marker = "td-arrow",
 ): DiagramScene {
   const family = catalog.types.find((t) => t.id === d.type)!.family;
+  if (family === 'vectors') return vectorScene(d, marker);
+  if (family === 'matrix_steps') return matrixStepsScene(d);
   if (["graph", "flow", "entity", "tree", "process"].includes(family))
     return graphScene(d, marker);
   if (["grouped", "kanban"].includes(family)) return groupedScene(d, marker);
@@ -1396,6 +1471,58 @@ function specializedScene(
   throw new Error(`Unsupported layout: ${family}`);
 }
 
+function vectorScene(d: TeachingDiagram, marker: string): DiagramScene {
+  const vectors = d.vectors!, points = vectors.flatMap(v => [v.from, v.to]);
+  const xd = extent([0, ...points.map(p => p[0]!)]), yd = extent([0, ...points.map(p => p[1]!)]);
+  const span = Math.max(xd[1]! - xd[0]!, yd[1]! - yd[0]!) * 1.15;
+  const domain = (v: number[]) => { const c = (v[0]! + v[1]!) / 2; return [c - span / 2, c + span / 2]; };
+  const xDomain = domain(xd), yDomain = domain(yd), size = 430;
+  const x = (n: number) => map(n, xDomain, 85, 85 + size), y = (n: number) => map(n, yDomain, 35 + size, 35);
+  let body = axesGrid(xDomain, yDomain, 85, 35, size, size, d.x_label || 'x', d.y_label || 'y', false, true);
+  body += `<path data-axis="x" d="M85,${y(0)} H${85 + size}" stroke="#64748b"/><path data-axis="y" d="M${x(0)},35 V${35 + size}" stroke="#64748b"/>`;
+  let legendY = 55;
+  vectors.forEach((v, i) => {
+    const color = colors[i % colors.length]!;
+    body += `<g data-vector="${escapeDiagramText(v.label)}" data-from="${v.from.join(',')}" data-to="${v.to.join(',')}">`;
+    if (v.from[0] === v.to[0] && v.from[1] === v.to[1]) body += `<circle cx="${x(v.from[0]!)}" cy="${y(v.from[1]!)}" r="5" fill="${color}"/>`;
+    else body += `<path d="M${x(v.from[0]!)},${y(v.from[1]!)} L${x(v.to[0]!)},${y(v.to[1]!)}" stroke="${color}" stroke-width="3" fill="none" marker-end="url(#${marker})"/>`;
+    body += '</g>';
+    const label = `${v.label}\n(${v.from.join(', ')}) → (${v.to.join(', ')})`;
+    body += line(565, legendY - 6, 595, legendY - 6, color) + txt(610, legendY, label, 250, 'start');
+    legendY += diagramTextLines(label, 250).length * 21 + 30;
+  });
+  return { width: 920, height: Math.max(555, legendY + 30), body };
+}
+
+function matrixStepsScene(d: TeachingDiagram): DiagramScene {
+  let y = 15, body = '';
+  for (const [index, step] of d.steps!.entries()) {
+    const rows = step.values.length, cols = step.values[0]!.length;
+    const label = `${index + 1}. ${step.label}${step.operation ? '\n' + step.operation : ''}`;
+    const labelHeight = diagramTextLines(label, 265).length * 21 + 24;
+    const rowHeight = Math.max(49, ...step.values.flat().map(v => diagramTextLines(String(v), 65).length * 21 + 15));
+    const height = Math.max(rows * rowHeight + 44, labelHeight + 26), left = 360, top = y + (height - rows * rowHeight) / 2;
+    body += rect(10, y, 850, height, index % 2 ? '#f4f1fb' : '#f8fafc');
+    body += txt(30, y + 31, label, 280, 'start');
+    body += `<path d="M${left + 12},${top - 8} H${left} V${top + rows * rowHeight + 8} H${left + 12}" stroke="#64748b" fill="none"/>`;
+    const right = left + cols * 74 + 12;
+    body += `<path d="M${right - 12},${top - 8} H${right} V${top + rows * rowHeight + 8} H${right - 12}" stroke="#64748b" fill="none"/>`;
+    step.values.forEach((row, r) => row.forEach((value, c) => { body += `<g data-step="${index}" data-row="${r}" data-column="${c}">${txt(left + 38 + c * 74, top + 30 + r * rowHeight, String(value), 65)}</g>`; }));
+    y += height + 20;
+  }
+  return { width: 880, height: y + 5, body };
+}
+
+function readableTicks(domain: number[]): number[] {
+  const interval = (domain[1]! - domain[0]!) / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(interval));
+  const fraction = interval / magnitude;
+  const step = (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude;
+  const first = Math.ceil(domain[0]! / step - 1e-9), last = Math.floor(domain[1]! / step + 1e-9);
+  return Array.from({ length: Math.max(0, Math.min(12, last - first + 1)) }, (_, i) =>
+    Number(((first + i) * step).toPrecision(12)));
+}
+
 function axesGrid(
   xd: number[],
   yd: number[],
@@ -1406,18 +1533,18 @@ function axesGrid(
   xLabel: string,
   yLabel: string,
   horizontalOnly = false,
+  niceTicks = false,
 ): string {
   let body = rect(x, y, w, h, "#fff", "#cbd5e1");
-  for (let k = 0; k <= 4; k++) {
-    const xv = xd[0]! + ((xd[1]! - xd[0]!) * k) / 4,
-      yv = yd[0]! + ((yd[1]! - yd[0]!) * k) / 4;
-    body +=
-      line(x + (w * k) / 4, y, x + (w * k) / 4, y + h) +
-      txt(x + (w * k) / 4, y + h + 28, fmt(xv), 100);
-    if (!horizontalOnly)
-      body +=
-        line(x, y + h - (h * k) / 4, x + w, y + h - (h * k) / 4) +
-        txt(x - 12, y + h - (h * k) / 4 + 6, fmt(yv), 100, "end");
+  const ticks = (domain: number[]) => niceTicks ? readableTicks(domain) :
+    Array.from({ length: 5 }, (_, k) => domain[0]! + ((domain[1]! - domain[0]!) * k) / 4);
+  for (const value of ticks(xd)) {
+    const position = map(value, xd, x, x + w);
+    body += `<g data-tick-x="${fmt(value)}">${line(position, y, position, y + h)}${txt(position, y + h + 28, fmt(value), 100)}</g>`;
+  }
+  if (!horizontalOnly) for (const value of ticks(yd)) {
+    const position = map(value, yd, y + h, y);
+    body += `<g data-tick-y="${fmt(value)}">${line(x, position, x + w, position)}${txt(x - 12, position + 6, fmt(value), 100, "end")}</g>`;
   }
   body +=
     txt(x + w / 2, y + h + 65, xLabel, 500) +

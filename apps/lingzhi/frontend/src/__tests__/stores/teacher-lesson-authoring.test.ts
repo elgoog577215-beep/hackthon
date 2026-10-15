@@ -31,6 +31,21 @@ afterEach(() => {
 })
 
 describe('teacher lesson authoring store', () => {
+  it('reconciles the canonical snapshot after a rejected batch resume', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-1'
+    const conflict = { response: { status: 409, data: { detail: '任务状态已变化' } } }
+    httpMock.post.mockRejectedValue(conflict)
+    const load = vi.spyOn(store, 'load').mockImplementation(async () => {
+      store.jobs = [{ id: 'resumed', status: 'running' }] as any
+      return {} as any
+    })
+    await expect(store.generateAllLessons('course-1', undefined, '', [], { resumeJobIds: ['resumed'] })).rejects.toBe(conflict)
+    expect(load).toHaveBeenCalledWith('course-1', { afterCurrent: true })
+    expect(store.jobs[0]?.status).toBe('running')
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps one snapshot timer across Pinia action proxies and stops it on departure', async () => {
     vi.useFakeTimers()
     const store = useTeacherLessonAuthoringStore()

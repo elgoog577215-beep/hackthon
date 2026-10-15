@@ -31,7 +31,6 @@ from dotenv import load_dotenv
 from openai import (
     APIConnectionError,
     APITimeoutError,
-    AsyncOpenAI,
     AuthenticationError,
     InternalServerError,
     PermissionDeniedError,
@@ -42,6 +41,7 @@ from ai_capacity import (
     ModelCapacityCoolingDown,
     get_provider_capacity_controller,
 )
+from qwen_wire import QwenCompatibleAsyncHttpxClient, QwenCompatibleAsyncOpenAI as AsyncOpenAI
 from generation_telemetry import record_call as _record_generation_call
 from generation_telemetry import telemetry_enabled as _generation_telemetry_on
 from text_ai_provider_policy import (
@@ -88,7 +88,6 @@ else:
 DEFAULT_SMART_MODELS = [EXPECTED_TEXT_MODEL]
 
 DEFAULT_FAST_MODELS = [EXPECTED_TEXT_MODEL]
-QWEN_WIRE_TEXT_PART_CHARS = 32
 
 
 class AIProviderUnavailable(RuntimeError):
@@ -260,6 +259,7 @@ class AIBase:
                 base_url=self.api_base,
                 api_key=self.api_key,
                 timeout=client_timeout,
+                http_client=QwenCompatibleAsyncHttpxClient(timeout=client_timeout),
                 max_retries=0,
             )
         else:
@@ -284,22 +284,6 @@ class AIBase:
             "chat_template_kwargs": {"enable_thinking": thinking_enabled},
         }
 
-    @staticmethod
-    def _wire_safe_user_content(prompt: str, model_id: str) -> Any:
-        """Preserve Qwen text while avoiding a faulty public-ingress signature.
-
-        The registered Qwen mapping rejects some ordinary source-code lines
-        before they reach vLLM. Standard text content parts are concatenated
-        by vLLM in order, keeping the model input exact without rewriting
-        course content or weakening response validation.
-        """
-        if model_id != EXPECTED_TEXT_MODEL or len(prompt) <= QWEN_WIRE_TEXT_PART_CHARS:
-            return prompt
-        return [
-            {"type": "text", "text": prompt[index:index + QWEN_WIRE_TEXT_PART_CHARS]}
-            for index in range(0, len(prompt), QWEN_WIRE_TEXT_PART_CHARS)
-        ]
-
     @classmethod
     def _request_messages(
         cls,
@@ -312,7 +296,7 @@ class AIBase:
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": cls._wire_safe_user_content(prompt, model_id),
+                "content": prompt,
             },
         ]
 

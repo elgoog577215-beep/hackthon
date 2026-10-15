@@ -13,8 +13,8 @@
     <p>
       {{
         tr(
-          "44 种图型均通过讲义和 AI 使用的同一个 Markdown 组件显示。以下为自编样例，不写入正式课程。",
-          "All 44 types use the same Markdown component as handouts and AI. These examples do not write course records.",
+          `${teachingDiagramSamples.length} 种图型均通过讲义和 AI 使用的同一个 Markdown 组件显示。以下为自编样例，不写入正式课程。`,
+          `All ${teachingDiagramSamples.length} types use the same Markdown component as handouts and AI. These examples do not write course records.`,
         )
       }}
     </p>
@@ -26,6 +26,9 @@
           :key="sample.type"
           :value="sample.type"
         >
+          {{ sample.title }}
+        </option>
+        <option v-for="sample in teachingDiagramLayoutSamples" :key="sample.id" :value="sample.id">
           {{ sample.title }}
         </option>
       </select></label
@@ -65,6 +68,7 @@ import { computed, ref } from "vue";
 import MarkdownRenderer from "../src/components/MarkdownRenderer.vue";
 import { activeLocale, setLocale } from "../src/shared/i18n";
 import { teachingDiagramSamples } from "./teaching-diagram-samples";
+import { teachingDiagramLayoutSamples } from './teaching-diagram-layout-samples';
 const selected = ref("flowchart"),
   surface = ref("handout"),
   streaming = ref(false);
@@ -73,7 +77,7 @@ const draft = ref(""),
 const tr = (zh: string, en: string) => (activeLocale.value === "en" ? en : zh);
 const content = computed(
   () =>
-    `${tr("图前说明：先看条件，再理解关系。", "Read the conditions before interpreting the relationship.")}\n\n\`\`\`lingzhi-diagram\n${JSON.stringify(teachingDiagramSamples.find((s) => s.type === selected.value))}\n${streaming.value ? "" : "\`\`\`"}\n\n${streaming.value ? "" : tr("图后核对：图中关系和数值是否支持结论？", "Check whether the relationships and values support the conclusion.")}`,
+    `${tr("图前说明：先看条件，再理解关系。", "Read the conditions before interpreting the relationship.")}\n\n\`\`\`lingzhi-diagram\n${JSON.stringify((teachingDiagramLayoutSamples.find(s => s.id === selected.value) || teachingDiagramSamples.find((s) => s.type === selected.value)))}\n${streaming.value ? "" : "\`\`\`"}\n\n${streaming.value ? "" : tr("图后核对：图中关系和数值是否支持结论？", "Check whether the relationships and values support the conclusion.")}`,
 );
 </script>
 <style scoped>

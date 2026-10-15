@@ -2,8 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import logger from '../utils/logger'
 import { trackClientError } from '../utils/usage-tracker'
-import { setActiveRequestIdentityScope, type RequestIdentityScope } from '../utils/http'
+import { setActiveRequestIdentityScope, getQizhiAccessToken, type RequestIdentityScope } from '../utils/http'
 import { setTeacherPreviewCourse } from '../utils/teacher-preview'
+import { studyApi } from '../api/study'
+import { getStudyToken, setStudyIdentity } from '../utils/study-identity'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -106,7 +108,12 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  if (to.name === 'learning' && to.query.teacherPreview !== '1') {
+    if (!getStudyToken() && !getQizhiAccessToken()) return { name: 'study', query: { returnTo: to.fullPath } }
+    try { setStudyIdentity(await studyApi.me()) }
+    catch { setStudyIdentity(null); return { name: 'study', query: { returnTo: to.fullPath } } }
+  }
   setTeacherPreviewCourse(to.name === 'learning' && to.query.teacherPreview === '1' ? String(to.params.courseId) : '')
   const scope = to.name === 'learning' && to.query.teacherPreview === '1'
     ? 'teacher'

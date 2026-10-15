@@ -819,6 +819,7 @@ class TaskManager:
             "retry_count": 0,
             "logs": [],
             "request_snapshot": normalized_request_snapshot,
+            "resource_ref": deepcopy(normalized_request_snapshot.get("resource_ref") or {}),
             "assessment_generation_profile": normalized_generation_profile,
             "assessment_generation_policy_version": (
                 ASSESSMENT_GENERATION_POLICY_VERSION
@@ -4598,7 +4599,7 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
-        if task.get("type") == "personal_handout_generation":
+        if task.get("type") in {"personal_handout_generation", "personal_study_assistant"}:
             if task.get("status") in {"pending", "running"}:
                 task.update(status="paused", message="服务中断，已保留资料与讲义，请主动继续")
             return False
@@ -5180,7 +5181,7 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
-        if task.get("type") == "personal_handout_generation":
+        if task.get("type") in {"personal_handout_generation", "personal_study_assistant"}:
             if task.get("status") in {"paused", "failed"}:
                 if await self._update_task_status(task_id, "pending", message="继续生成缺失内容", allow_reactivation=True):
                     await self._task_queue.put(task_id)
@@ -5552,7 +5553,7 @@ class TaskManager:
         failed_ids = [
             task_id for task_id, task in self.tasks.items()
             if task.get("status") == "failed"
-            and task.get("type") != "personal_handout_generation"
+            and task.get("type") not in {"personal_handout_generation", "personal_study_assistant"}
             and (
                 owner_id is None
                 or not _persisted_task_owner_id(task)
@@ -5580,7 +5581,7 @@ class TaskManager:
             raise ValueError(scope)
 
         def matches(task: dict[str, Any]) -> bool:
-            if task.get("type") == "personal_handout_generation":
+            if task.get("type") in {"personal_handout_generation", "personal_study_assistant"}:
                 return False
             if course_id and str(task.get("course_id") or "") != course_id:
                 return False
@@ -7281,6 +7282,10 @@ class TaskManager:
         if str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
 
+        if task.get("type") == "personal_study_assistant":
+            from study.assistant import run_assistant
+            await run_assistant(self, task_id)
+            return
         if task.get("type") == "personal_handout_generation":
             from study.service import run_personal_handout
             await run_personal_handout(self, task_id)
@@ -9526,7 +9531,7 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task or not self.ws_service:
             return
-        if task.get("type") == "personal_handout_generation":
+        if task.get("type") in {"personal_handout_generation", "personal_study_assistant"}:
             # Private materials are observed through their authenticated owner
             # endpoint; never broadcast on a course (including an empty one).
             return

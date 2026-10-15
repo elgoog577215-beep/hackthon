@@ -27,6 +27,25 @@ JOB_TYPES = {TREE_JOB, HANDOUT_JOB}
 ACTIVE = {"pending", "running"}
 
 
+def tree_generation_blockers(state, *, source_mode="", lesson_id=""):
+    """Only independent, known lecture scopes may run together.
+
+    Course-wide/unknown scopes stay exclusive. Adoption and frozen-source
+    validation retain their existing checks; this only scopes admission.
+    """
+    active = [job for job in state["jobs"].values() if job.get("status") in ACTIVE]
+    if source_mode != "handouts" or not lesson_id:
+        return active
+    known_lessons = set(state.get("lessons") or {})
+    blockers = []
+    for job in active:
+        scope = (job.get("knowledge_lesson_id") if job.get("type") == TREE_JOB
+                 else job.get("lesson_unit_id") or job.get("lesson_id"))
+        if not scope or scope == lesson_id or scope not in known_lessons:
+            blockers.append(job)
+    return blockers
+
+
 def material():
     return json.loads((Path(__file__).parent / "resources/knowledge_first/c17.json").read_text(encoding="utf-8"))
 
@@ -324,12 +343,13 @@ class KnowledgeFirstService:
             require(knowledge_revision(raw) == expected_revision and raw.get("course_document_revision") == expected_document, "课程或知识树版本已变化")
             require(topic == "tree" or bool(expected_revision), "请先采用知识树，再生成讲义")
             require(topic == "tree" or (raw.get("course_knowledge_base") or {}).get("status") == "accepted", "当前知识树尚未采用")
-            existing_jobs = self.authoring.load(course_id)["jobs"]
+            state = self.authoring.load(course_id)
+            existing_jobs = state["jobs"]
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
                 return duplicate, False
-            require(not any(j.get("status") in ACTIVE for j in existing_jobs.values()), "已有生成任务，请等待或取消")
+            require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
             require(not derived or bool(context.get("handout_lessons")), "请先在备课工作台生成讲义，资料可选")
             if topic != "tree" and raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW:
@@ -539,6 +559,8 @@ class KnowledgeFirstService:
         state = self.authoring.load(course_id)
         jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message", "error", "partial_text", "model") if k in j}
                 for j in state["jobs"].values() if j.get("type") in JOB_TYPES]
+        active_jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message") if k in j}
+                       for j in state["jobs"].values() if j.get("status") in ACTIVE]
         for job in jobs:
             job["recheck_available"] = bool((state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
         candidate_job = next((j for j in reversed(list(state["jobs"].values())) if j.get("type") == TREE_JOB and (j.get("checkpoint") or {}).get("candidate")), None)
@@ -556,7 +578,10 @@ class KnowledgeFirstService:
         available = {l["lesson_id"] for l in source_handouts}
         titles = {s["section_id"]: s.get("title", "") for s in (raw.get("course_document") or {}).get("sections", []) if not s.get("parent_section_id")}
         ordered_ids = list(dict.fromkeys([*titles, *state["lessons"]]))
-        lesson_options = [{"lesson_id": lid, "title": titles.get(lid) or (state["lessons"].get(lid) or {}).get("title") or lid, "can_generate": lid in available} for lid in ordered_ids]
+        lesson_options = [{"lesson_id": lid, "title": titles.get(lid) or (state["lessons"].get(lid) or {}).get("title") or lid,
+                           "can_generate": lid in available,
+                           "blocking_job_ids": [j["id"] for j in tree_generation_blockers(state, source_mode=source_mode, lesson_id=lid)]}
+                          for lid in ordered_ids]
         bundles = {l["lesson_id"]: l for l in source_handouts} if derived else {l["topic"]: l for l in tree.get("lessons", [])} if generic else material()["bundles"]
         handouts = []
         for topic, bundle in bundles.items():
@@ -575,6 +600,8 @@ class KnowledgeFirstService:
                 "history": list({**(raw.get("knowledge_first_history") or {}), **({tree["revision_id"]: tree} if tree.get("revision_id") else {})}.values()),
                 "candidate": (candidate_job.get("checkpoint") or {}).get("candidate") if candidate_job else None,
                 "candidate_job_id": candidate_job["id"] if candidate_job else "", "candidates": list(candidates.values()), "lesson_options": lesson_options, "jobs": jobs, "handouts": handouts,
+                "active_jobs": active_jobs,
+                "blocking_job_ids": [j["id"] for j in tree_generation_blockers(state, source_mode=source_mode)],
                 "scope": tree.get("scope", "上传材料覆盖范围") if generic else material()["scope"],
                 "provenance": tree.get("provenance", "根据已保存讲义提取知识点，确认后采用。" if derived else "基于课程信息和上传资料生成候选，采用前请审阅来源、范围与知识命题。") if generic else material()["provenance"],
                 "input_revision": raw.get("knowledge_input_revision", ""),

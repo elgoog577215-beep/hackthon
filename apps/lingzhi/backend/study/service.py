@@ -17,6 +17,16 @@ PURPOSES = {
 }
 
 
+def visual_requirements(outline: dict) -> str:
+    text = '\n'.join(block['text'] for block in outline['blocks'])
+    hints = ['把本章最有解释价值的关系、过程、空间或数据与正文同步画出，用 lingzhi-diagram 格式；图前说明问题，图后解释结论。只放对比表不等于图解。来源不足时明确说明，不凑图、不编造数据。']
+    if re.search(r'向量|线性组合|vector|linear combination', text, re.I):
+        hints.append('优先用 vector_plot 呈现题设二维向量、数乘与首尾连接的线性组合，展示目标向量；坐标只取题设或正文已计算出的结果。')
+    if re.search(r'矩阵|消元|matrix|elimination', text, re.I):
+        hints.append('优先用 matrix_steps 对照消元前后完整矩阵和行操作；用 flowchart 说明相容性与唯一/无穷多解判定。几何缺少明确数据时不猜测平面位置。')
+    return '\n'.join(hints)
+
+
 def source_sections(asset, document) -> list[dict]:
     """Project real heading ranges, never guessed chapter or page boundaries."""
     blocks = document.blocks
@@ -63,6 +73,21 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
         if not section:
             raise ValueError("所选资料范围不存在")
         section = deepcopy(section)
+        origin = repo.source_origin(owner, selection["asset_id"])
+        try:
+            repo.require_origin_access(owner, origin)
+        except KeyError:
+            raise ValueError("课程来源授权已撤销，不能继续生成") from None
+        if origin:
+            if origin.get("exchange_origin"):
+                from course_exchange import read_remote_course
+                current = read_remote_course(repo.storage, owner, origin["course_id"], release_id=origin["exchange_origin"]["release_id"])
+            else:
+                from course_repository import CourseDocumentRepository
+                current = CourseDocumentRepository(repo.storage).load_course_view(origin["course_id"])
+            if current.get("current_course_version_id") != origin["revision_id"]:
+                raise ValueError("教师讲义已更新，请从授权课程重新选择资料")
+            section["course_origin"] = deepcopy(origin)
         section["node_id"] = f"study-section-{len(selected) + 1}"
         section["node_name"] = section["title"]
         for block in section["blocks"]:
@@ -161,6 +186,8 @@ async def run_personal_handout(manager, task_id: str) -> None:
     repo.update(owner, material_id, {"status": "running"})
     plans = material["plans"]
     try:
+        for outline in outlines:
+            repo.require_origin_access(owner, outline.get("course_origin"))
         if not plans:
             await manager._update_phase(task_id, "study_scope", 3, "正在梳理所选资料与概念关系")
             budget = manager.course_service._generation_budget
@@ -175,6 +202,7 @@ async def run_personal_handout(manager, task_id: str) -> None:
             plans = validate_plans(raw or "", outlines)
             repo.update(owner, material_id, {"plans": plans})
         for index, outline in enumerate(outlines):
+            repo.require_origin_access(owner, outline.get("course_origin"))
             section_id = outline["node_id"]
             saved = next((section for section in revision["sections"] if section["id"] == section_id), None)
             if saved and saved["complete"]:
@@ -185,6 +213,11 @@ async def run_personal_handout(manager, task_id: str) -> None:
             attempt = str(uuid.uuid4())
 
             def persist(provider_complete: bool = False):
+                # A provider reset is not replacement content. In particular,
+                # a failed continuation before its first token must retain the
+                # previous real fragment instead of saving an empty chapter.
+                if not buffer.strip():
+                    return False
                 parsed = parse_handout_stream(buffer, [section_id], provider_complete=provider_complete)
                 content = (parsed["completed"].get(section_id) or parsed["fragments"].get(section_id) or "")
                 blocks = parse_handout_blocks(content, section_id, identity=attempt,
@@ -216,7 +249,7 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     course_id="", outline_sections=[outline],
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
-                    requirements=PURPOSES[request["purpose"]] + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
+                    requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
                                  + "\n" + request.get("requirements", "")
                                  + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}

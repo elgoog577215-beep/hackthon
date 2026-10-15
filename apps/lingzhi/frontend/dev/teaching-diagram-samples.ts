@@ -32,6 +32,8 @@ const grouped = {
   edges: graph.edges,
 };
 const data: Record<string, object> = {
+  vector_plot: { vectors: [{ label: 'u', from: [0, 0], to: [1, 2] }, { label: '2v', from: [1, 2], to: [5, 4] }, { label: 'w = u + 2v', from: [0, 0], to: [5, 4] }], x_label: 'x', y_label: 'y' },
+  matrix_steps: { steps: [{ label: '原增广矩阵 / Original', values: [[1, 2, 5], [2, 1, 4]] }, { label: '行阶梯形 / Echelon', operation: 'R₂ ← R₂ − 2R₁', values: [[1, 2, 5], [0, -3, -6]] }] },
   architecture: graph,
   architecture_delta: {
     before: {

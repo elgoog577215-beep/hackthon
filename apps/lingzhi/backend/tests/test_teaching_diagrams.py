@@ -11,8 +11,8 @@ from teaching_diagrams import teaching_diagram_catalog, teaching_diagram_prompt
 
 def test_catalog_is_shared_by_handout_and_both_answer_perspectives():
     catalog = teaching_diagram_catalog()
-    assert len(catalog['types']) == 44
-    assert len({t['id'] for t in catalog['types']}) == 44
+    assert len(catalog['types']) == 46
+    assert len({t['id'] for t in catalog['types']}) == 46
     handout = build_handout_prompt(course_title='Test', lesson={}, requirements='', sections=[{'node_id': 's'}], plan_sections={}, completed_sections=[], partial_text='', contract='handout_lecture_v3')
     for prompt in [handout, format_ai_teacher_context_prompt({'request': {'perspective': 'teacher'}}), format_ai_teacher_context_prompt({'request': {'perspective': 'learner'}})]:
         assert teaching_diagram_prompt() in prompt

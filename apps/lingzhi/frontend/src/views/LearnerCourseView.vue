@@ -1,5 +1,5 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
+  <section ref="learningLayoutRoot" class="learning-view" :style="columnLayoutStyle" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
   <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
@@ -11,6 +11,7 @@
         :active-block-id="activeCourseBlockId"
         :production-mode="isGenerationPreview"
         :generation-task="generationTask"
+        :back-label="isTeacherPreview ? t('courseWorkspaceFlow.returnWorkbench') : getStudyIdentity()?.role === 'student' ? t('courseWorkspaceFlow.returnStudy') : undefined"
         @select="selectNode"
         @select-block="selectCourseBlock"
         @back="leaveTeacherPreview"
@@ -18,6 +19,7 @@
       />
     </Transition>
 
+    <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
       <AITeacherSuggestion
         :suggestion="aiTeacherStore.suggestion"
@@ -26,8 +28,9 @@
         @decline="declineSuggestion"
       />
       <div class="learning-stage">
+        <div v-if="isExchangeCourse" class="exchange-course-notice"><span>{{ exchangeCopy('教师发布课程 · 正式作答对教师可见', 'Published course · Formal attempts are shared with your teacher') }}</span><RouterLink to="/study?view=courses">{{ exchangeCopy('课程提问与更新', 'Questions & updates') }}</RouterLink></div>
         <ContentArea
-          v-show="!taskOpen && !statsOpen && !courseStore.showKnowledgeLibrary"
+          v-show="!taskOpen && !statsOpen && !mistakesOpen && !courseStore.showKnowledgeLibrary"
           ref="contentAreaRef"
           :side-ai-panel-visible="aiVisible"
           :teacher-preview="isTeacherPreview"
@@ -38,6 +41,8 @@
           @start-practice="openTask"
           @improve-block="openBlockImprovement"
           @active-block-change="handleActiveBlockChange"
+          @retry-load="reloadLearningCourse"
+          @return-workbench="leaveTeacherPreview"
         />
 
         <section v-show="courseStore.showKnowledgeLibrary" class="learning-tool-overlay knowledge-study-overlay">
@@ -45,12 +50,16 @@
             <CourseKnowledgeStudy ref="knowledgeStudyRef" :visible="courseStore.showKnowledgeLibrary" :preview="isTeacherPreview" @close="closeKnowledgeLibrary" @select="selectKnowledge" @evidence="discussEvidence" @lecture="openKnowledgeLecture" @practice="openKnowledgePractice" />
           </Teleport>
         </section>
+        <section v-if="mistakesOpen && courseStore.currentCourseId" class="learning-tool-overlay mistakes-overlay" role="region" :aria-label="t('studentWorkspace.mistakes')">
+          <MistakeNotebookPanel :course-id="courseStore.currentCourseId" @close="activateTool('reading')" @retry="openMistakeRetry" />
+        </section>
         <LearningTaskOverlay
           :embedded="!isNarrow"
           v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
           :course-id="courseStore.currentCourseId"
-          :node-id="taskNode?.node_id"
-          :node-label="taskNode?.node_name"
+          :node-id="workspaceStore.practiceScope === 'all' ? undefined : taskNode?.node_id"
+          :node-label="workspaceStore.practiceScope === 'all' ? undefined : taskNode?.node_name"
+          :scope="workspaceStore.practiceScope"
           :origin-rect="taskOriginRect"
           :record-count="questionCount"
           @close="closeTask"
@@ -86,9 +95,13 @@
         </section>
       </div>
 
-      <LearningDock
+
+
+      <LearningDock toolbar placement="bottom"
         v-if="!isGenerationPreview"
         :location="dockLocation"
+        :notebook-open="notebookOpen"
+        :navigator-hidden="!navigatorVisible"
         :note-count="noteCount"
         :question-count="questionCount"
         :resume-action-label="resumeActionLabel"
@@ -96,16 +109,19 @@
         :resume-action-busy="continuityBusy"
         :active-domain="dockActiveDomain"
         :assistant-open="aiVisible && !courseStore.isFocusMode"
+        @navigator="navigatorOpen = true"
         @notebook="openNotebook"
-        @question-book="openQuestionBook"
-        @stats="openStats"
-        @knowledge-library="openKnowledgeLibrary"
+        @question-book="activateTool('practice')"
+        @stats="activateTool('overview')"
+        @knowledge-library="activateTool('knowledge')"
         @ai="toggleAi"
         @resume="runResumeAction"
+        @reading="activateTool('reading')"
+        @mistakes="activateTool('mistakes')"
       />
-
     </main>
 
+    <ColumnResizeHandle v-if="dockedSidePanelVisible" v-bind="rightColumnHandle" />
     <Transition name="side-panel">
       <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow, 'is-companion-floating': aiFloating && !notesVisible && !notebookOpen && !isNarrow }">
         <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="!aiVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && !aiVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
@@ -186,6 +202,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
+import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
 import { History, LoaderCircle } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
@@ -195,6 +213,8 @@ import ContentArea from '../components/ContentArea.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
+import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
+import { isPublishedExchangeCourse, studentWorkspaceTool, type StudentWorkspaceTool } from '../shared/student-workspace'
 import LearningCompanion from '../components/LearningCompanion.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
@@ -218,15 +238,18 @@ import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node, Note } f
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
-import { t } from '../shared/i18n'
+import { t, activeLocale } from '../shared/i18n'
 import type { StudyRequest } from '../types/study-dialogue'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 import { useCompanionReminders, type CompanionReminder } from '../composables/useCompanionReminders'
 import { useCompanionLayout } from '../composables/useCompanionLayout'
 import { useCompanionWelcome } from '../composables/useCompanionWelcome'
 import { getLearnerIdentity } from '../utils/http'
+import { getStudyIdentity } from '../utils/study-identity'
 
 const route = useRoute()
+const isExchangeCourse = computed(() => isPublishedExchangeCourse(String(route.params.courseId || route.params.id || '')))
+const exchangeCopy = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh
 const router = useRouter()
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
@@ -269,10 +292,11 @@ async function openKnowledgeLecture(point: KnowledgeProfileNode) {
     else selectNode(node)
   }
 }
-watch(() => courseStore.currentCourseId, () => { notesVisible.value = false; studyRequest.value = undefined; selectedKnowledge.value = null; knowledgeReadingReturn = null; knowledgeReturnSequence++ })
+watch(() => courseStore.currentCourseId, () => { notesVisible.value = false; mistakesOpen.value = false; studyRequest.value = undefined; selectedKnowledge.value = null; knowledgeReadingReturn = null; knowledgeReturnSequence++ })
 const notesVisible = ref(false)
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
+const mistakesOpen = ref(false)
 const taskOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
 const courseAdjustmentFocusPlanId = ref('')
@@ -293,16 +317,67 @@ const autoFollowGeneration = ref(true)
 const practiceApiNodeId = ref('')
 let practiceAvailabilityRequest = 0
 const loadedLearningCourseId = ref('')
+const activeWorkspaceTool = computed<StudentWorkspaceTool>(() => mistakesOpen.value ? 'mistakes' : taskOpen.value ? 'practice' : statsOpen.value ? 'overview' : courseStore.showKnowledgeLibrary ? 'knowledge' : 'reading')
+let restoringWorkspaceTool = false
+let pendingWorkspaceTool: StudentWorkspaceTool | null = null
+let workspaceNavigationSequence = 0
+let workspaceToolSequence = 0
+async function persistWorkspaceTool(tool: StudentWorkspaceTool) {
+  if (route.name !== 'learning') return
+  const sequence = ++workspaceNavigationSequence
+  pendingWorkspaceTool = tool
+  try { await router.replace({ name: 'learning', params: { ...route.params, nodeId: courseStore.currentNode?.node_id || route.params.nodeId }, query: { ...route.query, tool } }) }
+  finally { if (sequence === workspaceNavigationSequence) pendingWorkspaceTool = null }
+}
+async function activateTool(tool: StudentWorkspaceTool, fromRoute = false) {
+  const sequence = ++workspaceToolSequence
+  const current = activeWorkspaceTool.value
+  if (tool === current && tool !== 'reading') {
+    if (fromRoute) return
+    tool = 'reading'
+  }
+  if (tool === 'reading') {
+    mistakesOpen.value = false
+    closeStats()
+    if (taskOpen.value) await closeTask()
+    if (sequence !== workspaceToolSequence) return
+    if (courseStore.showKnowledgeLibrary) await closeKnowledgeLibrary()
+  } else {
+    mistakesOpen.value = false
+    if (tool !== 'knowledge' && courseStore.showKnowledgeLibrary) await closeKnowledgeLibrary(false)
+    if (sequence !== workspaceToolSequence) return
+    if (tool === 'practice') openQuestionBook()
+    else if (tool === 'overview') openStats()
+    else if (tool === 'knowledge') openKnowledgeLibrary()
+    else { taskOpen.value = false; statsOpen.value = false; mistakesOpen.value = true }
+  }
+}
+function openMistakeRetry(payload: { nodeId: string; taskRevisionId: string }) {
+  const node = courseStore.nodes.find(item => item.node_id === payload.nodeId)
+  if (!node) return
+  mistakesOpen.value = false
+  openTask(node, payload.taskRevisionId)
+}
+watch([() => route.query.tool, loadedLearningCourseId], async () => {
+  if (pendingWorkspaceTool || restoringWorkspaceTool || !loadedLearningCourseId.value || loadedLearningCourseId.value !== String(route.params.courseId || '')) return
+  if (activeWorkspaceTool.value === studentWorkspaceTool(route.query.tool)) return
+  restoringWorkspaceTool = true
+  try { await activateTool(studentWorkspaceTool(route.query.tool), true) } finally { restoringWorkspaceTool = false }
+}, { flush: 'post' })
+watch(activeWorkspaceTool, tool => {
+  if (route.name !== 'learning' || restoringWorkspaceTool || loadedLearningCourseId.value !== courseStore.currentCourseId || !loadedLearningCourseId.value) return
+  if (!pendingWorkspaceTool && studentWorkspaceTool(route.query.tool) === tool) return
+  void persistWorkspaceTool(tool)
+}, { flush: 'post' })
 const activeCourseBlockId = ref('')
 let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
-const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && (notesVisible.value || notebookOpen.value) && !courseStore.showKnowledgeLibrary)))
-const dockActiveDomain = computed(() => taskOpen.value ? 'question-book'
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && (notesVisible.value || notebookOpen.value))))
+const dockActiveDomain = computed(() => mistakesOpen.value ? 'mistakes' : taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
   : courseStore.showKnowledgeLibrary ? 'knowledge-library'
-  : notebookOpen.value ? 'notebook'
   : 'course')
 
 const isTeacherPreview = computed(() => String(route.query.teacherPreview || '') === '1')
@@ -343,6 +418,13 @@ const navigatorVisible = computed(() => (
   && navigatorOpen.value
   && (!isGenerationPreview.value || courseStore.courseTree.length > 0)
 ))
+const learningLayoutRoot = ref<HTMLElement | null>(null)
+const dockedSidePanelVisible = computed(() => !isNarrow.value && sidePanelVisible.value && !(aiFloating.value && !notesVisible.value && !notebookOpen.value))
+const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(learningLayoutRoot, {
+  storageKey: 'lingzhi:course-reading:columns', left: 292, right: 360, leftMin: 200, rightMin: 280,
+  enabled: () => !isNarrow.value,
+  leftVisible: navigatorVisible, rightVisible: dockedSidePanelVisible,
+})
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
@@ -409,10 +491,10 @@ watch(
   { immediate: true },
 )
 
-watch(() => route.params.courseId, async value => {
-  if (!value) return
-  const courseId = String(value)
-  loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
+let learningCourseRequest = 0
+async function loadLearningCourse(courseId: string) {
+  const request = ++learningCourseRequest
+  loadedLearningCourseId.value = ''
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
   aiQuote.value = ''
@@ -435,7 +517,7 @@ watch(() => route.params.courseId, async value => {
     aiTeacherStore.clearPreviewSession()
   }
   await Promise.all([
-    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student' }),
+    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student', background: true }),
     courseStore.loadCourse(courseId, isTeacherPreview.value ? {
       includeLearningRecords: false,
       taskType: 'teacher_outline_generation',
@@ -445,17 +527,33 @@ watch(() => route.params.courseId, async value => {
       silentError: true,
     } : {}),
   ])
-  if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
+  if (request !== learningCourseRequest || courseStore.currentCourseId !== courseId || courseStore.courseLoadError) return
+  if (!isTeacherPreview.value && getStudyIdentity()?.role !== 'student') generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
     return
   }
   await loadLearningContext(courseId)
+  if (request !== learningCourseRequest) return
   selectInitialNode()
+  const requestedAction = continuationAction.value
+  if (requestedAction?.availability === 'available'
+      && route.query.learningAction === requestedAction.action_type
+      && (isWorkspaceTaskAction(requestedAction) || requestedAction.action_type === 'view_chapter_result')) {
+    await handleContinuationAction(requestedAction)
+  }
   if (['practice', 'question-book'].includes(String(route.query.workspace || ''))) {
     await nextTick()
     openQuestionBook()
   }
+}
+
+function reloadLearningCourse() {
+  if (!courseStore.loading && route.params.courseId) void loadLearningCourse(String(route.params.courseId))
+}
+
+watch(() => route.params.courseId, value => {
+  if (value) void loadLearningCourse(String(value))
 }, { immediate: true })
 
 
@@ -476,7 +574,6 @@ async function loadLearningContext(courseId: string) {
   ])
   loadedLearningCourseId.value = courseId
   if (isTeacherPreview.value) return
-  void changeProposalsStore.fetchChangeProposals(courseId)
   // Natural pause #3: arriving at the course, before any reading has started.
   void aiTeacherStore.checkSuggestion('course_entered', String(route.params.nodeId || '') || undefined)
 }
@@ -565,6 +662,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  learningCourseRequest++
   knowledgeReturnSequence++
   knowledgeReadingReturn = null
   aiTeacherStore.clearPreviewSession()
@@ -604,6 +702,7 @@ function selectInitialNode() {
 }
 
 function selectNode(node: Node, updateRoute = true, manualSelection = true) {
+  if (manualSelection) mistakesOpen.value = false
   if(manualSelection && courseStore.showKnowledgeLibrary) void closeKnowledgeLibrary(false)
   if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
     autoFollowGeneration.value = false
@@ -614,7 +713,7 @@ function selectNode(node: Node, updateRoute = true, manualSelection = true) {
   if (updateRoute) void router.replace({
     name: 'learning',
     params: { courseId: courseStore.currentCourseId, nodeId: node.node_id },
-    query: isTeacherPreview.value ? route.query : undefined,
+    query: isTeacherPreview.value ? route.query : { ...route.query, tool: activeWorkspaceTool.value, learningAction: undefined, workspace: undefined },
   })
   if (isNarrow.value) navigatorOpen.value = false
 }
@@ -627,7 +726,7 @@ async function selectCourseBlock(target: CourseBlockNavigationTarget) {
     await router.replace({
       name: 'learning',
       params: { courseId: courseStore.currentCourseId, nodeId: target.node.node_id },
-      query: isTeacherPreview.value ? route.query : undefined,
+      query: isTeacherPreview.value ? route.query : { ...route.query, tool: activeWorkspaceTool.value, learningAction: undefined, workspace: undefined },
     })
   }
   await nextTick()
@@ -690,6 +789,7 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
 }
 
 function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
+  void changeProposalsStore.fetchChangeProposals(courseStore.currentCourseId)
   courseAdjustmentFocusPlanId.value = payload?.planId || ''
   courseAdjustmentSectionId.value = payload?.sectionId || courseStore.currentNode?.node_id || ''
   aiVisible.value = false
@@ -787,10 +887,7 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 function openNotebook() {
   if (notebookOpen.value) { closeNotebook(); return }
   notebookOpen.value = true
-  statsOpen.value = false
-  taskOpen.value = false
   aiVisible.value = false
-  courseStore.showKnowledgeLibrary = false
   if (isNarrow.value) navigatorOpen.value = false
 }
 
@@ -802,11 +899,10 @@ function closeNotebook() {
 function openQuestionBook() {
   if (taskOpen.value) { void closeTask(); return }
   const source = currentPracticeNode.value || courseStore.currentNode
-  if (!source) return
   notebookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
-  openTask(source)
+  openTask(source, '', 'all')
   if (isNarrow.value) navigatorOpen.value = false
 }
 
@@ -899,16 +995,17 @@ function locateRecord(record: any) {
   window.setTimeout(() => courseStore.scrollToNote(record.id), 160)
 }
 
-function openTask(node?: Node | null, taskRevisionId = '') {
+function openTask(node?: Node | null, taskRevisionId = '', scope: 'node' | 'final' | 'all' = 'node') {
+  mistakesOpen.value = false
   const source = node || courseStore.currentNode
-  if (!source) return
+  if (!source && scope === 'node') return
   notebookOpen.value = false
   statsOpen.value = false
-  if (taskRevisionId && courseStore.currentCourseId) {
+  if (taskRevisionId && source && courseStore.currentCourseId) {
     workspaceStore.preparePracticeTask(courseStore.currentCourseId, source.node_id, taskRevisionId)
   }
   const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  const sourceBlock = document.getElementById(`practice-block-${source.node_id}`)
+  const sourceBlock = source ? document.getElementById(`practice-block-${source.node_id}`) : null
   const openedFromSourceBlock = Boolean(sourceBlock && (trigger === sourceBlock || sourceBlock.contains(trigger)))
   const rect = openedFromSourceBlock ? sourceBlock?.getBoundingClientRect() : null
   const sourceIsVisible = Boolean(rect
@@ -924,7 +1021,7 @@ function openTask(node?: Node | null, taskRevisionId = '') {
   taskOriginRect.value = sourceIsVisible && rect
     ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
     : null
-  workspaceStore.practiceScope = 'node'
+  workspaceStore.practiceScope = scope
   taskOpen.value = true
 }
 
@@ -986,7 +1083,7 @@ function runResumeAction() {
 
 function leaveTeacherPreview() {
   if (!isTeacherPreview.value) {
-    void router.push('/courses')
+    void router.push(getStudyIdentity()?.role === 'student' ? '/study?view=courses' : '/courses')
     return
   }
   const returnTo = String(route.query.returnTo || '')
@@ -1015,6 +1112,7 @@ function closeMobileSurfaces() {
 .learning-side-panel.is-docked { display:flex; flex-direction:column; background:#fff; border:1px solid var(--lz-border); --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
 .learning-side-panel.is-docked > .ai-teacher-panel,.learning-side-panel.is-docked > .reading-notes { width:100%; flex:1; min-height:0; height:auto; }
 .learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
+.exchange-course-notice{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 18px;background:#f6f3fc;color:#66548a;font-size:15px;border-bottom:1px solid #e4dff0}.exchange-course-notice a{color:#6551c7;white-space:nowrap}.exchange-course-notice a:focus-visible{outline:3px solid #9385ed;outline-offset:3px}
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .learning-content { min-height: 0; flex: 1; }
@@ -1081,4 +1179,13 @@ function closeMobileSurfaces() {
 <style scoped>
 .learning-side-panel.is-companion-floating { background:transparent; border:0; box-shadow:none; overflow:visible; }
 .learning-side-panel.is-companion-floating { display:none; }
+@media(min-width:1024px){
+  .learning-view{gap:0}
+  .navigator-surface{min-width:0;width:var(--column-left-width);flex:0 0 var(--column-left-width)}
+  .learning-side-panel.is-docked:not(.is-companion-floating){--side-width:var(--column-right-width)}
+}
+</style>
+
+<style scoped>
+.mistakes-overlay{overflow:auto;background:#fff}.mistakes-overlay :deep(.mistake-notebook){min-height:100%;border:0;border-radius:0}.learning-view :deep(.learning-dock.is-toolbar){position:relative;z-index:12}.learning-main{display:flex;flex-direction:column;min-height:0}.learning-stage{flex:1;min-height:0}
 </style>

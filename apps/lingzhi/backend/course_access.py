@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from learner_context import DEFAULT_USER_ID
+from course_learning_access import CourseLearningAccess, learner_api_allowed, trusted_student, learner_request_course
 
 
 def course_id_from_api_path(path: str) -> str:
@@ -92,6 +93,51 @@ class CourseOwnershipMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
         course_id = course_id_from_api_path(request.url.path)
+        if trusted_student(request):
+            if not learner_api_allowed(request.url.path, request.method):
+                return JSONResponse(status_code=403, content={"detail": "学生不能访问教师生产接口"})
+            # AI routes carry the course in a query/body rather than their path.
+            if request.url.path.startswith("/api/ai-teacher/") or request.url.path == "/api/ask_events":
+                course_id = request.query_params.get("course_id", "")
+                if not course_id and request.method not in {"GET", "HEAD"}:
+                    try:
+                        body = await request.json()
+                        course_id = str(body.get("course_id") or "")
+                    except (ValueError, AttributeError):
+                        pass
+                if not course_id:
+                    return JSONResponse(status_code=422, content={"detail": "course_id is required"})
+            if course_id:
+                course = self.course_storage.load_course(course_id)
+                actor = request.headers.get("X-User-Id", "")
+                from course_exchange import is_remote_course, read_remote_course, remote_course_context
+                if not course and is_remote_course(course_id):
+                    from fastapi import HTTPException
+                    from fastapi.concurrency import run_in_threadpool
+                    try:
+                        remote = await run_in_threadpool(read_remote_course, self.course_storage, actor, course_id)
+                    except HTTPException as exc:
+                        return JSONResponse(status_code=exc.status_code, content={"detail":exc.detail})
+                    if "/personal-adaptation" in request.url.path and request.method not in {"GET", "HEAD"}:
+                        return JSONResponse(status_code=403, content={"detail":"学习授权不能修改教师课程正文"})
+                    token = remote_course_context.set(remote)
+                    try:
+                        return await call_next(request)
+                    finally:
+                        remote_course_context.reset(token)
+                if not course or (course.get("owner_id") != actor
+                        and not CourseLearningAccess(self.course_storage).active(course, actor)):
+                    return JSONResponse(status_code=404, content={"detail": "课程不存在或授权已撤销"})
+                if (course.get("owner_id") != actor
+                        and "/personal-adaptation" in request.url.path
+                        and request.method not in {"GET", "HEAD"}
+                        and not request.url.path.endswith(("/evaluate", "/reject"))):
+                    return JSONResponse(status_code=403, content={"detail": "学习授权不能修改教师课程正文"})
+                token = learner_request_course.set(course_id)
+                try:
+                    return await call_next(request)
+                finally:
+                    learner_request_course.reset(token)
         if course_id:
             course = self.course_storage.load_course(course_id)
             denial = teacher_course_access_denial(

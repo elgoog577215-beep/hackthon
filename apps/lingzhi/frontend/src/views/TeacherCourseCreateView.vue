@@ -1,84 +1,58 @@
 <template>
   <Teleport to="body">
-    <dialog
-      ref="dialogRef"
-      class="course-create-dialog"
-      :aria-labelledby="titleId"
-      @cancel.prevent="closeCourseCreate"
-      @keydown.esc.prevent.stop="closeCourseCreate"
-    >
+    <dialog ref="dialogRef" class="course-create-dialog" :aria-labelledby="titleId" @cancel.prevent="closeCourseCreate" @keydown.esc.prevent.stop="closeCourseCreate">
       <form class="course-form" @submit.prevent="createCourse">
         <header class="form-heading">
-          <div>
-            <h2 :id="titleId">{{ t('teacherCourseCreate.title') }}</h2>
-            <p>{{ t('teacherCourseCreate.simpleHelp') }}</p>
-          </div>
-          <button type="button" :aria-label="t('common.close')" @click="closeCourseCreate">
-            <X :size="18" />
-          </button>
+          <span class="form-heading-mark" aria-hidden="true"><FilePlus2 :size="18" /></span>
+          <div><h2 :id="titleId">{{ t('teacherCourseCreate.title') }}</h2><p>{{ t('courseCreationFlow.help') }}</p></div>
+          <button type="button" :aria-label="t('common.close')" :disabled="creating" @click="closeCourseCreate"><X :size="18" /></button>
         </header>
-
-        <div class="form-scroll">
-          <section class="identity-section">
-            <label class="field field--name" for="course-name">
-              <span>{{ t('teacherCourseCreate.courseName') }}{{ t('teacherCourseCreate.chineseNameSuffix') }} <b aria-hidden="true">*</b></span>
-              <input id="course-name" v-model.trim="form.courseName" required maxlength="200" autofocus :placeholder="t('teacherCourseCreate.courseNamePlaceholder')" />
-            </label>
-            <label class="field" for="course-english-name"><span>{{ t('teacherCourseCreate.englishName') }}</span><input id="course-english-name" v-model.trim="form.englishName" maxlength="200" /></label>
-          </section>
-
-          <section class="course-details" :aria-labelledby="basicInfoId">
-            <header class="details-heading">
-              <strong :id="basicInfoId">{{ t('teacherCourseCreate.basicInfo') }}</strong>
-              <small>{{ t('teacherCourseCreate.requiredHint') }}</small>
-            </header>
+        <ol class="creation-steps" :aria-label="t('courseCreationFlow.stepsLabel')">
+          <li v-for="(label, index) in stepLabels" :key="index" :class="{ active: step === index, complete: step > index }" :aria-current="step === index ? 'step' : undefined"><span>{{ index + 1 }}</span><strong>{{ label }}</strong></li>
+        </ol>
+        <fieldset class="form-scroll" :disabled="creating || Boolean(createdCourseId)">
+          <p v-if="creationError" class="creation-error" role="alert">{{ creationError }}</p>
+          <section v-if="step === 0" class="creation-section">
+            <header><h3>{{ t('courseCreationFlow.goalTitle') }}</h3><p>{{ t('courseCreationFlow.goalHelp') }}</p></header>
             <div class="details-grid">
+              <label class="field field--wide" for="course-name"><span>{{ t('teacherCourseCreate.courseName') }} <b>*</b></span><input id="course-name" v-model.trim="form.courseName" required maxlength="200" autofocus :placeholder="t('teacherCourseCreate.courseNamePlaceholder')" /></label>
               <label class="field" for="target-grade"><span>{{ t('teacherCourseCreate.targetGrade') }} <b>*</b></span><select id="target-grade" v-model="form.targetGrade" required><option v-for="option in targetAudienceOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
               <label class="field" for="course-category"><span>{{ t('teacherCourseCreate.courseCategory') }} <b>*</b></span><select id="course-category" v-model="form.courseCategory" required><option value="" disabled>{{ t('teacherCourseCreate.selectPlaceholder') }}</option><option v-for="option in courseCategoryOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-              <label class="field" for="course-code"><span>{{ t('teacherCourseCreate.courseCode') }}</span><input id="course-code" v-model.trim="form.courseCode" maxlength="64" /></label>
-              <label class="field" for="credits"><span>{{ t('teacherCourseCreate.credits') }} <b>*</b></span><input id="credits" v-model.number="form.credits" required type="number" min="0.5" max="100" step="0.5" /></label>
-              <label class="field" for="weekly-hours"><span>{{ t('teacherCourseCreate.weeklyHours') }} <b>*</b></span><input id="weekly-hours" v-model.number="form.weeklyHours" required type="number" min="0.5" max="100" step="0.5" /></label>
-              <label class="field field--wide" for="prerequisites"><span>{{ t('teacherCourseCreate.prerequisiteCourses') }}</span><input id="prerequisites" v-model.trim="form.prerequisiteCourses" maxlength="1000" :placeholder="t('teacherCourseCreate.prerequisitePlaceholder')" /></label>
-              <label class="field" for="academic-year"><span>{{ t('teacherCourseCreate.academicYear') }}</span><input id="academic-year" v-model.trim="form.academicYear" maxlength="30" placeholder="2026-2027" /></label>
-              <label class="field" for="term"><span>{{ t('teacherCourseCreate.term') }} <b>*</b></span><select id="term" v-model="form.term" required><option value="" disabled>{{ t('teacherCourseCreate.selectPlaceholder') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter') }}</option><option value="春">{{ t('teacherCourseCreate.spring') }}</option><option value="夏">{{ t('teacherCourseCreate.summer') }}</option><option value="秋">{{ t('teacherCourseCreate.autumn') }}</option><option value="冬">{{ t('teacherCourseCreate.winter') }}</option><option value="暑期课">{{ t('teacherCourseCreate.summerCourse') }}</option><option value="寒期课">{{ t('teacherCourseCreate.winterCourse') }}</option></select></label>
-              <div class="week-range-setting field--wide">
-                <div>
-                  <span>{{ t('teacherCourseCreate.activeWeeks', '上课周次') }}</span>
-                  <strong>{{ teachingWeekSummary }}</strong>
-                </div>
-                <button v-if="automaticWeekRange" type="button" @click="toggleWeekRangeMode">
-                  {{ form.weekRangeMode === 'custom'
-                    ? t('teacherCourseCreate.useAcademicCalendar', '恢复校历')
-                    : t('teacherCourseCreate.customizeWeeks', '特殊情况自定义') }}
-                </button>
-              </div>
-              <template v-if="form.weekRangeMode === 'custom'">
-                <label class="field" for="active-week-start"><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input id="active-week-start" v-model.number="form.activeWeekStart" type="number" min="1" max="30" /></label>
-                <label class="field" for="active-week-end"><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input id="active-week-end" v-model.number="form.activeWeekEnd" type="number" min="1" max="30" /></label>
-              </template>
-              <ZjuCourseScheduleGrid v-model="form.scheduleSlots" />
-              <div class="lecture-plan field--wide">
-                <div>
-                  <strong>{{ t('teacherCourseCreate.plannedLectures', '计划讲数') }}</strong>
-                  <span>{{ scheduleSuggestionText }}</span>
-                  <button v-if="suggestedLectureCount && suggestedLectureCount !== form.plannedLectureCount" type="button" class="apply-suggestion" @click="form.plannedLectureCount = suggestedLectureCount">{{ t('teacherCourseCreate.applyLectureSuggestion', '采用建议') }}</button>
-                </div>
-                <label class="field" for="planned-lecture-count"><span>{{ t('teacherCourseCreate.teacherConfirmLectures', '由老师确认') }}</span><input id="planned-lecture-count" v-model.number="form.plannedLectureCount" type="number" min="1" max="1000" required /></label>
-              </div>
-              <label class="field field--wide" for="location"><span>{{ t('teacherCourseCreate.classLocation') }}</span><input id="location" v-model.trim="form.defaultLocation" maxlength="200" /></label>
+              <label class="field field--wide" for="course-goal"><span>{{ t('courseCreationFlow.learningGoal') }} <b>*</b></span><textarea id="course-goal" v-model.trim="form.learningGoal" rows="3" maxlength="4000" required :placeholder="t('courseCreationFlow.goalPlaceholder')" /></label>
+              <label class="field" for="course-subject-type"><span>{{ t('courseWorkbench.form.subjectType') }}</span><select id="course-subject-type" v-model="form.subjectType"><option v-for="option in subjectTypeOptions" :key="option.value" :value="option.value">{{ t(option.labelKey) }}</option></select></label>
+              <label class="field" for="prerequisites"><span>{{ t('teacherCourseCreate.prerequisiteCourses') }}</span><input id="prerequisites" v-model.trim="form.prerequisiteCourses" maxlength="1000" :placeholder="t('teacherCourseCreate.prerequisitePlaceholder')" /></label>
+              <label class="field field--wide" for="course-requirements"><span>{{ t('courseWorkbench.form.requirements') }}</span><textarea id="course-requirements" v-model.trim="form.requirements" rows="2" maxlength="4000" :placeholder="t('courseWorkbench.form.requirementsPlaceholder')" /></label>
             </div>
           </section>
-        </div>
-
-        <footer class="form-footer">
-          <div class="form-actions">
-            <button type="button" @click="closeCourseCreate">{{ t('common.cancel') }}</button>
-            <button class="primary" type="submit" :disabled="creating || !form.courseName || !form.courseCategory || !form.targetGrade || !form.term || !form.credits || !form.weeklyHours || form.activeWeekEnd < form.activeWeekStart || !form.plannedLectureCount">
-              <LoaderCircle v-if="creating" :size="16" class="spin" />
-              {{ t('teacherCourseCreate.createCourse') }}
-            </button>
-          </div>
-        </footer>
+          <section v-else-if="step === 1" class="creation-section">
+            <header><h3>{{ t('courseCreationFlow.scheduleTitle') }}</h3><p>{{ t('courseCreationFlow.scheduleHelp') }}</p></header>
+            <div class="details-grid">
+              <label class="field" for="planned-lecture-count"><span>{{ t('teacherCourseCreate.plannedLectures') }} <b>*</b></span><input id="planned-lecture-count" v-model.number="form.plannedLectureCount" type="number" min="1" max="1000" required /></label>
+              <label class="field" for="total-hours"><span>{{ t('courseWorkbench.form.totalHours') }} <b>*</b></span><input id="total-hours" v-model.number="form.totalHours" type="number" min="1" max="1000" required /></label>
+              <label class="field" for="academic-year"><span>{{ t('teacherCourseCreate.academicYear') }}</span><input id="academic-year" v-model.trim="form.academicYear" maxlength="30" /></label>
+              <label class="field" for="term"><span>{{ t('teacherCourseCreate.term') }} <b>*</b></span><select id="term" v-model="form.term" required><option value="春夏">{{ t('teacherCourseCreate.springSummer') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter') }}</option><option value="春">{{ t('teacherCourseCreate.spring') }}</option><option value="夏">{{ t('teacherCourseCreate.summer') }}</option><option value="秋">{{ t('teacherCourseCreate.autumn') }}</option><option value="冬">{{ t('teacherCourseCreate.winter') }}</option><option value="暑期课">{{ t('teacherCourseCreate.summerCourse') }}</option><option value="寒期课">{{ t('teacherCourseCreate.winterCourse') }}</option></select></label>
+            </div>
+            <div class="creation-relation"><BookOpenText :size="20" /><div><strong>{{ t('courseCreationFlow.hierarchy') }}</strong><p>{{ t('courseCreationFlow.hierarchyHelp') }}</p></div></div>
+            <details class="schedule-details"><summary>{{ t('courseCreationFlow.scheduleOptional') }}</summary><div class="details-grid">
+              <label class="field" for="course-english-name"><span>{{ t('teacherCourseCreate.englishName') }}</span><input id="course-english-name" v-model.trim="form.englishName" maxlength="200" /></label>
+              <label class="field" for="course-code"><span>{{ t('teacherCourseCreate.courseCode') }}</span><input id="course-code" v-model.trim="form.courseCode" maxlength="64" /></label>
+              <label class="field" for="credits"><span>{{ t('teacherCourseCreate.credits') }}</span><input id="credits" v-model.number="form.credits" type="number" min="0.5" max="100" step="0.5" /></label>
+              <label class="field" for="weekly-hours"><span>{{ t('teacherCourseCreate.weeklyHours') }}</span><input id="weekly-hours" v-model.number="form.weeklyHours" type="number" min="0.5" max="100" step="0.5" /></label>
+              <div class="week-range-setting field--wide"><div><span>{{ t('teacherCourseCreate.activeWeeks') }}</span><strong>{{ teachingWeekSummary }}</strong></div><button v-if="automaticWeekRange" type="button" @click="toggleWeekRangeMode">{{ form.weekRangeMode === 'custom' ? t('teacherCourseCreate.useAcademicCalendar') : t('teacherCourseCreate.customizeWeeks') }}</button></div>
+              <template v-if="form.weekRangeMode === 'custom'"><label class="field" for="active-week-start"><span>{{ t('teacherCourseCreate.activeWeekStart') }}</span><input id="active-week-start" v-model.number="form.activeWeekStart" type="number" min="1" max="30" /></label><label class="field" for="active-week-end"><span>{{ t('teacherCourseCreate.activeWeekEnd') }}</span><input id="active-week-end" v-model.number="form.activeWeekEnd" type="number" min="1" max="30" /></label></template>
+              <ZjuCourseScheduleGrid v-model="form.scheduleSlots" />
+              <p class="schedule-suggestion field--wide">{{ scheduleSuggestionText }} <button v-if="suggestedLectureCount && suggestedLectureCount !== form.plannedLectureCount" class="apply-suggestion" type="button" @click="form.plannedLectureCount = suggestedLectureCount">{{ t('teacherCourseCreate.applyLectureSuggestion') }}</button></p>
+              <label class="field field--wide" for="location"><span>{{ t('teacherCourseCreate.classLocation') }}</span><input id="location" v-model.trim="form.defaultLocation" maxlength="200" /></label>
+            </div></details>
+          </section>
+          <section v-else class="creation-section">
+            <header><h3>{{ t('courseCreationFlow.sourceTitle') }}</h3><p>{{ t('courseCreationFlow.sourceHelp') }}</p></header>
+            <div class="source-options"><button v-for="option in sourceOptions" :key="option.value" type="button" :aria-pressed="form.startMode === option.value" :class="{ selected: form.startMode === option.value }" @click="form.startMode = option.value"><component :is="option.icon" :size="26" /><strong>{{ option.label }}</strong><span>{{ option.help }}</span><Check v-if="form.startMode === option.value" :size="18" class="source-check" /></button></div>
+            <dl class="creation-summary"><div><dt>{{ t('teacherCourseCreate.courseName') }}</dt><dd>{{ form.courseName }}</dd></div><div><dt>{{ t('courseCreationFlow.learningGoal') }}</dt><dd>{{ form.learningGoal }}</dd></div><div><dt>{{ t('courseCreationFlow.scheduleTitle') }}</dt><dd>{{ t('courseCreationFlow.summaryHours').replace('{lectures}', String(form.plannedLectureCount)).replace('{hours}', String(form.totalHours)) }}</dd></div></dl>
+            <p class="creation-next"><ArrowRight :size="18" />{{ t(form.startMode === 'materials' ? 'courseCreationFlow.nextMaterials' : 'courseCreationFlow.nextBlank') }}</p>
+          </section>
+        </fieldset>
+        <footer class="form-footer"><span>{{ t('courseCreationFlow.noAutoGeneration') }}</span><div class="form-actions"><button type="button" :disabled="creating" @click="createdCourseId || !step ? closeCourseCreate() : step--">{{ createdCourseId ? t('courseFiles.backToCourses') : step ? t('common.back') : t('common.cancel') }}</button><button v-if="step < 2" type="button" class="primary" @click="nextStep">{{ t('courseCreationFlow.next') }}<ArrowRight :size="16" /></button><button v-else type="submit" class="primary" :disabled="creating || !creationReady"><LoaderCircle v-if="creating" :size="16" class="spin" />{{ creating ? t('courseCreationFlow.creating') : createdCourseId ? t('courseCreationFlow.openSavedCourse') : t('courseCreationFlow.createAndPrepare') }}</button></div></footer>
       </form>
     </dialog>
   </Teleport>
@@ -87,9 +61,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { LoaderCircle, X } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, Check, FilePlus2, FolderInput, LoaderCircle, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import { PEDAGOGY_MODE_OPTIONS, type PedagogyModeSelection } from '../shared/prompt-config'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from '../components/ZjuCourseScheduleGrid.vue'
 import { zjuTeachingWeekRange, type WeekRangeMode } from '../utils/zju-academic-calendar'
@@ -99,8 +73,23 @@ const router = useRouter()
 const { course: courseStore } = useTeacherCourseRuntime()
 const dialogRef = ref<HTMLDialogElement | null>(null)
 const creating = ref(false)
+const createdCourseId = ref('')
 const titleId = 'teacher-course-create-title'
-const basicInfoId = 'teacher-course-create-basic-info'
+const step = ref(0)
+const creationError = ref('')
+const stepLabels = computed(() => [t('courseCreationFlow.steps.goal'), t('courseCreationFlow.steps.schedule'), t('courseCreationFlow.steps.source')])
+const subjectTypeOptions = PEDAGOGY_MODE_OPTIONS
+const sourceOptions = computed(() => [
+  { value: 'blank' as const, label: t('courseFiles.preparation.blankMode'), help: t('courseCreationFlow.blankHelp'), icon: FilePlus2 },
+  { value: 'materials' as const, label: t('courseFiles.preparation.existingMode'), help: t('courseCreationFlow.materialsHelp'), icon: FolderInput },
+])
+const creationReady = computed(() => Boolean(form.courseName.trim() && form.learningGoal.trim() && form.courseCategory && form.targetGrade && form.term && Number(form.plannedLectureCount) >= 1 && Number(form.totalHours) >= 1 && form.activeWeekEnd >= form.activeWeekStart))
+function nextStep() {
+  if (!dialogRef.value?.querySelector<HTMLFormElement>('form')?.reportValidity()) return
+  step.value = Math.min(2, step.value + 1)
+}
+const now = new Date()
+const academicStartYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1
 const targetAudienceOptions = computed(() => [
   { value: '本科生', label: t('teacherCourseCreate.undergraduate') },
   { value: '研究生', label: t('teacherCourseCreate.postgraduate') },
@@ -118,7 +107,8 @@ const courseCategoryOptions = computed(() => [
 const form = reactive({
   courseName: '', englishName: '', targetGrade: '本科生', courseCategory: '', courseCode: '',
   credits: 2, weeklyHours: 2, totalHours: 32,
-  prerequisiteCourses: '', academicYear: '', term: '', defaultLocation: '',
+  prerequisiteCourses: '', academicYear: `${academicStartYear}-${academicStartYear + 1}`, term: now.getMonth() >= 7 ? '秋冬' : '春夏', defaultLocation: '',
+  learningGoal: '', requirements: '', subjectType: 'auto' as PedagogyModeSelection, startMode: 'blank' as 'blank' | 'materials',
   activeWeekStart: 1, activeWeekEnd: 16, weekRangeMode: 'academic_calendar' as WeekRangeMode,
   scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 6,
 })
@@ -189,14 +179,16 @@ function closeCourseCreate() {
 async function createCourse() {
   if (
     creating.value
-    || !form.courseName.trim()
+    || !creationReady.value
     || !form.term
     || form.activeWeekEnd < form.activeWeekStart
     || Number(form.plannedLectureCount) < 1
   ) return
   creating.value = true
+  creationError.value = ''
   const totalHours = Number(form.totalHours || 32)
   try {
+    if (!createdCourseId.value) {
     const result = await courseStore.createTeacherCourseSpace({
       course_name: form.courseName, english_name: form.englishName, academic_year: form.academicYear, term: form.term,
       course_code: form.courseCode, target_grade: form.targetGrade,
@@ -210,52 +202,139 @@ async function createCourse() {
         subject: form.courseName, target_audience: form.targetGrade || '大学生', difficulty: 'intermediate',
         learning_purpose: 'systematic',
         course_teaching_type: 'comprehensive',
-        pedagogy_mode: 'auto',
-        course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: form.courseName },
-        requirements: '',
+        pedagogy_mode: form.subjectType,
+        course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: form.learningGoal },
+        requirements: form.requirements,
         production_mode: 'manual', teacher_course_brief: {
           schema_version: 'teacher_course_brief_v1', academic_term: [form.academicYear, form.term].filter(Boolean).join(' '),
           target_audience: form.targetGrade || '大学生', total_class_hours: totalHours,
           lesson_duration_minutes: 45,
           course_period_minutes: 45,
           lecture_count: Number(form.plannedLectureCount),
-          additional_requirements: '',
+          additional_requirements: form.requirements,
         }, teacher_authoring_mode: 'lesson_assets_v1',
       },
     })
-    await courseStore.fetchCourseList({ surface: 'teacher' })
+    createdCourseId.value = result.course_id
+    }
+    await courseStore.fetchCourseList({ surface: 'teacher' }).catch(() => undefined)
     await router.push({
       name: 'course-workspace',
-      params: { courseId: result.course_id, mode: 'setup' },
-      query: { returnTo: '/courses?view=courses', prepare: '1' },
+      params: { courseId: createdCourseId.value, mode: 'setup' },
+      query: { returnTo: '/courses?view=courses', prepare: form.startMode, stage: 'foundation' },
     })
   } catch (error: any) {
-    ElMessage.error(String(error?.response?.data?.detail || error?.message || t('courseLibrary.createFailed')))
+    creationError.value = createdCourseId.value ? t('courseCreationFlow.savedEntryFailed') : String(error?.response?.data?.detail || error?.message || t('courseLibrary.createFailed'))
   } finally { creating.value = false }
 }
 
-onMounted(() => dialogRef.value?.showModal())
+onMounted(() => { applyAutomaticWeekRange(); dialogRef.value?.showModal() })
 onBeforeUnmount(() => { if (dialogRef.value?.open) dialogRef.value.close() })
 </script>
 
 <style scoped>
-.course-create-dialog{width:min(900px,calc(100vw - 32px));max-width:none;height:min(780px,calc(100dvh - 40px));max-height:none;margin:auto;padding:0;overflow:hidden;border:1px solid #dfe5ee;border-radius:16px;color:var(--lz-text-primary);background:#fff;box-shadow:0 28px 72px rgba(15,23,42,.24);animation:course-create-dialog-in .24s cubic-bezier(.16,1,.3,1)}
-.course-create-dialog::backdrop{background:rgba(15,23,42,.42);animation:course-create-backdrop-in .18s ease-out}
-@keyframes course-create-dialog-in{from{opacity:0;transform:translateY(10px) scale(.992)}to{opacity:1;transform:none}}
-@keyframes course-create-backdrop-in{from{background:rgba(15,23,42,0)}to{background:rgba(15,23,42,.42)}}
-.course-form{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:#fff}
-.form-heading{min-height:90px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 30px;border-bottom:1px solid #e8edf4}
-.form-heading>div{min-width:0;display:grid;gap:6px}.form-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.02em}.form-heading p{margin:0;color:#64748b;font-size:13px}
-.form-heading>button{width:36px;height:36px;flex:none;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.form-heading>button:hover{color:#334155;background:#f1f5f9}.form-heading>button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
-.form-scroll{min-height:0;overflow:auto;overscroll-behavior:contain}
-.identity-section{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:24px 30px 26px}.identity-section .field--name{grid-column:1/-1}
-.field{min-width:0;display:grid;gap:7px}.field>span{color:#334155;font-size:13px;font-weight:700}.field b{color:#dc2626}
-.field input,.field select,.field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.field textarea{resize:vertical;line-height:1.6}.field input:focus,.field select:focus,.field textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.field--name input{min-height:48px;font-size:15px}
-.course-details{border-top:1px solid #e8edf4}.details-heading{min-height:56px;display:flex;align-items:center;gap:9px;padding:0 30px}.details-heading strong{color:#334155;font-size:14px}.details-heading small{padding:3px 7px;border-radius:5px;color:#64748b;background:#f1f5f9;font-size:11px;font-weight:650}
-.details-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:0 30px 30px}.field--wide{grid-column:1/-1}
-.lecture-plan{display:flex;align-items:end;justify-content:space-between;gap:24px;padding:14px 16px;border:1px solid #e3e8f0;border-radius:10px;background:#f8fafc}.lecture-plan>div{display:grid;gap:5px}.lecture-plan strong{color:#334155;font-size:13px}.lecture-plan>div span{color:#64748b;font-size:12px}.lecture-plan .field{width:150px;flex:none}.apply-suggestion{justify-self:start;padding:2px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.apply-suggestion:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
-.week-range-setting{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #e8edf4}.week-range-setting>div{display:grid;gap:4px}.week-range-setting span{color:#64748b;font-size:11px}.week-range-setting strong{color:#334155;font-size:13px}.week-range-setting button{padding:4px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.week-range-setting button:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
-.form-footer{min-height:76px;display:flex;align-items:center;justify-content:flex-end;gap:20px;padding:14px 30px;border-top:1px solid #e8edf4;background:#fbfcfe}.form-actions{display:flex;gap:9px}.form-actions button{min-height:40px;padding:0 15px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.form-actions button.primary{min-width:132px;border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.18)}.form-actions button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:680px){.course-create-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px}.form-heading{min-height:82px;padding:18px 20px}.form-heading h2{font-size:21px}.identity-section{grid-template-columns:1fr;padding:20px}.identity-section .field--name{grid-column:auto}.details-heading{padding-inline:20px}.details-grid{grid-template-columns:1fr;padding:0 20px 24px}.field--wide{grid-column:auto}.lecture-plan{align-items:stretch;flex-direction:column}.lecture-plan .field{width:100%}.form-footer{min-height:0;align-items:stretch;flex-direction:column;padding:14px 20px}.form-actions{display:grid;grid-template-columns:auto 1fr}.form-actions button.primary{min-width:0}}
-@media(prefers-reduced-motion:reduce){.course-create-dialog,.course-create-dialog::backdrop,.spin{animation:none}}
+.course-create-dialog {
+  width: min(840px, calc(100vw - 48px));
+  height: min(760px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--lz-border);
+  border-radius: var(--lz-radius-surface);
+  color: var(--lz-text);
+  background: #fff;
+  box-shadow: var(--lz-shadow-overlay);
+  font: inherit;
+  font-size: 15px;
+}
+.course-create-dialog::backdrop { background: rgba(30, 41, 59, .42); }
+.course-form { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.form-heading {
+  min-height: 80px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--lz-border);
+}
+.form-heading-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--lz-radius-control); color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
+.form-heading > div { min-width: 0; display: grid; gap: 5px; }
+.form-heading h2 { margin: 0; color: var(--lz-text-strong); font: inherit; font-size: 20px; font-weight: 700; line-height: 1.4; }
+.form-heading p { margin: 0; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.5; }
+.form-heading > button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
+.form-heading > button:hover { color: var(--lz-text-strong); background: var(--lz-surface-subtle); }
+.creation-steps { display: flex; gap: 4px; margin: 16px 24px 0; padding: 3px; list-style: none; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); background: var(--lz-surface-subtle); }
+.creation-steps li { flex: 1; min-width: 0; min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 7px; color: var(--lz-text-secondary); }
+.creation-steps li > span { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--lz-border-strong); border-radius: 50%; font-weight: 600; font-size: 15px; }
+.creation-steps strong { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.creation-steps li.active { color: var(--lz-brand-strong); background: #fff; box-shadow: 0 2px 7px rgba(15, 23, 42, .08); }
+.creation-steps li.active > span { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
+.creation-steps li.complete > span { border-color: var(--lz-success); color: var(--lz-success); background: var(--lz-success-soft); }
+.form-scroll { min-width: 0; min-height: 0; margin: 0; padding: 24px; overflow: auto; border: 0; }
+.creation-section { display: grid; gap: 20px; }
+.creation-section > header { display: grid; gap: 6px; }
+.creation-section h3 { margin: 0; color: var(--lz-text-strong); font: inherit; font-size: 17px; font-weight: 650; line-height: 1.5; }
+.creation-section > header p, .creation-relation p { margin: 0; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.6; }
+.details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
+.field { min-width: 0; display: grid; align-content: start; gap: 7px; }
+.field > span { color: var(--lz-text); font-size: 15px; font-weight: 600; }
+.field b { color: var(--lz-danger); }
+.field input, .field select, .field textarea { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; font: inherit; font-size: 15px; outline: none; }
+.field textarea { min-height: 80px; resize: vertical; line-height: 1.6; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--lz-brand); box-shadow: 0 0 0 3px var(--lz-brand-soft); }
+.field--wide { grid-column: 1 / -1; }
+.creation-relation { display: flex; align-items: start; gap: 10px; padding: 14px 16px; border-left: 3px solid var(--lz-brand); border-radius: 0 8px 8px 0; background: var(--lz-surface-subtle); }
+.creation-relation svg { flex: none; margin-top: 3px; color: var(--lz-brand-strong); }
+.creation-relation strong { display: block; margin-bottom: 5px; color: var(--lz-text); font-weight: 600; }
+.schedule-details { padding-top: 16px; border-top: 1px solid var(--lz-border); }
+.schedule-details summary { cursor: pointer; color: var(--lz-text-secondary); font-size: 15px; font-weight: 600; }
+.schedule-details .details-grid { margin-top: 20px; }
+.week-range-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--lz-border); }
+.week-range-setting > div { display: grid; gap: 5px; }
+.week-range-setting span { color: var(--lz-text-secondary); }
+.week-range-setting strong { font-weight: 600; }
+.week-range-setting button, .apply-suggestion { padding: 3px 0; border: 0; color: var(--lz-brand-strong); background: transparent; font: inherit; cursor: pointer; }
+.schedule-suggestion { margin: 0; color: var(--lz-text-secondary); line-height: 1.6; }
+.source-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.source-options > button { position: relative; min-width: 0; min-height: 144px; display: grid; align-content: start; gap: 10px; padding: 18px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-control); color: var(--lz-text); background: #fff; text-align: left; font: inherit; cursor: pointer; }
+.source-options > button:hover { border-color: var(--lz-brand); background: var(--lz-surface-subtle); }
+.source-options > button.selected { border-color: var(--lz-brand); background: var(--lz-brand-soft); }
+.source-options > button > svg { color: var(--lz-brand-strong); }
+.source-options strong { color: var(--lz-text-strong); font-size: 16px; font-weight: 600; }
+.source-options span { color: var(--lz-text-secondary); font-size: 15px; line-height: 1.6; }
+.source-check { position: absolute; right: 14px; top: 14px; }
+.creation-summary { display: grid; gap: 0; margin: 0; border-top: 1px solid var(--lz-border); }
+.creation-summary > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--lz-border); font-size: 15px; line-height: 1.6; }
+.creation-summary dt { color: var(--lz-text-secondary); }
+.creation-summary dd { min-width: 0; margin: 0; color: var(--lz-text); overflow-wrap: anywhere; }
+.creation-next { display: flex; align-items: start; gap: 8px; margin: 0; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.6; }
+.creation-next svg { flex: none; margin-top: 3px; color: var(--lz-brand-strong); }
+.creation-error { padding: 12px; border: 1px solid color-mix(in srgb, var(--lz-danger) 20%, transparent); border-radius: 8px; color: var(--lz-danger); background: var(--lz-danger-soft); font-size: 15px; line-height: 1.6; }
+.form-footer { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 24px; border-top: 1px solid var(--lz-border); background: var(--lz-surface-subtle); }
+.form-footer > span { flex: 1; min-width: 0; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.5; }
+.form-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.form-actions button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text); background: #fff; font: inherit; font-size: 15px; font-weight: 600; line-height: 1.4; white-space: nowrap; cursor: pointer; }
+.form-actions button svg { flex: none; }
+.form-actions button.primary { min-width: 112px; border-color: var(--lz-action-border); color: var(--lz-action-text); background: var(--lz-action-bg); box-shadow: var(--lz-action-shadow); border: 1px solid var(--lz-action-border); border-radius: var(--lz-action-radius); }
+.form-actions button:hover { border-color: var(--lz-brand); color: var(--lz-brand-strong); }
+.form-actions button.primary:hover { border-color: var(--lz-action-border-hover); color: var(--lz-action-text); background: var(--lz-action-bg); }
+.form-actions button:disabled { opacity: .5; cursor: not-allowed; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 680px) {
+  .course-create-dialog { width: calc(100vw - 24px); height: calc(100dvh - 24px); }
+  .form-heading { padding: 16px; }
+  .creation-steps { margin: 12px 16px 0; }
+  .creation-steps li { gap: 5px; padding: 8px; }
+  .form-scroll { padding: 20px 16px; }
+  .details-grid { grid-template-columns: 1fr; }
+  .form-footer { flex-wrap: wrap; padding: 14px 16px; gap: 12px; }
+  .form-footer > span { flex-basis: 100%; }
+  .form-actions { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 </style>

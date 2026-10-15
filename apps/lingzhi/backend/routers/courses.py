@@ -827,6 +827,10 @@ async def create_teacher_course(
 @router.get("/courses/{course_id}")
 async def get_course(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
+    from course_learning_access import trusted_student
+    if trusted_student(request):
+        from course_learning_projection import public_course
+        return await run_in_threadpool(public_course, course)
     _require_unpublished_teacher_course_access(course, request)
     projected = project_learning_objective_bindings(course)
     if projected.get("authoring_surface") != "teacher":
@@ -860,6 +864,10 @@ async def get_course(course_id: str, request: Request):
 @router.get("/courses/{course_id}/document")
 async def get_course_document(course_id: str, request: Request):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
+    from course_learning_access import trusted_student
+    if trusted_student(request):
+        from course_learning_projection import public_envelope
+        return await run_in_threadpool(public_envelope, course)
     _require_unpublished_teacher_course_access(course, request)
     repository = get_course_document_repository()
     return await run_in_threadpool(

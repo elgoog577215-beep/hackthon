@@ -38,6 +38,7 @@ class MaterialAsset(BaseModel):
     status: MaterialStatus = "uploaded"
     source_name: str
     upload_batch_id: str = ""
+    deduplication_scope: str = ""
     bound_course_ids: list[str] = Field(default_factory=list)
     parser_name: str = ""
     parser_version: str = ""

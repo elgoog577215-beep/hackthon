@@ -262,7 +262,7 @@ button:focus-visible { outline:2px solid var(--lz-brand, #7462df); outline-offse
 .companion-reminder footer button { color:#71529c; white-space:nowrap; }
 .companion-welcome { font-size:15px; }
 .companion-welcome footer { justify-content:flex-end; }
-.companion-welcome footer button { min-height:32px; padding:6px 12px; border-radius:8px; background:#7655a5; color:#fff; font-size:14px; }
+.companion-welcome footer button { min-height:32px; padding:6px 12px; border-radius:var(--lz-action-radius); background:var(--lz-action-bg); color:var(--lz-action-text); font-size:14px; border:1px solid var(--lz-action-border); box-shadow:var(--lz-action-shadow); }
 @media (hover:none) { .companion-dock { opacity:1; } }
 @media (prefers-reduced-motion:reduce) {
   .companion-pet,.companion-open img,.companion-dock,.companion-name { transition:none; }

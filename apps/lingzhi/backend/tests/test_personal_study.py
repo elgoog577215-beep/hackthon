@@ -54,6 +54,9 @@ def setup_study(tmp_path, monkeypatch):
     import jobs.manager as jobs
     import storage as storage_module
     import learning_events
+    import study.assistant as personal_assistant
+    from ai_teacher_state import AITeacherRepository
+    monkeypatch.setattr(personal_assistant, 'ai_teacher_repository', AITeacherRepository(tmp_path / 'ai_teacher'))
     monkeypatch.setenv('LINGZHI_LOCAL_STUDY_AUTH', 'true')
     monkeypatch.delenv('QIZHI_AUTH_VERIFY_URL', raising=False)
     monkeypatch.setenv('GIT_AUTO_SYNC_ENABLED', 'false')
@@ -105,6 +108,21 @@ def test_local_identity_password_session_and_header_spoof(setup_study):
     assert client.post('/api/study/auth/register', json={'username': 'evil', 'password': 'Testing2026!', 'role': 'teacher'}).status_code == 422
     assert client.post('/api/study/auth/logout', headers={'Authorization': headers['Authorization'].replace('Bearer ', 'bearer ')}).status_code == 200
     assert client.get('/api/study/auth/me', headers=headers).status_code == 401
+
+
+def test_file_upload_parses_downloads_and_rejects_unsupported_files(setup_study):
+    client, _manager, _repo, _writer = setup_study
+    _owner, headers = account(client)
+    content = '# 向量\n\nu=(1,2)，v=(2,1)，u+2v=(5,4)。'.encode('utf-8')
+    uploaded = client.post('/api/study/sources/upload', headers=headers,
+                           files={'file': ('向量.md', content, 'text/markdown')})
+    assert uploaded.status_code == 200
+    source = uploaded.json()
+    assert source['status'] == 'parsed' and source['sections']
+    downloaded = client.get(f"/api/study/sources/{source['id']}/download", headers=headers)
+    assert downloaded.status_code == 200 and downloaded.content == content
+    assert client.post('/api/study/sources/upload', headers=headers,
+                       files={'file': ('bad.exe', b'unsupported', 'application/octet-stream')}).status_code == 422
 
 
 def test_students_cannot_read_sources_materials_notes_or_tasks_of_others(setup_study):
@@ -223,6 +241,25 @@ async def test_restart_pauses_same_task_and_keeps_frozen_sources(setup_study):
     assert repo.get(owner, material['id'])['request'] == original
 
 
+@pytest.mark.asyncio
+async def test_continuation_reset_without_new_output_does_not_erase_saved_fragment(setup_study, monkeypatch):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    material = await create_material(manager, repo, owner, request_for(add_source(client, headers)))
+    writer.fail_section = 'study-section-2'
+    await manager._run_job(material['task_id'])
+    previous = deepcopy(repo.get(owner, material['id'])['revisions'][0]['sections'])
+    assert previous[1]['content']
+    async def reset_then_fail(**kwargs):
+        await kwargs['on_content_reset']()
+        raise RuntimeError('provider timed out before new output')
+    monkeypatch.setattr(writer, 'generate_teacher_handout', reset_then_fail)
+    await manager.resume_task(material['task_id'])
+    await manager._run_job(material['task_id'])
+    assert repo.get(owner, material['id'])['revisions'][0]['sections'] == previous
+    assert manager.tasks[material['task_id']]['status'] == 'failed'
+
+
 def test_source_reference_and_nonempty_scope_contract(setup_study):
     client, manager, repo, writer = setup_study
     owner, headers = account(client)
@@ -284,10 +321,10 @@ def test_qizhi_student_scope_verified_without_teacher_access(monkeypatch):
     @app.get('/api/study/auth/me')
     def me(request: Request):
         return {'id': request.state.qizhi_identity.actor_id}
-    @app.get('/api/courses/private')
+    @app.get('/api/teacher/courses/private')
     def teacher_only():
         return {'secret': 'teacher'}
     client = TestClient(app)
     headers = {'Authorization': 'Bearer verified', 'X-User-Id': 'spoofed'}
     assert client.get('/api/study/auth/me', headers=headers).json() == {'id': 'qizhi:real-student'}
-    assert client.get('/api/courses/private', headers=headers).status_code == 403
+    assert client.get('/api/teacher/courses/private', headers=headers).status_code == 403

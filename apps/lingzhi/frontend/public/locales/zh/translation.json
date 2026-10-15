@@ -1,4 +1,10 @@
 {
+  "columnLayout": {
+    "left": "调整左侧栏宽度",
+    "right": "调整右侧栏宽度",
+    "value": "{width} 像素",
+    "hint": "拖动调整宽度；方向键微调；双击或按 Enter 恢复默认宽度"
+  },
   "studyDialogue": {
     "gatewayError": "模型网关返回 502，暂时无法连接推理服务。输入已保留，请在服务恢复后重试。",
     "localConflict": "发现本机未完成的整理稿，与服务器最新版本不同。输入已保留，请加载最新会话核对后再保存。",
@@ -132,7 +138,9 @@
     "previous": "上一步",
     "next": "下一步",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "continue": "继续",
+    "back": "返回"
   },
   "appError": {
     "centerLabel": "异常反馈",
@@ -588,6 +596,39 @@
     "createCourse": "创建课程"
   },
   "courseWorkbench": {
+    "scriptFailure": {
+      "savedParts": "已保留 {completed}/{total} 个完整部分。",
+      "savedFragment": "已保留收到的正文片段，但还没有完整的小节。",
+      "noContent": "本次尚未生成可保存的正文。已有讲义不会被覆盖。",
+      "attempts": "这个任务已尝试 {count} 次。",
+      "sourceChanged": "本讲教案或参考资料已变化，原生成任务不能继续使用旧内容。",
+      "useLatest": "先确认最新教案和资料，再选择重新生成；不要继续旧任务。",
+      "saveFailure": "讲义内容未能保存，问题出在保存服务，不是教学要求。",
+      "saveAction": "先保留当前页面，联系维护人员检查保存服务和磁盘空间；不要立即重新生成整讲。",
+      "missingInput": "本讲教案或参考资料尚未准备完整，无法确定讲义生成依据。",
+      "missingAction": "检查本讲教案是否已保存，补充教学目标、内容范围和必要参考资料后，再重新生成。",
+      "authorization": "AI 生成服务的访问授权不可用。",
+      "authorizationAction": "请联系维护人员检查生成服务的授权配置；修改教案不能解决这个问题。",
+      "capacity": "AI 生成服务当前限制了请求次数，或可用额度不足。",
+      "capacityAction": "稍后再试；如果持续出现，请联系维护人员检查服务容量和额度。无需反复修改教案。",
+      "timeoutSeconds": "AI 生成服务连续 {seconds} 秒没有返回新的讲义正文，本次生成已停止。",
+      "timeout": "等待 AI 生成服务返回正文的时间过长，本次生成已停止。",
+      "retry": "可以稍后点“继续”按原条件重试；这不会自动缩小本讲范围。",
+      "avoidRepeat": "相同条件已经失败多次，不建议连续重复点击“继续”。",
+      "reduceScope": "如果本讲同时包含多个主题或长代码示例，可先调整教案，缩小本讲范围，再选择重新生成。这是可尝试的调整，不代表已确认教案有错。",
+      "serviceUnknown": "目前只能确认没有收到正文，无法仅凭这次失败判断是服务繁忙还是输入处理过慢；持续失败请联系维护人员。",
+      "structure": "AI 返回的讲义结构不完整，尚不能保存为完整讲义。",
+      "structureAction": "点“继续”补齐未完成部分；若同一问题反复出现，请联系维护人员检查生成格式，不要反复修改正常的教学内容。",
+      "service": "AI 生成服务连接中断或暂时无法响应，本次讲义没有完成。",
+      "serviceAction": "稍后按原条件继续；若仍失败，请联系维护人员检查服务连接。当前没有证据表明需要修改教案。",
+      "saveRequirements": "生成结果未满足讲义保存要求，当前还不能作为完整讲义使用。",
+      "requirementsAction": "查看本讲教案与参考资料是否完整；若无法确定缺失原因，请联系维护人员检查此次任务，不要盲目重复生成。",
+      "unknown": "讲义处理过程中出现系统异常，暂时无法确定具体原因。",
+      "unknownAction": "请联系维护人员检查此次失败记录。不要反复点击生成，也不需要根据内部错误修改教学内容。",
+      "nextSteps": "建议这样处理",
+      "openPlan": "查看本讲教案",
+      "stageIssue": "部分讲义尚未完成，请切换到未完成的讲次查看处理建议。"
+    },
     "outlineStream": {
       "validating": "正在检查并保存大纲",
       "received": "已接收 {count} 个字符，正在整理为大纲内容",
@@ -681,7 +722,7 @@
     "outlineFlow": {
       "readyToContinue": "讲次方案已就绪",
       "title": "大纲生成步骤",
-      "courseInfo": "填写课程信息",
+      "courseInfo": "课程信息",
       "lightPlan": "初步讲次方案",
       "fullOutline": "完整大纲",
       "generateFull": "生成完整大纲",
@@ -3557,7 +3598,7 @@
     "notebook": "笔记本",
     "notebookHint": "查看本课程的笔记与学习标记",
     "questionBook": "题库本",
-    "questionBookHint": "查看、生成并完成本课程题目",
+    "questionBookHint": "查看本课程题目、练习与作答记录",
     "learningTabs": "学习功能",
     "resourceTabs": "资源功能",
     "records": "学习记录",
@@ -5394,6 +5435,18 @@
     }
   },
   "courseWorkspace": {
+    "readingState": {
+      "loading": "正在加载课程内容…",
+      "failed": "课程加载失败",
+      "failedHelp": "暂时无法读取课程内容，请重新加载。",
+      "retry": "重新加载",
+      "previewEmpty": "暂无可试读的讲义",
+      "previewEmptyHelp": "这门课程还没有可试读的讲义内容，请返回备课工作台准备讲义。",
+      "empty": "暂无可阅读内容",
+      "emptyHelp": "这门课程目前没有可阅读内容。",
+      "selectCourse": "开始您的学习之旅",
+      "selectCourseHelp": "请从左侧选择一个课程或章节开始阅读"
+    },
     "backToTop": "回到正文顶部",
     "navigation": "课程工作区",
     "openCourseTree": "打开课程目录",
@@ -5605,7 +5658,13 @@
       "stepwiseNoFlaw": "没有发现出错的步骤",
       "stepCorrect": "这一步成立",
       "stepFlawed": "这一步有问题",
-      "stepUnclear": "这一步看不出依据"
+      "stepUnclear": "这一步看不出依据",
+      "refreshQuestion": "换一题",
+      "refreshing": "正在换题",
+      "refreshDraftWarning": "当前未提交草稿会结束并保留为一次已放弃记录，确定换一题吗？",
+      "questionStimulus": "题目材料",
+      "answerTask": "作答任务",
+      "answerTaskHint": "先明确要求，再开始作答"
     },
     "practiceAnalysis": {
       "title": "题目解析与本次判断",
@@ -5912,10 +5971,16 @@
       "evidenceSummary": "学习证据 · {level}",
       "quickExplain": "换一种讲法",
       "quickExplainPrompt": "请换一种更容易理解的方式解释当前内容。",
+      "quickExplainQuotePrompt": "请换一种更容易理解的方式解释我引用的这段内容。",
       "quickExample": "给个例子",
       "quickExamplePrompt": "请结合当前内容给一个具体例子。",
+      "quickExampleQuotePrompt": "请用一个具体例子解释我引用的这段内容。",
       "quickCheck": "检查我是否理解",
       "quickCheckPrompt": "请先用一个小问题检查我是否真正理解当前内容，不要直接给答案。",
+      "quickCheckQuotePrompt": "请用一个小问题检查我是否理解引用的这段内容，先不要给答案。",
+      "quickDiagram": "画个图理解",
+      "quickDiagramPrompt": "请画一张清晰的图帮我理解当前内容，突出关键概念、关系或步骤，并简要说明怎么看这张图。请直接给出图解。",
+      "quickDiagramQuotePrompt": "请画一张清晰的图帮我理解引用的这段内容，突出关键概念、关系或步骤，并简要说明怎么看这张图。请直接给出图解。",
       "explainRuntimePrompt": "请解释为什么我现在应该执行这个学习动作，并说明依据：",
       "retrieval": "联网检索",
       "retrievalOn": "当前会话已开启",
@@ -6263,6 +6328,33 @@
   "questionBank": {
     "outputTruncated": "题目生成或校验输出达到长度上限，未完成题目已停止；已发布题目保留，可仅补生成缺失题目。",
     "regenerateFailed": "题目生成未完成，已发布题目继续有效",
+    "readingRegion": "题目内容与解析",
+    "binding": {
+      "saveFailed": "绑定保存失败，请稍后重试。",
+      "title": "题目与元知识点",
+      "summary": "已绑定 {bound} 道 · 待绑定 {unbound} 道 · 待确认 {pending} 道 · 已过期 {stale} 道",
+      "noTree": "请先生成并采用知识树，题库将自动匹配元知识点。",
+      "bind": "绑定知识点",
+      "working": "正在绑定元知识点…",
+      "help": "仅绑定题目实际考查的元知识点。多知识点题需逐点评分后才能判断掌握度；知识关联不代表已经确定错因。",
+      "question": "选择题目",
+      "retry": "重新自动匹配待绑定题",
+      "staleHint": "知识树已更新，请核对后重新绑定。历史作答仍关联原知识修订。",
+      "search": "筛选元知识点",
+      "searchPlaceholder": "输入知识名称或命题",
+      "select": "选择实际考查的知识点（最多 5 个）",
+      "noMatches": "没有匹配的元知识点",
+      "selected": "已选 {count} 个",
+      "save": "保存绑定",
+      "clear": "标记为待确认",
+      "bound": "已绑定",
+      "unbound": "待绑定",
+      "pending": "待确认",
+      "stale": "知识树已更新",
+      "loadFailed": "知识绑定状态读取失败，请刷新后重试。",
+      "conflict": "课程或题库正在更新，请刷新后重新绑定。",
+      "failed": "自动绑定暂不可用，已保存的题目不受影响。可手动选择知识点，或稍后重试。"
+    },
     "scopeLoading": "正在读取课程讲次",
     "scopeLoadingHelp": "正在读取出题范围，完成后即可查看题库。",
     "scopeLoadFailed": "课程讲次读取失败",
@@ -6904,6 +6996,10 @@
     "globalChange": "全局修改"
   },
   "courseFiles": {
+    "headerActions": {
+      "change": "全局修改",
+      "preview": "学生视角"
+    },
     "spaceLabel": "课程文件空间",
     "sameSource": "内容一致",
     "teacherAgent": "AI 助手",
@@ -7263,7 +7359,8 @@
       "companionDocuments": "其他课程文件",
       "companionDocument": "课程文件",
       "folder": "文件夹",
-      "file": "上传原件"
+      "file": "上传原件",
+      "trash": "回收站"
     },
     "status": {
       "ready": "已就绪",
@@ -7774,6 +7871,11 @@
     }
   },
   "knowledgeFirst": {
+    "treeGenerationInProgress": "本讲知识树正在生成，完成后会自动显示候选。",
+    "waitForSourceTask": "等待来源任务完成后即可生成知识树。",
+    "handoutTask": "讲义生成中",
+    "lessonPlanTask": "教案生成中",
+    "courseTask": "课程任务进行中",
     "lastGenerationFailed": "上次生成未完成",
     "incoming": "指向本知识的关联",
     "outgoing": "本知识指向的关联",
@@ -7807,7 +7909,7 @@
     "prepareCourse": "课程信息 · 资料可选",
     "prepareHandouts": "大纲 → 教案 → 讲义",
     "extractKnowledge": "提取知识 → 确认采用",
-    "handoutsRequired": "还没有可提取的讲义。请先在备课工作台填写课程信息并生成讲义，无需上传资料。",
+    "handoutsRequired": "还没有可提取的讲义。先完成课程大纲和本讲讲义，再整理知识树；上传资料可选。",
     "sourceVersions": "查看本次讲义来源",
     "viewHandouts": "查看讲义",
     "prepareHandoutAction": "去准备讲义",
@@ -7978,7 +8080,7 @@
     "failed": "题目未能完成，请查看生成状态后重试。"
   },
   "companionWelcome": {
-    "message": "你好，我是灵知学伴，选中文字就能记笔记或向我提问，底部还能查看笔记和知识树。",
+    "message": "你好，我是灵知学伴，选中文字就能记笔记或向我提问。课程工具栏还能打开练习、错题、知识树和学习概况。",
     "dismiss": "知道了"
   },
   "handoutConcepts": {
@@ -8029,5 +8131,87 @@
     "originPinned": "来自本讲引用的知识版本 · 箭头方向按关系类型阅读",
     "page": "页",
     "slide": "幻灯片"
+  },
+  "courseCreationFlow": {
+    "help": "确定教学目标与讲次，选择资料起点，然后进入同一个备课工作台。",
+    "stepsLabel": "新建课程步骤",
+    "steps": {
+      "goal": "课程目标",
+      "schedule": "授课安排",
+      "source": "资料起点"
+    },
+    "goalTitle": "这门课要让学生学会什么？",
+    "goalHelp": "这些信息会直接用于大纲和讲义，进入工作台后可以继续调整。",
+    "learningGoal": "学习目标",
+    "goalPlaceholder": "例如：理解线性代数的基本概念，能用矩阵与线性方程组解决实际问题。",
+    "scheduleTitle": "按讲组织课程",
+    "scheduleHelp": "大纲确定每讲的范围；教案、讲义和 PPT 都对应同一讲次。",
+    "hierarchy": "课程 → 第 N 讲 → 教案、讲义与 PPT",
+    "hierarchyHelp": "知识树和题库是配套产物；上传资料是依据，不是另一套课程。",
+    "scheduleOptional": "补充教务信息与每周课表（可后补）",
+    "sourceTitle": "从哪里开始备课？",
+    "sourceHelp": "两种起点共用同一门课程。创建课程不会自动调用 AI。",
+    "blankHelp": "先在工作台准备大纲，再按讲生成教案与讲义。资料可以后续添加。",
+    "materialsHelp": "创建后上传已有教材、教案或课件，确认资料用途后继续备课。",
+    "summaryHours": "{lectures} 讲 · {hours} 学时",
+    "nextBlank": "下一步：课程工作台 → 准备大纲；所填目标和安排已带入。",
+    "nextMaterials": "下一步：上传已有资料 → 确认用途 → 课程工作台。",
+    "noAutoGeneration": "创建课程仅保存设置；生成与发布由你分别发起。",
+    "creating": "正在创建…",
+    "createAndPrepare": "创建并进入备课",
+    "next": "下一步",
+    "openSavedCourse": "进入已创建课程",
+    "savedEntryFailed": "课程已保存，但工作台未能打开。请重试进入同一课程，或返回课程库。"
+  },
+  "courseWorkspaceFlow": {
+    "settings": "课程信息",
+    "settingsHelp": "目标、讲次、课时和教务安排",
+    "production": "教学内容",
+    "supporting": "配套产物",
+    "knowledgeHint": "从已生成讲义整理知识与关系",
+    "stageScope": "整课大纲；其他内容按同一讲次组织",
+    "publicationHelp": "备课草稿 → 发布版本 → 授权学生学习 → 学习反馈",
+    "scopeCourse": "整课",
+    "scopeLecture": "第 {number} 讲",
+    "scopeKnowledge": "讲义中的知识与关系",
+    "publication": "课程发布",
+    "access": "学生授权",
+    "feedback": "学习反馈",
+    "deliveryTitle": "发布与学生学习",
+    "grantBeforePublish": "先设置学生授权，再发布当前课程版本。讲义更新后需要重新发布。",
+    "previewHelp": "学生视角用于试看；正式学习从学生的课程库进入。",
+    "skipImport": "稍后上传，进入备课",
+    "importContext": "课程已创建。上传资料后确认其用途，再回到同一课程工作台。",
+    "generationOptions": "调整学习目的、学科和教学方式",
+    "generateNext": "生成整课大纲后，按同一讲次继续制作教案与讲义。",
+    "handoutBeforePublish": "尚无学生可读的讲义。先完成至少一部分公开讲义，再发布给学生。",
+    "readingUnverified": "暂时无法确认学生可读内容，请刷新后再发布。",
+    "studentSpace": "学生学习空间",
+    "returnWorkbench": "返回备课工作台",
+    "returnStudy": "返回我的学习空间"
+  },
+  "studentWorkspace": {
+    "home": "学习首页",
+    "homeHelp": "从当前课程继续学习，或用自己的资料准备学习与复习讲义。",
+    "newMaterial": "生成讲义",
+    "systematic": "系统学习",
+    "systematicHelp": "整理资料与概念，建立完整理解。",
+    "exam": "期末备考",
+    "examHelp": "围绕考试范围复习，并回到课程练习与错题。",
+    "personalMaterials": "个人讲义",
+    "materialsHelp": "自己生成的讲义与笔记，保留各自的资料来源。",
+    "allMaterials": "全部讲义",
+    "noMaterials": "还没有个人讲义，可以从自己的资料或获授权课程开始。",
+    "reading": "讲义",
+    "practice": "练习",
+    "mistakes": "错题",
+    "knowledge": "知识树",
+    "overview": "学习概况",
+    "tools": "课程学习工作区",
+    "courseTools": "课程工具",
+    "coursePath": "我的学习安排",
+    "courseHelp": "进入课程后，阅读、练习、错题、知识树和学习概况使用同一份课程与学习记录。",
+    "backReading": "返回讲义",
+    "space": "学习空间"
   }
 }
