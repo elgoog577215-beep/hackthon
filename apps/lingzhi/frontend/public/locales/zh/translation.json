@@ -183,6 +183,7 @@
       "submit": "提交"
     },
     "reasons": {
+      "teacherAccess": "当前教师身份无法访问此课程或题库，请使用课程所属的教师账号重新进入。",
       "questionNodesUnknown": "所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。",
       "questionLessonsEmpty": "所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。",
       "questionMaterialsUnknown": "所选出题资料已不可用，请刷新资料列表并重新选择。",
@@ -6300,6 +6301,7 @@
     "save": "保存笔记"
   },
   "questionBank": {
+    "generationNotStarted": "题目生成未启动",
     "qualityAwaitingFacts": "结构检查通过，事实待复核",
     "factEvidenceTitle": "事实核验依据",
     "factEvidenceVerified": "程序已按公开参数重新计算，并核对题面与答案。",

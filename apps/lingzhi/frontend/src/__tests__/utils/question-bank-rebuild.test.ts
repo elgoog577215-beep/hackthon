@@ -4,7 +4,10 @@ const { get, post } = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
 }))
-vi.mock('@/utils/http', () => ({ default: { get, post } }))
+vi.mock('@/utils/http', () => ({
+  default: { get, post },
+  teacherRequestConfig: (config = {}) => ({ ...config, identityScope: 'teacher' }),
+}))
 
 import {
   QuestionBankRebuildError,
@@ -85,6 +88,7 @@ describe('runQuestionBankRebuild', () => {
         mode: 'incremental',
         retrieval_enabled: false,
       },
+      { identityScope: 'teacher' },
     )
     expect(get).toHaveBeenCalledTimes(2)
     expect(updates).toEqual([0, 55, 100])
@@ -112,6 +116,7 @@ describe('runQuestionBankRebuild', () => {
     expect(post).toHaveBeenCalledWith(
       '/api/courses/course-1/question-bank/rebuild',
       expect.objectContaining({ retrieval_enabled: true }),
+      { identityScope: 'teacher' },
     )
   })
 
@@ -232,12 +237,12 @@ describe('runQuestionBankRebuild', () => {
     expect(get).toHaveBeenNthCalledWith(
       1,
       '/api/courses/course-1/question-bank/rebuilds/active',
-      { silentError: true },
+      { silentError: true, identityScope: 'teacher' },
     )
     expect(get).toHaveBeenNthCalledWith(
       2,
       '/api/jobs/job-active',
-      { silentError: true },
+      { silentError: true, identityScope: 'teacher' },
     )
     expect(updates).toEqual([52, 100])
     expect(result?.status).toBe('completed')

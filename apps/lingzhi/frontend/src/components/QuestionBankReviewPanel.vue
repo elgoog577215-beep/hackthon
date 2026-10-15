@@ -934,7 +934,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
-import http, { teacherReadRequestConfig } from '@/utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '@/utils/http'
 import { toAppError } from '@/utils/app-error'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
@@ -1531,6 +1531,7 @@ const profileCapabilities = computed(() => {
   ].filter(Boolean).join(' · ')
 })
 const rebuildStageLabel = computed(() => {
+  if (rebuildJob.value?.job_id === 'local-rebuild-error') return t('questionBank.generationNotStarted', '题目生成未启动')
   const current = rebuildJob.value?.current_stage || ''
   const stage = rebuildJob.value?.stages?.find(item => item.stage_id === current)
   return String(stage?.label || current || t('questionBank.rebuildQueued', '等待生成'))
@@ -1550,6 +1551,7 @@ const rebuildHeadline = computed(() => {
     )
   }
   if (status === 'failed') {
+    if (rebuildJob.value?.job_id === 'local-rebuild-error') return t('questionBank.generationNotStarted', '题目生成未启动')
     return t(
       'questionBank.regenerateFailed',
       '题目生成未完成，已发布题目继续有效',
@@ -1869,10 +1871,10 @@ async function recoverActiveRebuild() {
         )
         await load()
       } else {
-        rebuildErrorMessage.value = t(
+        rebuildErrorMessage.value = toAppError(error, { fallback: t(
           'questionBank.rebuildProgressRecoveryFailed',
           '暂时无法恢复生成进度，请稍后重新打开题库面板。',
-        )
+        ) }).summary
       }
     }
   } finally {
@@ -2054,6 +2056,7 @@ async function resolveAiCandidate(accept: boolean) {
           retrieval_enabled: candidate.retrieval_enabled,
           teacher_instruction: candidate.teacher_instruction,
         },
+        teacherRequestConfig(),
       )
       if (!current()) return false
       rebuildJob.value = response.data as QuestionBankRebuildJob
@@ -2128,7 +2131,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
     }).summary
     const latestJob = rebuildJob.value as QuestionBankRebuildJob | null
     rebuildJob.value = error?.job || {
-      job_id: 'local-rebuild-error',
+      job_id: latestJob?.job_id || 'local-rebuild-error',
       status: 'failed',
       progress: latestJob?.progress || 0,
       current_stage: latestJob?.current_stage,
@@ -2161,6 +2164,7 @@ async function loadSolution(item: QuestionBankItem) {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/question-bank/items/${item.revision_id}/solution`,
+      teacherRequestConfig(),
     )
     solutions[item.revision_id] = response.data || {}
   } catch {
@@ -2254,6 +2258,7 @@ async function submitDecision(
       note: reviewNotes[item.revision_id] || '',
       expected_bundle_revision_id: bundleRevisionId.value,
     },
+    teacherRequestConfig(),
   )
   const data = response.data || {}
   const updatedItem = data.item || {

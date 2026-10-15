@@ -1,4 +1,4 @@
-import http from './http'
+import http, { teacherRequestConfig } from './http'
 import { t } from '@/shared/i18n'
 
 export type QuestionBankRebuildStatus =
@@ -109,6 +109,7 @@ export async function runQuestionBankRebuild(
       ...request,
       retrieval_enabled: Boolean(request.retrieval_enabled),
     },
+    teacherRequestConfig(),
   )
   return pollQuestionBankRebuild(
     normalizeJob(created.data),
@@ -125,11 +126,12 @@ export async function resumeQuestionBankRebuild(
   try {
     response = await http.get(
       `/api/courses/${courseId}/question-bank/rebuilds/active`,
-      { silentError: true },
+      teacherRequestConfig({ silentError: true }),
     )
   } catch (error: any) {
     assertObserving(options.signal)
-    if (Number(error?.response?.status || 0) === 404) return null
+    // An absent active job is a successful idle response. Ownership denials
+    // also use 404 and must not be swallowed as "nothing running".
     throw error
   }
   assertObserving(options.signal)
@@ -168,7 +170,7 @@ async function pollQuestionBankRebuild(
     await wait(pollIntervalMs, options.signal)
     let response
     try {
-      response = await http.get(job.status_url, { silentError: true })
+      response = await http.get(job.status_url, teacherRequestConfig({ silentError: true }))
     } catch (error: any) {
       assertObserving(options.signal)
       if (Number(error?.response?.status || 0) !== 429) throw error

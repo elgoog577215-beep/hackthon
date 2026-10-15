@@ -124,6 +124,9 @@ function operationName(method: string, url: string): string {
 }
 
 function titleFor(code: string, status: number | null, method: string, url: string): string {
+  if (/^teacher_(course|question_bank)_unavailable$/.test(code)) {
+    return t('appError.names.permission', '权限校验失败')
+  }
   if (/^question_bank_(rebuild_nodes_unknown|rebuild_lessons_empty|materials_unknown)$/.test(code)) {
     return t('appError.names.questionGenerationScope', '题目生成条件不足')
   }
@@ -164,6 +167,7 @@ function reasonFor(
 ): string {
   if (networkFailure) return t('appError.reasons.network', '请求没有收到服务响应，请检查网络连接后重试。')
   const known: Array<[RegExp, string]> = [
+    [/^teacher_(course|question_bank)_unavailable\b/, t('appError.reasons.teacherAccess', '当前教师身份无法访问此课程或题库，请使用课程所属的教师账号重新进入。')],
     [/^question_bank_rebuild_nodes_unknown\b/, t('appError.reasons.questionNodesUnknown', '所选讲次或出题内容已不存在，请刷新课程并重新选择生成范围。')],
     [/^question_bank_rebuild_lessons_empty\b/, t('appError.reasons.questionLessonsEmpty', '所选讲次尚无可出题的内容，请先补全该讲的课程大纲内容，再生成题目。')],
     [/^question_bank_materials_unknown\b/, t('appError.reasons.questionMaterialsUnknown', '所选出题资料已不可用，请刷新资料列表并重新选择。')],
