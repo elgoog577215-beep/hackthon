@@ -85,6 +85,33 @@ def _plan_only_lesson(index: int) -> dict:
     return lesson
 
 
+@pytest.mark.parametrize("owner", ["task_manager", "teacher_asset", "ppt_checkpoint"])
+def test_status_reads_do_not_copy_frozen_generation_bodies(owner):
+    class FrozenBody(dict):
+        def __deepcopy__(self, memo):
+            raise AssertionError("Status polling must not copy generation bodies")
+
+    task = {
+        "id": "task-1", "type": "teacher_lesson_script_generation",
+        "lesson_unit_id": "lesson-1", "status": "failed",
+        "request_snapshot": {"lesson_unit_id": "lesson-1", "body": FrozenBody()},
+        "checkpoint": {"current_block_id": "block-1", "body": FrozenBody()},
+        "error": {"code": "generation_interrupted", "retryable": True},
+    }
+    authoring = {"lessons": {"lesson-1": _ready_lesson(1)}}
+    kwargs = {}
+    if owner == "teacher_asset":
+        authoring["jobs"] = {task["id"]: task}
+    else:
+        kwargs["tasks" if owner == "task_manager" else "ppt_checkpoints"] = [task]
+    result = compile_course_production_state(_course(1), authoring_state=authoring, **kwargs)
+    issue = result["lessons"][0]["stages"]["script"]["issues"][0]
+    assert issue["task_id"] == "task-1"
+    assert issue["block_id"] == "block-1"
+    assert "__production_owner" not in task
+    assert task["checkpoint"]["current_block_id"] == "block-1"
+
+
 @pytest.mark.parametrize("status", ["failed", "paused", "completed", "cancelled"])
 @pytest.mark.parametrize("has_handout", [True, False])
 def test_old_script_input_cannot_offer_resume_after_plan_changes(status, has_handout):

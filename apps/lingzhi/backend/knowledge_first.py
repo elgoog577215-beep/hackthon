@@ -589,7 +589,12 @@ class KnowledgeFirstService:
 
     def view(self, course_id, *, source_mode=""):
         raw = self.repository.load_raw(course_id)
-        state = self.authoring.load(course_id)
+        return self.authoring.read_projection(
+            course_id,
+            lambda state: deepcopy(self._view(course_id, raw, state, source_mode=source_mode)),
+        )
+
+    def _view(self, course_id, raw, state, *, source_mode=""):
         jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message", "error", "partial_text", "model", "request_budget") if k in j}
                 for j in state["jobs"].values() if j.get("type") in JOB_TYPES]
         active_jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message") if k in j}

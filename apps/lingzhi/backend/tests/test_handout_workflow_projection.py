@@ -82,6 +82,12 @@ async def test_generated_handout_survives_owner_reload_and_both_preview_apis(tmp
     app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: fresh
     client = TestClient(app)
     before = snapshot(tmp_path)
+    # Ordinary reads must use the owner's bounded read projection, without
+    # copying all historical PPT/model snapshots through load().
+    with monkeypatch.context() as reads:
+        reads.setattr(fresh, "load", lambda *_: pytest.fail("Full authoring history loaded for a body read"))
+        bounded_view = project_teacher_content(storage.load_course("course-1"), storage=storage)
+        assert bounded_view["course_document"]["blocks"] == envelope["document"]["blocks"]
     public = client.get("/api/teacher/courses/course-1/preview", headers={"X-User-Id": "t"})
     canonical = client.get("/api/teacher/courses/course-1/generation-preview", headers={"X-User-Id": "t"})
     assert public.status_code == canonical.status_code == 200

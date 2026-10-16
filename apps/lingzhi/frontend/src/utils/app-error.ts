@@ -25,12 +25,17 @@ export interface AppErrorEvent {
   id: string
   signature: string
   presentation: AppErrorPresentation
+  readRequestKey?: string
+  requestStartedAt?: number
 }
+
+interface ReadRecovery { key: string; startedAt: number }
 
 type ErrorRecord = Record<string, unknown>
 type ErrorListener = (event: AppErrorEvent) => void
 
 const listeners = new Set<ErrorListener>()
+const recoveryListeners = new Set<(recovery: ReadRecovery) => void>()
 const MAX_TECHNICAL_DETAIL_LENGTH = 6000
 let lastPublishedAt = 0
 
@@ -274,15 +279,38 @@ function eventId(): string {
   return createUuid()
 }
 
+function readRequestKey(config: ErrorRecord): string {
+  if (String(config.method || 'get').toLowerCase() !== 'get' || !config.url) return ''
+  const params = Object.entries(asRecord(config.params)).sort(([a], [b]) => a.localeCompare(b))
+  return JSON.stringify([config.baseURL || '', config.url, params, config.identityScope || '', responseHeader(config.headers, 'X-User-Id')])
+}
+
+export function resolveAppReadError(requestConfig: unknown): void {
+  const config = asRecord(requestConfig)
+  const key = readRequestKey(config)
+  if (!key) return
+  const recovery = { key, startedAt: Number(config.usageStartedAt) || 0 }
+  recoveryListeners.forEach(listener => listener(recovery))
+}
+
+export function subscribeAppReadRecoveries(listener: (recovery: ReadRecovery) => void): () => void {
+  recoveryListeners.add(listener)
+  return () => recoveryListeners.delete(listener)
+}
+
 export function publishAppError(error: unknown, options: AppErrorOptions = {}): AppErrorPresentation {
   const presentation = toAppError(error, options)
+  const config = asRecord(asRecord(error).config)
+  const key = readRequestKey(config)
   const signature = [
     presentation.code,
     presentation.status || '',
     presentation.title,
     presentation.summary,
+    key,
   ].join('|')
-  const event = { id: eventId(), signature, presentation }
+  const event = { id: eventId(), signature, presentation,
+    readRequestKey: key || undefined, requestStartedAt: Number(config.usageStartedAt) || 0 }
   lastPublishedAt = Date.now()
   listeners.forEach(listener => listener(event))
   return presentation

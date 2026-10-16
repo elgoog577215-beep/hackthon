@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { trackApiAction } from './usage-tracker';
-import { publishAppError, toAppError } from './app-error';
+import { publishAppError, resolveAppReadError, toAppError } from './app-error';
 import { createUuid } from './client-id';
 import { getStudyIdentity, getStudyToken } from './study-identity';
 
@@ -367,6 +367,7 @@ http.interceptors.request.use(
 // Response Interceptor
 http.interceptors.response.use(
   (response: AxiosResponse) => {
+    resolveAppReadError(response.config);
     const startedAt = response.config.usageStartedAt;
     const now = typeof performance === 'undefined' ? Date.now() : performance.now();
     trackApiAction({

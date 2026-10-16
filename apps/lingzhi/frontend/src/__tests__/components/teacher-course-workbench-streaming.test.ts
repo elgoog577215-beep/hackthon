@@ -374,7 +374,8 @@ describe('teacher course workbench outline streaming', () => {
       stages: { outline: { display_state: 'available', artifact_state: 'current', task_state: 'idle', issues: [], allowed_actions: [], action_targets: [] } },
       lectures: [],
     } as any)
-    const load = vi.spyOn(lessonStore, 'load').mockImplementation(async (courseId: string) => {
+    const fullLoad = vi.spyOn(lessonStore, 'load')
+    const load = vi.spyOn(lessonStore, 'loadSummary').mockImplementation(async (courseId: string) => {
       lessonStore.courseId = courseId
       lessonStore.loadedCourseId = courseId
       lessonStore.outlineRevisionId = 'outline-1'
@@ -385,6 +386,7 @@ describe('teacher course workbench outline streaming', () => {
     if (initialStage === 'foundation') await wrapper.findAll('.companion-entry button').find(button => button.text() === '题库')!.trigger('click')
     await flushPromises()
     expect(load).toHaveBeenCalledWith('course-1')
+    expect(fullLoad).not.toHaveBeenCalled()
     expect(wrapper.findComponent({ name: 'QuestionBankReviewPanel' }).exists()).toBe(true)
     expect(wrapper.text()).not.toContain('正在准备教案')
     wrapper.unmount()
@@ -1969,7 +1971,8 @@ describe('teacher course workbench outline streaming', () => {
       },
     })
     lessonStore.lessons = [lesson(1)] as any
-    const load = vi.spyOn(lessonStore, 'load').mockImplementation(async () => {
+    const fullLoad = vi.spyOn(lessonStore, 'load')
+    const load = vi.spyOn(lessonStore, 'loadInitial').mockImplementation(async () => {
       lessonStore.lessons = [lesson(1), lesson(2)] as any
       lessonStore.loadedCourseId = 'course-1'
       return {} as any
@@ -1982,6 +1985,8 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     expect(load).toHaveBeenCalledTimes(1)
+    expect(load).toHaveBeenCalledWith('course-1', 'L1-1')
+    expect(fullLoad).not.toHaveBeenCalled()
     expect(wrapper.findAll('.lesson-outline-chapter-button')).toHaveLength(2)
   })
 

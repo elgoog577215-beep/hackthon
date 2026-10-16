@@ -28,6 +28,19 @@ def answer():
     return value
 
 
+def test_tree_reads_skip_full_history_and_return_detached_candidates(svc, monkeypatch):
+    from knowledge_first import TREE_JOB
+    state = svc.authoring.load('c-pilot')
+    state['jobs']['tree-1'] = {'id': 'tree-1', 'type': TREE_JOB, 'status': 'completed',
+                              'checkpoint': {'candidate': {'name': '原候选'}}}
+    svc.authoring._save(state)
+    monkeypatch.setattr(svc.authoring, 'load', lambda *_: pytest.fail('Full history copied for knowledge read'))
+    result = svc.view('c-pilot', source_mode='handouts')
+    result['candidate']['name'] = '不应写回'
+    result['candidates'][0]['tree']['name'] = '也不应写回'
+    assert svc.view('c-pilot', source_mode='handouts')['candidate']['name'] == '原候选'
+
+
 @pytest.mark.asyncio
 async def test_no_upload_extracts_from_existing_handouts_without_rewriting_them(svc, monkeypatch):
     monkeypatch.setenv('COURSE_TEACHER_HANDOUT_MAX_OUTPUT_TOKENS', '2048')

@@ -22,10 +22,11 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AppErrorNotice from './AppErrorNotice.vue'
 import { t } from '../shared/i18n'
-import { publishAppError, subscribeAppErrors, type AppErrorEvent } from '../utils/app-error'
+import { publishAppError, subscribeAppErrors, subscribeAppReadRecoveries, type AppErrorEvent } from '../utils/app-error'
 
 const entries = ref<AppErrorEvent[]>([])
 let unsubscribe: () => void = () => undefined
+let unsubscribeRecoveries: () => void = () => undefined
 
 function receive(event: AppErrorEvent) {
   const duplicateIndex = entries.value.findIndex(item => item.signature === event.signature)
@@ -56,11 +57,16 @@ function captureUnhandledRejection(event: PromiseRejectionEvent) {
 
 onMounted(() => {
   unsubscribe = subscribeAppErrors(receive)
+  unsubscribeRecoveries = subscribeAppReadRecoveries(({ key, startedAt }) => {
+    entries.value = entries.value.filter(entry => entry.readRequestKey !== key
+      || Number(entry.requestStartedAt || 0) > startedAt)
+  })
   window.addEventListener('error', captureWindowError)
   window.addEventListener('unhandledrejection', captureUnhandledRejection)
 })
 onBeforeUnmount(() => {
   unsubscribe()
+  unsubscribeRecoveries()
   window.removeEventListener('error', captureWindowError)
   window.removeEventListener('unhandledrejection', captureUnhandledRejection)
 })

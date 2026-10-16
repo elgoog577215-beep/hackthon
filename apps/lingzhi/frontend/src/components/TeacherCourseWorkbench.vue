@@ -4638,7 +4638,10 @@ function ensureLessonStageLoaded(stage: StageId) {
       && lessonStore.courseId === props.courseId
       && Boolean(lessonStore.lessons.length))
     || lessonStore.loading) return
-  void lessonStore.load(props.courseId).catch(() => undefined)
+  const read = stage === 'question-bank'
+    ? lessonStore.loadSummary(props.courseId)
+    : lessonStore.loadInitial(props.courseId, selectedLessonId.value)
+  void read.catch(() => undefined)
 }
 async function openKnowledge() {
   if (knowledgeOpen.value || stageSwitching.value || aiCandidatePending.value) return
@@ -4818,6 +4821,11 @@ watch(() => lessonStore.lessons, lessons => {
 }, { immediate: true, deep: true })
 watch([selectedLessonId, activeStage, () => lessonStore.loadedCourseId], () => {
   if (lessonStore.courseId === props.courseId) lessonStore.focusLesson(selectedLessonId.value, activeStage.value === 'script' ? 'teacher_lesson_script_generation' : 'teacher_lesson_plan_generation')
+  if (lessonStore.courseId === props.courseId
+    && lessonStore.viewScope === 'summary'
+    && ['lesson', 'script', 'ppt'].includes(activeStage.value)) {
+    void selectLesson(selectedLessonId.value)
+  }
 }, { immediate: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()

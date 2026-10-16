@@ -848,7 +848,7 @@ def test_teacher_handout_projection_is_published_not_raw_course_body(pair, monke
             }
         },
     }
-    monkeypatch.setattr(authoring, "load", lambda _: deepcopy(state))
+    monkeypatch.setattr(authoring, "read_projection", lambda _, project: project(deepcopy(state)))
     monkeypatch.setattr(teacher_content_projection, "authoring_repository", lambda _: authoring)
     raw = deepcopy(pair.course)
     raw["authoring_surface"] = "teacher"

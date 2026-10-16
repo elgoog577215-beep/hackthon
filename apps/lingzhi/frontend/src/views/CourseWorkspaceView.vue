@@ -351,7 +351,7 @@ async function loadWorkspace() {
     }
     loading.value = false
     if (!loadBlueprintFirst && !loadTargetLessonFirst) {
-      const lessonLoad = lessonStore.load(requestedCourseId)
+      const lessonLoad = lessonStore.loadSummary(requestedCourseId)
       void lessonLoad.catch(() => undefined)
     }
     void Promise.allSettled([
