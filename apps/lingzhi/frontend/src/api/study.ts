@@ -34,7 +34,9 @@ export class StudyApiError extends Error {
 }
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
-  const token = getQizhiAccessToken() || studySession.get()
+  // Login discovery and credentials must remain usable after a session expires.
+  const publicAuth = ['/auth/config', '/auth/login', '/auth/register'].includes(path)
+  const token = publicAuth ? '' : getQizhiAccessToken() || studySession.get()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const response = await fetch(withApiBase(`/api/study${path}`), { ...options, headers })
