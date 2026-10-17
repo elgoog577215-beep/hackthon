@@ -11,7 +11,8 @@ beforeEach(async()=>{vi.restoreAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>(
 it('starts relation analysis separately without regenerating knowledge points',async()=>{
   vi.spyOn(http,'get').mockResolvedValue({data:view()});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   await w.get('[data-testid="generate-knowledge-relations"]').trigger('click');await flushPromises()
-  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'knowledge_relations_v1',lesson_id:'cpu'}));expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'knowledge_relations_v1',lesson_id:'cpu'}));expect(http.post).toHaveBeenCalledTimes(1)
+  expect(w.find('.content-tree').exists()).toBe(true);w.unmount()
 })
 it('keeps relation adoption disabled until the owner reviews the suggestions',async()=>{
   const v:any=view();const candidate={...tree,revision_id:'candidate',relation_assessment:{ready_for_adoption:true,semantics_verified:false,proposed_count:1}}
