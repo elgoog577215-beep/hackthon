@@ -1,7 +1,7 @@
 <template>
   <div class="study-space">
     <header class="study-header glass-panel-elevated">
-      <RouterLink to="/study" class="study-brand"><img src="/qizhi-favicon.svg" alt="启智" /><span><strong>启智</strong><small>{{ c('brand') }}</small></span></RouterLink>
+      <StudentBrand />
       <nav v-if="user && !materialId && !creating" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
         <button :class="{ active: !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')">{{ t('studentWorkspace.home') }}</button>
         <button :class="{ active: route.query.view === 'courses' }" @click="openStudySection('courses')">{{ c('authorizedCourses') }}</button>
@@ -102,6 +102,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
+import StudentBrand from '../components/StudentBrand.vue'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
 import StudentCourseLibrary from '../components/StudentCourseLibrary.vue'
 import StudentLearningHome from '../components/StudentLearningHome.vue'

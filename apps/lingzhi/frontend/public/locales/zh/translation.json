@@ -8225,7 +8225,7 @@
     "generateNext": "生成整课大纲后，按同一讲次继续制作教案与讲义。",
     "handoutBeforePublish": "尚无学生可读的讲义。先完成至少一部分公开讲义，再发布给学生。",
     "readingUnverified": "暂时无法确认学生可读内容，请刷新后再发布。",
-    "studentSpace": "学生学习空间",
+    "studentSpace": "灵知 · 学生端",
     "returnWorkbench": "返回备课工作台",
     "returnStudy": "返回我的学习空间"
   },
