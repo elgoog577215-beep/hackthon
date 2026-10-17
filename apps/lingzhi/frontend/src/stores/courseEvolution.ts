@@ -47,7 +47,12 @@ export interface CourseChangeAnalysisTask {
   phase_detail?: {
     request_id?: string
     plan_id?: string
-    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number; deferred_parts?: number; retained_units?: number; pending_units?: number }
+    scan?: {
+      completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number
+      deferred_parts?: number; retained_units?: number; pending_units?: number
+      finding_count?: number
+      findings?: Array<{ unit_id: string; title: string; asset_type: string; reason: string }>
+    }
   }
 }
 

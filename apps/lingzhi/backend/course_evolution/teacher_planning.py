@@ -46,6 +46,7 @@ from .partial_review import applied_units, incomplete, require_partial_selection
 from .patch_review import patch_error_detail, section_inventory
 from .scan_recovery import directly_failed_units, historical_scan_results, unit_fingerprint
 from .semantic_scan import SCAN_CONTRACT, ScanProgress, scan_batches
+from .scan_batching import LEGACY_BATCH_POLICY, TOKEN_BATCH_POLICY, pack_scan_batches
 from .text_fields import editable_text_fields
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
@@ -2246,9 +2247,7 @@ async def create_teacher_course_change_plan(
     if raw_analysis is None and analyzer is not None:
         # Split prose, never serialized JSON. Every indexed unit is considered.
         units_by_id = {unit.unit_id: unit for unit in context.units}
-        batches: list[list[dict[str, Any]]] = []
-        batch: list[dict[str, Any]] = []
-        size = 0
+        fragments: list[dict[str, Any]] = []
         for item in ranked:
             unit = units_by_id[item["unit_id"]]
             body = ((readable_body(unit.full_text_fields) if unit.asset_type == 'course_content'
@@ -2262,15 +2261,13 @@ async def create_teacher_course_change_plan(
                          'content_field': primary_path.lstrip('/'),
                          'block_title': str(block_payload.get('title') or ''),
                          'existing_sections': list(section_inventory(body))}
-                cost = len(json.dumps(entry, ensure_ascii=False))
-                if batch and (size + cost > 4500 or len(batch) >= 12
-                              or sum(len(entry['content']) for entry in batch) + len(chunk) > 2400):
-                    batches.append(batch)
-                    batch, size = [], 0
-                batch.append(entry)
-                size += cost
-        if batch:
-            batches.append(batch)
+                fragments.append(entry)
+        # Old private checkpoints retain their original envelopes so a reload
+        # cannot throw away successful work. New scans use the full prompt budget.
+        legacy_batches = bool(scan_checkpoint and scan_checkpoint.get('results')
+                              and scan_checkpoint.get('batch_policy') != TOKEN_BATCH_POLICY)
+        batches = pack_scan_batches(fragments, overview=overview,
+                                    instruction=normalized_instruction, legacy=legacy_batches)
         async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
             nonlocal last_scan_detail, last_scan_checkpoint
             last_scan_detail, last_scan_checkpoint = deepcopy(detail), deepcopy(checkpoint)
@@ -2282,6 +2279,7 @@ async def create_teacher_course_change_plan(
             overview=overview, batches=batches, instruction=normalized_instruction,
             revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
             checkpoint=scan_checkpoint, on_progress=progress_with_retained,
+            batch_policy=LEGACY_BATCH_POLICY if legacy_batches else TOKEN_BATCH_POLICY,
             deprioritized_unit_ids=directly_failed_units(superseded) if rescan_incomplete_only else set(),
             # A retry removes completed units from batches. Keep the complete
             # source identity stable so successful fragments of incomplete

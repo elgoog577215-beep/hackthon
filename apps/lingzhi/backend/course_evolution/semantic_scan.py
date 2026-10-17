@@ -85,6 +85,7 @@ async def scan_batches(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     source_context_fingerprint: str = "",
     deprioritized_unit_ids: set[str] | None = None,
+    batch_policy: str = 'legacy_chars_v1',
 ) -> tuple[list[dict[str, Any]], set[str], set[str], list[dict[str, Any]], int]:
     # Include the complete input, not only revision labels: legacy revisions may
     # remain unchanged when content changes. Never reuse another request/context.
@@ -92,7 +93,7 @@ async def scan_batches(
         "batches": source_context_fingerprint or batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
     legacy_signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
         "batches": batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
-    saved = {"signature": signature, "results": {}}
+    saved = {"signature": signature, "results": {}, "batch_policy": batch_policy}
     if isinstance(checkpoint, dict) and checkpoint.get("signature") in {signature, legacy_signature}:
         if isinstance(checkpoint.get("results"), dict):
             saved["results"] = deepcopy(checkpoint["results"])
@@ -109,6 +110,7 @@ async def scan_batches(
     isolated: dict[str, Exception] = {}
     consecutive_failed_units: set[str] = set()
     provider_stop: Exception | None = None
+    findings: dict[str, dict[str, str]] = {}
 
     async def report() -> None:
         if on_progress:
@@ -157,6 +159,20 @@ async def scan_batches(
         analyses.append(result)
         scanned.update(item["unit_id"] for item in items)
         detail["completed_parts"] += len(items)
+        sources = {item['unit_id']: item for item in items}
+        for affected in result['affected_units']:
+            unit_id = affected['unit_id']
+            source = sources[unit_id]
+            # This is a bounded observation of model judgments, not an approved
+            # plan or a second course document. Patch compilation still follows.
+            findings[unit_id] = {
+                'unit_id': unit_id,
+                'title': str(source.get('title') or unit_id)[:120],
+                'asset_type': str(source.get('asset_type') or '')[:40],
+                'reason': str(affected.get('reason') or '')[:320],
+            }
+        detail['finding_count'] = len(findings)
+        detail['findings'] = list(findings.values())[:8]
         if reused:
             detail["reused_parts"] += len(items)
         else:
@@ -287,7 +303,10 @@ async def scan_batches(
             else:
                 await accept(items, result, reused)
                 return
-        if len(items) > 1 and classify_generation_failure(error)['code'] in {'provider_timeout', 'provider_unavailable'}:
+        if len(items) > 1 and (isinstance(error, ValueError) or
+                classify_generation_failure(error)['code'] in {
+                    'provider_timeout', 'provider_unavailable', 'response_truncated', 'generation_budget_exceeded',
+                }):
             retried += 1
             for item in items:
                 await inspect_part([item], batch_index, part_index)

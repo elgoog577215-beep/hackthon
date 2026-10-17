@@ -112,6 +112,17 @@
                 <div class="scan-line"><span /></div>
                 <p v-if="scanProgress?.retained_units" class="coverage-status">{{ scanResumeLabel }}</p>
                 <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
+                <section v-if="scanProgress?.findings" class="scan-findings" data-testid="scan-findings">
+                  <header><strong>{{ t('courseEvolution.workspace.liveFindings') }}</strong><span>{{ scanProgress.finding_count || 0 }}</span></header>
+                  <p>{{ t('courseEvolution.workspace.liveFindingsHint') }}</p>
+                  <ul v-if="scanProgress.findings.length">
+                    <li v-for="finding in scanProgress.findings" :key="finding.unit_id">
+                      <small>{{ assetLabel(finding.asset_type) }}</small><strong>{{ finding.title }}</strong>
+                      <p v-if="finding.reason">{{ finding.reason }}</p>
+                    </li>
+                  </ul>
+                  <p v-else>{{ t('courseEvolution.workspace.noLiveFindings') }}</p>
+                </section>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
                 <div class="scan-actions">
                   <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
@@ -1109,4 +1120,13 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .detail-waiting{padding:10px 14px;background:#faf7ec;border-radius:8px;color:#7a5717;font-size:15px}
 .detail-field-changes{margin:18px 0;font-size:15px}.detail-field-changes summary{cursor:pointer}.detail-field-changes p{white-space:pre-wrap}
 @media(max-width:900px){.partial-review-banner{align-items:flex-start;gap:10px;flex-wrap:wrap}.partial-status-actions{flex-wrap:wrap}}
+
+.scan-findings{min-width:0;padding:16px 18px;border:1px solid #e2e3f1;border-radius:12px;background:#fafaff;text-align:left}
+.scan-findings>header{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px;color:#37305f}
+.scan-findings>header span{font-variant-numeric:tabular-nums;color:#6556d8}
+.scan-findings p{margin:6px 0;color:#596579;font-size:15px;line-height:1.6}
+.scan-findings ul{max-height:240px;overflow:auto;display:grid;gap:12px;margin:12px 0 0;padding:0;list-style:none}
+.scan-findings li{padding-top:10px;border-top:1px solid #e5e6ef;font-size:15px}
+.scan-findings li small{display:inline-block;margin-right:8px;color:#6556d8;font-size:13px}
+.scan-findings li strong{color:#30394c;font-weight:600}
 </style>

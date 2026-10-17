@@ -108,6 +108,31 @@ function mountWorkspace(pinia: Pinia) {
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('shows preliminary impacts during scanning without exposing apply actions or rebuilding existing findings', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    const first = { unit_id: 'script-1', title: '第一讲：概念边界', asset_type: 'script', reason: '需要与新的定义保持一致。' }
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 2, total_parts: 12, reused_parts: 0, failed_parts: 0,
+      finding_count: 1, findings: [first],
+    } } } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="scan-findings"]').text()).toContain('第一讲：概念边界')
+    expect(wrapper.get('[data-testid="scan-findings"]').text()).toContain('完整方案生成后可审阅和应用')
+    expect(wrapper.find('[data-testid="apply-course-change"]').exists()).toBe(false)
+    const originalFinding = wrapper.get('.scan-findings li').element
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 4, total_parts: 12, reused_parts: 0, failed_parts: 0,
+      finding_count: 2, findings: [first, { ...first, unit_id: 'plan-1', title: '第一讲教案' }],
+    } } } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.scan-findings li').element).toBe(originalFinding)
+    expect(wrapper.findAll('.scan-findings li')).toHaveLength(2)
+    expect(wrapper.find('.request-state').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('saves waiting selections without generating or applying them', async () => {
     const { store, wrapper } = retryFixture()
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
