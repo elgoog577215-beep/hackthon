@@ -39,3 +39,28 @@ def test_single_pass_rejects_unknown_sources(svc, monkeypatch):
     raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
     value = response(); value['points'][0]['source_passage_keys'] = ['S99.1']
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
+
+
+@pytest.mark.asyncio
+async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_atomic import start
+    from knowledge_hierarchy import CONTRACT
+    setup_course(svc, monkeypatch); calls = []
+    async def call(prompt, **kwargs):
+        data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data['stage'])
+        result = response() if data['stage'] == 'extract' else {
+            'response_contract': CONTRACT, 'categories': [{'key': 'C1', 'name': '栈操作', 'scope': '入栈和出栈', 'parent_key': None}],
+            'point_categories': {p['key']: 'C1' for p in data['points']}}
+        return json.dumps(result, ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test-qwen', client=None)
+    before = deepcopy(svc.repository.load_raw('c-pilot'))
+    job = start(svc, extraction_mode='single_pass_v1', organize_hierarchy=True)
+    await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert saved['status'] == 'completed'
+    assert calls == ['extract', 'hierarchy']
+    assert len(saved['checkpoint']['candidate']['knowledge_points']) == 2
+    assert saved['checkpoint']['candidate']['atomic_assessment']['ready_for_adoption']
+    assert svc.repository.load_raw('c-pilot') == before
