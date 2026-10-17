@@ -138,7 +138,11 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('replaces excessive historical answers with one explicit request and keeps old questions read-only', async () => {
+  it.each([
+    [null, '所有案例都补充完整推导，但保留原始资料。'],
+    ['   ', '所有案例都补充完整推导，但保留原始资料。'],
+    ['把六步骤流程放到第一讲开头，保留其余讲次。', '把六步骤流程放到第一讲开头，保留其余讲次。'],
+  ])('rechecks excessive historical questions with optional details (%s)', async (draft, instruction) => {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
     const questions = Array.from({ length: 137 }, (_, i) => ({ question_id: `q${i}`,
       prompt: `历史问题 ${i}`, response_type: i < 107 ? 'single_choice' : 'free_text', required: true,
@@ -148,11 +152,12 @@ describe('CourseEvolutionWorkspace', () => {
       impact_summary: { request_asset_types: ['outline', 'course_content', 'script'], force_full_scan: true } })]
     const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'new-intent' } } as any)
     const wrapper = mountWorkspace(pinia)
+    await flushPromises()
     expect(wrapper.text()).toContain('137 条问题')
     expect(wrapper.findAll('.clarification-question')).toHaveLength(0)
     expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
     const proceed = wrapper.get('[data-testid="reanalyze-legacy-request"]')
-    expect(proceed.attributes('disabled')).toBeDefined()
+    expect(proceed.attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="expand-clarifications"]').trigger('click')
     expect(wrapper.get('[data-testid="legacy-question-reference"]').findAll('strong')).toHaveLength(137)
     expect(wrapper.findAll('input[type="radio"]')).toHaveLength(0)
@@ -160,11 +165,11 @@ describe('CourseEvolutionWorkspace', () => {
     await wrapper.get('.request-context button').trigger('click')
     await wrapper.vm.$nextTick()
     expect(document.activeElement).toBe(wrapper.get('[data-testid="legacy-request"] textarea').element)
-    await wrapper.get('[data-testid="legacy-request"] textarea').setValue('把六步骤流程放到第一讲开头，保留其余讲次。')
+    if (draft !== null) await wrapper.get('[data-testid="legacy-request"] textarea').setValue(draft)
     expect(proceed.attributes('disabled')).toBeUndefined()
     await proceed.trigger('click')
     expect(create).toHaveBeenCalledWith({ courseId: 'course-1', requestId: expect.any(String),
-      instruction: '把六步骤流程放到第一讲开头，保留其余讲次。', supersedesPlanId: 'change-1',
+      instruction, supersedesPlanId: 'change-1',
       assetTypes: ['outline', 'course_content', 'script'], forceFullScan: true })
     wrapper.unmount()
   })

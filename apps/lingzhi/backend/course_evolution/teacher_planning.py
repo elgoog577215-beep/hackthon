@@ -2220,7 +2220,17 @@ async def create_teacher_course_change_plan(
         raw_analysis = _lecture_structure_analysis(context, normalized_instruction)
     intent_gate = False
     assessment = None
-    if not scan_checkpoint:
+    legacy_reclarification = bool(
+        superseded is not None
+        and len(superseded.teacher_change_planning.intent.clarifications) > 3
+        and not rescan_incomplete_only and not confirmed_interpretation and not answer_snapshot
+    )
+    if legacy_reclarification and (scan_checkpoint or {}).get('legacy_intent_recheck') != supersedes_plan_id:
+        # A new request may keep the original wording. Recheck intent instead of
+        # inheriting the scan that produced the excessive historical questions.
+        # The marker preserves this new task's own checkpoints on resume.
+        scan_checkpoint = {'legacy_intent_recheck': supersedes_plan_id}
+    if not scan_checkpoint and not legacy_reclarification:
         previous = next((p for p in reversed(current.change_sets)
             if p.status == 'pending' and p.request_text == normalized_instruction
             and p.base_revision_vector == context.base_revision_vector
@@ -2270,7 +2280,7 @@ async def create_teacher_course_change_plan(
     retained = None
     historical_analyses: list[dict[str, Any]] = []
     historical_origins: list[dict[str, Any]] = []
-    if raw_analysis is None and not rescan_incomplete_only:
+    if raw_analysis is None and not rescan_incomplete_only and not legacy_reclarification:
         reusable = reusable_observation(plans=current.change_sets, context=context, user_id=user_id,
             instruction=normalized_instruction, asset_types=asset_types, model_identity=scan_model_identity,
             routing=routing, contract=effective_contract,
@@ -2326,8 +2336,9 @@ async def create_teacher_course_change_plan(
                                     instruction=normalized_instruction, legacy=legacy_batches)
         async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
             nonlocal last_scan_detail, last_scan_checkpoint
-            if scan_checkpoint and scan_checkpoint.get('intent_preflight'):
-                checkpoint = {**checkpoint, 'intent_preflight': deepcopy(scan_checkpoint['intent_preflight'])}
+            for key in ('intent_preflight', 'legacy_intent_recheck'):
+                if scan_checkpoint and scan_checkpoint.get(key):
+                    checkpoint = {**checkpoint, key: deepcopy(scan_checkpoint[key])}
             complete_ids = set(detail.pop('_complete_unit_ids', []))
             from .scan_previews import content_previews
             previews = content_previews(context, checkpoint, complete_ids)

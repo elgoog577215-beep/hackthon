@@ -151,7 +151,7 @@
                   <div v-if="manyClarifications" class="legacy-request" data-testid="legacy-request">
                     <label><strong>{{ t('courseEvolution.workspace.legacyRequestLabel') }}</strong><textarea ref="legacyRequestInputRef" v-model="legacyRequestText" rows="4" :disabled="store.generating" :placeholder="t('courseEvolution.workspace.legacyRequestPlaceholder')" /></label>
                     <p>{{ t('courseEvolution.workspace.legacyRequestHint') }}</p>
-                    <small v-if="!legacyRequestChanged">{{ t('courseEvolution.workspace.legacyRequestChangedHint') }}</small>
+                    <small v-if="!legacyRequestText.trim()">{{ t('courseEvolution.workspace.legacyOriginalRequestHint') }}</small>
                   </div>
                   <button v-if="manyClarifications" type="button" class="button-quiet" data-testid="expand-clarifications" @click="showAllClarifications = !showAllClarifications">{{ t('courseEvolution.workspace.toggleClarifications') }}</button>
                   <ol v-if="manyClarifications && showAllClarifications" class="legacy-question-reference" data-testid="legacy-question-reference"><li v-for="question in structuredClarifications" :key="question.question_id"><strong>{{ question.prompt }}</strong><ul v-if="question.options.length"><li v-for="option in question.options" :key="option.option_id">{{ option.label }}<small v-if="option.impact">{{ option.impact }}</small></li></ul></li></ol>
@@ -189,7 +189,7 @@
                 <footer class="clarification-actions">
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-danger" data-testid="discard-blocked-plan" :disabled="Boolean(store.actingId)" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardBlockedPlan', '放弃本次全课修改') }}</button>
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-primary" data-testid="retry-incomplete-scan" :disabled="store.generating" @click="retryIncompleteScan"><RefreshCw :size="15" />{{ t('courseEvolution.workspace.retryIncompleteScan', '重新检查未完成内容') }}</button>
-                  <button v-else-if="manyClarifications" type="button" class="button-primary" data-testid="reanalyze-legacy-request" :disabled="store.generating || !legacyRequestChanged" @click="submitLegacyRequest"><Sparkles :size="15" />{{ t('courseEvolution.workspace.legacyReanalyze') }}</button>
+                  <button v-else-if="manyClarifications" type="button" class="button-primary" data-testid="reanalyze-legacy-request" :disabled="store.generating || !legacyRequestInstruction" @click="submitLegacyRequest"><Sparkles :size="15" />{{ t('courseEvolution.workspace.legacyReanalyze') }}</button>
                   <template v-else>
                     <div v-if="structuredClarifications.length" class="clarification-answer-status" role="status" data-testid="clarification-answer-status"><span>{{ unansweredClarifications.length ? t('courseEvolution.workspace.pendingClarifications').replace('{count}', String(unansweredClarifications.length)) : t('courseEvolution.workspace.clarificationsComplete') }}</span><button v-if="unansweredClarifications.length" type="button" class="button-quiet" @click="focusUnansweredClarification">{{ t('courseEvolution.workspace.goToUnanswered') }}</button></div>
                     <button v-if="structuredClarifications.some(question => question.options.some(option => option.recommended))" type="button" class="button-quiet" @click="applyRecommendedClarifications">{{ t('courseEvolution.workspace.useRecommendedOptions', '采用推荐项') }}</button>
@@ -459,7 +459,7 @@ const unansweredClarifications = computed(() => structuredClarifications.value.f
     : !answer?.custom_text?.trim()
 }))
 const clarificationAnswersReady = computed(() => !unansweredClarifications.value.length)
-const legacyRequestChanged = computed(() => Boolean(legacyRequestText.value.trim()) && legacyRequestText.value.trim() !== rawRequest.value.trim())
+const legacyRequestInstruction = computed(() => legacyRequestText.value.trim() || rawRequest.value.trim())
 const structuralPlan = computed(() => Boolean(
   planning.value?.structural_operations.length
   || planning.value?.execution_strategies.includes('structural_regeneration'),
@@ -849,8 +849,8 @@ function openCorrection() {
   correctionText.value = ''; correctionOpen.value = true
 }
 async function submitLegacyRequest() {
-  if (!manyClarifications.value || !legacyRequestChanged.value || store.generating) return
-  const instruction = legacyRequestText.value.trim(), requestId = createUuid(), courseId = props.courseId
+  if (!manyClarifications.value || !legacyRequestInstruction.value || store.generating) return
+  const instruction = legacyRequestInstruction.value, requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
     const result = await store.createCoursePlan({ courseId, requestId, instruction,
       supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan),
