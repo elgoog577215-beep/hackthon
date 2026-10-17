@@ -1,5 +1,5 @@
 <template>
-  <div :class="[panelClasses, { 'is-learning-assistant': props.docked && !isTeacherMode, 'has-companion': Boolean(props.companionAvatar) }]" class="ai-teacher-panel glass-panel-elevated">
+  <div :class="[panelClasses, { 'is-learning-assistant': props.docked && !isTeacherMode, 'has-companion': props.learningAssistant }]" class="ai-teacher-panel glass-panel-elevated">
     <section
       class="ai-teacher-surface"
       :class="{
@@ -10,13 +10,12 @@
       :aria-modal="props.embedded || props.docked ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
-      <CompanionPanelHeader v-if="companionAvatar && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" :live-pet="livePet" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
+      <CompanionPanelHeader v-if="learningAssistant && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
       <div v-if="knowledgeContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('companionWorkspace.current', '当前知识点') }} · <strong>{{ knowledgeContext.name }}</strong></span><button type="button" :aria-label="t('companionWorkspace.clearContext', '移除知识点引用')" @click="emit('clearKnowledge')"><X :size="14" /></button></div>
-      <div v-if="companionAvatar && !knowledgeContext && readingContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('readingNotes.readingAt', '正在阅读') }} · {{ readingContext.nodeName }}<small v-if="readingContext.blockTitle"> · {{ readingContext.blockTitle }}</small></span></div>
-      <header v-if="!companionAvatar || isTeacherMode" class="ai-teacher-header">
+      <div v-if="learningAssistant && !knowledgeContext && readingContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('readingNotes.readingAt', '正在阅读') }} · {{ readingContext.nodeName }}<small v-if="readingContext.blockTitle"> · {{ readingContext.blockTitle }}</small></span></div>
+      <header v-if="!learningAssistant || isTeacherMode" class="ai-teacher-header">
         <div class="ai-teacher-heading">
-          <img v-if="props.companionAvatar" class="ai-companion-avatar" :src="props.companionAvatar" alt="" width="40" height="40" />
-          <span v-else class="ai-teacher-icon"><Sparkles :size="16" /></span>
+          <span class="ai-teacher-icon"><Sparkles :size="16" /></span>
           <div class="ai-teacher-heading-copy">
             <strong>{{ assistantTitle }}</strong>
           </div>
@@ -803,9 +802,8 @@ import { getActiveRequestIdentityScope, type RequestIdentityScope } from '../uti
 const props = withDefaults(defineProps<{
   visible: boolean
   studyRequest?: StudyRequest
-  companionAvatar?: string
+  learningAssistant?: boolean
   floating?: boolean
-  livePet?: boolean
   knowledgeContext?: KnowledgeProfileNode | null
   mode?: 'learner' | 'teacher'
   identityScope?: RequestIdentityScope
@@ -1941,7 +1939,6 @@ onUnmounted(() => {
 .ai-teacher-header { grid-column:1 / -1; grid-row:1; min-height:64px; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:18px; padding:0 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .ai-teacher-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .ai-teacher-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.4); border-radius: 11px; color: #fff; background: linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow: 0 7px 16px rgba(99,102,241,.23), inset 0 1px 0 rgba(255,255,255,.25); }
-.ai-companion-avatar { width:40px; height:40px; flex:none; object-fit:contain; }
 .ai-teacher-heading-copy { min-width: 0; display: flex; flex-direction: column; }
 .ai-teacher-heading-copy strong { color: #312e81; font-size: 14px; line-height: 1.2; }
 .ai-teacher-header-context { min-width:0; max-width:680px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-muted); }
