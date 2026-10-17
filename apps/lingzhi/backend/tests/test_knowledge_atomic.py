@@ -17,6 +17,16 @@ from routers.knowledge_first import router
 PIPELINE = 'inventory_atomic_v1'
 
 
+def test_inventory_groups_balance_source_size_without_splitting_or_losing_sources():
+    from knowledge_atomic import source_groups
+    from unittest.mock import patch
+    units = {f'S{i}': {'source_text': 'x' * 1000} for i in range(12)}
+    with patch('knowledge_atomic.sources', return_value=units): groups = source_groups({})
+    assert [k for group in groups for k in group] == list(units)
+    assert len(groups) == 3
+    assert all(sum(len(units[k]['source_text']) for k in group) <= 4500 for group in groups)
+
+
 def test_progress_reserves_undiscovered_work_and_completes_only_after_save():
     from knowledge_atomic import pipeline_progress
     pipeline = {'organize_hierarchy': True, 'inventory_batches': [{'status': 'pending'}], 'batches': []}
