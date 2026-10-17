@@ -230,11 +230,13 @@ def assemble(raw, context, pipeline):
             return (path(category['parent_id']) if category.get('parent_id') in local else []) + [category['name']]
         mapped_categories = {cid: stable_hash({'course': raw['course_id'], 'lesson': context['scope_lesson_id'], 'path': path(cid)}, prefix='kg_') for cid in local}
         categories.extend({**deepcopy(c), 'id': mapped_categories[c['id']], 'parent_id': mapped_categories.get(c.get('parent_id'))} for c in local.values())
+        global_keys = {}
         for original in tree['knowledge_points']:
             point = deepcopy(original); point['parent_id'] = point['primary_concept_group_id'] = mapped_categories[point['parent_id']]
             point['generation_batch_id'] = batch['id']
+            point['key'] = f'K{len(points)+1}';global_keys[original['key']] = point['key']
             points.append(point)
-        issues.extend({**i, 'batch_id': batch['id']} for i in batch['report']['issues']); gaps.extend(tree.get('gaps', []))
+        issues.extend({**i, 'batch_id': batch['id'],**({'batch_point_key':i['point_key'],'point_key':global_keys[i['point_key']]} if i.get('point_key') in global_keys else {})} for i in batch['report']['issues']); gaps.extend(tree.get('gaps', []))
     require(len(points) <= 160 and len({p['knowledge_id'] for p in points}) == len(points), '细化候选存在重复命题或超出本讲容量')
     existing = raw.get('course_knowledge_base') or {}; lesson_id = context['scope_lesson_id']
     old_points = [p for p in existing.get('knowledge_points', []) if lesson_id in (p.get('section_refs') or [p.get('topic')])]
