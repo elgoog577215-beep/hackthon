@@ -16,19 +16,19 @@ const project = (attempts: any[] = [], extra = {}) => buildLearningMatrix({
 
 describe('knowledge learning matrix is a read-only projection of every attempt', () => {
   it('retains independent failure, assisted correction and a later independent pass', () => {
-    const result = project([attempt('a01', false), attempt('a02', true, { revealed_hint_levels: [1], attempt_number: 2 }), attempt('a03', true, { task_revision_id: 'q2' })])
-    expect(result[0].attempts.map(a => [a.outcome, a.support])).toEqual([['incorrect', 'independent'], ['correct', 'assisted'], ['correct', 'independent']])
-    expect(result[0].current).toBe('independent_pass')
-    expect(result[1].attempts).toEqual([])
+    const result = project([attempt('a01', false), attempt('a02', true, { revealed_hint_levels: [1]!, attempt_number: 2 }), attempt('a03', true, { task_revision_id: 'q2' })])
+    expect(result[0]!.attempts.map(a => [a.outcome, a.support])).toEqual([['incorrect', 'independent'], ['correct', 'assisted'], ['correct', 'independent']])
+    expect(result[0]!.current).toBe('independent_pass')
+    expect(result[1]!.attempts).toEqual([])
   })
   it('marks complete-answer exposure separately even when the answer is correct', () => {
-    const row = project([attempt('a01', true, { solution_revealed: true })])[0]
-    expect(row.attempts[0].outcome).toBe('correct')
-    expect(row.attempts[0].support).toBe('solution_seen')
+    const row = project([attempt('a01', true, { solution_revealed: true })])[0]!
+    expect(row.attempts[0]!.outcome).toBe('correct')
+    expect(row.attempts[0]!.support).toBe('solution_seen')
     expect(row.current).toBe('verify')
   })
   it('preserves an earlier success when a newer independent attempt fails', () => {
-    const row = project([attempt('a01'), attempt('a02', false)])[0]
+    const row = project([attempt('a01'), attempt('a02', false)])[0]!
     expect(row.attempts).toHaveLength(2)
     expect(row.current).toBe('review')
   })
@@ -37,26 +37,27 @@ describe('knowledge learning matrix is a read-only projection of every attempt',
     { knowledge_revision_refs: { k1: 'old' } }, { knowledge_revision_refs: {} },
     { status: 'abandoned' }, { status: 'invalidated' },
   ])('does not paint other identities, historical revisions or cancelled attempts red/green: %j', change => {
-    expect(project([attempt('a01', true, change)])[0].attempts).toEqual([])
+    expect(project([attempt('a01', true, change)])[0]!.attempts).toEqual([])
   })
   it.each([
     { status: 'grading' }, { result: { passed: true, grading_confidence: .2 } },
     { result: { passed: true, grading_confidence: .95, status: 'pending_review' } },
     { concept_ids: ['k1', 'k2'], knowledge_revision_refs: { k1: 'r-k1', k2: 'r-k2' } },
     { result: { passed: true, grading_confidence: .95, historical_only: true } },
+    { result: { passed: true, grading_confidence: .95, evidence_strength: 'invalid' } },
   ])('keeps unresolved grading/attribution neutral: %j', change => {
-    expect(project([attempt('a01', true, change)])[0].attempts[0].outcome).toBe('pending')
+    expect(project([attempt('a01', true, change)])[0]!.attempts[0]!.outcome).toBe('pending')
   })
   it('never labels missing help metadata as independent', () => {
     const a = attempt('a01'); delete (a as any).revealed_hint_levels; delete (a as any).ai_support_level; delete (a as any).solution_revealed
-    expect(project([a])[0].attempts[0].support).toBe('unknown')
+    expect(project([a])[0]!.attempts[0]!.support).toBe('unknown')
   })
   it('deduplicates event retries by attempt identity without losing separate submissions', () => {
-    expect(project([attempt('a01'), attempt('a01'), attempt('a02')])[0].attempts).toHaveLength(2)
+    expect(project([attempt('a01'), attempt('a01'), attempt('a02')])[0]!.attempts).toHaveLength(2)
   })
   it('does not use newer question text for an old question revision', () => {
     const rows = project([attempt('a01')], { questions: [{ revision_id: 'q-new', prompt: 'New private answer', question_id: 'q1' }] })
-    expect(rows[0].attempts[0].question).toBeNull()
+    expect(rows[0]!.attempts[0]!.question).toBeNull()
   })
   it('uses only saved, exact knowledge revision notes; chapter proximity is not enough', () => {
     const notes = [
@@ -65,11 +66,11 @@ describe('knowledge learning matrix is a read-only projection of every attempt',
       { id: 'n3', recordType: 'note', syncState: 'local_only', anchor: { concept_ids: ['k1'], knowledge_revision_refs: { k1: 'r-k1' } } },
       { id: 'n4', recordType: 'note', syncState: 'saved', metadata: { concept_ids: ['k1'], knowledge_revision_refs: { k1: 'old' } } },
     ]
-    expect(project([], { notes })[0].notes.map(n => n.id)).toEqual(['n1'])
+    expect(project([], { notes })[0]!.notes.map(n => n.id)).toEqual(['n1'])
   })
   it('does not load personal facts into a teacher preview and does not mutate input', () => {
     const a = attempt('a01'); const before = JSON.stringify(a)
-    expect(project([a], { preview: true })[0].attempts).toEqual([])
+    expect(project([a], { preview: true })[0]!.attempts).toEqual([])
     expect(JSON.stringify(a)).toBe(before)
   })
 })

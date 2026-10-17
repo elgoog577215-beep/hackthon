@@ -18,6 +18,15 @@ describe('knowledge-row learning matrix', () => {
     expect(w.findAll('[data-attempt-id]')).toHaveLength(9)
     expect(w.text()).not.toContain('%')
   })
+  it('expands a long history in bounded batches instead of rendering thousands of tiles', async () => {
+    const w = render({ rows: fixture(101) })
+    await w.get('[data-testid="expand-k1"]').trigger('click')
+    expect(w.findAll('[data-attempt-id]')).toHaveLength(24)
+    await w.get('[data-testid="more-k1"]').trigger('click')
+    expect(w.findAll('[data-attempt-id]')).toHaveLength(48)
+    await w.get('[data-testid="expand-k1"]').trigger('click')
+    expect(w.findAll('[data-attempt-id]')).toHaveLength(4)
+  })
   it('opens the exact attempt, shows its help label and safely renders its answer', async () => {
     const w = render({ rows: fixture(2) })
     await w.get('[data-attempt-id="a1"]').trigger('click')
