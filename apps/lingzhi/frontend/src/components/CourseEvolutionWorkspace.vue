@@ -403,6 +403,7 @@ const analysisFailureDetails = computed(() => store.analysisTask?.status === 'fa
 const analysisRetryAvailable = computed(() => store.analysisTask?.status === 'failed')
 const scanProgress = computed(() => store.analysisSubmitting ? undefined : store.analysisTask?.phase_detail?.scan)
 const executionSummary = computed(() => {
+  if (workspaceState.value === 'request') return ''
   if (workspaceState.value === 'scanning') {
     const r = scanProgress.value?.routing
     return r ? t('courseEvolution.workspace.routingPlanned').replace('{indexed}', String(r.indexed_units)).replace('{selected}', String(r.selected_units)).replace('{model}', String(r.model_units)).replace('{aliases}', String(r.alias_units)) : ''
