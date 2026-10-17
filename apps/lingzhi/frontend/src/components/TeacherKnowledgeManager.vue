@@ -44,6 +44,7 @@
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
           <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
+          <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-knowledge-relations" :disabled="busy || blockingJobs.length > 0 || !canGenerateRelations" :title="t('knowledgeFirst.relationRequiresBaseline')" @click="generateRelations()">{{ t('knowledgeFirst.generateRelations') }}</button>
         </div>
         <div v-if="perLesson" class="knowledge-lesson-switch">
           <button type="button" :disabled="lessonOptions[0]?.lesson_id === knowledgeLessonId" @click="stepLesson(-1)">{{ t('knowledgeFirst.previousLesson') }}</button>
@@ -82,6 +83,13 @@
             <p>{{ job.error?.code === 'AIRequestBudgetExceeded' ? t('knowledgeFirst.inputBudgetExceeded') : job.error?.code === 'ModelConnectionUnavailable' ? t('knowledgeFirst.modelDisconnected') : job.error?.message }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="job.error?.code !== 'AIRequestBudgetExceeded'">{{ t('knowledgeFirst.retryHint') }}</p></details>
         </details>
         <KnowledgeAtomicWorkbench v-if="atomicRun" :run="atomicRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="continueAtomic()" @retry="continueAtomic($event)" />
+        <KnowledgeRelationWorkbench v-if="relationRun" :run="relationRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="generateRelations(true)" @retry="generateRelations(true,$event)" @navigate="navigateRelated" />
+        <section v-if="treeChoice === 'candidate' && displayTree?.relation_assessment" class="notice" data-testid="knowledge-relation-adoption">
+          <p>{{ t('knowledgeFirst.relationReviewHint') }}</p>
+          <p>{{ t('knowledgeFirst.relationCandidateSummary').replace('{count}',String(displayTree.relation_assessment.proposed_count)) }}</p>
+          <p v-for="(gap,index) in displayTree.relation_assessment.gaps || []" :key="index">{{ gap }}</p>
+          <label><input v-model="confirmRelations" type="checkbox" data-testid="confirm-knowledge-relations" /> {{ t('knowledgeFirst.confirmRelations') }}</label>
+        </section>
         <section v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
           <p>{{ t(displayTree.atomic_assessment.ready_for_adoption ? 'knowledgeFirst.atomicChecksPassed' : 'knowledgeFirst.atomicAdoptionBlocked') }}</p>
           <ul v-if="displayTree.atomic_assessment.issues?.length"><li v-for="(issue, index) in displayTree.atomic_assessment.issues" :key="index">{{ displayTree.knowledge_points.find((point:any) => point.key === issue.point_key)?.name || issue.inventory_key || '' }} · {{ t(`knowledgeFirst.atomicIssueCodes.${issue.code}`, t('knowledgeFirst.atomicCheckFailed')) }}</li></ul>
@@ -131,6 +139,7 @@
                 <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })">{{ link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : '' }}{{ link.point?.name || link.id }}</button>
                 <p class="relation-direction">{{ t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming') }} · {{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }} · {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</p>
                 <p v-if="link.edge.reason">{{ link.edge.reason }}</p><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition">{{ condition }}</li></ul>
+                <KnowledgeRelationEvidence :edge="link.edge" />
                 <MarkdownRenderer v-if="link.point?.statement" class="related-statement" :content="link.point.statement" />
               </div>
               <template v-if="!treeOnly || diagnoses.length"><h3>{{ t('knowledgeFirst.diagnosis') }}</h3><div v-for="d in diagnoses" :key="d.key"><p>A · {{ d.hypothesis_a }}</p><p>B · {{ d.hypothesis_b }}</p><p>{{ d.repair_a }}</p><p>{{ d.repair_b }}</p></div>
@@ -190,6 +199,8 @@ import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
 import KnowledgeSourceReader from './KnowledgeSourceReader.vue'
 import KnowledgeTerms from './KnowledgeTerms.vue'
 import KnowledgeAtomicWorkbench from './KnowledgeAtomicWorkbench.vue'
+import KnowledgeRelationWorkbench from './KnowledgeRelationWorkbench.vue'
+import KnowledgeRelationEvidence from './KnowledgeRelationEvidence.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
 import HandoutReadingGuide from './HandoutReadingGuide.vue'
 import HandoutReadingLayout from './HandoutReadingLayout.vue'
@@ -203,6 +214,7 @@ const knowledgeLessonId = ref(props.initialLessonId)
 const data = ref<any>(null), error = ref(''), busy = ref(false)
 const observationNotice = ref('')
 const confirmIdentityChanges = ref(false), confirmAtomicReview = ref(false)
+const confirmRelations = ref(false)
 const generic = computed(() => data.value?.workflow === 'knowledge_first_generic_v1')
 const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3, material_asset_ids: [] as string[] })
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
@@ -251,12 +263,19 @@ const selectedCandidateRecord = computed(() => {
 })
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
 const atomicRun = computed(() => {
+  if (treeChoice.value === 'candidate' && selectedCandidate.value?.relation_assessment) return null
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
 })
+const relationRun = computed(() => {
+  if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
+  return (data.value?.relation_runs || []).find((run:any)=>run.lesson_id === knowledgeLessonId.value)
+})
+const canGenerateRelations = computed(()=>data.value?.tree?.status === 'accepted' && selectedLesson.value?.can_generate && data.value.tree.knowledge_points?.some((p:any)=>(p.section_refs || [p.topic]).includes(knowledgeLessonId.value)))
 const atomicReviewRequired = computed(() => displayTree.value?.atomic_assessment?.issues?.some((issue:any)=>issue.severity === 'review'))
 const identityReviewRequired = computed(() => !!displayTree.value?.identity_changes?.retired_points?.length)
 const atomicAdoptionReady = computed(() => displayTree.value?.atomic_assessment?.ready_for_adoption !== false
+  && (!displayTree.value?.relation_assessment || displayTree.value.relation_assessment.ready_for_adoption && confirmRelations.value)
   && (!atomicReviewRequired.value || confirmAtomicReview.value) && (!identityReviewRequired.value || confirmIdentityChanges.value))
 const canAdoptSelection = computed(() => !perLesson.value || selectedCandidateRecord.value?.lesson_id === knowledgeLessonId.value)
 const historyOptions = computed<any[]>(() => {
@@ -297,13 +316,14 @@ function jobPhase(job: any) {
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
   const label = t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
-  return job.pipeline_stage ? `${t(job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return job.pipeline_stage ? `${t(job.pipeline_stage === 'relations' ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 function progressDetails(job: any) {
   const parts: string[] = []
   if (job.received_chars) parts.push(t('knowledgeFirst.receivedCharacters').replace('{count}', String(job.received_chars)))
   if (job.elapsed_seconds != null) parts.push(t('knowledgeFirst.elapsedSeconds').replace('{seconds}', String(job.elapsed_seconds)))
   if (job.pipeline_stage === 'atomize') parts.push(t('knowledgeFirst.atomicSummary').replace('{items}', String(job.inventory_count || 0)).replace('{done}', String(job.completed_batches || 0)).replace('{total}', String(job.batch_total || 0)))
+  if (job.pipeline_stage === 'relations') parts.push(t('knowledgeFirst.relationBatchSummary').replace('{done}',String(job.completed_batches || 0)).replace('{total}',String(job.batch_total || 0)))
   return parts.join(' · ') || t('knowledgeFirst.observingTask')
 }
 const sourceComparison = computed(() => {
@@ -372,7 +392,7 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
   node?.scrollIntoView?.({ block: 'nearest' })
 }
 watch([selectedId, selectedSource], async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
-watch([treeChoice, () => displayTree.value?.revision_id], () => { confirmIdentityChanges.value = false; confirmAtomicReview.value = false })
+watch([treeChoice, () => displayTree.value?.revision_id], () => { confirmIdentityChanges.value = false; confirmAtomicReview.value = false; confirmRelations.value = false })
 async function closeSource() { selectedSource.value = null; await nextTick(); detailPane.value?.focus({ preventScroll: true }) }
 watch(() => [selectedId.value, treeChoice.value, courseId.value, knowledgeLessonId.value], () => { selectedSource.value = null })
 watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
@@ -462,7 +482,13 @@ async function continueAtomic(batchId = '') {
   await mutate('generate/tree', { request_id: createUuid(), source_mode:'handouts', lesson_id:knowledgeLessonId.value,
     pipeline:'inventory_atomic_v1', resume_job_id:atomicRun.value.job_id, retry_batch_id:batchId })
 }
-async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, displayTree.value?.atomic_assessment ? { confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value } : {}); if (!error.value) treeChoice.value = data.value.knowledge_revision }
+async function generateRelations(resume = false, batchId = '') {
+  if (resume && !relationRun.value) return
+  treeChoice.value = 'candidate';tab.value = 'tree'
+  await mutate('generate/tree',{request_id:createUuid(),source_mode:'handouts',lesson_id:knowledgeLessonId.value,
+    pipeline:'knowledge_relations_v1',...(resume ? {resume_job_id:relationRun.value.job_id,retry_batch_id:batchId} : {})})
+}
+async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, displayTree.value?.relation_assessment ? {confirm_relations:confirmRelations.value} : displayTree.value?.atomic_assessment ? { confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value } : {}); if (!error.value) treeChoice.value = data.value.knowledge_revision }
 async function recheck(id: string) { treeChoice.value = 'candidate'; tab.value = 'tree'; await mutate(`recheck/${id}`, { request_id: createUuid() }) }
 async function loadMaterials() {
   if (!generic.value || derived.value || !data.value?.can_edit) return

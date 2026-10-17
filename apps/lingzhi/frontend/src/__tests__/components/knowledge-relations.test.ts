@@ -5,7 +5,7 @@ import http from '@/utils/http'
 import {setLocale} from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
 
-const tree = {revision_id:'base',source_mode:'handouts',categories:[],knowledge_points:[{knowledge_id:'k1',revision_id:'p1',name:'栈',statement:'栈先进后出',section_refs:['cpu']}],relations:[],lessons:[{topic:'cpu',title:'栈',knowledge_ids:['k1']}],source_handouts:[]}
+const tree = {revision_id:'base',status:'accepted',source_mode:'handouts',categories:[],knowledge_points:[{knowledge_id:'k1',revision_id:'p1',name:'栈',statement:'栈先进后出',section_refs:['cpu']}],relations:[],lessons:[{topic:'cpu',title:'栈',knowledge_ids:['k1']}],source_handouts:[]}
 function view(){return {enabled:true,can_edit:true,workflow:'knowledge_first_generic_v1',source_mode:'handouts',result_version:'v',document_revision:'d',knowledge_revision:'base',tree,history:[tree],jobs:[],active_jobs:[],candidates:[],handouts:[],source_handouts:[],lesson_options:[{lesson_id:'cpu',title:'栈',can_generate:true,blocking_job_ids:[]}]}}
 beforeEach(async()=>{vi.restoreAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh');vi.spyOn(http,'post').mockResolvedValue({data:{}})})
 it('starts relation analysis separately without regenerating knowledge points',async()=>{

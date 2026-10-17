@@ -333,9 +333,10 @@ class KnowledgeFirstService:
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
               pipeline="", resume_job_id="", retry_batch_id=""):
         from knowledge_atomic import PIPELINE
-        require(pipeline in {'', PIPELINE}, '未知知识细化流程')
+        from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
+        require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
         require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
-        require(not (resume_job_id or retry_batch_id) or pipeline == PIPELINE, '继续批次需要原细化流程')
+        require(not (resume_job_id or retry_batch_id) or pipeline in {PIPELINE, RELATIONS}, '继续批次需要原生成流程')
         require(not retry_batch_id or resume_job_id, '重新细化需要原任务')
         require(not lesson_id or (source_mode == "handouts" and topic == "tree"), "按讲生成只用于讲义知识树")
         require(source_mode in {"", "handouts"}, "未知知识来源")
@@ -359,26 +360,31 @@ class KnowledgeFirstService:
                 return duplicate, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
+            if pipeline == RELATIONS:
+                validate_baseline(raw.get('course_knowledge_base') or {}, lesson_id)
             continued_checkpoint = None
             if resume_job_id:
                 original = existing_jobs.get(resume_job_id) or {}
-                require(original.get('type') == TREE_JOB and original.get('knowledge_pipeline') == PIPELINE
+                require(original.get('type') == TREE_JOB and original.get('knowledge_pipeline') == pipeline
                     and original.get('knowledge_lesson_id') == lesson_id and original.get('actor') == raw.get('owner_id')
                     and original.get('status') in {'failed', 'completed', 'paused', 'cancelled'}, '原细化任务不可继续')
                 require(original.get('source_context_revision') == context['revision_id']
                     and original.get('source_document_revision') == expected_document
                     and original.get('source_knowledge_revision') == expected_revision, '来源或知识版本已变化，不能继续旧批次')
                 continued_checkpoint = deepcopy(original.get('checkpoint') or {})
-                prior = continued_checkpoint.get('atomic_pipeline')
+                prior = continued_checkpoint.get('relation_pipeline' if pipeline == RELATIONS else 'atomic_pipeline')
                 require(bool(prior), '原任务没有可继续的知识清单')
                 if retry_batch_id:
                     batch = next((b for b in prior['batches'] if b['id'] == retry_batch_id), None)
                     require(batch is not None, '细化批次不存在')
-                    batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', []))
-                    batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None)
+                    batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', [])) or ([original['error']] if original.get('error') else [])
+                    batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None); batch.pop('result',None)
                 else:
                     require(original.get('status') != 'completed', '已完成任务请明确选择需要重新细化的批次')
                 continued_checkpoint.pop('candidate', None)
+                if pipeline == RELATIONS:
+                    from knowledge_relation_generation import validate_source
+                    validate_source(self,raw,original)
             require(not derived or bool(context.get("handout_lessons")), "请先在备课工作台生成讲义，资料可选")
             if topic != "tree" and raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW:
                 from generic_knowledge import input_revision
@@ -394,7 +400,7 @@ class KnowledgeFirstService:
                 source_context_revision=context["revision_id"],
                 source_evidence_package_revision=context["evidence_package"]["package_revision_id"],
                 source_scope_revision=context["scope_contract"]["revision_id"],
-                request_snapshot={"knowledge_generation_context": context},
+                request_snapshot={"knowledge_generation_context": context, **({'relation_baseline':deepcopy(raw['course_knowledge_base'])} if pipeline == RELATIONS else {})},
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
@@ -407,7 +413,11 @@ class KnowledgeFirstService:
         return job
 
     async def run(self, course_id, job_id):
-        if self.authoring.load(course_id)['jobs'][job_id].get('knowledge_pipeline'):
+        pipeline = self.authoring.load(course_id)['jobs'][job_id].get('knowledge_pipeline')
+        if pipeline == 'knowledge_relations_v1':
+            from knowledge_relation_generation import run
+            return await run(self,course_id,job_id)
+        if pipeline:
             from knowledge_atomic import run_atomic
             return await run_atomic(self, course_id, job_id)
         provider = None
@@ -573,12 +583,15 @@ class KnowledgeFirstService:
             if provider and getattr(provider, "client", None):
                 await provider.client.close()
 
-    def adopt(self, course_id, job_id, expected_revision, expected_document, *, confirm_identity_changes=False, confirm_atomic_review=False):
+    def adopt(self, course_id, job_id, expected_revision, expected_document, *, confirm_identity_changes=False, confirm_atomic_review=False, confirm_relations=False):
         with self.authoring._course_lock(course_id):
             job = self.authoring.load(course_id)["jobs"].get(job_id) or {}
             require(job.get("type") == TREE_JOB and job.get("status") == "completed", "知识树候选尚未完成")
             tree = deepcopy((job.get("checkpoint") or {}).get("candidate"))
             require(bool(tree), "候选不存在")
+            relation_assessment = tree.get('relation_assessment')
+            require(not relation_assessment or relation_assessment.get('ready_for_adoption') is True and confirm_relations,
+                    '请先核对关系方向、推导步骤、必要性与适用条件，再确认采用关系候选')
             atomic = tree.get('atomic_assessment')
             require(not atomic or atomic.get('ready_for_adoption') is True, '细化或元问题覆盖检查尚有阻塞问题')
             require(not atomic or not any(i.get('severity') == 'review' for i in atomic.get('issues', [])) or confirm_atomic_review,
@@ -595,7 +608,17 @@ class KnowledgeFirstService:
                 if knowledge_revision(raw) == tree["revision_id"]:
                     return raw
                 scope = job.get('knowledge_lesson_id', '')
-                if scope:
+                if relation_assessment:
+                    from knowledge_relation_generation import validate_source, validate_graph
+                    require(knowledge_revision(raw) == expected_revision == job['source_knowledge_revision'] and raw.get('course_document_revision') == expected_document, '关系依据版本已变化，请重新分析')
+                    validate_source(self,raw,job)
+                    current = raw.get('course_knowledge_base') or {}
+                    require(all(tree.get(k) == current.get(k) for k in ('knowledge_points','categories','concept_groups','lessons','sources')), '关系候选不得改写元知识或课程内容')
+                    validate_graph(current['knowledge_points'],tree['relations'])
+                    proposed = set(relation_assessment['proposed_ids'])
+                    for edge in tree['relations']:
+                        if edge['id'] in proposed: edge['review_status'] = 'accepted'
+                elif scope:
                     from handout_knowledge import handout_input_signature, lesson_fingerprint, slice_lesson_tree, merge_lesson_tree, knowledge_facts
                     require(knowledge_revision(raw) == expected_revision and raw.get('course_document_revision') == expected_document == job['source_document_revision'], '课程版本已变化，请刷新后采用')
                     frozen = job['request_snapshot']['knowledge_generation_context']
@@ -694,8 +717,10 @@ class KnowledgeFirstService:
         status = project_status(state, raw, tree_generation_blockers, source_mode=source_mode)
         from knowledge_evidence import project_view
         from knowledge_atomic import project_runs
+        from knowledge_relation_generation import project_runs as relation_runs
         return project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
                 "atomic_runs": project_runs(state, raw),
+                "relation_runs": relation_runs(state, raw),
                 "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
                 "enabled": derived or raw.get("knowledge_first_workflow") in WORKFLOWS or tree.get("source_mode") == "handouts", "workflow": raw.get("knowledge_first_workflow", GENERIC_WORKFLOW),
                 "can_initialize": not (raw.get("course_document") or {}).get("sections") and not raw.get("generation_job_id"),

@@ -22,7 +22,7 @@ class GenerateRequest(SourceRequest):
     lesson_id: str = Field(default="", max_length=200)
     source_mode: Literal["", "handouts"] = ""
     request_id: str = Field(min_length=1, max_length=100)
-    pipeline: Literal['', 'inventory_atomic_v1'] = ''
+    pipeline: Literal['', 'inventory_atomic_v1', 'knowledge_relations_v1'] = ''
     resume_job_id: str = Field(default='', max_length=200)
     retry_batch_id: str = Field(default='', max_length=100)
 
@@ -30,6 +30,7 @@ class GenerateRequest(SourceRequest):
 class AdoptRequest(SourceRequest):
     confirm_identity_changes: bool = False
     confirm_atomic_review: bool = False
+    confirm_relations: bool = False
 
 
 class InputRequest(SourceRequest):
@@ -86,7 +87,7 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
     view = svc.view(course_id, source_mode=source_mode)
     view["can_edit"] = svc.repository.load_raw(course_id).get("owner_id") == require_actor_id(request.headers.get("X-User-Id"))
     if not view["can_edit"]:
-        view.update(jobs=[], active_jobs=[], atomic_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
+        view.update(jobs=[], active_jobs=[], atomic_runs=[], relation_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
         # Historical candidates/source packages remain teacher data.
         view["history"] = []
         tree = view.get("tree") or {}
@@ -149,7 +150,7 @@ async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depend
 @router.post("/courses/{course_id}/knowledge-first/adopt/{job_id}")
 def adopt(course_id: str, job_id: str, body: AdoptRequest, svc=Depends(service)):
     action(lambda: svc.adopt(course_id, job_id, body.knowledge_revision, body.document_revision,
-        confirm_identity_changes=body.confirm_identity_changes, confirm_atomic_review=body.confirm_atomic_review))
+        confirm_identity_changes=body.confirm_identity_changes, confirm_atomic_review=body.confirm_atomic_review, confirm_relations=body.confirm_relations))
     return {"adopted": True}
 
 

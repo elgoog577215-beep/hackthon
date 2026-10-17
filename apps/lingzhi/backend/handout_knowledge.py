@@ -211,7 +211,7 @@ def visible_handout_tree(tree, document, handouts):
     visible = {b['block_id'] for b in document.get('blocks', [])}
     result = deepcopy(tree)
     # Inventory review can include unpublished source fragments and retired identities.
-    for field in ('knowledge_inventory', 'inventory_source_coverage', 'identity_changes', 'atomic_assessment'):
+    for field in ('knowledge_inventory', 'inventory_source_coverage', 'identity_changes', 'atomic_assessment', 'relation_assessment'):
         result.pop(field, None)
     def included(point):
         quotes = point.get('source_quotes') or []
