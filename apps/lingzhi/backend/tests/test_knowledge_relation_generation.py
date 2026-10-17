@@ -1,0 +1,148 @@
+import json
+from copy import deepcopy
+from types import SimpleNamespace
+
+import pytest
+
+from backend.tests.test_knowledge_first import svc
+from backend.tests.test_handout_knowledge import handouts
+from backend.tests.test_lesson_knowledge import one_lesson_response
+from course_repository import CourseDocumentConflict
+
+PIPELINE = 'knowledge_relations_v1'
+
+
+def seed(svc, monkeypatch):
+    from generic_knowledge import compile_tree
+    from handout_knowledge import merge_lesson_tree
+    monkeypatch.setenv('COURSE_KNOWLEDGE_RELATION_BATCH_SIZE', '1')
+    handouts(svc); raw = svc.repository.load_raw('c-pilot'); tree = {}
+    for lid in ['cpu','memory']:
+        part = compile_tree(raw, svc._context(raw,'handouts',lid), one_lesson_response(lid))
+        tree = merge_lesson_tree(tree,part,lid)
+    cpu = tree['knowledge_points'][0]
+    extra = {**deepcopy(cpu),'id':'cpu-extra','knowledge_id':'cpu-extra','revision_id':'extra-version',
+             'name':'控制步骤','statement':'控制器按步骤处理指令。'}
+    tree['knowledge_points'].append(extra); tree['lessons'][0]['knowledge_ids'].append('cpu-extra')
+    tree.update(revision_id='baseline',status='accepted')
+    svc.storage.update_course_data('c-pilot',lambda r:{**r,'course_knowledge_base':tree,'knowledge_first_history':{'baseline':deepcopy(tree)},
+        'frozen_question_ref':{'knowledge_id':cpu['knowledge_id'],'revision_id':cpu['revision_id'],'baseline_revision':'baseline'}})
+    return tree
+
+
+def model_response(data):
+    points = {p['key']:p for p in data['catalog']}
+    decisions = []
+    for key in data['focus_keys']:
+        target = points[key]; links = []
+        if target['name'] != '控制步骤':
+            source = next(p for p in points.values() if 'memory' in p['lesson_ids'])
+            for kind in ['prerequisite','derives','applies_to']:
+                links.append({'source_key':source['key'],'target_key':key,'type':kind,'context':'理解指令处理',
+                    'reason':'根据两端冻结命题说明知识在指令处理中的具体教学作用。','conditions':[],
+                    'necessity':'recommended' if kind == 'prerequisite' else None,'strength':'medium',
+                    'derivation_steps':['明确源知识适用的条件。','结合条件解释目标知识的结论。'] if kind == 'derives' else [],
+                    'evidence':[{'point_key':p['key'],'quote':p['statement']} for p in [source,target]]})
+        decisions.append({'focus_key':key,'considered_lessons':data['lesson_ids'],'reason':'已按具体命题检查全部讲次，不因同学科或名称相近强行连线。','links':links})
+    return {'decisions':decisions,'gaps':[]}
+
+
+def provider(svc, *, fail_at=None, mutate=None):
+    calls = []
+    async def call(prompt, **kwargs):
+        data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data)
+        assert kwargs['max_attempts'] == 1
+        if len(calls) == fail_at: raise TimeoutError('isolated')
+        result = model_response(data)
+        if mutate: mutate(data,result)
+        output = json.dumps(result,ensure_ascii=False); kwargs['on_content_delta'](output)
+        return output
+    svc.provider_factory = lambda:SimpleNamespace(_call_llm=call,model_smart='test-qwen',client=None)
+    return calls
+
+
+def start(svc, request='relations', **kwargs):
+    view = svc.view('c-pilot',source_mode='handouts')
+    return svc.start('c-pilot','tree',request,view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline=PIPELINE,**kwargs)[0]
+
+
+@pytest.mark.asyncio
+async def test_relation_only_candidate_preserves_every_point_and_has_three_directed_types(svc,monkeypatch):
+    tree = seed(svc,monkeypatch); before = deepcopy(svc.repository.load_raw('c-pilot')); calls = provider(svc)
+    job = start(svc); await svc.run('c-pilot',job['id'])
+    saved = svc.authoring.get_job('c-pilot',job['id']); assert saved['status'] == 'completed'
+    candidate = saved['checkpoint']['candidate']
+    assert candidate['knowledge_points'] == tree['knowledge_points']
+    assert candidate['categories'] == tree['categories']
+    assert {r['type'] for r in candidate['relations']} == {'prerequisite','derives','applies_to'}
+    assert all(r['confidence'] is None and r['strength'] == 0.6 and r['cross_lesson'] for r in candidate['relations'])
+    assert all(r['source_revision_id'] and r['target_revision_id'] and len(r['evidence_refs']) == 2 for r in candidate['relations'])
+    assert candidate['relation_assessment']['semantics_verified'] is False
+    assert all(set(c['lesson_ids']) == {'cpu','memory'} for c in calls)
+    assert len(calls) == 2 and svc.repository.load_raw('c-pilot') == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('bad',['endpoint','self','evidence','steps','point_edit','missing_decision'])
+async def test_invalid_relationship_output_is_not_adoptable(svc,monkeypatch,bad):
+    seed(svc,monkeypatch); before = deepcopy(svc.repository.load_raw('c-pilot'))
+    def corrupt(data,result):
+        if not result['decisions'][0]['links']: return
+        edge = result['decisions'][0]['links'][0]
+        if bad == 'endpoint': edge['source_key'] = 'foreign-id'
+        if bad == 'self': edge['source_key'] = edge['target_key']
+        if bad == 'evidence': edge['evidence'][0]['quote'] = '原文没有这个片段'
+        if bad == 'steps': result['decisions'][0]['links'][1]['derivation_steps'] = []
+        if bad == 'point_edit': result['points'] = [{'knowledge_id':'overwrite'}]
+        if bad == 'missing_decision': result['decisions'] = []
+    provider(svc,mutate=corrupt); job = start(svc); await svc.run('c-pilot',job['id'])
+    saved = svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status'] == 'failed' and not saved['checkpoint'].get('candidate')
+    assert svc.repository.load_raw('c-pilot') == before
+
+
+@pytest.mark.asyncio
+async def test_existing_reverse_prerequisite_cannot_form_a_cycle(svc,monkeypatch):
+    tree = seed(svc,monkeypatch); a,b = tree['knowledge_points'][:2]
+    edge = {'id':'keep-edge','type':'prerequisite','source_id':a['knowledge_id'],'target_id':b['knowledge_id'],'reason':'既有方向','conditions':[]}
+    svc.storage.update_course_data('c-pilot',lambda r:{**r,'course_knowledge_base':{**tree,'relations':[edge]}})
+    provider(svc); job = start(svc); await svc.run('c-pilot',job['id'])
+    saved = svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status'] == 'failed' and '环' in saved['error']['message']
+    assert svc.repository.load_raw('c-pilot')['course_knowledge_base']['relations'] == [edge]
+
+
+@pytest.mark.asyncio
+async def test_continue_only_missing_relation_batches_keeps_original_attempt(svc,monkeypatch):
+    seed(svc,monkeypatch); provider(svc,fail_at=2); job = start(svc); await svc.run('c-pilot',job['id'])
+    original = deepcopy(svc.authoring.get_job('c-pilot',job['id'])); assert original['status'] == 'failed'
+    calls = provider(svc); continued = start(svc,'continue-relations',resume_job_id=job['id']); await svc.run('c-pilot',continued['id'])
+    assert len(calls) == 1 and svc.authoring.get_job('c-pilot',continued['id'])['status'] == 'completed'
+    assert svc.authoring.get_job('c-pilot',job['id']) == original
+
+
+@pytest.mark.asyncio
+async def test_adoption_is_explicit_and_preserves_point_objects_and_history_refs(svc,monkeypatch):
+    tree = seed(svc,monkeypatch); provider(svc); job = start(svc); await svc.run('c-pilot',job['id'])
+    view = svc.view('c-pilot',source_mode='handouts')
+    with pytest.raises(CourseDocumentConflict,match='关系'):
+        svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'])
+    svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'],confirm_relations=True)
+    raw = svc.repository.load_raw('c-pilot')
+    assert raw['course_knowledge_base']['knowledge_points'] == tree['knowledge_points']
+    assert raw['knowledge_first_history']['baseline'] == tree
+    assert raw['frozen_question_ref']['baseline_revision'] == 'baseline'
+    assert all(r.get('review_status') == 'accepted' for r in raw['course_knowledge_base']['relations'])
+
+
+@pytest.mark.asyncio
+async def test_cross_lecture_definition_change_rejects_old_candidate(svc,monkeypatch):
+    seed(svc,monkeypatch); provider(svc); job = start(svc); await svc.run('c-pilot',job['id'])
+    def change(raw):
+        raw['course_knowledge_base']['knowledge_points'][1]['statement'] += '修改'
+        return raw
+    svc.storage.update_course_data('c-pilot',change)
+    view = svc.view('c-pilot',source_mode='handouts')
+    with pytest.raises(CourseDocumentConflict):
+        svc.adopt('c-pilot',job['id'],view['knowledge_revision'],view['document_revision'],confirm_relations=True)
