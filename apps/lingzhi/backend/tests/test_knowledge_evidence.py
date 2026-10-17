@@ -192,6 +192,49 @@ def test_material_source_uses_frozen_passage_with_its_page_locator(svc):
     assert data['content'].startswith('资料上下文：')
 
 
+def split_handout_source(svc):
+    from material_evidence import _split_source
+    tree = saved_source(svc)
+    source = tree['knowledge_points'][0]['source_quotes'][0]
+    content = ('背景说明。\n    ' * 200) + QUOTE
+    quote = _split_source(content)[0]
+    assert quote not in content
+    def bind(raw):
+        raw['course_knowledge_base']['knowledge_points'][0]['source_quotes'][0]['quote'] = quote
+        return raw
+    svc.storage.update_course_data('c-pilot', bind)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] = content
+    svc.authoring._save(state)
+    job = svc.authoring.create_job('c-pilot', 'tree', job_type='course_knowledge_tree_generation', request_id='split-snapshot')
+    svc.authoring.update_job('c-pilot', job['id'], status='completed', request_snapshot={'knowledge_generation_context': {
+        'handout_source_refs': {'hs-test': source['handout_ref']},
+        'evidence_package': {'units': [{'evidence_id': 'ev-old', 'block_ids': ['hs-test'], 'source_text': quote}]}}})
+    return content, quote, job['id']
+
+
+def test_frozen_split_quote_can_open_same_original_block_without_claiming_exact_offsets(svc):
+    content, quote, _ = split_handout_source(svc)
+    data = client_for(svc).get('/api/courses/c-pilot/knowledge-first/source', headers={'X-User-Id': 'owner'},
+        params={'tree_revision': 'tree-old', 'knowledge_id': 'keep-id', 'evidence_id': 'ev-old'}).json()
+    assert data['available'] and data['content'] == content and data['quote'] == quote
+    assert data['quote_match'] == 'frozen_split_passage' and 'quote_start' not in data
+
+
+@pytest.mark.parametrize('change', ['text', 'reference'])
+def test_split_quote_never_hides_changed_content_or_unbound_block(svc, change):
+    _, _, job_id = split_handout_source(svc)
+    state = svc.authoring.load('c-pilot')
+    if change == 'text':
+        state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] = '内容已改变'
+    else:
+        state['jobs'][job_id]['request_snapshot']['knowledge_generation_context']['handout_source_refs']['hs-test']['block_id'] = 'other-block'
+    svc.authoring._save(state)
+    data = client_for(svc).get('/api/courses/c-pilot/knowledge-first/source', headers={'X-User-Id': 'owner'},
+        params={'tree_revision': 'tree-old', 'knowledge_id': 'keep-id', 'evidence_id': 'ev-old'}).json()
+    assert not data['available'] and data['reason'] == 'source_quote_mismatch' and data['content'] == ''
+
+
 @pytest.mark.parametrize('field,value', [('tree_revision', 'foreign'), ('knowledge_id', 'foreign'), ('evidence_id', 'foreign')])
 def test_source_endpoint_rejects_unbound_identifiers(svc, field, value):
     saved_source(svc)

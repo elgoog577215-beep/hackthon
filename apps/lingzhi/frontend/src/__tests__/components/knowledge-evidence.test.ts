@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Manager from '@/components/TeacherKnowledgeManager.vue'
+import Reader from '@/components/KnowledgeSourceReader.vue'
 import http from '@/utils/http'
 import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
@@ -26,6 +27,14 @@ beforeEach(async () => {
   vi.spyOn(http, 'post').mockResolvedValue({ data: {} })
 })
 afterEach(() => vi.restoreAllMocks())
+
+it.each(['zh','en'] as const)('explains frozen split formatting in %s without claiming literal source offsets', async locale => {
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
+  vi.spyOn(http,'get').mockResolvedValue({data:{available:true,quote_match:'frozen_split_passage',quote:'冻结引文',content:'原段落\n排版',source_kind:'generated_handout'}})
+  const w=mount(Reader,{props:{courseId:'c',treeRevision:'base',knowledgeId:'stable-id',source:{evidence_id:'ev'}}});await flushPromises()
+  expect(w.text()).toContain(locale==='zh'?'已按同一正文块的冻结分段对账':'Matched against frozen splits of this same content block')
+  expect(w.text()).toContain('原段落');expect(w.text()).toContain('冻结引文');w.unmount()
+})
 
 it('finds the same point by English, abbreviation and Chinese alias without changing identity', async () => {
   vi.spyOn(http, 'get').mockResolvedValue({ data: view() })
