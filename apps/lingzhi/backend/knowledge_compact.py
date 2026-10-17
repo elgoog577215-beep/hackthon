@@ -2,6 +2,7 @@
 from copy import deepcopy
 import re
 import unicodedata
+import json
 from generic_knowledge import require, text, sources
 
 INVENTORY = 'knowledge_inventory_compact_v2'
@@ -9,6 +10,36 @@ ATOMIC = 'knowledge_atomic_compact_v2'
 PASSAGES = 'knowledge_inventory_passages_v3'
 BINDINGS = 'knowledge_atomic_bindings_v3'
 LEAVES = 'knowledge_leaf_claims_v4'
+
+
+def parse_complete_json(raw):
+    """Escape literal string characters only; never repair structure or fill data."""
+    from knowledge_first import parse_response
+    try:return parse_response(raw,handout_sources=True)
+    except json.JSONDecodeError:
+        out=[];inside=False;index=0;notes=set()
+        while index < len(raw):
+            char=raw[index]
+            if char=='"':inside=not inside;out.append(char);index+=1;continue
+            if inside and ord(char)<32:
+                out.append(json.dumps(char)[1:-1]);notes.add('literal_controls_escaped');index+=1;continue
+            if inside and char=='\\' and index+1<len(raw):
+                nxt=raw[index+1]
+                valid=nxt in '"\\/bfnrt' or nxt=='u' and bool(re.fullmatch(r'[0-9a-fA-F]{4}',raw[index+2:index+6]))
+                if valid:out.extend([char,nxt]);index+=2;continue
+                out.append('\\\\');notes.add('invalid_backslashes_preserved');index+=1;continue
+            out.append(char);index+=1
+        if not notes:raise
+        value=parse_response(''.join(out),handout_sources=True)
+        value['_format_normalizations']=sorted(set(value.get('_format_normalizations',[]))|notes)
+        return value
+
+
+def has_suspicious_controls(value):
+    if isinstance(value,str):
+        return bool(re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]',value) or re.search(r'\$[^$]*\t[^$]*\$',value))
+    if isinstance(value,list):return any(has_suspicious_controls(v) for v in value)
+    return False
 
 
 def focus_matches(term, content):

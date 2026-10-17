@@ -180,7 +180,7 @@ def validate_source(svc, raw, job):
 
 
 async def run(svc, course_id, job_id):
-    from knowledge_atomic import call_stage
+    from knowledge_atomic import call_stage, KnowledgeModelIdleTimeout
     from knowledge_first import now, parse_response
     provider = None
     try:
@@ -227,7 +227,7 @@ async def run(svc, course_id, job_id):
     except Exception as exc:
         if svc.authoring.get_job(course_id,job_id)['status'] in {'pending','running'}:
             svc.authoring.update_job(course_id,job_id,status='failed',phase='failed',stream_complete=True,
-                error={'code':type(exc).__name__,'message':str(exc) if isinstance(exc,CourseDocumentConflict) else '本次关系分析未完成，已保存批次保留；请主动继续缺失批次。'})
+                error={'code':type(exc).__name__,'message':str(exc) if isinstance(exc,(CourseDocumentConflict,KnowledgeModelIdleTimeout)) else '本次关系分析未完成，已保存批次保留；请主动继续缺失批次。'})
     finally:
         if provider and getattr(provider,'client',None): await provider.client.close()
 
