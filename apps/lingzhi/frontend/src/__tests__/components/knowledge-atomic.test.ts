@@ -54,3 +54,11 @@ it('shows source doubts beside the frozen quote without treating them as verifie
   expect(w.text()).toContain('原文中的可疑结论。');expect(w.text()).toContain('需要核对原讲义的适用条件。')
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
+it('shows unresolved original passages and keeps the incomplete candidate unadoptable',async()=>{
+  const v:any=view();v.candidates=[{job_id:'candidate-job',lesson_id:'cpu',tree:{revision_id:'candidate',source_mode:'handouts',categories:[],knowledge_points:[],relations:[],lessons:[],
+    atomic_assessment:{ready_for_adoption:false,issues:[{code:'source_span_uncovered',severity:'blocking'}],uncovered_passages:[{key:'S2.1',source_key:'S2',text:'尾部还有一个尚未承载的重要结论。'}]}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-uncovered-passages"]').text()).toContain('尾部还有一个尚未承载的重要结论。')
+  expect(w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.attributes('disabled')).toBeDefined();w.unmount()
+})
