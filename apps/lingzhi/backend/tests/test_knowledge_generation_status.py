@@ -66,6 +66,22 @@ def test_status_has_owner_only_visibility_and_matches_full_view_version(svc):
     assert public.json()["jobs"] == public.json()["active_jobs"] == []
 
 
+def test_event_stream_replays_completed_job_and_rejects_published_readers(svc):
+    initialize(svc)
+    job = start(svc, 'tree')
+    svc.authoring.update_job('c-pilot', job['id'], status='failed', phase='failed')
+    client = client_for(svc)
+    url = '/api/courses/c-pilot/knowledge-first/events/' + job['id']
+    response = client.get(url, headers={'X-User-Id': 'owner'})
+    assert response.status_code == 200
+    assert response.headers['content-type'].startswith('text/event-stream')
+    assert 'event: snapshot' in response.text and 'event: complete' in response.text
+    assert 'request_snapshot' not in response.text
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'is_published': True})
+    assert client.get(url, headers={'X-User-Id': 'foreign'}).status_code == 404
+    assert client.get(url + '-unknown', headers={'X-User-Id': 'owner'}).status_code == 404
+
+
 def test_status_reads_course_once_for_authorization_and_projection(svc, monkeypatch):
     initialize(svc)
     reads = []

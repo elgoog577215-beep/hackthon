@@ -16,6 +16,41 @@ from routers.knowledge_first import router
 PIPELINE = 'inventory_atomic_v1'
 
 
+def test_progress_reserves_undiscovered_work_and_completes_only_after_save():
+    from knowledge_atomic import pipeline_progress
+    pipeline = {'organize_hierarchy': True, 'inventory_batches': [{'status': 'pending'}], 'batches': []}
+    assert pipeline_progress(pipeline) == 0
+    pipeline['inventory_batches'][0]['status'] = 'completed'
+    assert pipeline_progress(pipeline) == 20
+    pipeline['batches'] = [{'status': 'pending'} for _ in range(7)]
+    assert pipeline_progress(pipeline) == 20
+    for row in pipeline['batches']: row['status'] = 'completed'
+    assert pipeline_progress(pipeline) == 85
+    pipeline['hierarchy'] = {'status': 'completed'}
+    assert pipeline_progress(pipeline) == 95  # Only the final persisted candidate is 100%.
+
+
+@pytest.mark.asyncio
+async def test_preview_keeps_all_frozen_points_reachable_during_subtree_generation(svc, monkeypatch):
+    from knowledge_atomic import project_preview
+    setup_course(svc, monkeypatch); provider(svc)
+    job = start(svc); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    saved['status'] = 'running'
+    pipeline = saved['checkpoint']['atomic_pipeline']
+    pipeline['hierarchy'] = {'categories': [{'key': 'C1', 'name': '栈', 'scope': '栈操作', 'parent_key': None}],
+        'assignments': [], 'tasks': [
+            {'key': 'root', 'point_keys': ['K1', 'K2'], 'status': 'completed', 'is_root': True},
+            {'key': 'C1', 'point_keys': ['K1', 'K2'], 'status': 'pending'}]}
+    before = deepcopy(saved)
+    tree = project_preview(saved, 'c-pilot')
+    assert tree['generation_preview'] is True
+    assert len(tree['knowledge_points']) == 2
+    assert all(p['parent_id'] == tree['categories'][0]['id'] for p in tree['knowledge_points'])
+    assert tree['atomic_assessment']['ready_for_adoption'] is False
+    assert saved == before
+
+
 def setup_course(svc, monkeypatch):
     monkeypatch.setenv('COURSE_KNOWLEDGE_ATOMIC_BATCH_SIZE', '1')
     handouts(svc)
@@ -52,7 +87,12 @@ def provider(svc, *, fail_at=None, mutate=None):
         assert kwargs['max_attempts'] == 1
         if fail_at == len(calls):
             raise TimeoutError('isolated interruption')
-        result = inventory() if data['stage'] == 'inventory' else atomic_answer(data['items'])
+        if data['stage'] == 'hierarchy_partition':
+            result = {'response_contract': 'knowledge_partition_v1',
+                'groups': [{'key': f'G{i}', 'name': p['name'], 'scope': p['statement']} for i,p in enumerate(data['points'])],
+                'point_groups': {p['key']: f'G{i}' for i,p in enumerate(data['points'])}, 'stop_reason': '区分插入与删除操作'}
+        else:
+            result = inventory() if data['stage'] == 'inventory' else atomic_answer(data['items'])
         if mutate:
             mutate(data, result)
         text = json.dumps(result, ensure_ascii=False)
@@ -66,6 +106,67 @@ def start(svc, request_id='atomic', **extra):
     view = svc.view('c-pilot', source_mode='handouts')
     return svc.start('c-pilot', 'tree', request_id, view['knowledge_revision'], view['document_revision'],
         source_mode='handouts', lesson_id='cpu', pipeline=PIPELINE, **extra)[0]
+
+
+@pytest.mark.asyncio
+async def test_new_generation_organizes_all_batches_without_changing_frozen_leaves(svc, monkeypatch):
+    setup_course(svc, monkeypatch); calls = provider(svc)
+    job = start(svc, organize_hierarchy=True); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert saved['status'] == 'completed'
+    cp = saved['checkpoint']; candidate = cp['candidate']
+    assert [c['stage'] for c in calls] == ['inventory', 'atomize', 'atomize', 'hierarchy_partition']
+    assert len(calls[-1]['points']) == 2
+    assert cp['atomic_pipeline']['hierarchy']['status'] == 'completed'
+    assert len(candidate['categories']) == 2
+    assert len(candidate['categories']) == len({p['parent_id'] for p in candidate['knowledge_points']})
+    frozen = [p for b in cp['atomic_pipeline']['batches'] for p in b['tree']['knowledge_points']]
+    for point, original in zip(candidate['knowledge_points'], frozen):
+        for field in ('knowledge_id', 'statement', 'source_quotes', 'meta_question', 'meta_answer'):
+            assert point[field] == original[field]
+    assert candidate['atomic_assessment']['relation_status'] == 'not_run'
+
+
+@pytest.mark.asyncio
+async def test_existing_candidate_can_reorganize_only_hierarchy_and_preserve_old_job(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc)
+    original = start(svc); await svc.run('c-pilot', original['id'])
+    before = deepcopy(svc.authoring.load('c-pilot')['jobs'][original['id']]); raw = deepcopy(svc.repository.load_raw('c-pilot'))
+    calls = provider(svc)
+    new = start(svc, 'organize', resume_job_id=original['id'], retry_batch_id='hierarchy')
+    await svc.run('c-pilot', new['id'])
+    after = svc.authoring.load('c-pilot')['jobs'][new['id']]
+    assert after['status'] == 'completed'
+    assert [c['stage'] for c in calls] == ['hierarchy_partition']
+    assert after['checkpoint']['atomic_pipeline']['batches'] == before['checkpoint']['atomic_pipeline']['batches']
+    assert svc.authoring.load('c-pilot')['jobs'][original['id']] == before
+    assert svc.repository.load_raw('c-pilot') == raw
+    for point, prior in zip(after['checkpoint']['candidate']['knowledge_points'], before['checkpoint']['candidate']['knowledge_points']):
+        assert point['knowledge_id'] == prior['knowledge_id'] and point['revision_id'] == prior['revision_id']
+
+
+@pytest.mark.asyncio
+async def test_failed_hierarchy_continue_reuses_all_completed_atomic_batches(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc, fail_at=4)
+    old = start(svc, organize_hierarchy=True); await svc.run('c-pilot', old['id'])
+    assert svc.authoring.load('c-pilot')['jobs'][old['id']]['status'] == 'failed'
+    calls = provider(svc)
+    new = start(svc, 'resume-hierarchy', resume_job_id=old['id'])
+    await svc.run('c-pilot', new['id'])
+    assert [c['stage'] for c in calls] == ['hierarchy_partition']
+    assert svc.authoring.load('c-pilot')['jobs'][new['id']]['status'] == 'completed'
+
+
+@pytest.mark.asyncio
+async def test_replacing_leaf_batch_invalidates_hierarchy_and_preserves_other_batch(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc)
+    old = start(svc, organize_hierarchy=True); await svc.run('c-pilot', old['id'])
+    prior = svc.authoring.load('c-pilot')['jobs'][old['id']]['checkpoint']['atomic_pipeline']
+    calls = provider(svc)
+    new = start(svc, 'retry-organized-leaf', resume_job_id=old['id'], retry_batch_id='atoms-2')
+    await svc.run('c-pilot', new['id'])
+    assert [c['stage'] for c in calls] == ['atomize', 'hierarchy_partition']
+    assert svc.authoring.load('c-pilot')['jobs'][new['id']]['checkpoint']['atomic_pipeline']['batches'][0] == prior['batches'][0]
 
 
 @pytest.mark.asyncio
