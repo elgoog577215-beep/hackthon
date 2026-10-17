@@ -8,6 +8,7 @@
       <p v-if="batch.status !== 'completed'">{{ t('knowledgeFirst.relationBatchPending') }}</p>
       <p v-else-if="!batch.result?.relations?.length">{{ t('knowledgeFirst.noProposedRelations') }}</p>
       <article v-for="edge in batch.result?.relations || []" :key="edge.id" class="relation-card">
+        <p v-if="run.adopted">{{ t(run.rejected_ids?.includes(edge.id) ? 'knowledgeFirst.relationSkipped' : run.accepted_ids?.includes(edge.id) ? 'knowledgeFirst.relationSelected' : 'knowledgeFirst.relationRecordOnly') }}</p>
         <div class="relation-direction"><button type="button" @click="navigate(edge.source_id)">{{ name(edge.source_id) }}</button><span> → </span><button type="button" @click="navigate(edge.target_id)">{{ name(edge.target_id) }}</button><strong> · {{ t(`knowledgeFirst.relationTypes.${edge.type}`,edge.type) }}</strong></div>
         <p v-if="edge.cross_lesson" class="cross-lecture">{{ t('knowledgeFirst.crossLessonLinks') }}</p>
         <p>{{ edge.reason }}</p><ul v-if="edge.conditions?.length"><li v-for="condition in edge.conditions" :key="condition">{{ condition }}</li></ul>

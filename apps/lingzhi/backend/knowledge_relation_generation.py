@@ -55,6 +55,8 @@ def prompt_for(raw, pipeline, batch, lesson_id):
         'derives从推导前提指向可推出结论，必须有至少两个可检查步骤并明确额外条件；'
         'applies_to从被使用的规则或方法指向实际使用它的目标，理由说明具体作用。'
         '方法用于具体实例时优先表达applies_to；不要只因执行方法得到结果就把应用混标为一般命题推导。'
+        '三种类型分别判断：先修说明依赖，不替代推导证明。若命题之间确有完整可检查的证明链，应记录derives及步骤，不能只记录prerequisite而漏掉推导。'
+        '同一对端点可在不同明确场景下存在不同类型的关系，不强求每种类型必须有边。'
         '同学科、名称近似、同一复杂度或相邻讲次均不是充分理由；只连接有直接教学依据的关系。'
         '每条边至少一端是当前decision的focus_key；source_key/target_key只用目录P短键。'
         '特别注意：全目录仅供比较，不授权为其他焦点提前生成边。links中每一条必须含该decision自己的focus_key，'
@@ -235,6 +237,9 @@ def project_runs(state, raw):
         projected = deepcopy(pipeline)
         for field in ('baseline_relations','existing_relations'): projected.pop(field,None)
         for batch in projected['batches']: batch.pop('raw_response',None)
+        adopted = next((h for h in (raw.get('knowledge_first_history') or {}).values() if h.get('generation_job_id') == job['id']),None)
+        review = (adopted or {}).get('relation_assessment') or {}
         latest[job['knowledge_lesson_id']] = {'job_id':job['id'],'lesson_id':job['knowledge_lesson_id'],'status':job['status'],
-            'adopted':any(h.get('generation_job_id') == job['id'] for h in (raw.get('knowledge_first_history') or {}).values()),'pipeline':projected}
+            'adopted':adopted is not None,'accepted_ids':deepcopy(review.get('accepted_ids',[])),
+            'rejected_ids':deepcopy(review.get('rejected_ids',[])),'pipeline':projected}
     return list(latest.values())

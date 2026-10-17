@@ -31,6 +31,7 @@ class AdoptRequest(SourceRequest):
     confirm_identity_changes: bool = False
     confirm_atomic_review: bool = False
     confirm_relations: bool = False
+    selected_relation_ids: list[str] | None = Field(default=None,max_length=800)
 
 
 class InputRequest(SourceRequest):
@@ -150,7 +151,8 @@ async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depend
 @router.post("/courses/{course_id}/knowledge-first/adopt/{job_id}")
 def adopt(course_id: str, job_id: str, body: AdoptRequest, svc=Depends(service)):
     action(lambda: svc.adopt(course_id, job_id, body.knowledge_revision, body.document_revision,
-        confirm_identity_changes=body.confirm_identity_changes, confirm_atomic_review=body.confirm_atomic_review, confirm_relations=body.confirm_relations))
+        confirm_identity_changes=body.confirm_identity_changes, confirm_atomic_review=body.confirm_atomic_review,
+        confirm_relations=body.confirm_relations, selected_relation_ids=body.selected_relation_ids))
     return {"adopted": True}
 
 

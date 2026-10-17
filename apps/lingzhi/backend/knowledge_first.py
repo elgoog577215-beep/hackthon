@@ -583,7 +583,7 @@ class KnowledgeFirstService:
             if provider and getattr(provider, "client", None):
                 await provider.client.close()
 
-    def adopt(self, course_id, job_id, expected_revision, expected_document, *, confirm_identity_changes=False, confirm_atomic_review=False, confirm_relations=False):
+    def adopt(self, course_id, job_id, expected_revision, expected_document, *, confirm_identity_changes=False, confirm_atomic_review=False, confirm_relations=False, selected_relation_ids=None):
         with self.authoring._course_lock(course_id):
             job = self.authoring.load(course_id)["jobs"].get(job_id) or {}
             require(job.get("type") == TREE_JOB and job.get("status") == "completed", "知识树候选尚未完成")
@@ -592,6 +592,16 @@ class KnowledgeFirstService:
             relation_assessment = tree.get('relation_assessment')
             require(not relation_assessment or relation_assessment.get('ready_for_adoption') is True and confirm_relations,
                     '请先核对关系方向、推导步骤、必要性与适用条件，再确认采用关系候选')
+            if relation_assessment:
+                proposed = relation_assessment['proposed_ids']
+                selected = proposed if selected_relation_ids is None else selected_relation_ids
+                require(isinstance(selected,list) and all(isinstance(rid,str) for rid in selected)
+                    and len(selected) == len(set(selected)) and set(selected) <= set(proposed), '采用选择含未知或重复关系')
+                relation_assessment.update(accepted_ids=list(selected),rejected_ids=[rid for rid in proposed if rid not in selected])
+                tree['relations'] = [edge for edge in tree['relations'] if edge['id'] not in proposed or edge['id'] in selected]
+                from knowledge_relations import relation_index
+                tree['relation_index'] = relation_index(tree)
+                tree['revision_id'] = stable_hash({k:v for k,v in tree.items() if k != 'revision_id'},prefix='kb_')
             atomic = tree.get('atomic_assessment')
             require(not atomic or atomic.get('ready_for_adoption') is True, '细化或元问题覆盖检查尚有阻塞问题')
             require(not atomic or not any(i.get('severity') == 'review' for i in atomic.get('issues', [])) or confirm_atomic_review,

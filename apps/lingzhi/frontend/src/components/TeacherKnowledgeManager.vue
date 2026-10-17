@@ -88,6 +88,7 @@
         <section v-if="treeChoice === 'candidate' && displayTree?.relation_assessment" class="notice" data-testid="knowledge-relation-adoption">
           <p>{{ t('knowledgeFirst.relationReviewHint') }}</p>
           <p>{{ t('knowledgeFirst.relationCandidateSummary').replace('{count}',String(displayTree.relation_assessment.proposed_count)) }}</p>
+          <div v-for="edge in proposedRelations" :key="edge.id"><label><input v-model="selectedRelationIds" type="checkbox" :value="edge.id" :data-relation-id="edge.id" @change="confirmRelations = false" /> {{ pointName(edge.source_id) }} → {{ pointName(edge.target_id) }} · {{ t(`knowledgeFirst.relationTypes.${edge.type}`,edge.type) }}</label><p>{{ edge.reason }}</p></div>
           <p v-for="(gap,index) in displayTree.relation_assessment.gaps || []" :key="index">{{ gap }}</p>
           <label><input v-model="confirmRelations" type="checkbox" data-testid="confirm-knowledge-relations" /> {{ t('knowledgeFirst.confirmRelations') }}</label>
         </section>
@@ -217,6 +218,7 @@ const data = ref<any>(null), error = ref(''), busy = ref(false)
 const observationNotice = ref('')
 const confirmIdentityChanges = ref(false), confirmAtomicReview = ref(false)
 const confirmRelations = ref(false)
+const selectedRelationIds = ref<string[]>([])
 const generic = computed(() => data.value?.workflow === 'knowledge_first_generic_v1')
 const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3, material_asset_ids: [] as string[] })
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
@@ -273,7 +275,8 @@ const relationRun = computed(() => {
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.relation_runs || []).find((run:any)=>run.lesson_id === knowledgeLessonId.value)
 })
-const canGenerateRelations = computed(()=>data.value?.tree?.status === 'accepted' && selectedLesson.value?.can_generate && data.value.tree.knowledge_points?.some((p:any)=>(p.section_refs || [p.topic]).includes(knowledgeLessonId.value)))
+const proposedRelations = computed(()=>(displayTree.value?.relations || []).filter((edge:any)=>(displayTree.value?.relation_assessment?.proposed_ids || []).includes(edge.id)))
+const canGenerateRelations = computed(()=>treeChoice.value === data.value?.knowledge_revision && data.value?.tree?.status === 'accepted' && selectedLesson.value?.can_generate && data.value.tree.knowledge_points?.some((p:any)=>(p.section_refs || [p.topic]).includes(knowledgeLessonId.value)))
 const atomicReviewRequired = computed(() => displayTree.value?.atomic_assessment?.issues?.some((issue:any)=>issue.severity === 'review'))
 const identityReviewRequired = computed(() => !!displayTree.value?.identity_changes?.retired_points?.length)
 const atomicAdoptionReady = computed(() => displayTree.value?.atomic_assessment?.ready_for_adoption !== false
@@ -394,7 +397,7 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
   node?.scrollIntoView?.({ block: 'nearest' })
 }
 watch([selectedId, selectedSource], async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
-watch([treeChoice, () => displayTree.value?.revision_id], () => { confirmIdentityChanges.value = false; confirmAtomicReview.value = false; confirmRelations.value = false })
+watch([treeChoice, () => displayTree.value?.revision_id], () => { confirmIdentityChanges.value = false; confirmAtomicReview.value = false; confirmRelations.value = false; selectedRelationIds.value = [...(displayTree.value?.relation_assessment?.proposed_ids || [])] })
 async function closeSource() { selectedSource.value = null; await nextTick(); detailPane.value?.focus({ preventScroll: true }) }
 watch(() => [selectedId.value, treeChoice.value, courseId.value, knowledgeLessonId.value], () => { selectedSource.value = null })
 watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
@@ -490,7 +493,7 @@ async function generateRelations(resume = false, batchId = '') {
   await mutate('generate/tree',{request_id:createUuid(),source_mode:'handouts',lesson_id:knowledgeLessonId.value,
     pipeline:'knowledge_relations_v1',...(resume ? {resume_job_id:relationRun.value.job_id,retry_batch_id:batchId} : {})})
 }
-async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, displayTree.value?.relation_assessment ? {confirm_relations:confirmRelations.value} : displayTree.value?.atomic_assessment ? { confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value } : {}); if (!error.value) treeChoice.value = data.value.knowledge_revision }
+async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, displayTree.value?.relation_assessment ? {confirm_relations:confirmRelations.value,selected_relation_ids:selectedRelationIds.value} : displayTree.value?.atomic_assessment ? { confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value } : {}); if (!error.value) treeChoice.value = data.value.knowledge_revision }
 async function recheck(id: string) { treeChoice.value = 'candidate'; tab.value = 'tree'; await mutate(`recheck/${id}`, { request_id: createUuid() }) }
 async function loadMaterials() {
   if (!generic.value || derived.value || !data.value?.can_edit) return
