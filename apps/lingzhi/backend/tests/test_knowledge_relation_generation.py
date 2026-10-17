@@ -206,6 +206,7 @@ async def test_owner_can_adopt_selected_relations_without_accepting_all_model_su
     assert len(current['relation_assessment']['rejected_ids'])==2
     assert current['knowledge_points']==tree['knowledge_points']
     assert raw['knowledge_first_history']['baseline']==tree
+    assert svc.view('c-pilot',source_mode='handouts')['relation_runs'][0]['accepted_ids']==[chosen]
 
 
 @pytest.mark.asyncio
