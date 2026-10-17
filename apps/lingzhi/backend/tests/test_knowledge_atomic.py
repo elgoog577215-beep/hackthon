@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from backend.tests.test_knowledge_first import svc
 from backend.tests.test_handout_knowledge import handouts
 from course_repository import CourseDocumentConflict
+from ai_base import AIProviderRequestError
 from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
 from routers.knowledge_first import router
 
@@ -82,6 +83,26 @@ async def test_inventory_batches_and_questions_are_durable_without_course_writes
     assert candidate['atomic_assessment']['semantics_verified'] is False
     assert [c['stage'] for c in calls] == ['inventory', 'atomize', 'atomize']
     assert svc.repository.load_raw('c-pilot') == before
+
+
+@pytest.mark.asyncio
+async def test_provider_gateway_failure_is_reported_as_model_unavailable(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+
+    async def call(prompt, **kwargs):
+        raise AIProviderRequestError('Error code: 502 - Bad Gateway')
+
+    svc.provider_factory = lambda: SimpleNamespace(
+        _call_llm=call, model_smart='test-qwen', client=None
+    )
+    job = start(svc, 'gateway-failure')
+    await svc.run('c-pilot', job['id'])
+
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert saved['status'] == 'failed'
+    assert saved['error']['code'] == 'ModelConnectionUnavailable'
+    assert '模型服务' in saved['error']['message']
+    assert not saved['checkpoint']['atomic_pipeline']['items']
 
 
 @pytest.mark.asyncio

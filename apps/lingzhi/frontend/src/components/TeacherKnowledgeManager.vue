@@ -52,17 +52,15 @@
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
           <button type="button" :disabled="lessonOptions.at(-1)?.lesson_id === knowledgeLessonId" @click="stepLesson(1)">{{ t('knowledgeFirst.nextLesson') }}</button>
         </div>
-        <section v-if="sourceComparison" class="knowledge-source-version" :class="{ 'needs-review': staleTreeSource }" role="status" data-testid="knowledge-source-version">
-          <strong>{{ t(staleTreeSource ? 'knowledgeFirst.sourceNeedsReview' : 'knowledgeFirst.sourceVersionTitle') }}</strong>
+        <details v-if="sourceComparison" class="knowledge-source-version" :class="{ 'needs-review': staleTreeSource }" :open="staleTreeSource" data-testid="knowledge-source-version">
+          <summary>{{ t(staleTreeSource ? 'knowledgeFirst.sourceNeedsReview' : 'knowledgeFirst.sourceVersionDetails') }}</summary>
           <p v-if="staleTreeSource">{{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}</p>
-          <details><summary>{{ t('knowledgeFirst.sourceVersionDetails') }}</summary>
-            <dl v-for="source in sourceComparison.sources" :key="source.lessonId">
-              <dt>{{ source.title }}</dt>
-              <dd><span>{{ t('knowledgeFirst.recordedHandoutVersion') }}</span><code>{{ source.recorded || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
-              <dd><span>{{ t('knowledgeFirst.currentHandoutVersion') }}</span><code>{{ source.current || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
-            </dl>
-          </details>
-        </section>
+          <dl v-for="source in sourceComparison.sources" :key="source.lessonId">
+            <dt>{{ source.title }}</dt>
+            <dd><span>{{ t('knowledgeFirst.recordedHandoutVersion') }}</span><code>{{ source.recorded || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
+            <dd><span>{{ t('knowledgeFirst.currentHandoutVersion') }}</span><code>{{ source.current || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
+          </dl>
+        </details>
         <section v-for="job in sourceBlockingJobs" :key="job.id" class="notice job" role="status" data-testid="knowledge-source-blocker">
           <strong>{{ blockingJobLabel(job) }}</strong>
           <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
@@ -78,12 +76,12 @@
           <summary>{{ t('knowledgeFirst.otherLectureTasks').replace('{count}', String(otherKnowledgeJobs.length)) }}</summary>
           <p v-for="job in otherKnowledgeJobs" :key="job.id"><button type="button" @click="knowledgeLessonId = job.knowledge_lesson_id">{{ lessonLabels[job.knowledge_lesson_id] || job.knowledge_lesson_id }}</button> · {{ jobPhase(job) }} · {{ progressDetails(job) }}</p>
         </details>
-        <p v-if="treeOnly && !activeJob && latestJob?.status === 'failed'" class="notice error" role="alert"><strong>{{ t('knowledgeFirst.lastGenerationFailed') }}：</strong>{{ latestJob.error?.message }} <button v-if="data.can_edit && latestJob.recheck_available" :disabled="busy" @click="recheck(latestJob.id)">{{ t('knowledgeFirst.recheck') }}</button></p>
+        <p v-if="treeOnly && !activeJob && latestJob?.status === 'failed'" class="notice error" role="alert"><strong>{{ t('knowledgeFirst.lastGenerationFailed') }}：</strong>{{ generationFailureMessage(latestJob) }} <button v-if="data.can_edit && latestJob.recheck_available" :disabled="busy" @click="recheck(latestJob.id)">{{ t('knowledgeFirst.recheck') }}</button></p>
         <details v-if="!treeOnly && failedJobs.length" class="notice"><summary>{{ t('knowledgeFirst.jobHistory') }} · {{ failedJobs.length }}</summary>
           <details v-for="job in failedJobs" :key="job.id" class="notice error"><summary>{{ t('knowledgeFirst.interrupted') }} · {{ job.id }}</summary>
-            <p>{{ job.error?.code === 'AIRequestBudgetExceeded' ? t('knowledgeFirst.inputBudgetExceeded') : job.error?.code === 'ModelConnectionUnavailable' ? t('knowledgeFirst.modelDisconnected') : job.error?.message }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="job.error?.code !== 'AIRequestBudgetExceeded'">{{ t('knowledgeFirst.retryHint') }}</p></details>
+            <p>{{ generationFailureMessage(job) }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="!['AIRequestBudgetExceeded', 'ModelConnectionUnavailable'].includes(job.error?.code)">{{ t('knowledgeFirst.retryHint') }}</p></details>
         </details>
-        <KnowledgeAtomicWorkbench v-if="atomicRun" :run="atomicRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="continueAtomic()" @retry="continueAtomic($event)" />
+        <KnowledgeAtomicWorkbench v-if="atomicRunVisible" :run="atomicRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="continueAtomic()" @retry="continueAtomic($event)" />
         <KnowledgeGenerationMetrics v-if="latestJob?.stage_observations?.length" :observations="latestJob.stage_observations" />
         <KnowledgeRelationWorkbench v-if="relationRun" :run="relationRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="generateRelations(true)" @retry="generateRelations(true,$event)" @navigate="navigateRelated" />
         <section v-if="treeChoice === 'candidate' && displayTree?.relation_assessment" class="notice" data-testid="knowledge-relation-adoption">
@@ -249,6 +247,11 @@ const otherKnowledgeJobs = computed(() => perLesson.value ? activeJobs.value.fil
 const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => !perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
+function generationFailureMessage(job: any) {
+  if (job.error?.code === 'AIRequestBudgetExceeded') return t('knowledgeFirst.inputBudgetExceeded')
+  if (job.error?.code === 'ModelConnectionUnavailable') return t('knowledgeFirst.modelDisconnected')
+  return job.error?.message
+}
 const derived = computed(() => data.value?.source_mode === 'handouts')
 const lessonOptions = computed<any[]>(() => data.value?.lesson_options || [])
 const perLesson = computed(() => props.treeOnly && derived.value && lessonOptions.value.length > 0)
@@ -273,6 +276,15 @@ const atomicRun = computed(() => {
   if (treeChoice.value === 'candidate' && selectedCandidate.value?.relation_assessment) return null
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
+})
+const atomicRunVisible = computed(() => {
+  const pipeline = atomicRun.value?.pipeline
+  if (!pipeline) return false
+  return Boolean(
+    pipeline.items?.length
+    || pipeline.batches?.length
+    || pipeline.inventory_batches?.some((batch: any) => batch.status === 'completed'),
+  )
 })
 const relationRun = computed(() => {
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null

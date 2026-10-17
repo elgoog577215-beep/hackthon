@@ -434,8 +434,33 @@ async def run_atomic(svc, course_id, job_id):
         raise
     except Exception as exc:
         if svc.authoring.load(course_id)['jobs'][job_id]['status'] in {'pending', 'running'}:
+            from ai_base import AIProviderRequestError, AIRequestBudgetExceeded
+            error = {
+                'code': type(exc).__name__,
+                'message': str(exc) if isinstance(exc, (CourseDocumentConflict, KnowledgeModelIdleTimeout))
+                else '本次细化未完成，清单与已完成批次已保留；请主动继续缺失批次。',
+            }
+            provider_message = str(exc).casefold()
+            if isinstance(exc, AIProviderRequestError) and (
+                'connect' in provider_message
+                or 'bad gateway' in provider_message
+                or any(f' {status}' in f' {provider_message}' for status in ('502', '503', '504'))
+            ):
+                error.update(
+                    code='ModelConnectionUnavailable',
+                    message='模型服务暂时不可用，原讲义和知识树已保留。恢复模型服务后请手动重新生成。',
+                    retryable=False,
+                    recovery_action='restore_model_connection',
+                )
+            elif isinstance(exc, AIRequestBudgetExceeded):
+                error.update(
+                    message='本次输入超过生成容量限制，尚未调用模型。请调整输入范围后重新生成。',
+                    retryable=False,
+                    recovery_action='revise_inputs',
+                    model_request_sent=False,
+                )
             svc.authoring.update_job(course_id, job_id, status='failed', phase='failed', stream_complete=True,
-                error={'code': type(exc).__name__, 'message': str(exc) if isinstance(exc, (CourseDocumentConflict,KnowledgeModelIdleTimeout)) else '本次细化未完成，清单与已完成批次已保留；请主动继续缺失批次。'})
+                error=error)
     finally:
         if provider and getattr(provider, 'client', None): await provider.client.close()
 

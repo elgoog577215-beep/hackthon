@@ -1,11 +1,11 @@
 <template>
-  <details class="atomic-workbench" open data-testid="knowledge-atomic-workbench">
+  <details class="atomic-workbench" data-testid="knowledge-atomic-workbench">
     <summary>{{ t(run.adopted ? 'knowledgeFirst.atomicAdoptedRecord' : 'knowledgeFirst.atomicCandidates') }} · {{ t('knowledgeFirst.atomicSummary').replace('{items}', String(pipeline.items?.length || 0)).replace('{done}', String(done)).replace('{total}', String(pipeline.batches?.length || 0)) }}</summary>
     <p class="atomic-note">{{ t('knowledgeFirst.atomicReviewHint') }}</p>
     <details v-if="sourceIssues.length" class="atomic-issues" open data-testid="knowledge-source-issues"><summary>{{ t('knowledgeFirst.sourceIssuesTitle') }}</summary><div v-for="(issue,index) in sourceIssues" :key="index"><p>{{ issue.source_key }} · {{ issue.detail }}</p><blockquote>{{ issue.quote }}</blockquote></div></details>
     <button v-if="canEdit && !run.adopted && hasPending && ['failed','paused','cancelled'].includes(run.status)" type="button" :disabled="disabled" data-testid="continue-knowledge-batches" @click="emit('continue')">{{ t('knowledgeFirst.continueAtomic') }}</button>
     <button v-if="canEdit && !run.adopted && pipeline.items?.length && !['pending','running'].includes(run.status)" type="button" :disabled="disabled" data-testid="rebuild-knowledge-leaves" @click="emit('retry','all_atoms')">{{ t('knowledgeFirst.rebuildLeaves') }}</button>
-    <details class="inventory-panel" open>
+    <details class="inventory-panel">
       <summary>{{ t('knowledgeFirst.inventoryTitle') }} · {{ pipeline.items?.length || 0 }}</summary>
       <p v-if="!pipeline.items?.length">{{ t('knowledgeFirst.inventoryPending') }}</p>
       <ol v-else class="inventory-list">

@@ -54,6 +54,15 @@ it('shows source doubts beside the frozen quote without treating them as verifie
   expect(w.text()).toContain('原文中的可疑结论。');expect(w.text()).toContain('需要核对原讲义的适用条件。')
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
+it('hides an empty refinement panel after the model service fails before inventory',async()=>{
+  const v:any=view();v.jobs=[{id:'gateway-job',lesson_unit_id:'tree',knowledge_lesson_id:'cpu',status:'failed',error:{code:'ModelConnectionUnavailable',message:'模型服务暂时不可用'}}]
+  v.atomic_runs=[{job_id:'gateway-job',lesson_id:'cpu',status:'failed',pipeline:{schema_version:'inventory_atomic_v1',revision:1,items:[],batches:[],inventory_batches:[{id:'inventory-1',status:'pending'}]}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.find('[data-testid="knowledge-atomic-workbench"]').exists()).toBe(false)
+  expect(w.text()).toContain('模型服务暂未连接')
+  w.unmount()
+})
 it('shows unresolved original passages and keeps the incomplete candidate unadoptable',async()=>{
   const v:any=view();v.candidates=[{job_id:'candidate-job',lesson_id:'cpu',tree:{revision_id:'candidate',source_mode:'handouts',categories:[],knowledge_points:[],relations:[],lessons:[],
     atomic_assessment:{ready_for_adoption:false,issues:[{code:'source_span_uncovered',severity:'blocking'}],uncovered_passages:[{key:'S2.1',source_key:'S2',text:'尾部还有一个尚未承载的重要结论。'}]}}}]
