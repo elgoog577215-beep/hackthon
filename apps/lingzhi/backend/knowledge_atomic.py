@@ -65,6 +65,8 @@ def pipeline_progress(pipeline):
     def fraction(rows):
         return sum(row['status'] == 'completed' for row in rows) / len(rows) if rows else 0
     hierarchy = pipeline.get('hierarchy') or {}
+    if pipeline.get('extraction_mode') == 'single_pass_v1':
+        return int(85 * fraction(pipeline.get('inventory_batches', [])) + (10 if hierarchy.get('status') == 'completed' else 0))
     tasks = hierarchy.get('tasks') or []
     assigned = len(hierarchy.get('assignments') or [])
     total = len(tasks[0]['point_keys']) if tasks else 0
@@ -363,7 +365,11 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
     options = budget.call_options(); options['max_tokens'] = min(options['max_tokens'], 8000 if stage == 'inventory' else 14000)
     request_budget = {**budget.describe(prompt,system),'max_output_tokens':options['max_tokens']}
     structure = None
-    if stage in {'inventory','atomize'}:
+    if stage == 'extract':
+        from knowledge_extract import extraction_schema
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
+        structure = extraction_schema([p['key'] for p in payload['source_passages']])
+    elif stage in {'inventory','atomize'}:
         from knowledge_compact import passage_schema, leaf_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
         structure = passage_schema(stage,[p['key'] for p in payload.get('source_passages',[])],[]) if stage == 'inventory' else leaf_schema([i['key'] for i in payload['items']],[i['key'] for i in payload.get('attachments',[])])
@@ -438,9 +444,12 @@ async def run_atomic(svc, course_id, job_id):
                 and fresh.get('course_document_revision') == job['source_document_revision']
                 and svc._context(fresh, 'handouts', job['knowledge_lesson_id'])['revision_id'] == context['revision_id'], '课程、知识或讲义来源已变化，保留原批次')
         validate_source()
+        from knowledge_extract import extraction_groups
+        fast = job.get('extraction_mode') == 'single_pass_v1'
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
-            'schema_version': PIPELINE, 'prompt_contract':'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
-            'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(source_groups(context), 1)]}
+            'schema_version': PIPELINE, 'prompt_contract':'knowledge_extract_v1' if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
+            'extraction_mode': job.get('extraction_mode', ''),
+            'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))
         def save(**extra):
             svc._active(course_id, job_id); pipeline['revision'] += 1
@@ -448,17 +457,31 @@ async def run_atomic(svc, course_id, job_id):
             svc.authoring.update_job(course_id, job_id, checkpoint=cp, inventory_count=len(pipeline['items']),
                 completed_batches=sum(b['status'] == 'completed' for b in pipeline['batches']), batch_total=len(pipeline['batches']),
                 progress=pipeline_progress(pipeline), **extra)
-        svc.authoring.update_job(course_id, job_id, status='running', generation_started_at=now(), phase='preparing')
+        svc.authoring.update_job_live(course_id, job_id, status='running', generation_started_at=now(), phase='preparing')
         if svc.provider_factory is None:
             from ai_base import AIBase
             provider = AIBase()
         else: provider = svc.provider_factory()
-        svc.authoring.update_job(course_id, job_id, model=provider.model_smart)
+        svc.authoring.update_job_live(course_id, job_id, model=provider.model_smart)
         save()
         from course_generation_budget import _env_int
-        concurrency = _env_int('COURSE_KNOWLEDGE_BATCH_CONCURRENCY', 2, minimum=1, maximum=4)
+        concurrency = _env_int('COURSE_KNOWLEDGE_EXTRACT_CONCURRENCY' if fast else 'COURSE_KNOWLEDGE_BATCH_CONCURRENCY', 4 if fast else 2, minimum=1, maximum=4 if fast else 4)
         async def inventory_batch(i, batch):
             validate_source(); svc.authoring.update_job_live(course_id, job_id, batch_index=i, pipeline_stage='inventory')
+            if fast:
+                from knowledge_extract import extraction_prompt, compile_extraction
+                response = await call_stage(svc, course_id, job_id, provider, extraction_prompt(raw, context, batch['source_keys']), 'extract')
+                validate_source()
+                result = compile_extraction(raw, context, batch['source_keys'], i, parse_complete_json(response))
+                batch.update(status='completed', raw_response=response, **{k: result[k] for k in ('items', 'source_coverage', 'source_issues', 'format_normalizations')})
+                pipeline['items'] = [item for b in pipeline['inventory_batches'] if b['status'] == 'completed' for item in b['items']]
+                require(len(pipeline['items']) <= 320, '知识清单超出本讲容量')
+                if result['tree']:
+                    pipeline['batches'].append({'id': f'atoms-{i}', 'item_keys': [v['key'] for v in result['items']],
+                        'status': 'completed', 'tree': result['tree'], 'report': result['report']})
+                    pipeline['batches'].sort(key=lambda b: int(b['id'].split('-')[-1]))
+                save()
+                return
             response = await call_stage(svc, course_id, job_id, provider,
                 stage_prompt(raw, context, 'inventory', source_keys=batch['source_keys']), 'inventory')
             validate_source()
@@ -509,7 +532,8 @@ async def run_atomic(svc, course_id, job_id):
             for batch in pipeline['batches']:
                 for point in batch['tree']['knowledge_points']:
                     flat_points.append({**point, 'key': f'K{len(flat_points) + 1}'})
-            hierarchy = await organize(svc, course_id, job_id, provider, raw, context, pipeline, flat_points, save, validate_source)
+            hierarchy = await organize(svc, course_id, job_id, provider, raw, context, pipeline, flat_points, save, validate_source,
+                                       **({'concurrency': concurrency} if fast else {}))
         validate_source(); result = assemble(raw, context, pipeline, hierarchy)
         result.update(source_context_revision=context['revision_id'], source_evidence_package_revision=context['evidence_package']['package_revision_id'],
             source_scope_revision=context['scope_contract']['revision_id'], generation_job_id=job_id, model=provider.model_smart)

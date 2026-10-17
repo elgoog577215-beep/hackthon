@@ -2199,7 +2199,7 @@ class TeacherLessonAuthoringRepository:
         fd, temp_name = tempfile.mkstemp(prefix=f".{course_id}.", suffix=".tmp", dir=str(self.root))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                handle.write(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
                 handle.flush()
                 os.fsync(handle.fileno())
             # Windows readers/antivirus can briefly deny atomic replacement.

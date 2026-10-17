@@ -138,7 +138,7 @@ def compile_subtree(response, task, points, course_id, lesson_id):
     return compile_hierarchy(value, points, course_id, lesson_id)
 
 
-async def organize(svc, course_id, job_id, provider, raw, context, pipeline, points, save, validate_source):
+async def organize(svc, course_id, job_id, provider, raw, context, pipeline, points, save, validate_source, *, concurrency=None):
     """Partition once, then generate independent recursive subtrees in parallel."""
     from knowledge_atomic import call_stage
     from knowledge_compact import parse_complete_json
@@ -151,7 +151,6 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
     lookup = {p['key']: p for p in points}
     async def process(pending):
         validate_source()
-        save(pipeline_stage='hierarchy')
         if len(pending['point_keys']) == 1:
             result = {'groups': [], 'direct_keys': pending['point_keys'], 'reason': '本分支只有一个冻结元知识点，无需添加分类'}
         elif not pending.get('is_root'):
@@ -190,9 +189,10 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
         pending.update(status='completed', reason=result['reason'], normalizations=result.get('normalizations', []))
         save(pipeline_stage='hierarchy')
     root = state['tasks'][0]
+    save(pipeline_stage='hierarchy')
     if root['status'] != 'completed': await process(root)
     from course_generation_budget import _env_int
-    width = _env_int('COURSE_KNOWLEDGE_HIERARCHY_CONCURRENCY', 2, minimum=1, maximum=4)
+    width = concurrency or _env_int('COURSE_KNOWLEDGE_HIERARCHY_CONCURRENCY', 2, minimum=1, maximum=4)
     pending = [t for t in state['tasks'][1:] if t['status'] != 'completed']
     for offset in range(0, len(pending), width):
         # Await every sibling even on failure so successful results are durable;
