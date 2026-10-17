@@ -41,6 +41,66 @@ def test_single_pass_rejects_unknown_sources(svc, monkeypatch):
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
 
 
+def test_single_pass_requires_explicit_note_for_every_passage(svc, monkeypatch):
+    from knowledge_extract import compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    value = response(); value.pop('unassigned_passages'); value['passage_notes'] = {}
+    with pytest.raises(CourseDocumentConflict, match='完整'): compile_extraction(raw, context, ['S1'], 1, value)
+    value['passage_notes'] = {'S1.1': None}
+    assert compile_extraction(raw, context, ['S1'], 1, value)['source_coverage'][0]['uncovered_passage_keys'] == []
+    value['points'] = []
+    assert compile_extraction(raw, context, ['S1'], 1, value)['source_coverage'][0]['uncovered_passage_keys'] == ['S1.1']
+
+
+def test_passage_keyed_extraction_cannot_silently_omit_source_text(svc, monkeypatch):
+    from knowledge_extract import compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    points = response()['points']
+    for point in points: point.pop('source_passage_keys')
+    value = {'response_contract': 'knowledge_extract_v1', 'passages': {'S1.1': {'points': points, 'note': None}}, 'source_issues': []}
+    result = compile_extraction(raw, context, ['S1'], 1, value)
+    assert result['source_coverage'][0]['uncovered_passage_keys'] == []
+    value['passages']['S1.1'] = {'points': [], 'note': None}
+    with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
+
+
+@pytest.mark.asyncio
+async def test_failed_single_pass_continues_only_missing_source_group(svc, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_atomic import start
+    setup_course(svc, monkeypatch)
+    state = svc.authoring.load('c-pilot')
+    blocks = state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks']
+    blocks[0]['content'] = '入栈将元素插入栈顶。'
+    blocks.append({**deepcopy(blocks[0]), 'block_id': 'pop-block', 'content': '出栈移除并返回栈顶元素。'})
+    svc.authoring._save(state)
+    monkeypatch.setattr('knowledge_extract.extraction_groups', lambda context: [['S1'], ['S2']])
+    fail = True; calls = []
+    async def call(prompt, **kwargs):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); source = payload['source_passages'][0]['source_key']
+        calls.append(source)
+        if fail and source == 'S2': raise TimeoutError('isolated request interrupted')
+        value = response(); value['points'] = [value['points'][0 if source == 'S1' else 1]]
+        value['points'][0]['source_passage_keys'] = [source + '.1']
+        return json.dumps(value, ensure_ascii=False)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test-qwen', client=None)
+    first = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', first['id'])
+    original = deepcopy(svc.authoring.load('c-pilot')['jobs'][first['id']])
+    assert original['status'] == 'failed'
+    assert original['checkpoint']['atomic_pipeline']['inventory_batches'][0]['status'] == 'completed'
+    fail = False; calls.clear()
+    resumed = start(svc, 'resume-single-pass', resume_job_id=first['id'])
+    assert resumed['extraction_mode'] == 'single_pass_v1'
+    await svc.run('c-pilot', resumed['id'])
+    result = svc.authoring.load('c-pilot')['jobs'][resumed['id']]
+    assert calls == ['S2'] and result['status'] == 'completed'
+    assert len(result['checkpoint']['candidate']['knowledge_points']) == 2
+    assert svc.authoring.load('c-pilot')['jobs'][first['id']] == original
+
+
 @pytest.mark.asyncio
 async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, monkeypatch):
     import json
@@ -51,8 +111,8 @@ async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, mo
     async def call(prompt, **kwargs):
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data['stage'])
         result = response() if data['stage'] == 'extract' else {
-            'response_contract': CONTRACT, 'categories': [{'key': 'C1', 'name': '栈操作', 'scope': '入栈和出栈', 'parent_key': None}],
-            'point_categories': {p['key']: 'C1' for p in data['points']}}
+            'response_contract': 'knowledge_partition_v1', 'groups': [],
+            'point_groups': {p['key']: '__direct__' for p in data['points']}, 'stop_reason': '两个栈操作自然并列'}
         return json.dumps(result, ensure_ascii=False)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, model_smart='test-qwen', client=None)
     before = deepcopy(svc.repository.load_raw('c-pilot'))
@@ -60,7 +120,7 @@ async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, mo
     await svc.run('c-pilot', job['id'])
     saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
     assert saved['status'] == 'completed'
-    assert calls == ['extract', 'hierarchy']
+    assert calls == ['extract', 'hierarchy_partition']
     assert len(saved['checkpoint']['candidate']['knowledge_points']) == 2
     assert saved['checkpoint']['candidate']['atomic_assessment']['ready_for_adoption']
     assert svc.repository.load_raw('c-pilot') == before
