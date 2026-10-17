@@ -84,7 +84,7 @@ async def test_relation_only_candidate_preserves_every_point_and_has_three_direc
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('bad',['endpoint','self','evidence','steps','point_edit','missing_decision'])
+@pytest.mark.parametrize('bad',['endpoint','self','evidence','steps','point_edit','missing_decision','scope'])
 async def test_invalid_relationship_output_is_not_adoptable(svc,monkeypatch,bad):
     seed(svc,monkeypatch); before = deepcopy(svc.repository.load_raw('c-pilot'))
     def corrupt(data,result):
@@ -96,9 +96,11 @@ async def test_invalid_relationship_output_is_not_adoptable(svc,monkeypatch,bad)
         if bad == 'steps': result['decisions'][0]['links'][1]['derivation_steps'] = []
         if bad == 'point_edit': result['points'] = [{'knowledge_id':'overwrite'}]
         if bad == 'missing_decision': result['decisions'] = []
+        if bad == 'scope': edge['target_key'] = next(p['key'] for p in data['catalog'] if p['name']=='控制步骤')
     provider(svc,mutate=corrupt); job = start(svc); await svc.run('c-pilot',job['id'])
     saved = svc.authoring.get_job('c-pilot',job['id'])
     assert saved['status'] == 'failed' and not saved['checkpoint'].get('candidate')
+    if bad == 'scope': assert 'P2→P3' in saved['error']['message']
     assert svc.repository.load_raw('c-pilot') == before
 
 
