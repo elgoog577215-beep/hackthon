@@ -119,6 +119,7 @@ class CourseEvolutionApplicationService:
             instruction=instruction,
             repository=self.evolution_repository,
             analyzer=self.course_service.analyze_teacher_course_change,
+            intent_analyzer=getattr(self.course_service, 'analyze_teacher_course_change_intent', None),
             supersedes_plan_id=supersedes_plan_id,
             literal_replacement=literal_replacement,
             asset_types=asset_types,

@@ -108,10 +108,10 @@
 
             <main v-else-if="workspaceState === 'scanning'" class="scanning-state" aria-live="polite">
               <section class="scan-main">
-                <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
+                <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ scanProgress?.stage === 'intent' ? t('courseEvolution.workspace.intentPreflight') : t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
                 <p v-if="scanProgress?.retained_units" class="coverage-status">{{ scanResumeLabel }}</p>
-                <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
+                <p v-if="scanProgress && scanProgress.stage !== 'intent'" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
                 <section v-if="scanProgress?.findings" class="scan-findings" data-testid="scan-findings">
                   <header><strong>{{ t('courseEvolution.workspace.liveFindings') }}</strong><span>{{ scanProgress.finding_count || 0 }}</span></header>
                   <p>{{ t('courseEvolution.workspace.liveFindingsHint') }}</p>
@@ -138,6 +138,9 @@
                 <div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div>
                 <p>{{ systemClarificationBlockers.length ? t('courseEvolution.workspace.scanIncompleteHint', '本次没有完整检查课程内容，请先重新检查；无需填写或确认任何答案。') : t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p>
                 <div v-if="structuredClarifications.length && !systemClarificationBlockers.length" class="clarification-question-list">
+                  <p v-if="manyClarifications">{{ t('courseEvolution.workspace.manyClarifications').replace('{count}', String(structuredClarifications.length)) }}</p>
+                  <button v-if="manyClarifications" type="button" class="button-quiet" data-testid="expand-clarifications" @click="showAllClarifications = !showAllClarifications">{{ t('courseEvolution.workspace.toggleClarifications') }}</button>
+                  <template v-if="!manyClarifications || showAllClarifications">
                   <section v-for="(question, index) in structuredClarifications" :key="question.question_id" class="clarification-question">
                     <fieldset>
                       <legend><b>{{ index + 1 }}.</b>{{ question.prompt }}</legend>
@@ -162,6 +165,7 @@
                       </label>
                     </fieldset>
                   </section>
+                  </template>
                 </div>
                 <ol v-else-if="teacherBlockingQuestions.length && !systemClarificationBlockers.length"><li v-for="question in teacherBlockingQuestions" :key="question">{{ question }}</li></ol>
                 <div v-if="systemClarificationBlockers.length" class="clarification-system-blockers" role="alert" aria-live="polite">
@@ -171,10 +175,10 @@
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-danger" data-testid="discard-blocked-plan" :disabled="Boolean(store.actingId)" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardBlockedPlan', '放弃本次全课修改') }}</button>
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-primary" data-testid="retry-incomplete-scan" :disabled="store.generating" @click="retryIncompleteScan"><RefreshCw :size="15" />{{ t('courseEvolution.workspace.retryIncompleteScan', '重新检查未完成内容') }}</button>
                   <template v-else>
-                    <button v-if="structuredClarifications.some(question => question.options.some(option => option.recommended))" type="button" class="button-quiet" @click="applyRecommendedClarifications">{{ t('courseEvolution.workspace.useRecommendedOptions', '采用推荐项') }}</button>
+                    <button v-if="(!manyClarifications || showAllClarifications) && structuredClarifications.some(question => question.options.some(option => option.recommended))" type="button" class="button-quiet" @click="applyRecommendedClarifications">{{ t('courseEvolution.workspace.useRecommendedOptions', '采用推荐项') }}</button>
                     <button type="button" class="button-secondary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button>
                     <button
-                      v-if="structuredClarifications.length"
+                      v-if="structuredClarifications.length && (!manyClarifications || showAllClarifications)"
                       type="button"
                       class="button-primary"
                     data-testid="confirm-clarification-answers"
@@ -367,6 +371,7 @@ const scanFailureSummary = computed(() => {
 const historyRef = ref<HTMLElement | null>(null)
 const correctionText = ref('')
 const correctionOpen = ref(false)
+const showAllClarifications = ref(false)
 const clarificationAnswers = ref<Record<string, { option_id?: string; custom_text?: string }>>({})
 const actionError = ref('')
 const selectedAsset = ref('')
@@ -405,6 +410,7 @@ const focusedPlan = computed(() => {
 })
 const planning = computed(() => focusedPlan.value?.teacher_change_planning || null)
 const structuredClarifications = computed(() => planning.value?.intent.clarifications || [])
+const manyClarifications = computed(() => structuredClarifications.value.length > 3)
 const clarificationPromptSet = computed(() => new Set(structuredClarifications.value.map(item => item.prompt)))
 const isLegacySystemBlocker = (value: string) => /未完成检查|incomplete\s+(course\s+)?scan/i.test(value)
 const systemClarificationBlockers = computed(() => Array.from(new Set([
@@ -579,6 +585,7 @@ watch(() => focusedPlan.value?.change_set_id, () => {
   discardConfirm.value = false
 }, { immediate: true })
 watch(() => planning.value?.intent.clarification_set_id, () => {
+  showAllClarifications.value = false
   clarificationAnswers.value = {}
 }, { immediate: true })
 watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId], previous) => {

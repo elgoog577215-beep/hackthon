@@ -48,6 +48,7 @@ export interface CourseChangeAnalysisTask {
     request_id?: string
     plan_id?: string
     scan?: {
+      stage?: 'intent'
       completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number
       deferred_parts?: number; retained_units?: number; pending_units?: number
       finding_count?: number

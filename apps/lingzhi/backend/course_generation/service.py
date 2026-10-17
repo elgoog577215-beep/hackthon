@@ -8942,6 +8942,35 @@ class CourseService(AIBase):
             raise AIProviderRequestError("AI PPT 优化没有产生可见修改")
         return {"page": candidate, "changed_fields": changed_fields}
 
+    async def analyze_teacher_course_change_intent(self, overview, candidates, instruction):
+        """Resolve the teacher's goal before inspecting full course fragments."""
+        prompt = (
+            '只判断老师的修改意图是否完整明确，不扫描或改写正文。只返回 JSON。\n'
+            '老师原话：' + instruction + '\n课程概况：' + json.dumps(overview, ensure_ascii=False) + '\n'
+            '返回 interpreted_goal、signal_kind、signal_confidence、affected_units=[]、'
+            'structure={"required":false}、clarifications、blocking_questions=[]。'
+            '完整明确的要求直接返回 clarifications=[]，不要追问正文位置；正文尚未扫描，'
+            '不能断言目标不存在。按主题描述目标范围已足够，定位所有匹配段落是系统的责任，'
+            '不能要求老师提供讲次、单元编号、原文或判断哪些段落命中。'
+            '例如“给所有涉及贝叶斯定理的段落补一个应用例子”或“只在讲解某概念的段落中补充一句边界说明，其他不变”，'
+            '操作与主题范围已经明确，必须返回 clarifications=[]；不能再问改哪一讲或哪个段落。'
+            '“先将这套流程”缺少后续动作，才需要询问新增、替换还是重排。'
+            '只有原话缺少具体操作、主题目标或存在会导致不同修改的关键决策歧义时，'
+            '集中提出至多3个问题，语义相同的问题只问一次，不为每个讲次重复提问。'
+            '每个问题包含 question_id、prompt、response_type=single_choice、required=true、options。'
+            '每个选项包含 option_id、label、impact、recommended；选项应覆盖不同的修改方向，'
+            '最多一个 recommended。不要把模型检查失败当作老师需要回答的问题。'
+        )
+        response = await self._call_llm(
+            prompt, use_fast_model=True, max_tokens=1600,
+            system_prompt='你是高校课程编辑，先用最少的问题确认老师要改什么，再启动全文分析。',
+            enable_thinking=False, retry_count=1, max_attempts=1, reject_truncated=True,
+            raise_on_failure=True, json_mode=True, max_input_tokens=11000,
+            model_role='teacher_course_change_intent',
+            wait_for_capacity=True,
+        )
+        return self._extract_json(response or '')
+
     async def analyze_teacher_course_change(
         self,
         overview: dict[str, Any],

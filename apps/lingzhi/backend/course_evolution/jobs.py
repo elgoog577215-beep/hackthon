@@ -252,6 +252,9 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
         done = int(detail.get("completed_parts") or 0)
         failed = int(detail.get("failed_parts") or 0)
         message = (
+            "正在确认修改意图，尚未扫描课程正文"
+            if detail.get('stage') == 'intent'
+            else
             f"正在合并《{detail.get('repair_title') or '当前内容'}》的修改建议，已保留检查结果"
             if detail.get('reconciling_content')
             else f"本次 AI 请求失败，等待 {int(detail.get('retry_after_seconds') or 0)} 秒后重试"

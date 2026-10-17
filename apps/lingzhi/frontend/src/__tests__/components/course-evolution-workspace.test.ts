@@ -108,6 +108,21 @@ function mountWorkspace(pinia: Pinia) {
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('summarizes excessive historical questions and preserves their optional detail', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    const questions = Array.from({ length: 100 }, (_, i) => ({ question_id: `q${i}`,
+      prompt: `历史问题 ${i}`, response_type: 'free_text', required: true, options: [] }))
+    store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification',
+      intent: { ...planning().intent, clarifications: questions as any, clarification_set_id: 'old-set' } }) })]
+    const wrapper = mountWorkspace(pinia)
+    expect(wrapper.text()).toContain('100 条待确认问题')
+    expect(wrapper.findAll('.clarification-question')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="expand-clarifications"]').trigger('click')
+    expect(wrapper.findAll('.clarification-question')).toHaveLength(100)
+    wrapper.unmount()
+  })
+
   it('keeps a reopened running analysis attached to the completed review', async () => {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
     store.selectCourse('course-1')

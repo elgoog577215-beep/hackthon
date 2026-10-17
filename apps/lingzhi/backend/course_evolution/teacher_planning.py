@@ -2122,6 +2122,7 @@ async def create_teacher_course_change_plan(
     instruction: str,
     repository: CourseEvolutionRepository,
     analyzer: AnalysisCallable | None = None,
+    intent_analyzer: AnalysisCallable | None = None,
     supersedes_plan_id: str = "",
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
@@ -2211,6 +2212,21 @@ async def create_teacher_course_change_plan(
     )
     if raw_analysis is None:
         raw_analysis = _lecture_structure_analysis(context, normalized_instruction)
+    intent_gate = False
+    if (raw_analysis is None and intent_analyzer is not None and analyzer is not None
+            and not confirmed_interpretation and not answer_snapshot and not rescan_incomplete_only):
+        from .intent_preflight import assess_intent
+        assessment, scan_checkpoint = await assess_intent(
+            overview=overview, instruction=normalized_instruction, model_identity=scan_model_identity,
+            analyzer=intent_analyzer, checkpoint=scan_checkpoint, on_progress=on_scan_progress,
+        )
+        if assessment is not None:
+            intent_gate = bool(assessment['clarifications'] or assessment['blocking_questions'])
+            if intent_gate:
+                raw_analysis = {**assessment, 'analysis_mode': 'intent_clarification',
+                                'affected_units': [], 'structure': {'required': False}}
+            else:
+                overview['intent_assessment'] = {'interpreted_goal': assessment['interpreted_goal']}
     scanned_ids: set[str] = set()
     unscanned_ids: set[str] = set()
     batch_failures: list[dict[str, Any]] = []
@@ -2270,6 +2286,8 @@ async def create_teacher_course_change_plan(
                                     instruction=normalized_instruction, legacy=legacy_batches)
         async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
             nonlocal last_scan_detail, last_scan_checkpoint
+            if scan_checkpoint and scan_checkpoint.get('intent_preflight'):
+                checkpoint = {**checkpoint, 'intent_preflight': deepcopy(scan_checkpoint['intent_preflight'])}
             last_scan_detail, last_scan_checkpoint = deepcopy(detail), deepcopy(checkpoint)
             if on_scan_progress:
                 await on_scan_progress({**detail, 'retained_units': len(retained_ids | completed_ids),
@@ -2329,7 +2347,10 @@ async def create_teacher_course_change_plan(
                 if any(v.get("proposed_outline") != structures[0].get("proposed_outline") for v in structures[1:]):
                     raw_analysis["blocking_questions"].append("各批次对课程结构的判断不一致，请直接编辑讲次结构后确认。")
     elif raw_analysis is not None:
-        scanned_ids = {unit.unit_id for unit in context.units}
+        if intent_gate:
+            unscanned_ids = {unit.unit_id for unit in context.units}
+        else:
+            scanned_ids = {unit.unit_id for unit in context.units}
     else:
         unscanned_ids = {unit.unit_id for unit in context.units}
     analysis = _normalize_analysis(raw_analysis, context, normalized_instruction, ranked)
@@ -2355,7 +2376,7 @@ async def create_teacher_course_change_plan(
         message=f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。",
         retryable=True,
         affected_unit_count=len(unscanned_ids),
-    )] if unscanned_ids else [])
+    )] if unscanned_ids and not intent_gate else [])
 
     timestamp = _now()
     change_set_id = f"course-change-{uuid.uuid4().hex}"
