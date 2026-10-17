@@ -113,13 +113,14 @@ def compile_inventory(response, context, keys, group_index):
         if response.get('response_contract') == PASSAGES:
             unconfirmed_focus = [f for f in focus if not any(focus_matches(f,r['quote']) for r in refs)]
             focus = [f for f in focus if f not in unconfirmed_focus]
-        require((focus or kind not in KNOWLEDGE_KINDS) and all(any(focus_matches(f,r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
+        require((focus or kind not in KNOWLEDGE_KINDS or response.get('response_contract') == PASSAGES) and all(any(focus_matches(f,r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
         conditions = item.get('conditions', [])
         require(isinstance(conditions, list) and all(isinstance(c, str) for c in conditions), '清单条件无效')
         key = f'I{group_index}_{old_key}'; aliases[old_key] = key
         items.append({'key': key, 'name': name, 'claim': claim, 'kind': kind, 'sources': refs,
             'focus_terms': focus, 'unconfirmed_focus_terms':unconfirmed_focus, 'conditions': conditions})
         from knowledge_compact import has_suspicious_controls
+        if not focus and kind in KNOWLEDGE_KINDS:items[-1]['source_focus_pending']=True
         if has_suspicious_controls([claim,*conditions]):items[-1]['text_integrity_pending']=True
     from knowledge_compact import INVENTORY, inventory_coverage
     rows = inventory_coverage(response,raw_items,keys) if response.get('response_contract') == INVENTORY else records(response.get('source_coverage'), '来源承载记录', len(keys))
@@ -270,6 +271,7 @@ def assemble(raw, context, pipeline):
     result['relation_index'] = relation_index(result)
     source_issues = [deepcopy(issue) for group in pipeline['inventory_batches'] for issue in group.get('source_issues',[])]
     issues.extend({'code':'text_integrity_pending','severity':'blocking','inventory_key':item['key']} for item in pipeline['items'] if item.get('text_integrity_pending'))
+    issues.extend({'code':'source_focus_pending','severity':'blocking','inventory_key':item['key']} for item in pipeline['items'] if item.get('source_focus_pending'))
     if any(group.get('format_normalizations') for group in pipeline['inventory_batches']):issues.append({'code':'response_format_review','severity':'review'})
     from knowledge_compact import passage_catalog
     passage_lookup = {p['key']:p for p in passage_catalog(context,list(sources(context)))}
