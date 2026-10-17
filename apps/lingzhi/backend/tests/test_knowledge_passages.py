@@ -101,3 +101,10 @@ def test_already_bound_passage_can_retain_a_context_note_but_cannot_be_outside_s
     assert coverage[0]['passage_coverage'][0]['context_note']=='该片段还提供背景说明。'
     result['unassigned_passages'][0]['handling']='out_of_scope'
     with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
+
+
+@pytest.mark.parametrize('term,source',[('jg checks Signed Greater','`jg` checks Signed Greater'),('T_total','$T_{total}$'),('展开 N 次','展开 $N$ 次')])
+def test_focus_matching_ignores_presentation_markup_without_rewriting_sources(term,source):
+    from knowledge_compact import focus_matches
+    assert focus_matches(term,source)
+    assert not focus_matches('入栈','出栈移除元素。')
