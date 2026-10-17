@@ -126,3 +126,13 @@ def test_attached_example_can_also_keep_its_background_explanation(svc,monkeypat
     assert report['ready_for_adoption']
     row=next(row for row in report['coverage'] if row['inventory_key']==items[2]['key'])
     assert row['handling']=='example' and row['context_note']=='本例用于背景说明，不单独作为通用命题。'
+
+
+def test_omitted_independent_item_becomes_a_blocking_coverage_issue_not_a_lost_batch(svc,monkeypatch):
+    from knowledge_atomic import compile_inventory,compile_batch
+    setup_course(svc,monkeypatch);ctx=context(svc);items,_=compile_inventory(inventory(),ctx,['S1'],1)
+    result=compact_atoms(items[1:]);result['context_items']=[{'inventory_key':items[0]['key'],'reason':'模型建议按背景处理，仍需核对。'}]
+    _,report=compile_batch(svc.repository.load_raw('c-pilot'),ctx,items,result)
+    assert not report['ready_for_adoption']
+    assert any(i['code']=='uncovered_inventory' and i['inventory_key']==items[0]['key'] for i in report['issues'])
+    assert any(row['inventory_key']==items[0]['key'] and row['handling']=='context' for row in report['coverage'])
