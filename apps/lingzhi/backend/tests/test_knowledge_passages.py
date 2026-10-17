@@ -85,7 +85,14 @@ def test_paraphrased_auxiliary_focus_is_not_treated_as_an_exact_source_term(svc,
     saved,_=compile_inventory(result,context,['S1'],1)
     assert saved[0]['focus_terms']==['入栈'] and saved[0]['unconfirmed_focus_terms']==['并非原文逐字词']
     item['focus_terms']=['并非原文逐字词']
-    with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
+    pending,_=compile_inventory(result,context,['S1'],1)
+    assert pending[0]['focus_terms']==[] and pending[0]['source_focus_pending'] is True
+    from knowledge_atomic import compile_batch
+    answer=atomic_answer(pending);answer.update(response_contract=ATOM3,context_items=[])
+    answer.pop('coverage');answer.pop('question_coverage')
+    for point in answer['points']:point.pop('sources')
+    _,report=compile_batch(svc.repository.load_raw('c-pilot'),context,pending,answer)
+    assert not report['ready_for_adoption'] and any(i['code']=='question_focus_missing' for i in report['issues'])
 
 
 def test_atomization_prompt_deduplicates_identical_quotes_without_dropping_evidence(svc,monkeypatch):
