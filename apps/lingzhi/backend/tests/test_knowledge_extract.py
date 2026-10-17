@@ -66,6 +66,25 @@ def test_passage_keyed_extraction_cannot_silently_omit_source_text(svc, monkeypa
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
 
 
+def test_question_template_binds_exact_frozen_focus_without_rewriting_answer(svc, monkeypatch):
+    from knowledge_extract import compile_extraction, extraction_schema
+    from jsonschema import validate, ValidationError
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    point = response()['points'][0]
+    point.pop('source_passage_keys'); point.pop('question')
+    point['question_template'] = '{focus}执行什么操作？'
+    value = {'response_contract': 'knowledge_extract_v1', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    validate(value, extraction_schema(['S1.1']))
+    result = compile_extraction(raw, context, ['S1'], 1, value)
+    assert result['tree']['knowledge_points'][0]['meta_question'] == '入栈执行什么操作？'
+    assert result['tree']['knowledge_points'][0]['meta_answer'] == point['claim']
+    assert result['report']['ready_for_adoption']
+    point['question_template'] = '执行什么操作？'
+    with pytest.raises(ValidationError): validate(value, extraction_schema(['S1.1']))
+    with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
+
+
 @pytest.mark.asyncio
 async def test_failed_single_pass_continues_only_missing_source_group(svc, monkeypatch):
     import json
