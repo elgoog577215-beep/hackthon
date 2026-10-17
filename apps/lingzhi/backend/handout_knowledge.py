@@ -210,6 +210,9 @@ def visible_handout_tree(tree, document, handouts):
     """Project an adopted tree onto disclosed, still-matching handout blocks."""
     visible = {b['block_id'] for b in document.get('blocks', [])}
     result = deepcopy(tree)
+    # Inventory review can include unpublished source fragments and retired identities.
+    for field in ('knowledge_inventory', 'inventory_source_coverage', 'identity_changes', 'atomic_assessment'):
+        result.pop(field, None)
     def included(point):
         quotes = point.get('source_quotes') or []
         if any(not q.get('handout_ref') for q in quotes):
@@ -220,6 +223,9 @@ def visible_handout_tree(tree, document, handouts):
             and (handouts.get(ref.get('lesson_id')) or {}).get('revision_id') == ref.get('script_revision_id')
             for quote in quotes)
     result['knowledge_points'] = [p for p in result['knowledge_points'] if included(p)]
+    for point in result['knowledge_points']:
+        for field in ('inventory_attachments', 'inventory_keys', 'generation_batch_id'):
+            point.pop(field, None)
     point_ids = {p['knowledge_id'] for p in result['knowledge_points']}
     groups = {c['id']: c for c in result['categories']}
     keep = set()

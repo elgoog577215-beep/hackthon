@@ -12,11 +12,18 @@ function view() {
     atomic_runs:[{job_id:'atomic-job',lesson_id:'cpu',status:'failed',pipeline:{schema_version:'inventory_atomic_v1',revision:2,
       items:[{key:'I1',name:'入栈',claim:'插入栈顶元素',kind:'rule',sources:[{key:'S1',quote:'入栈插入栈顶元素。'}]}],
       batches:[{id:'atoms-1',status:'completed',item_keys:['I1'],tree:{knowledge_points:[{knowledge_id:'new-k',name:'入栈',statement:'插入栈顶元素'}]},
-        report:{ready_for_adoption:false,issues:[{code:'question_focus_missing',point_key:'K1',inventory_key:'I1'}]}}]}}] }
+        report:{ready_for_adoption:false,issues:[{code:'question_focus_missing',point_key:'K1',inventory_key:'I1'}]}},{id:'atoms-2',status:'pending',item_keys:['I2']}]}}] }
 }
 beforeEach(async()=>{
   vi.restoreAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
   vi.spyOn(http,'post').mockResolvedValue({data:{}})
+})
+it('retries only the selected saved batch after an explicit click',async()=>{
+  vi.spyOn(http,'get').mockResolvedValue({data:view()})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.findAll('button').find(b=>b.text().includes('重新细化本批'))!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({resume_job_id:'atomic-job',retry_batch_id:'atoms-1'}))
+  expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
 })
 it('shows the saved inventory and batch issues without applying or restarting them',async()=>{
   vi.spyOn(http,'get').mockResolvedValue({data:view()})

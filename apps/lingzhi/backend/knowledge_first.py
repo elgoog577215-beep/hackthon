@@ -330,7 +330,13 @@ class KnowledgeFirstService:
             return handout_context(raw, self.authoring.load(raw["course_id"]), lesson_id)
         return course_generation_context(raw)
 
-    def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id=""):
+    def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
+              pipeline="", resume_job_id="", retry_batch_id=""):
+        from knowledge_atomic import PIPELINE
+        require(pipeline in {'', PIPELINE}, '未知知识细化流程')
+        require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
+        require(not (resume_job_id or retry_batch_id) or pipeline == PIPELINE, '继续批次需要原细化流程')
+        require(not retry_batch_id or resume_job_id, '重新细化需要原任务')
         require(not lesson_id or (source_mode == "handouts" and topic == "tree"), "按讲生成只用于讲义知识树")
         require(source_mode in {"", "handouts"}, "未知知识来源")
         derived = source_mode == "handouts"
@@ -348,9 +354,31 @@ class KnowledgeFirstService:
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
+                require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
                 return duplicate, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
+            continued_checkpoint = None
+            if resume_job_id:
+                original = existing_jobs.get(resume_job_id) or {}
+                require(original.get('type') == TREE_JOB and original.get('knowledge_pipeline') == PIPELINE
+                    and original.get('knowledge_lesson_id') == lesson_id and original.get('actor') == raw.get('owner_id')
+                    and original.get('status') in {'failed', 'completed', 'paused', 'cancelled'}, '原细化任务不可继续')
+                require(original.get('source_context_revision') == context['revision_id']
+                    and original.get('source_document_revision') == expected_document
+                    and original.get('source_knowledge_revision') == expected_revision, '来源或知识版本已变化，不能继续旧批次')
+                continued_checkpoint = deepcopy(original.get('checkpoint') or {})
+                prior = continued_checkpoint.get('atomic_pipeline')
+                require(bool(prior), '原任务没有可继续的知识清单')
+                if retry_batch_id:
+                    batch = next((b for b in prior['batches'] if b['id'] == retry_batch_id), None)
+                    require(batch is not None, '细化批次不存在')
+                    batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', []))
+                    batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None)
+                else:
+                    require(original.get('status') != 'completed', '已完成任务请明确选择需要重新细化的批次')
+                continued_checkpoint.pop('candidate', None)
             require(not derived or bool(context.get("handout_lessons")), "请先在备课工作台生成讲义，资料可选")
             if topic != "tree" and raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW:
                 from generic_knowledge import input_revision
@@ -368,6 +396,9 @@ class KnowledgeFirstService:
                 source_scope_revision=context["scope_contract"]["revision_id"],
                 request_snapshot={"knowledge_generation_context": context},
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
+            if pipeline:
+                job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
+                    checkpoint=continued_checkpoint or {}, resume_from_job_id=resume_job_id, parent_job_id=resume_job_id, retry_batch_id=retry_batch_id)
             return job, True
 
     def _active(self, course_id, job_id):
@@ -376,6 +407,9 @@ class KnowledgeFirstService:
         return job
 
     async def run(self, course_id, job_id):
+        if self.authoring.load(course_id)['jobs'][job_id].get('knowledge_pipeline'):
+            from knowledge_atomic import run_atomic
+            return await run_atomic(self, course_id, job_id)
         provider = None
         request_budget = None
         try:
@@ -539,12 +573,18 @@ class KnowledgeFirstService:
             if provider and getattr(provider, "client", None):
                 await provider.client.close()
 
-    def adopt(self, course_id, job_id, expected_revision, expected_document):
+    def adopt(self, course_id, job_id, expected_revision, expected_document, *, confirm_identity_changes=False, confirm_atomic_review=False):
         with self.authoring._course_lock(course_id):
             job = self.authoring.load(course_id)["jobs"].get(job_id) or {}
             require(job.get("type") == TREE_JOB and job.get("status") == "completed", "知识树候选尚未完成")
             tree = deepcopy((job.get("checkpoint") or {}).get("candidate"))
             require(bool(tree), "候选不存在")
+            atomic = tree.get('atomic_assessment')
+            require(not atomic or atomic.get('ready_for_adoption') is True, '细化或元问题覆盖检查尚有阻塞问题')
+            require(not atomic or not any(i.get('severity') == 'review' for i in atomic.get('issues', [])) or confirm_atomic_review,
+                    '请先核对复合命题与联合条件提示')
+            require(not (tree.get('identity_changes') or {}).get('retired_points') or confirm_identity_changes,
+                    '请先确认知识身份变化；历史引用保留原修订')
             assessment = tree.get("teaching_assessment")
             require(not assessment or assessment.get("ready_for_adoption") is True,
                     "教学补全候选尚有未解决的核验问题，暂时不能采用。")
@@ -620,7 +660,7 @@ class KnowledgeFirstService:
         active_jobs = [job_status(j, server_time)
                        for j in state["jobs"].values() if j.get("status") in ACTIVE]
         for job in jobs:
-            job["recheck_available"] = bool((state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
+            job["recheck_available"] = bool(not state["jobs"][job["id"]].get("knowledge_pipeline") and (state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
         candidate_job = next((j for j in reversed(list(state["jobs"].values())) if j.get("type") == TREE_JOB and (j.get("checkpoint") or {}).get("candidate")), None)
         candidates = {}
         for job in state["jobs"].values():
@@ -653,7 +693,9 @@ class KnowledgeFirstService:
         from knowledge_generation_status import project_status
         status = project_status(state, raw, tree_generation_blockers, source_mode=source_mode)
         from knowledge_evidence import project_view
+        from knowledge_atomic import project_runs
         return project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
+                "atomic_runs": project_runs(state, raw),
                 "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
                 "enabled": derived or raw.get("knowledge_first_workflow") in WORKFLOWS or tree.get("source_mode") == "handouts", "workflow": raw.get("knowledge_first_workflow", GENERIC_WORKFLOW),
                 "can_initialize": not (raw.get("course_document") or {}).get("sections") and not raw.get("generation_job_id"),
@@ -698,6 +740,7 @@ class KnowledgeFirstService:
         with self.authoring._course_lock(course_id):
             raw = self.repository.load_raw(course_id)
             original = self.authoring.load(course_id)["jobs"].get(source_job_id) or {}
+            require(not original.get('knowledge_pipeline'), '分批结果请通过继续缺失批次或重新细化本批检查')
             require((original.get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and original.get("type") == TREE_JOB and original.get("status") == "failed" and original.get("raw_response"), "没有可重新检查的完整知识树结果")
             context = (original.get("request_snapshot") or {}).get("knowledge_generation_context") or {}
             require(original.get("actor") == raw.get("owner_id") and context.get("revision_id") == self._context(raw, original.get("source_mode", ""), original.get("knowledge_lesson_id", ""))["revision_id"], "课程信息或资料已变化，不能复用旧结果")

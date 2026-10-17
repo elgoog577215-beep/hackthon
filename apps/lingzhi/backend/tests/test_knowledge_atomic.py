@@ -162,10 +162,115 @@ async def test_status_stays_small_but_version_changes_when_a_batch_finishes(svc,
     assert '独立命题' not in json.dumps(after, ensure_ascii=False)
 
 
-def test_public_reader_does_not_receive_private_inventory_or_batch_drafts(svc, monkeypatch):
-    setup_course(svc, monkeypatch); svc.storage.update_course_data('c-pilot', lambda r: {**r, 'is_published': True})
+@pytest.mark.asyncio
+async def test_public_reader_does_not_receive_private_inventory_or_batch_drafts(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc, fail_at=3); job = start(svc); await svc.run('c-pilot', job['id'])
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'is_published': True})
     app = FastAPI(); app.include_router(router, prefix='/api')
     app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
     app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
     response = TestClient(app).get('/api/courses/c-pilot/knowledge-first', headers={'X-User-Id': 'foreign'})
     assert response.status_code == 200 and response.json().get('atomic_runs', []) == []
+
+
+@pytest.mark.asyncio
+async def test_existing_point_identity_and_semantic_revision_survive_exact_refinement(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc); first = start(svc); await svc.run('c-pilot', first['id'])
+    tree = deepcopy(svc.authoring.load('c-pilot')['jobs'][first['id']]['checkpoint']['candidate'])
+    point = tree['knowledge_points'][0]; prior_id = point['knowledge_id']; point['knowledge_id'] = point['id'] = 'existing-custom-id'
+    for lesson in tree['lessons']: lesson['knowledge_ids'] = ['existing-custom-id' if k == prior_id else k for k in lesson['knowledge_ids']]
+    tree['revision_id'] = 'existing-tree'; tree['status'] = 'accepted'
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'course_knowledge_base': tree, 'knowledge_first_history': {'existing-tree': tree}})
+    before = deepcopy(svc.repository.load_raw('c-pilot')); provider(svc)
+    second = start(svc, 'same-facts'); await svc.run('c-pilot', second['id'])
+    candidate = svc.authoring.load('c-pilot')['jobs'][second['id']]['checkpoint']['candidate']
+    unchanged = next(p for p in candidate['knowledge_points'] if p['knowledge_id'] == 'existing-custom-id')
+    assert unchanged['revision_id'] == point['revision_id']
+    assert not candidate['identity_changes']['retired_points']
+    assert svc.repository.load_raw('c-pilot') == before
+
+
+@pytest.mark.asyncio
+async def test_replacing_coarse_point_requires_confirmation_and_preserves_history_refs(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    old = {'revision_id': 'old-tree', 'source_mode': 'handouts', 'status': 'accepted', 'categories': [], 'concept_groups': [],
+        'knowledge_points': [{'id': 'old-coarse', 'knowledge_id': 'old-coarse', 'revision_id': 'old-point-rev', 'name': '栈操作',
+            'statement': '入栈插入元素；出栈移除元素。', 'conditions': [], 'section_refs': ['cpu'], 'source_quotes': []}],
+        'relations': [], 'sources': [], 'lessons': [{'topic': 'cpu', 'title': '栈', 'knowledge_ids': ['old-coarse']}], 'source_handouts': []}
+    refs = {'question-old': {'knowledge_id': 'old-coarse', 'knowledge_revision_id': 'old-point-rev', 'baseline_revision': 'old-tree'}}
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'course_knowledge_base': old, 'historical_question_refs': refs})
+    provider(svc); job = start(svc); await svc.run('c-pilot', job['id'])
+    view = svc.view('c-pilot')
+    with pytest.raises(CourseDocumentConflict, match='身份'):
+        svc.adopt('c-pilot', job['id'], 'old-tree', view['document_revision'])
+    svc.adopt('c-pilot', job['id'], 'old-tree', view['document_revision'], confirm_identity_changes=True)
+    raw = svc.repository.load_raw('c-pilot')
+    assert raw['historical_question_refs'] == refs
+    assert raw['knowledge_first_history']['old-tree']['knowledge_points'][0]['knowledge_id'] == 'old-coarse'
+    assert raw['knowledge_first_history']['old-tree']['knowledge_points'][0]['revision_id'] == 'old-point-rev'
+    assert all(p['knowledge_id'] != 'old-coarse' for p in raw['course_knowledge_base']['knowledge_points'])
+
+
+@pytest.mark.asyncio
+async def test_completed_batches_change_observation_version_before_task_finishes(svc, monkeypatch):
+    setup_course(svc, monkeypatch); versions = []
+    def observe(data, result):
+        if data['stage'] == 'atomize': versions.append(svc.status('c-pilot')['result_version'])
+    provider(svc, mutate=observe); job = start(svc); await svc.run('c-pilot', job['id'])
+    assert len(versions) == 2 and versions[0] != versions[1]
+
+
+@pytest.mark.asyncio
+async def test_refinement_may_not_drop_inventory_conditions(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    def conditioned(data, result):
+        if data['stage'] == 'inventory': result['items'][0]['conditions'] = ['栈未满']
+    provider(svc, mutate=conditioned); job = start(svc); await svc.run('c-pilot', job['id'])
+    report = svc.authoring.load('c-pilot')['jobs'][job['id']]['checkpoint']['candidate']['atomic_assessment']
+    assert not report['ready_for_adoption']
+    assert any(i['code'] == 'condition_coverage_missing' for i in report['issues'])
+
+
+@pytest.mark.asyncio
+async def test_partial_batch_response_cannot_bypass_atomic_checks_via_legacy_recheck(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc, fail_at=3); job = start(svc); await svc.run('c-pilot', job['id'])
+    view = svc.view('c-pilot', source_mode='handouts')
+    assert not next(j for j in view['jobs'] if j['id'] == job['id'])['recheck_available']
+    with pytest.raises(CourseDocumentConflict, match='分批'):
+        svc.recheck('c-pilot', job['id'], 'bypass', view['document_revision'], view['knowledge_revision'])
+
+
+@pytest.mark.asyncio
+async def test_adopted_private_inventory_is_not_exposed_to_published_readers(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc); job = start(svc); await svc.run('c-pilot', job['id'])
+    view = svc.view('c-pilot', source_mode='handouts')
+    svc.adopt('c-pilot', job['id'], '', view['document_revision'])
+    svc.storage.update_course_data('c-pilot', lambda r: {**r, 'is_published': True})
+    app = FastAPI(); app.include_router(router, prefix='/api')
+    app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
+    result = TestClient(app).get('/api/courses/c-pilot/knowledge-first', headers={'X-User-Id': 'foreign'}).json()
+    assert 'knowledge_inventory' not in result['tree']
+    assert 'inventory_source_coverage' not in result['tree']
+    assert 'identity_changes' not in result['tree']
+
+
+def test_background_source_group_can_have_no_independent_inventory_items(svc, monkeypatch):
+    from knowledge_atomic import compile_inventory
+    setup_course(svc, monkeypatch)
+    context = svc._context(svc.repository.load_raw('c-pilot'), 'handouts', 'cpu')
+    result = {'items': [], 'source_coverage': [{'source_key':'S1', 'item_keys':[], 'handling':'context', 'reason':'课程背景，非独立命题'}]}
+    items, coverage = compile_inventory(result, context, ['S1'], 1)
+    assert items == [] and coverage[0]['handling'] == 'context'
+
+
+@pytest.mark.asyncio
+async def test_correct_answer_cannot_hide_a_question_about_another_operation(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    def wrong_question(data, result):
+        if data['stage'] == 'atomize' and data['items'][0]['name'] == '入栈':
+            result['points'][0]['meta_question'] = '出栈执行什么操作？'
+            result['question_coverage'][0]['question_quote'] = '出栈执行什么操作？'
+    provider(svc, mutate=wrong_question); job = start(svc); await svc.run('c-pilot', job['id'])
+    report = svc.authoring.load('c-pilot')['jobs'][job['id']]['checkpoint']['candidate']['atomic_assessment']
+    assert any(i['code'] == 'question_focus_missing' for i in report['issues'])

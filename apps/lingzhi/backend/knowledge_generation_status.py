@@ -18,6 +18,7 @@ def job_status(job, server_time):
     value = {key: job[key] for key in (
         "id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "phase", "progress",
         "created_at", "generation_started_at", "completed_at", "last_content_at", "received_chars",
+        "pipeline_stage", "batch_index", "batch_total", "inventory_count", "completed_batches",
     ) if key in job}
     value["message"] = str(job.get("message") or "")[:300]
     value["received_chars"] = int(job.get("received_chars") or len(job.get("partial_text") or ""))
@@ -46,6 +47,8 @@ def project_status(state, raw, blockers, *, source_mode=""):
         "sources": [(lid, lesson.get("working_revision_id"), lesson.get("working_script_revision_id"))
                     for lid, lesson in state.get("lessons", {}).items()],
         "jobs": [(job["id"], "active" if job.get("status") in ACTIVE else job.get("status")) for job in all_jobs],
+        "atomic_results": [(job['id'], ((job.get('checkpoint') or {}).get('atomic_pipeline') or {}).get('revision', 0))
+                           for job in all_jobs if job.get('knowledge_pipeline')],
     }, prefix="kstatus_")
     return {
         "course_id": raw["course_id"], "server_time": server_time, "result_version": version,
