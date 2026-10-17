@@ -2,6 +2,7 @@
   <details class="atomic-workbench" open data-testid="knowledge-atomic-workbench">
     <summary>{{ t(run.adopted ? 'knowledgeFirst.atomicAdoptedRecord' : 'knowledgeFirst.atomicCandidates') }} · {{ t('knowledgeFirst.atomicSummary').replace('{items}', String(pipeline.items?.length || 0)).replace('{done}', String(done)).replace('{total}', String(pipeline.batches?.length || 0)) }}</summary>
     <p class="atomic-note">{{ t('knowledgeFirst.atomicReviewHint') }}</p>
+    <details v-if="sourceIssues.length" class="atomic-issues" open data-testid="knowledge-source-issues"><summary>{{ t('knowledgeFirst.sourceIssuesTitle') }}</summary><div v-for="(issue,index) in sourceIssues" :key="index"><p>{{ issue.source_key }} · {{ issue.detail }}</p><blockquote>{{ issue.quote }}</blockquote></div></details>
     <button v-if="canEdit && !run.adopted && hasPending && ['failed','paused','cancelled'].includes(run.status)" type="button" :disabled="disabled" data-testid="continue-knowledge-batches" @click="emit('continue')">{{ t('knowledgeFirst.continueAtomic') }}</button>
     <details class="inventory-panel" open>
       <summary>{{ t('knowledgeFirst.inventoryTitle') }} · {{ pipeline.items?.length || 0 }}</summary>
@@ -42,6 +43,7 @@ const pipeline = computed(()=>props.run.pipeline)
 const done = computed(()=>(pipeline.value.batches || []).filter((b:any)=>b.status==='completed').length)
 const hasPending = computed(()=>!pipeline.value.batches?.length || [...(pipeline.value.inventory_batches || []), ...(pipeline.value.batches || [])].some((b:any)=>b.status !== 'completed'))
 const sourceCoverage = computed(()=>(pipeline.value.inventory_batches || []).flatMap((b:any)=>b.source_coverage || []))
+const sourceIssues = computed(()=>(pipeline.value.inventory_batches || []).flatMap((b:any)=>b.source_issues || []))
 function issueContext(issue:any, batch:any) {
   return [...new Set([
     batch.tree?.knowledge_points?.find((p:any)=>p.key === issue.point_key)?.name,

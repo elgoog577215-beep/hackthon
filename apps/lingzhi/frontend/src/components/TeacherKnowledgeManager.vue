@@ -84,6 +84,7 @@
             <p>{{ job.error?.code === 'AIRequestBudgetExceeded' ? t('knowledgeFirst.inputBudgetExceeded') : job.error?.code === 'ModelConnectionUnavailable' ? t('knowledgeFirst.modelDisconnected') : job.error?.message }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="job.error?.code !== 'AIRequestBudgetExceeded'">{{ t('knowledgeFirst.retryHint') }}</p></details>
         </details>
         <KnowledgeAtomicWorkbench v-if="atomicRun" :run="atomicRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="continueAtomic()" @retry="continueAtomic($event)" />
+        <KnowledgeGenerationMetrics v-if="latestJob?.stage_observations?.length" :observations="latestJob.stage_observations" />
         <KnowledgeRelationWorkbench v-if="relationRun" :run="relationRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="generateRelations(true)" @retry="generateRelations(true,$event)" @navigate="navigateRelated" />
         <section v-if="treeChoice === 'candidate' && displayTree?.relation_assessment" class="notice" data-testid="knowledge-relation-adoption">
           <p>{{ t('knowledgeFirst.relationReviewHint') }}</p>
@@ -202,6 +203,7 @@ import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
 import KnowledgeSourceReader from './KnowledgeSourceReader.vue'
 import KnowledgeTerms from './KnowledgeTerms.vue'
 import KnowledgeAtomicWorkbench from './KnowledgeAtomicWorkbench.vue'
+import KnowledgeGenerationMetrics from './KnowledgeGenerationMetrics.vue'
 import KnowledgeRelationWorkbench from './KnowledgeRelationWorkbench.vue'
 import KnowledgeRelationEvidence from './KnowledgeRelationEvidence.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
