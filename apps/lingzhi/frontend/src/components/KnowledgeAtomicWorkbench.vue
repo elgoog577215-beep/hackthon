@@ -4,6 +4,7 @@
     <p class="atomic-note">{{ t('knowledgeFirst.atomicReviewHint') }}</p>
     <details v-if="sourceIssues.length" class="atomic-issues" open data-testid="knowledge-source-issues"><summary>{{ t('knowledgeFirst.sourceIssuesTitle') }}</summary><div v-for="(issue,index) in sourceIssues" :key="index"><p>{{ issue.source_key }} · {{ issue.detail }}</p><blockquote>{{ issue.quote }}</blockquote></div></details>
     <button v-if="canEdit && !run.adopted && hasPending && ['failed','paused','cancelled'].includes(run.status)" type="button" :disabled="disabled" data-testid="continue-knowledge-batches" @click="emit('continue')">{{ t('knowledgeFirst.continueAtomic') }}</button>
+    <button v-if="canEdit && !run.adopted && pipeline.items?.length && !['pending','running'].includes(run.status)" type="button" :disabled="disabled" data-testid="rebuild-knowledge-leaves" @click="emit('retry','all_atoms')">{{ t('knowledgeFirst.rebuildLeaves') }}</button>
     <details class="inventory-panel" open>
       <summary>{{ t('knowledgeFirst.inventoryTitle') }} · {{ pipeline.items?.length || 0 }}</summary>
       <p v-if="!pipeline.items?.length">{{ t('knowledgeFirst.inventoryPending') }}</p>
@@ -11,11 +12,12 @@
         <li v-for="item in pipeline.items" :key="item.key">
           <strong>{{ item.key }} · {{ item.name }}</strong><span class="inventory-kind">{{ t(`knowledgeFirst.inventoryKinds.${item.kind}`, item.kind) }}</span>
           <p>{{ item.claim }}</p>
+          <p v-if="item.unconfirmed_focus_terms?.length" class="atomic-note">{{ t('knowledgeFirst.unconfirmedFocus') }} · {{ item.unconfirmed_focus_terms.join(' / ') }}</p>
           <details><summary>{{ t('knowledgeFirst.boundQuotation') }}</summary><blockquote v-for="(source, index) in item.sources" :key="index">{{ source.quote }}</blockquote></details>
         </li>
       </ol>
       <details v-if="pipeline.inventory_batches?.some((b:any) => b.source_coverage?.length)"><summary>{{ t('knowledgeFirst.inventorySourceCoverage') }}</summary>
-        <p v-for="row in sourceCoverage" :key="row.source_key">{{ row.source_key }} → {{ row.item_keys?.join(' / ') || t(`knowledgeFirst.inventoryHandling.${row.handling}`, row.handling) }} · {{ row.reason }}</p>
+        <div v-for="row in sourceCoverage" :key="row.source_key"><p>{{ row.source_key }} → {{ row.item_keys?.join(' / ') || t(`knowledgeFirst.inventoryHandling.${row.handling}`, row.handling) }} · {{ row.reason }}</p><ul v-if="row.passage_coverage?.length"><li v-for="part in row.passage_coverage" :key="part.passage_key">{{ part.passage_key }} → {{ part.item_keys?.join(' / ') || t(`knowledgeFirst.inventoryHandling.${part.handling}`,part.handling) }} · {{ part.context_note || part.reason }}</li></ul></div>
       </details>
     </details>
     <details v-for="(batch, index) in pipeline.batches || []" :key="batch.id" class="atomic-batch" :open="index === 0">

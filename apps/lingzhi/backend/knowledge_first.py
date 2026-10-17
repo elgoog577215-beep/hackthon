@@ -375,10 +375,11 @@ class KnowledgeFirstService:
                 prior = continued_checkpoint.get('relation_pipeline' if pipeline == RELATIONS else 'atomic_pipeline')
                 require(bool(prior), '原任务没有可继续的知识清单')
                 if retry_batch_id:
-                    batch = next((b for b in prior['batches'] if b['id'] == retry_batch_id), None)
-                    require(batch is not None, '细化批次不存在')
-                    batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', [])) or ([original['error']] if original.get('error') else [])
-                    batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None); batch.pop('result',None)
+                    batches = prior['batches'] if pipeline == PIPELINE and retry_batch_id == 'all_atoms' else [b for b in prior['batches'] if b['id'] == retry_batch_id]
+                    require(bool(batches), '细化批次不存在')
+                    for batch in batches:
+                        batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', [])) or ([original['error']] if original.get('error') else [])
+                        batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None); batch.pop('result',None)
                 else:
                     require(original.get('status') != 'completed', '已完成任务请明确选择需要重新细化的批次')
                 continued_checkpoint.pop('candidate', None)

@@ -8,6 +8,7 @@ INVENTORY = 'knowledge_inventory_compact_v2'
 ATOMIC = 'knowledge_atomic_compact_v2'
 PASSAGES = 'knowledge_inventory_passages_v3'
 BINDINGS = 'knowledge_atomic_bindings_v3'
+LEAVES = 'knowledge_leaf_claims_v4'
 
 
 def focus_matches(term, content):
@@ -52,6 +53,34 @@ def passage_schema(stage, passage_keys, item_keys):
         result['properties']['response_contract']['const'] = BINDINGS
         point = result['properties']['points']['items'];point['properties'].pop('sources');point['required'].remove('sources')
     return result
+
+
+def leaf_schema(knowledge_keys, attachment_keys):
+    attachments = array({'type':'string','enum':list(attachment_keys)},20) if attachment_keys else array({'type':'string'},0)
+    return obj({'response_contract':{'type':'string','const':LEAVES},
+        'categories':array(obj({'key':string(40),'name':string(160),'parent_key':{'type':['string','null']}}),60,1),
+        'points':array(obj({'inventory_key':{'type':'string','enum':list(knowledge_keys)},'attachment_keys':attachments,
+            'category_key':string(40),'name':string(200),'claims':array(string(),8,1),
+            'meta_question':string(),'meta_answer':string(),
+            'extraction_method':{'type':'string','enum':['direct_statement','summary','derived']},'derivation_note':{'type':'string','maxLength':2000}}),160,1),
+        'context_items':array(obj({'inventory_key':{'type':'string','enum':list(knowledge_keys)+list(attachment_keys)},'reason':string(1000)})),
+        'gaps':array(string(),50)})
+
+
+def assemble_leaf_claims(response, items):
+    value = deepcopy(response);catalog = {item['key']:item for item in items}
+    points = value.get('points')
+    require(isinstance(points,list) and points and all(isinstance(p,dict) for p in points),'元知识叶子输出无效')
+    for index,point in enumerate(points,1):
+        key = point.get('inventory_key'); item = catalog.get(key)
+        require(item is not None and item['kind'] in {'definition','rule','method','comparison'},'例题、条件和边界不能作为知识叶子')
+        attachments = point.get('attachment_keys',[])
+        require(isinstance(attachments,list) and all(isinstance(k,str) and k in catalog and catalog[k]['kind'] in {'condition','boundary','example'} for k in attachments),'知识叶子的附件引用无效')
+        claims = point.get('claims')
+        require(isinstance(claims,list) and claims and len(claims) <= 8 and all(isinstance(c,str) and c.strip() for c in claims),'知识叶子缺少明确结论')
+        point.update(key=f'K{index}',inventory_keys=list(dict.fromkeys([key,*attachments])),
+            statement='\n'.join(claims),independent_claims=deepcopy(claims),conditions=deepcopy(item['conditions']))
+    return value
 
 
 def expand_passage_inventory(response, context, keys):
