@@ -47,7 +47,7 @@ it('tree-only mode keeps the tree and version actions without lecture tabs or un
   expect(w.get('.tree-branch-meta').text()).not.toMatch(/%|未评估/)
   expect(w.find('.handout-source-panel').exists()).toBe(false)
   expect(w.find('.tabs').exists()).toBe(false)
-  expect(w.find('.source-review').exists()).toBe(false)
+  expect(w.get('[data-testid="knowledge-extraction-gaps"]').text()).toContain('尚无可用的缺口记录')
   expect(w.find('.manager-tools').exists()).toBe(false)
   expect(w.findAll('button').some(b => b.text().includes('更新候选'))).toBe(true)
   expect(w.find('.leaf-content').exists()).toBe(false)

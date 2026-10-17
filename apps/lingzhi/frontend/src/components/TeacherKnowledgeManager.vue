@@ -2,6 +2,10 @@
   <section class="knowledge-workspace teacher-knowledge-manager" :class="{ 'tree-only': treeOnly }">
     <div v-if="!treeOnly" class="manager-tools"><span>{{ data?.title }}</span><button @click="refresh" :disabled="busy">{{ t('common.refresh') }}</button></div>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+    <p v-if="observationNotice" class="notice observation-notice" role="status" data-testid="knowledge-observation-notice">
+      {{ t(`knowledgeFirst.${observationNotice}`) }}
+      <button type="button" :disabled="busy" @click="retryObservation">{{ t('knowledgeFirst.refreshStatus') }}</button>
+    </p>
     <p v-if="!data && !error" role="status">{{ t('knowledgeFirst.loading') }}</p>
     <template v-if="data">
       <section v-if="!data.enabled" class="empty-card">
@@ -61,16 +65,32 @@
           <strong>{{ blockingJobLabel(job) }}</strong>
           <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
         </section>
-        <section v-if="activeJob" class="notice job" role="status"><strong>{{ activeJob.knowledge_lesson_id ? `${lessonLabels[activeJob.knowledge_lesson_id] || ''} · ` : '' }}{{ activeJob.message }}</strong>
-          <span>{{ activeJob.progress }}%<template v-if="!treeOnly"> · {{ activeJob.id }}</template></span>
+        <section v-if="activeJob" class="notice job generation-progress" role="status" aria-live="polite" data-testid="knowledge-generation-progress">
+          <div class="generation-progress-copy"><strong>{{ activeJob.knowledge_lesson_id ? `${lessonLabels[activeJob.knowledge_lesson_id] || ''} · ` : '' }}{{ jobPhase(activeJob) }}</strong>
+            <span v-if="activeJob.message && !activeJob.phase">{{ activeJob.message }}</span>
+            <span>{{ progressDetails(activeJob) }}</span>
+            <span v-if="activeJob.received_chars && activeJob.activity_age_seconds != null" class="muted">{{ t('knowledgeFirst.lastModelActivity').replace('{seconds}', String(activeJob.activity_age_seconds)) }}</span>
+          </div>
           <button v-if="data.can_edit" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button></section>
+        <details v-if="otherKnowledgeJobs.length" class="notice other-knowledge-jobs" data-testid="knowledge-other-jobs">
+          <summary>{{ t('knowledgeFirst.otherLectureTasks').replace('{count}', String(otherKnowledgeJobs.length)) }}</summary>
+          <p v-for="job in otherKnowledgeJobs" :key="job.id"><button type="button" @click="knowledgeLessonId = job.knowledge_lesson_id">{{ lessonLabels[job.knowledge_lesson_id] || job.knowledge_lesson_id }}</button> · {{ jobPhase(job) }} · {{ progressDetails(job) }}</p>
+        </details>
         <p v-if="treeOnly && !activeJob && latestJob?.status === 'failed'" class="notice error" role="alert"><strong>{{ t('knowledgeFirst.lastGenerationFailed') }}：</strong>{{ latestJob.error?.message }} <button v-if="data.can_edit && latestJob.recheck_available" :disabled="busy" @click="recheck(latestJob.id)">{{ t('knowledgeFirst.recheck') }}</button></p>
         <details v-if="!treeOnly && failedJobs.length" class="notice"><summary>{{ t('knowledgeFirst.jobHistory') }} · {{ failedJobs.length }}</summary>
           <details v-for="job in failedJobs" :key="job.id" class="notice error"><summary>{{ t('knowledgeFirst.interrupted') }} · {{ job.id }}</summary>
             <p>{{ job.error?.code === 'AIRequestBudgetExceeded' ? t('knowledgeFirst.inputBudgetExceeded') : job.error?.code === 'ModelConnectionUnavailable' ? t('knowledgeFirst.modelDisconnected') : job.error?.message }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="job.error?.code !== 'AIRequestBudgetExceeded'">{{ t('knowledgeFirst.retryHint') }}</p></details>
         </details>
         <section v-if="tab === 'tree'" class="tree-section">
-          <details v-if="!treeOnly && generic && displayTree" class="notice source-review"><summary>{{ t('knowledgeFirst.extractionNotes') }}</summary><p>{{ t(displayTree.source_mode === 'handouts' ? 'knowledgeFirst.derivedReview' : displayTree.revision_id === data.knowledge_revision ? 'knowledgeFirst.adoptedReview' : 'knowledgeFirst.genericReview') }}</p><ul><li v-for="gap in displayTree.gaps" :key="gap">{{ gap }}</li></ul><p v-if="displayTree.uncovered_evidence_ids?.length">{{ t('knowledgeFirst.uncoveredSources') }} {{ displayTree.uncovered_evidence_ids.length }}</p></details>
+          <details v-if="generic && displayTree" class="notice source-review extraction-gaps" open data-testid="knowledge-extraction-gaps">
+            <summary>{{ t('knowledgeFirst.extractionNotes') }}<template v-if="perLesson"> · {{ extractionReport && !extractionReport.scope_lesson_id ? t('knowledgeFirst.courseGapReport') : lessonLabels[knowledgeLessonId] }}</template></summary>
+            <p>{{ t(displayTree.source_mode === 'handouts' ? 'knowledgeFirst.derivedReview' : displayTree.revision_id === data.knowledge_revision ? 'knowledgeFirst.adoptedReview' : 'knowledgeFirst.genericReview') }}</p>
+            <p v-if="!extractionReport">{{ t('knowledgeFirst.gapReportUnavailable') }}</p>
+            <template v-else><ul v-if="extractionReport.gaps?.length"><li v-for="(gap, index) in extractionReport.gaps" :key="index">{{ gap }}</li></ul>
+              <p v-else>{{ t('knowledgeFirst.noRecordedGaps') }}</p>
+              <p>{{ t('knowledgeFirst.unreferencedPassages').replace('{count}', String(extractionReport.uncovered_evidence_ids?.length || 0)) }}</p>
+            </template>
+          </details>
           <div v-if="!treeOnly && displayTree?.teaching_assessment" class="notice" :class="{ stale: !displayTree.teaching_assessment.ready_for_adoption }">
             <strong>{{ t('knowledgeFirst.teachingRound') }}</strong><p>{{ t('knowledgeFirst.candidateWarning') }}</p>
             <p>{{ t('knowledgeFirst.capabilities') }} {{ displayTree.teaching_assessment.capability_units }} · {{ t('knowledgeFirst.masteryCriteria') }} {{ displayTree.teaching_assessment.criteria }} · {{ t('knowledgeFirst.mistakesAndRepair') }} {{ displayTree.teaching_assessment.new_mistakes }}</p>
@@ -163,6 +183,7 @@ const emit = defineEmits<{ updated: []; 'open-handouts': []; 'lesson-change': [i
 const courseId = computed(() => props.courseId)
 const knowledgeLessonId = ref(props.initialLessonId)
 const data = ref<any>(null), error = ref(''), busy = ref(false)
+const observationNotice = ref('')
 const generic = computed(() => data.value?.workflow === 'knowledge_first_generic_v1')
 const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3, material_asset_ids: [] as string[] })
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
@@ -173,6 +194,9 @@ function selectGraphPoint(id: string, trigger: HTMLElement) { pointTrigger = tri
 async function closePoint() { selectedId.value = ''; await nextTick(); pointTrigger?.focus({ preventScroll: true }) }
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
+let retryCount = 0, observationStopped = false
+let readController: AbortController | undefined
+let readInFlight = false
 const base = computed(() => `/api/courses/${courseId.value}/knowledge-first`)
 const activeJobs = computed<any[]>(() => (data.value?.active_jobs || data.value?.jobs || []).filter((j: any) => ['pending', 'running'].includes(j.status)))
 const blockingJobs = computed(() => {
@@ -181,6 +205,8 @@ const blockingJobs = computed(() => {
   return activeJobs.value.filter(j => !perLesson.value || !j.knowledge_lesson_id || j.knowledge_lesson_id === knowledgeLessonId.value)
 })
 const activeJob = computed(() => blockingJobs.value.find(j => (data.value?.jobs || []).some((known: any) => known.id === j.id)))
+const otherKnowledgeJobs = computed(() => perLesson.value ? activeJobs.value.filter(j => j.type === 'course_knowledge_tree_generation'
+  && j.knowledge_lesson_id && j.knowledge_lesson_id !== knowledgeLessonId.value) : [])
 const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => !perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
@@ -230,6 +256,26 @@ const displayTree = computed(() => {
   return { ...tree, allKnowledgePoints: allPoints, categories: perLesson.value ? categories.filter((c: any) => needed.has(c.id)) : categories,
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
+const extractionReport = computed(() => {
+  const tree = displayTree.value
+  if (!tree) return null
+  const hasReport = (value: any) => Array.isArray(value?.gaps) && Array.isArray(value?.uncovered_evidence_ids)
+  if (!perLesson.value || !tree.scope_lesson_id || tree.scope_lesson_id === knowledgeLessonId.value) return hasReport(tree) ? tree : null
+  const revision = tree.lesson_revisions?.[knowledgeLessonId.value]
+  return revision ? [...(data.value?.history || [])].reverse().find((h: any) => h.scope_lesson_id === knowledgeLessonId.value
+    && h.lesson_revisions?.[knowledgeLessonId.value] === revision && hasReport(h)) || null : null
+})
+function jobPhase(job: any) {
+  const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
+  const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
+  return t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
+}
+function progressDetails(job: any) {
+  const parts: string[] = []
+  if (job.received_chars) parts.push(t('knowledgeFirst.receivedCharacters').replace('{count}', String(job.received_chars)))
+  if (job.elapsed_seconds != null) parts.push(t('knowledgeFirst.elapsedSeconds').replace('{seconds}', String(job.elapsed_seconds)))
+  return parts.join(' · ') || t('knowledgeFirst.observingTask')
+}
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null
   const recordedSources = (displayTree.value.source_handouts || []) as { lesson_id?: string; key?: string; title?: string; script_revision_id?: string }[]
@@ -298,23 +344,68 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
 watch(selectedId, async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
 watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
 watch(() => props.initialLessonId, id => { if (id && id !== knowledgeLessonId.value) knowledgeLessonId.value = id })
+function scheduleObservation() {
+  clearTimeout(timer)
+  if (disposed || observationStopped || (data.value && !data.value.can_edit)) return
+  const delay = retryCount ? Math.min(10000, 2000 * 2 ** Math.min(retryCount, 3)) : activeJobs.value.length ? 2000 : 10000
+  timer = setTimeout(data.value ? pollStatus : refresh, delay)
+}
+function observationFailed(e: any) {
+  const status = e?.response?.status
+  if ([401, 403, 404].includes(status)) {
+    if (data.value) data.value.can_edit = false
+    observationStopped = true
+    observationNotice.value = 'observationUnavailable'
+  } else {
+    retryCount++
+    observationNotice.value = 'reconnectingStatus'
+  }
+}
+async function pollStatus() {
+  clearTimeout(timer)
+  if (disposed || observationStopped) return
+  if (busy.value) { scheduleObservation(); return }
+  const seq = ++requestSequence
+  readController?.abort()
+  readController = new AbortController()
+  readInFlight = true
+  try {
+    const { data: snapshot } = await http.get(`${base.value}/status`, { params: { source_mode: 'handouts' }, timeout: 10000, silentError: true, signal: readController.signal })
+    if (disposed || seq !== requestSequence) return
+    if (snapshot.can_edit === false) { data.value.can_edit = false; observationStopped = true; observationNotice.value = 'observationUnavailable'; return }
+    retryCount = 0; observationNotice.value = ''
+    if (snapshot.result_version !== data.value?.result_version) { await refresh(); return }
+    const updates = new Map<string, any>((snapshot.jobs || []).map((job: any) => [job.id, job]))
+    data.value = { ...data.value, can_edit: snapshot.can_edit ?? data.value.can_edit, active_jobs: snapshot.active_jobs || [],
+      jobs: (data.value.jobs || []).map((job: any) => ({ ...job, ...(updates.get(job.id) || {}) })),
+      blocking_job_ids: snapshot.blocking_job_ids || [],
+      lesson_options: (data.value.lesson_options || []).map((option: any) => ({ ...option,
+        blocking_job_ids: snapshot.lesson_blocking_job_ids?.[option.lesson_id] || [] })) }
+  } catch (e) { if (!disposed && seq === requestSequence) observationFailed(e) }
+  finally { if (!disposed && seq === requestSequence) { readInFlight = false; scheduleObservation() } }
+}
 async function refresh() {
   clearTimeout(timer)
   const seq = ++requestSequence
+  readController?.abort()
+  readController = new AbortController()
+  readInFlight = true
   try {
-    const response = await http.get(base.value, { params: { source_mode: 'handouts' } })
+    const response = await http.get(base.value, { params: { source_mode: 'handouts' }, timeout: 10000, silentError: true, signal: readController.signal })
     if (disposed || seq !== requestSequence) return
     const followLatest = !handoutChoice.value || handoutChoice.value === currentLesson.value?.current_revision_id
-    data.value = response.data; error.value = ''
+    data.value = response.data; error.value = ''; observationNotice.value = ''; retryCount = 0
     if (perLesson.value && !selectedLesson.value) knowledgeLessonId.value = lessonOptions.value[0]?.lesson_id || ''
     if (generic.value && !inputDirty.value && data.value.inputs) Object.assign(inputs, data.value.inputs)
     if (generic.value && !data.value.handouts.some((h: any) => h.topic === lesson.value)) lesson.value = data.value.handouts[0]?.topic || ''
     if (!treeChoice.value || (treeChoice.value === 'candidate' && !selectedCandidate.value && latestJob.value?.status === 'failed')) chooseTreeVersion()
     if (!selectedId.value && !props.treeOnly) selectedId.value = displayTree.value?.knowledge_points[0]?.knowledge_id || ''
     if (followLatest) handoutChoice.value = currentLesson.value?.current_revision_id || ''
-    if (activeJobs.value.length) timer = setTimeout(refresh, 2000)
-  } catch (e) { if (!disposed && seq === requestSequence) error.value = message(e) }
+  } catch (e) { if (!disposed && seq === requestSequence) { if (!data.value) error.value = message(e); observationFailed(e) } }
+  finally { if (!disposed && seq === requestSequence) { readInFlight = false; scheduleObservation() } }
 }
+function retryObservation() { observationStopped = false; retryCount = 0; void (data.value ? pollStatus() : refresh()) }
+function resumeObservation() { if (!observationStopped && !busy.value && !disposed && !readInFlight) void (data.value ? pollStatus() : refresh()) }
 async function mutate(path: string, extra = {}) {
   busy.value = true; error.value = ''
   try { await http.post(`${base.value}/${path}`, { document_revision: data.value.document_revision, knowledge_revision: data.value.knowledge_revision, ...extra }); await refresh(); if (path === 'initialize') emit('updated') }
@@ -365,10 +456,10 @@ async function showHandoutSource(ref: { lesson_id: string; script_revision_id: s
 async function showSource(revision: string, id = '') { treeChoice.value = revision; selectedId.value = id; tab.value = 'tree'; await nextTick(); document.querySelector('.point-card')?.scrollIntoView({ block: 'start' }) }
 watch(lesson, () => { handoutChoice.value = currentLesson.value?.current_revision_id || '' })
 watch(displayTree, tree => { if (tree && !tree.knowledge_points.some((p: any) => p.knowledge_id === selectedId.value)) selectedId.value = props.treeOnly ? '' : tree.knowledge_points[0]?.knowledge_id || '' })
-watch(courseId, () => { knowledgeLessonId.value = props.initialLessonId; data.value = null; inputDirty.value = false; materials.value = []; treeChoice.value = ''; selectedId.value = ''; handoutChoice.value = ''; void refresh() })
+watch(courseId, () => { observationStopped = false; retryCount = 0; observationNotice.value = ''; knowledgeLessonId.value = props.initialLessonId; data.value = null; inputDirty.value = false; materials.value = []; treeChoice.value = ''; selectedId.value = ''; handoutChoice.value = ''; void refresh() })
 watch(() => [generic.value, data.value?.enabled], () => { void loadMaterials() })
-onMounted(refresh)
-onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) })
+onMounted(() => { void refresh(); window.addEventListener('online', resumeObservation); window.addEventListener('focus', resumeObservation) })
+onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abort(); clearTimeout(timer); window.removeEventListener('online', resumeObservation); window.removeEventListener('focus', resumeObservation) })
 </script>
 
 <style scoped>
@@ -407,6 +498,14 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; clearTimeout(timer) 
 .knowledge-detail-pane{min-width:0}.tree-only .knowledge-detail-pane{position:sticky;top:0;max-height:calc(100dvh - 230px);overflow:auto;scrollbar-gutter:stable;border:1px solid #e2e7f2;border-radius:12px;background:#fff}.tree-only .point-card{min-height:0;border:0;box-shadow:none;border-radius:0;padding:24px}.tree-only .point-card h2{font-size:22px;line-height:1.5;margin:14px 0}.relation+.relation{margin-top:12px}.relation button{font-weight:600;text-align:left;line-height:1.6}.relation-scope{display:block;color:#7866a9;font-size:13px;margin-bottom:8px}.relation-direction{color:#697496;font-size:14px;line-height:1.6}.related-statement{border-top:1px solid #e3e7f2;padding-top:10px;margin-top:10px;font-size:15px}.tree-only .point-card :deep(.markdown-body){overflow-wrap:anywhere}.tree-only .point-card dl{font-size:13px}.tree-only .source-evidence-heading{line-height:1.7}
 @media(max-width:1050px){.tree-only .point-card{padding:20px}}
 .teacher-knowledge-manager{container-type:inline-size}
+.generation-progress{align-items:flex-start;gap:18px;border-left:3px solid #8b7ab7;background:#f7f5fc}
+.generation-progress-copy{display:grid;gap:6px;flex:1;min-width:0;font-size:15px;line-height:1.65}
+.generation-progress-copy span{overflow-wrap:anywhere;font-size:15px}
+.observation-notice{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:15px;background:#fff8eb}
+.other-knowledge-jobs,.extraction-gaps{font-size:15px;line-height:1.75;overflow-wrap:anywhere}
+.other-knowledge-jobs summary,.extraction-gaps summary{cursor:pointer;font-weight:600}
+.extraction-gaps{border:1px solid #e5dced;background:#faf8fd;padding:14px 18px;border-radius:10px}
+.extraction-gaps p{margin:8px 0}.extraction-gaps ul{padding-left:22px}
 .teacher-knowledge-manager .tree-layout{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
 .teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr) minmax(340px,400px)}
 .tree-layout>.mastery-tree{min-width:0}

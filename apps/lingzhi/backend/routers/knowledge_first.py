@@ -57,6 +57,7 @@ def service(course_id: str, request: Request,
                     and bool(CourseLearningAccess(repo.storage).active(course, actor)))
     if owner != actor and not granted_read and not (request.method == "GET" and (course.get("is_published") or course.get("course_document_publication"))):
         raise HTTPException(404, "课程不存在或无权限")
+    request.state.knowledge_first_course = course
     return KnowledgeFirstService(repo, authoring)
 
 
@@ -93,6 +94,17 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
 def initialize(course_id: str, body: SourceRequest, svc=Depends(service)):
     action(lambda: svc.initialize(course_id, body.document_revision))
     return {"initialized": True}
+
+
+@router.get("/courses/{course_id}/knowledge-first/status")
+def status(course_id: str, request: Request, source_mode: Literal["", "handouts"] = "", svc=Depends(service)):
+    """Owner-only task metadata; published readers never see authoring activity."""
+    if svc is None:
+        return {"course_id": course_id, "can_edit": False, "jobs": [], "active_jobs": []}
+    raw = request.state.knowledge_first_course
+    if raw.get("owner_id") != require_actor_id(request.headers.get("X-User-Id")):
+        return {"course_id": course_id, "can_edit": False, "jobs": [], "active_jobs": []}
+    return {**svc.status(course_id, source_mode=source_mode, raw=raw), "can_edit": True}
 
 
 @router.post("/courses/{course_id}/knowledge-first/inputs")

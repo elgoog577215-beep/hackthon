@@ -83,10 +83,91 @@ it('keeps other-lecture tasks visible and exposes gaps in the inline tree', asyn
 it('renders waiting, streaming and reconnect states in English', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => en })))
   await setLocale('en')
-  const v = state(); v.jobs[0].phase = 'model_wait'; v.jobs[0].received_chars = 0
+  const v = state(); v.jobs[0]!.phase = 'model_wait'; v.jobs[0]!.received_chars = 0
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
   expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('Waiting for model output')
   expect(w.get('[data-testid="knowledge-extraction-gaps"]').text()).toContain('Unreferenced source passages')
   w.unmount()
+})
+
+it('recovers an initial read failure without starting a generation task', async () => {
+  const get = vi.spyOn(http, 'get').mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ data: state() })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-observation-notice"]').text()).toContain('重新连接')
+  await vi.advanceTimersByTimeAsync(4000); await flushPromises()
+  expect(get).toHaveBeenCalledTimes(2)
+  expect(w.find('[data-testid="knowledge-generation-progress"]').exists()).toBe(true)
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('stops automatic observation after access is revoked and permits a manual status check', async () => {
+  const get = vi.spyOn(http, 'get').mockImplementation(async url => ({ data: String(url).endsWith('/status')
+    ? { can_edit: false, jobs: [], active_jobs: [] } : state() }))
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+  expect(w.get('[data-testid="knowledge-observation-notice"]').text()).toContain('访问权限')
+  const calls = get.mock.calls.length
+  window.dispatchEvent(new Event('online'))
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(get).toHaveBeenCalledTimes(calls)
+  get.mockResolvedValue({ data: { ...status(), can_edit: true } })
+  await w.get('[data-testid="knowledge-observation-notice"] button').trigger('click'); await flushPromises()
+  expect(w.find('[data-testid="knowledge-observation-notice"]').exists()).toBe(false)
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+it('stops polling and editing on a forbidden status response', async () => {
+  const get = vi.spyOn(http, 'get').mockImplementation(async url => {
+    if (String(url).endsWith('/status')) throw { response: { status: 403 } }
+    return { data: state() }
+  })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+  expect(w.get('[data-testid="knowledge-observation-notice"]').text()).toContain('访问权限')
+  expect(w.findAll('button').some(b => b.text().includes('生成本讲知识树'))).toBe(false)
+  const calls = get.mock.calls.length
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(get).toHaveBeenCalledTimes(calls)
+  w.unmount()
+})
+
+it('does not attribute another lecture gap report to the selected lecture', async () => {
+  const v: any = state()
+  v.tree.scope_lesson_id = 'memory'
+  v.tree.lesson_revisions = { cpu: 'cpu-v1', memory: 'memory-v1' }
+  v.tree.gaps = ['主存讲独有的缺口']
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  const report = w.get('[data-testid="knowledge-extraction-gaps"]')
+  expect(report.text()).toContain('尚无可用的缺口记录')
+  expect(report.text()).not.toContain('主存讲独有的缺口')
+  await w.get('select[aria-label="讲次"]').setValue('memory')
+  expect(report.text()).toContain('主存讲独有的缺口')
+  w.unmount()
+})
+
+it('retries loading a completed result if the first full read fails', async () => {
+  const v = state()
+  let fullReads = 0
+  const get = vi.spyOn(http, 'get').mockImplementation(async url => {
+    if (String(url).endsWith('/status')) return { data: { ...status(), result_version: 'v2' } }
+    fullReads++
+    if (fullReads === 2) throw new Error('result read interrupted')
+    return { data: fullReads === 1 ? v : { ...v, result_version: 'v2', jobs: [], active_jobs: [] } }
+  })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+  expect(w.find('[data-testid="knowledge-extraction-gaps"]').exists()).toBe(true)
+  await vi.advanceTimersByTimeAsync(4000); await flushPromises()
+  expect(fullReads).toBe(3)
+  expect(w.find('[data-testid="knowledge-observation-notice"]').exists()).toBe(false)
+  const calls = get.mock.calls.length
+  w.unmount()
+  await vi.advanceTimersByTimeAsync(20000)
+  expect(get).toHaveBeenCalledTimes(calls)
+  expect(http.post).not.toHaveBeenCalled()
 })

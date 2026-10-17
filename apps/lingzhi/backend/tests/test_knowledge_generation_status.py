@@ -66,6 +66,19 @@ def test_status_has_owner_only_visibility_and_matches_full_view_version(svc):
     assert public.json()["jobs"] == public.json()["active_jobs"] == []
 
 
+def test_status_reads_course_once_for_authorization_and_projection(svc, monkeypatch):
+    initialize(svc)
+    reads = []
+    load = svc.repository.load_raw
+    def recorded_load(course_id):
+        reads.append(course_id)
+        return load(course_id)
+    monkeypatch.setattr(svc.repository, "load_raw", recorded_load)
+    result = client_for(svc).get('/api/courses/c-pilot/knowledge-first/status', headers={'X-User-Id': 'owner'})
+    assert result.status_code == 200
+    assert reads == ['c-pilot']
+
+
 def test_status_limits_historical_jobs_to_latest_per_scope_and_keeps_blockers(svc):
     initialize(svc)
     for i in range(35):

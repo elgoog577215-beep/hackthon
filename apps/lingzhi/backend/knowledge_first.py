@@ -380,7 +380,8 @@ class KnowledgeFirstService:
         request_budget = None
         try:
             job = self._active(course_id, job_id)
-            self.authoring.update_job(course_id, job_id, status="running", progress=10, phase="model")
+            self.authoring.update_job(course_id, job_id, status="running", progress=10, phase="preparing",
+                                      generation_started_at=now(), received_chars=0, last_content_at=None)
             raw = self.repository.load_raw(course_id)
             tree = deepcopy(raw.get("course_knowledge_base") or {})
             require(knowledge_revision(raw) == job["source_knowledge_revision"], "知识树版本已变化")
@@ -449,18 +450,27 @@ class KnowledgeFirstService:
                     provider = AIBase()
                 else:
                     provider = self.provider_factory()
-            self.authoring.update_job(course_id, job_id, model=provider.model_smart)
+            self.authoring.update_job(course_id, job_id, model=provider.model_smart, phase="model_wait")
             partial = []
+            activity = {"received_chars": 0, "last_content_at": None}
+            def receive(delta):
+                partial.append(delta)
+                activity["received_chars"] += len(delta)
+                activity["last_content_at"] = now()
+            def reset_content():
+                partial.clear()
+                activity.update(received_chars=0, last_content_at=None)
             async def checkpoint():
                 while True:
                     await asyncio.sleep(2)
                     self._active(course_id, job_id)
-                    self.authoring.update_job(course_id, job_id, partial_text="".join(partial))
+                    self.authoring.update_job(course_id, job_id, partial_text="".join(partial),
+                        phase="model_streaming" if activity["received_chars"] else "model_wait", **activity)
             pulse = asyncio.create_task(checkpoint())
             call = asyncio.create_task(provider._call_llm(prompt, system_prompt=system,
                 retry_count=1, max_attempts=1, enable_thinking=False, **request_options,
                 reject_truncated=True, require_stop=True,
-                raise_on_failure=True, json_mode=False, on_content_delta=partial.append))
+                raise_on_failure=True, json_mode=False, on_content_delta=receive, on_content_reset=reset_content))
             try:
                 done, _ = await asyncio.wait({call, pulse}, return_when=asyncio.FIRST_COMPLETED)
                 if pulse in done:
@@ -471,9 +481,10 @@ class KnowledgeFirstService:
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(pulse, call, return_exceptions=True)
-                self.authoring.update_job(course_id, job_id, partial_text="".join(partial))
+                self.authoring.update_job(course_id, job_id, partial_text="".join(partial), **activity)
             self._active(course_id, job_id)
-            self.authoring.update_job(course_id, job_id, raw_response=response, phase="structure_check", progress=80)
+            self.authoring.update_job(course_id, job_id, raw_response=response, phase="structure_check", progress=80,
+                                      received_chars=len(response))
             if generic:
                 result = generic_knowledge.compile_tree(raw, context, parse_response(response, handout_sources=job.get("source_mode") == "handouts")) if topic == "tree" else generic_knowledge.compile_handout(tree, lesson, response, job_id)
             else:
@@ -587,12 +598,20 @@ class KnowledgeFirstService:
                 return raw
             return self.storage.update_course_data(course_id, update)
 
+    def status(self, course_id, *, source_mode="", raw=None):
+        from knowledge_generation_status import project_status
+        raw = self.repository.load_raw(course_id) if raw is None else raw
+        return self.authoring.read_projection(course_id, lambda state: project_status(
+            state, raw, tree_generation_blockers, source_mode=source_mode))
+
     def view(self, course_id, *, source_mode=""):
         raw = self.repository.load_raw(course_id)
         state = self.authoring.load(course_id)
-        jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message", "error", "partial_text", "model", "request_budget") if k in j}
+        from knowledge_generation_status import job_status
+        server_time = now()
+        jobs = [{**job_status(j, server_time), **{k: deepcopy(j[k]) for k in ("error", "partial_text", "model", "request_budget") if k in j}}
                 for j in state["jobs"].values() if j.get("type") in JOB_TYPES]
-        active_jobs = [{k: deepcopy(j[k]) for k in ("id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "progress", "message") if k in j}
+        active_jobs = [job_status(j, server_time)
                        for j in state["jobs"].values() if j.get("status") in ACTIVE]
         for job in jobs:
             job["recheck_available"] = bool((state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
@@ -625,7 +644,10 @@ class KnowledgeFirstService:
                 from handout_knowledge_projection import project_script_knowledge
                 r["knowledge_sections"] = project_script_knowledge(raw, r["sections"])
             handouts.append({"topic": topic, "title": bundle["title"], "current_revision_id": lesson.get("working_script_revision_id", ""), "revisions": revisions})
-        return {"course_id": course_id, "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
+        from knowledge_generation_status import project_status
+        status = project_status(state, raw, tree_generation_blockers, source_mode=source_mode)
+        return {"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
+                "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
                 "enabled": derived or raw.get("knowledge_first_workflow") in WORKFLOWS or tree.get("source_mode") == "handouts", "workflow": raw.get("knowledge_first_workflow", GENERIC_WORKFLOW),
                 "can_initialize": not (raw.get("course_document") or {}).get("sections") and not raw.get("generation_job_id"),
                 "document_revision": raw.get("course_document_revision", ""), "knowledge_revision": knowledge_revision(raw),
