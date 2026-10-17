@@ -356,8 +356,8 @@ async def run_atomic(svc, course_id, job_id):
                     previous['sources'].extend(s for s in item['sources'] if s not in previous['sources'])
                 else: unique[identity] = deepcopy(item)
             pipeline['items'] = list(unique.values())
-            for group in pipeline['inventory_batches']:
-                for row in group['source_coverage']: row['item_keys'] = list(dict.fromkeys(aliases.get(k, k) for k in row['item_keys']))
+            from knowledge_compact import remap_coverage_keys
+            remap_coverage_keys(pipeline,aliases)
             width = batch_size()
             knowledge = [v for v in pipeline['items'] if v['kind'] in KNOWLEDGE_KINDS]
             require(len(knowledge) <= 160, '独立知识清单超出本讲容量')

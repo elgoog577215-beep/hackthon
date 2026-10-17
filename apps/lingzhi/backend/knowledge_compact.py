@@ -89,6 +89,14 @@ def bind_inventory_sources(response, items):
     return value
 
 
+def remap_coverage_keys(pipeline, aliases):
+    for group in pipeline['inventory_batches']:
+        for row in group['source_coverage']:
+            row['item_keys'] = list(dict.fromkeys(aliases.get(k,k) for k in row['item_keys']))
+            for part in row.get('passage_coverage',[]):
+                part['item_keys'] = list(dict.fromkeys(aliases.get(k,k) for k in part['item_keys']))
+
+
 def obj(properties):
     return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
 
