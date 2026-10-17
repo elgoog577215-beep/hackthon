@@ -45,10 +45,11 @@
       <h3>{{ t('learningMatrix.myAnswer', '我的答案') }}</h3><pre class="matrix-answer">{{ selected.attempt.answer || t('learningMatrix.noSavedAnswerContent', '未保存答案内容') }}</pre>
       <div class="detail-badges"><span :class="['detail-outcome', selected.attempt.outcome]">{{ outcomeLabel(selected.attempt.outcome) }}</span><span>{{ supportLabel(selected.attempt.support) }}</span></div>
       <p class="matrix-notice">{{ helpDescription(selected.attempt.support) }}</p>
+      <section v-if="selected.attempt.evidenceNotes?.length" data-testid="evidence-notes" class="matrix-notice"><h3>{{ t('learningMatrix.evidenceHeading', '掌握依据说明') }}</h3><ul><li v-for="reason in selected.attempt.evidenceNotes" :key="reason">{{ evidenceDescription(reason) }}</li></ul></section>
       <template v-if="selected.attempt.feedback"><h3>{{ t('learningMatrix.feedback', '本次反馈') }}</h3><MarkdownRenderer :content="selected.attempt.feedback" /></template>
       <div class="detail-actions"><button data-testid="locate-lecture" @click="emit('lecture', selected.row.point)"><BookOpen :size="16" />{{ t('learningMatrix.openLecture', '定位原文') }}</button><button v-if="selected.row.notes.length" @click="showNotes(selected.row)"><NotebookPen :size="16" />{{ t('learningMatrix.relatedNotes', '关联笔记') }}</button></div>
       <div v-if="selected.attempt.question && selected.attempt.nodeId && !preview" class="detail-practice"><button data-testid="practice-current-question" @click="emit('practice', selected.attempt.nodeId, selected.attempt.questionId)">{{ t('learningMatrix.practiceCurrent', '在题库中练习') }} <ChevronRight :size="16" /></button></div>
-      <p v-if="selected.attempt.outcome === 'pending'" class="matrix-notice">{{ t('learningMatrix.gradingOrPerPointAttributionIsUnresolvedNoMasteryConclusionIsMade', '本次结果或逐点归因尚未确认，不据此判断掌握。') }}</p>
+      <p v-if="selected.attempt.outcome === 'pending'" class="matrix-notice">{{ t('learningMatrix.gradingPending', '本次作答尚未完成批改或仍待复核，对错暂未确认。') }}</p>
     </aside>
     <aside v-else-if="noteRow" class="matrix-detail" :aria-label="t('learningMatrix.relatedNotes', '关联笔记')"><header><h2>{{ t('learningMatrix.relatedNotes', '关联笔记') }}</h2><button :aria-label="t('learningMatrix.closeRelatedNotes', '关闭关联笔记')" @click="closeDetail"><X :size="19" /></button></header><p class="detail-point">{{ noteRow.point.name }}</p><article v-for="n in noteRow.notes" :key="n.id" class="matrix-note"><h3>{{ n.summary || t('learningMatrix.note', '笔记') }}</h3><MarkdownRenderer :content="n.content || n.quote || ''" /><button :data-testid="`open-note-${n.id}`" @click="emit('record', n.id)">{{ t('learningMatrix.openNoteConversation', '打开笔记会话') }} <ChevronRight :size="14" /></button></article></aside>
   </div>
@@ -64,7 +65,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { BookOpen, ChevronLeft, ChevronRight, CircleCheck, CircleHelp, CircleX, NotebookPen, Search, X } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
-import type { MatrixAttempt, MatrixRow, MatrixSupport } from '../utils/learning-matrix'
+import type { MatrixAttempt, MatrixEvidenceNote, MatrixRow, MatrixSupport } from '../utils/learning-matrix'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 const props = withDefaults(defineProps<{ rows: MatrixRow[]; sections: { id: string; name: string }[]; courseTitle?: string; courseId?: string; viewKey?: string; loading?: boolean; error?: string; preview?: boolean }>(), { courseTitle: '', courseId: '', viewKey: '', loading: false, error: '', preview: false })
 const emit = defineEmits<{ (e: 'refresh'): void; (e: 'knowledge', p: KnowledgeProfileNode): void; (e: 'lecture', p: KnowledgeProfileNode): void; (e: 'record', id: string): void; (e: 'practice', node: string, revision: string): void }>()
@@ -108,6 +109,16 @@ watch(() => [props.rows, props.loading] as const, ([rows, busy]) => {
   if (notes) noteRow.value = notes
 }, { immediate: true })
 function outcomeLabel(value: MatrixAttempt['outcome']) { return value === 'correct' ? t('learningMatrix.correct', '答对') : value === 'incorrect' ? t('learningMatrix.incorrect', '答错') : t('learningMatrix.pending', '待确认') }
+function evidenceDescription(reason: MatrixEvidenceNote) {
+  return {
+    unverified_question: t('learningMatrix.evidenceUnverified', '题目尚未完成校验，本次对错按已保存的批改结果展示，暂不用于确认掌握程度。'),
+    invalid_evidence: t('learningMatrix.evidenceInvalid', '题目或依据版本未通过验证，本次批改结果保留，暂不用于确认掌握程度。'),
+    historical_only: t('learningMatrix.evidenceHistorical', '本次记录仅保留为历史作答，不作为当前掌握依据。'),
+    grading_uncertain: t('learningMatrix.evidenceUncertain', '批改置信度偏低或信息不足，对错按批改结果展示，仍需复核后再用于判断掌握。'),
+    multiple_points: t('learningMatrix.evidenceMultiple', '本题涉及多个知识点，颜色表示整题作答结果，不能单独证明每个知识点已掌握。'),
+    not_eligible: t('learningMatrix.evidenceExcluded', '本次批改结果已保留，但系统未将它列为确认掌握程度的依据。'),
+  }[reason]
+}
 function supportLabel(value: MatrixSupport) { return { independent: t('learningMatrix.independent', '独立'), assisted: t('learningMatrix.withHelp', '提示后'), solution_seen: t('learningMatrix.solutionSeen', '参考解答'), unknown: t('learningMatrix.helpUnknown', '帮助情况未确认') }[value] }
 function stateLabel(value: MatrixRow['current']) { return { unassessed: t('learningMatrix.unchecked', '尚未检查'), pending: t('learningMatrix.pending', '待确认'), review: t('learningMatrix.recentCheckFailed', '最近检查未通过'), verify: t('learningMatrix.independentCheckNeeded', '待独立验证'), independent_pass: t('learningMatrix.independentPassRecorded', '有独立通过记录') }[value] }
 function helpDescription(value: MatrixSupport) { return value === 'independent' ? t('learningMatrix.noSystemHintOrSolutionWasUsedForThisAttempt', '本次未使用系统提示或解答。') : value === 'assisted' ? t('learningMatrix.hintsOrGuidanceWereUsedThisIsAnAssistedAttempt', '本次使用过提示或引导，保留为辅助完成记录。') : value === 'solution_seen' ? t('learningMatrix.theCompleteSolutionWasSeenThisIsNotAnIndependentAttempt', '已查看完整解答，本条记录不标记为独立完成。') : t('learningMatrix.helpMetadataIsIncompleteIndependenceIsNotInferred', '历史记录缺少完整帮助信息，不推断为独立完成。') }

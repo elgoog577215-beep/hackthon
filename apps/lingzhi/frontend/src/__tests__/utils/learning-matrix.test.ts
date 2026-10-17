@@ -40,13 +40,32 @@ describe('knowledge learning matrix is a read-only projection of every attempt',
     expect(project([attempt('a01', true, change)])[0]!.attempts).toEqual([])
   })
   it.each([
-    { status: 'grading' }, { result: { passed: true, grading_confidence: .2 } },
+    { status: 'grading' }, { result: { grading_confidence: .95 } },
     { result: { passed: true, grading_confidence: .95, status: 'pending_review' } },
-    { concept_ids: ['k1', 'k2'], knowledge_revision_refs: { k1: 'r-k1', k2: 'r-k2' } },
-    { result: { passed: true, grading_confidence: .95, historical_only: true } },
-    { result: { passed: true, grading_confidence: .95, evidence_strength: 'invalid' } },
-  ])('keeps unresolved grading/attribution neutral: %j', change => {
+  ])('keeps only unresolved grading neutral: %j', change => {
     expect(project([attempt('a01', true, change)])[0]!.attempts[0]!.outcome).toBe('pending')
+  })
+  it.each([true, false])('retains graded correctness independently of an unverified question: %s', passed => {
+    const a = attempt('a01', passed, { result: { passed, grading_confidence: 1, evidence_strength: 'invalid', mastery_eligible: false,
+      evidence_exclusion_reason: 'independent_evidence_unverified_or_changed', answer_diagnosis: { reason: 'question_not_preflighted' } } })
+    const before = JSON.stringify(a)
+    const row = project([a])[0]!
+    expect(row.attempts[0]!.outcome).toBe(passed ? 'correct' : 'incorrect')
+    expect(row.attempts[0]!.evidenceNotes).toEqual(['unverified_question'])
+    expect(row.current).toBe(passed ? 'independent_pass' : 'review')
+    expect(JSON.stringify(a)).toBe(before)
+  })
+  it.each([
+    [{ result: { passed: true, grading_confidence: .2 } }, 'grading_uncertain'],
+    [{ result: { passed: true } }, 'grading_uncertain'],
+    [{ result: { passed: true, grading_confidence: .95, historical_only: true } }, 'historical_only'],
+    [{ result: { passed: true, grading_confidence: .95, evidence_strength: 'invalid' } }, 'invalid_evidence'],
+    [{ result: { passed: true, grading_confidence: .95, mastery_eligible: false } }, 'not_eligible'],
+    [{ concept_ids: ['k1', 'k2'], knowledge_revision_refs: { k1: 'r-k1', k2: 'r-k2' } }, 'multiple_points'],
+  ])('keeps graded results green and records the separate evidence limitation: %j', (change, reason) => {
+    const result = project([attempt('a01', true, change)])[0]!.attempts[0]!
+    expect(result.outcome).toBe('correct')
+    expect(result.evidenceNotes).toContain(reason)
   })
   it('never labels missing help metadata as independent', () => {
     const a = attempt('a01'); delete (a as any).revealed_hint_levels; delete (a as any).ai_support_level; delete (a as any).solution_revealed

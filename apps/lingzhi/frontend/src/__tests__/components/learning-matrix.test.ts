@@ -11,6 +11,21 @@ function fixture(count = 9) {
 }
 const render = (extra = {}) => mount(LearningMatrix, { props: { rows: fixture(), sections: [{ id: 's1', name: '第1讲' }], courseTitle: 'C17', ...extra } as any })
 describe('knowledge-row learning matrix', () => {
+  it('shows a graded pass green and explains its evidence limit only in details', async () => {
+    const rows = fixture(2)
+    ;(rows[0]!.attempts[1] as any).evidenceNotes = ['unverified_question']
+    const w = render({ rows })
+    const tile = w.get('[data-attempt-id="a1"]')
+    expect(tile.classes()).toContain('correct')
+    expect(tile.text()).toContain('答对')
+    expect(w.text()).not.toContain('题目尚未完成校验')
+    await tile.trigger('click')
+    const detail = w.get('[data-testid="attempt-detail"]')
+    expect(detail.text()).toContain('掌握依据说明')
+    expect(detail.text()).toContain('题目尚未完成校验')
+    expect(detail.text()).toContain('暂不用于确认掌握程度')
+    expect(tile.text()).not.toContain('待确认')
+  })
   it('shows recent records and expands the same point without losing earlier attempts', async () => {
     const w = render()
     expect(w.findAll('[data-attempt-id]')).toHaveLength(4)

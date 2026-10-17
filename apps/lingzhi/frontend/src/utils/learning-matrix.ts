@@ -3,10 +3,12 @@ import type { PracticeAttempt, LearningAssetItem } from '../stores/courseWorkspa
 import type { Note } from '../stores/types'
 
 export type MatrixSupport = 'independent' | 'assisted' | 'solution_seen' | 'unknown'
+export type MatrixEvidenceNote = 'unverified_question' | 'invalid_evidence' | 'historical_only' | 'grading_uncertain' | 'multiple_points' | 'not_eligible'
 export interface MatrixAttempt {
   id: string; questionId: string; questionLabel: string; number: number; time: string
   outcome: 'correct' | 'incorrect' | 'pending'; support: MatrixSupport
   answer: string; feedback: string; question: LearningAssetItem | null; nodeId: string
+  evidenceNotes?: MatrixEvidenceNote[]
 }
 export interface MatrixRow {
   point: KnowledgeProfileNode; attempts: MatrixAttempt[]; notes: Note[]; activity: boolean
@@ -29,6 +31,16 @@ function support(a: PracticeAttempt): MatrixSupport {
   if (a.solution_revealed || a.result?.solution_revealed) return 'solution_seen'
   if ((a.revealed_hint_levels || []).length || Number(a.ai_support_level) > 0 || Number(a.support_level) > 0 || Number(a.result?.support_level) > 0) return 'assisted'
   return Array.isArray(a.revealed_hint_levels) && typeof a.solution_revealed === 'boolean' && typeof a.ai_support_level === 'number' ? 'independent' : 'unknown'
+}
+function evidenceNotes(a: PracticeAttempt): MatrixEvidenceNote[] {
+  const r = a.result || {}, notes: MatrixEvidenceNote[] = []
+  if (r.answer_diagnosis?.reason === 'question_not_preflighted') notes.push('unverified_question')
+  else if (r.evidence_strength === 'invalid' || r.evidence_exclusion_reason === 'independent_evidence_unverified_or_changed') notes.push('invalid_evidence')
+  if (r.historical_only) notes.push('historical_only')
+  if (a.status === 'graded' && !(Number(r.grading_confidence) >= .72)) notes.push('grading_uncertain')
+  if (new Set(a.concept_ids).size > 1) notes.push('multiple_points')
+  if (r.mastery_eligible === false && !notes.length) notes.push('not_eligible')
+  return notes
 }
 function matchesNote(note: Note, point: KnowledgeProfileNode): boolean {
   if (note.syncState !== 'saved' || note.recordType !== 'note' || note.status === 'archived') return false
@@ -53,15 +65,15 @@ export function buildLearningMatrix(input: MatrixInput): MatrixRow[] {
     const rows: MatrixAttempt[] = attempts.filter(a => a.concept_ids?.includes(point.knowledge_id)
       && a.knowledge_revision_refs?.[point.knowledge_id] === point.knowledge_revision_id).map(a => {
       const r = a.result || {}
-      const reliable = a.status === 'graded' && typeof r.passed === 'boolean' && Number(r.grading_confidence) >= .72
-        && !['pending_review', 'submitted_for_review'].includes(r.status) && !r.historical_only && r.evidence_strength !== 'invalid'
-        && new Set(a.concept_ids).size === 1
+      // Tile color records the grader's answer verdict, independently of mastery eligibility.
+      const graded = a.status === 'graded' && typeof r.passed === 'boolean'
+        && !['pending_review', 'submitted_for_review'].includes(r.status)
       const answer = a.submitted_answer_payload || a.answer_payload || {}
       return { id: a.attempt_id, questionId: revision(a), questionLabel: `Q${questionNumbers.get(revision(a))}`,
-        number: Number(a.attempt_number) || 1, time: time(a), outcome: reliable ? r.passed ? 'correct' : 'incorrect' : 'pending',
+        number: Number(a.attempt_number) || 1, time: time(a), outcome: graded ? r.passed ? 'correct' : 'incorrect' : 'pending',
         support: support(a), answer: text(answer.answer ?? answer.text ?? answer.code ?? answer.selected_option ?? answer),
         feedback: text(r.feedback || r.explanation || r.reason || ''), question: byRevision.get(revision(a)) || null,
-        nodeId: String(a.node_id || '') }
+        nodeId: String(a.node_id || ''), evidenceNotes: evidenceNotes(a) }
     })
     const notes = input.preview ? [] : input.notes.filter(n => matchesNote(n, point))
     const last = rows.at(-1)

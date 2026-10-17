@@ -8426,6 +8426,14 @@
     "recordsUnavailable": "记录暂未完整读取",
     "practiceCurrent": "在题库中练习",
     "moreHistory": "继续展开较早记录",
-    "loadError": "学习矩阵暂时无法读取，请重试。"
+    "loadError": "学习矩阵暂时无法读取，请重试。",
+    "evidenceHeading": "掌握依据说明",
+    "evidenceUnverified": "题目尚未完成校验，本次对错按已保存的批改结果展示，暂不用于确认掌握程度。",
+    "evidenceInvalid": "题目或依据版本未通过验证，本次批改结果保留，暂不用于确认掌握程度。",
+    "evidenceHistorical": "本次记录仅保留为历史作答，不作为当前掌握依据。",
+    "evidenceUncertain": "批改置信度偏低或信息不足，对错按批改结果展示，仍需复核后再用于判断掌握。",
+    "evidenceMultiple": "本题涉及多个知识点，颜色表示整题作答结果，不能单独证明每个知识点已掌握。",
+    "evidenceExcluded": "本次批改结果已保留，但系统未将它列为确认掌握程度的依据。",
+    "gradingPending": "本次作答尚未完成批改或仍待复核，对错暂未确认。"
   }
 }
