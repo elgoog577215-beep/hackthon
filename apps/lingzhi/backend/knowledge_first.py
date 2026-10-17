@@ -327,7 +327,7 @@ class KnowledgeFirstService:
     def _context(self, raw, source_mode="", lesson_id=""):
         if source_mode == "handouts":
             from handout_knowledge import handout_context
-            return handout_context(raw, self.authoring.load(raw["course_id"]), lesson_id)
+            return self.authoring.read_projection(raw['course_id'], lambda state: handout_context(raw, state, lesson_id))
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
@@ -419,7 +419,7 @@ class KnowledgeFirstService:
             return job, True
 
     def _active(self, course_id, job_id):
-        job = self.authoring.load(course_id)["jobs"][job_id]
+        job = self.authoring.read_projection(course_id, lambda state: deepcopy(state['jobs'][job_id]))
         require(job["status"] in ACTIVE and not job.get("cancel_requested") and not job.get("pause_requested"), "任务已停止，迟到结果不写入")
         return job
 

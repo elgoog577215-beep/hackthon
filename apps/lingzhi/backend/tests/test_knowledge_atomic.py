@@ -132,6 +132,38 @@ async def test_stream_metadata_does_not_persist_full_history_between_checkpoints
     assert not any('model_telemetry' in changes or 'raw_response' in changes and 'checkpoint' not in changes for changes in persisted)
 
 
+@pytest.mark.asyncio
+async def test_cancelled_parallel_calls_cannot_publish_late_batches(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc)
+    base = svc.provider_factory()
+    original = base._call_llm
+    both_entered = asyncio.Event()
+    release = asyncio.Event()
+    entered = 0
+    async def call(prompt, **kwargs):
+        nonlocal entered
+        data = json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+        if data['stage'] == 'atomize':
+            entered += 1
+            if entered == 2: both_entered.set()
+            await release.wait()
+        return await original(prompt, **kwargs)
+    base._call_llm = call
+    svc.provider_factory = lambda: base
+    job = start(svc)
+    task = asyncio.create_task(svc.run('c-pilot', job['id']))
+    try:
+        await asyncio.wait_for(both_entered.wait(), timeout=5)
+        svc.authoring.cancel_job('c-pilot', job['id'])
+    finally:
+        release.set()
+        await task
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert saved['status'] == 'cancelled'
+    assert 'candidate' not in saved['checkpoint']
+    assert all(b['status'] == 'pending' for b in saved['checkpoint']['atomic_pipeline']['batches'])
+
+
 def setup_course(svc, monkeypatch):
     monkeypatch.setenv('COURSE_KNOWLEDGE_ATOMIC_BATCH_SIZE', '1')
     handouts(svc)
