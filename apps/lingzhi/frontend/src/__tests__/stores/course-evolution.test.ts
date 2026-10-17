@@ -40,6 +40,67 @@ beforeEach(() => {
 })
 
 describe('course evolution store', () => {
+  it('shares the parent and embedded workspace reads without changing the loading owner', async () => {
+    const store = useCourseEvolutionStore()
+    let finishProgress!: (value: any) => void
+    let finishContext!: (value: any) => void
+    httpMock.get.mockImplementation((url: string) => new Promise(resolve => {
+      if (url.endsWith('course-context')) finishContext = resolve
+      else finishProgress = resolve
+    }))
+    const parentProgress = store.refreshProgress('course-1')
+    const parentContext = store.loadCourseContext('course-1')
+    const childProgress = store.refreshProgress('course-1')
+    const childContext = store.loadCourseContext('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(2)
+    expect(store.contextLoading).toBe(true)
+    finishProgress({ data: payload() })
+    finishContext({ data: { course_id: 'course-1', ready: true } })
+    await Promise.all([parentProgress, parentContext, childProgress, childContext])
+    expect(store.plans[0]?.change_set_id).toBe('plan-1')
+    expect(store.courseContext?.ready).toBe(true)
+    expect(store.contextLoading).toBe(false)
+    httpMock.get.mockResolvedValueOnce({ data: payload('applied') })
+    await store.refreshProgress('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(3)
+    expect(store.plans[0]?.status).toBe('applied')
+  })
+
+  it('does not share a pending read across course switches or newer state changes', async () => {
+    const store = useCourseEvolutionStore()
+    const responses: Array<(value: any) => void> = []
+    httpMock.get.mockImplementation(() => new Promise(resolve => responses.push(resolve)))
+    const old = store.refreshProgress('course-1')
+    store.selectCourse('course-2')
+    const current = store.refreshProgress('course-1')
+    store.payloadRequestSequence += 1 // A write invalidates the earlier read.
+    const afterWrite = store.refreshProgress('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(3)
+    responses[2]!({ data: payload('applied') })
+    await afterWrite
+    responses[1]!({ data: payload() })
+    responses[0]!({ data: payload() })
+    await Promise.all([old, current])
+    expect(store.plans[0]?.status).toBe('applied')
+  })
+
+  it('releases failed shared context reads so the same page can retry', async () => {
+    const store = useCourseEvolutionStore()
+    let fail!: (reason: Error) => void
+    httpMock.get.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    const first = store.loadCourseContext('course-1')
+    const second = store.loadCourseContext('course-1')
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    const results = Promise.allSettled([first, second])
+    fail(new Error('temporary failure'))
+    expect((await results).every(result => result.status === 'rejected')).toBe(true)
+    expect(store.contextLoading).toBe(false)
+    httpMock.get.mockResolvedValueOnce({ data: { course_id: 'course-1', ready: true } })
+    await store.loadCourseContext('course-1')
+    expect(store.courseContext?.ready).toBe(true)
+    expect(httpMock.get).toHaveBeenCalledTimes(2)
+  })
+
   it('persists selection intent through the existing review endpoint', async () => {
     const store = useCourseEvolutionStore()
     store.selectCourse('course-1')

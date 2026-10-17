@@ -579,7 +579,9 @@ watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId]
   if (!open || !courseId) return
   previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   forceRequest.value = false; selectedPlanId.value = props.focusPlanId
-  await reloadWorkspace()
+  // The update center reads this shared store before mounting its workspace.
+  // Standalone dialogs still own their initial read and explicit refreshes.
+  if (!props.embeddedInCenter) await reloadWorkspace()
   await nextTick()
   if (epoch !== workspaceEpoch) return
   workspaceRef.value?.focus()

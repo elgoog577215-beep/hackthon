@@ -18,6 +18,7 @@ vi.mock('vue-router', async () => {
 })
 
 import TeacherMaterialAuditReportView from '@/views/TeacherMaterialAuditReportView.vue'
+import { useCourseUpdateCenterStore } from '@/stores/courseUpdateCenter'
 
 const plan = {
   schema_version: 'course_material_absorption_v1',
@@ -130,6 +131,47 @@ describe('TeacherMaterialAuditReportView', () => {
         },
       },
     })
+  })
+
+  it('loads an embedded workspace once and preserves its empty-course draft during refresh', async () => {
+    const pinia = createPinia()
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [] })
+      if (url.endsWith('/evolution/progress')) return Promise.resolve({ data: { course_evolution_plans: [] } })
+      if (url.endsWith('/evolution/course-context')) return Promise.resolve({ data: courseContext })
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = mount(TeacherMaterialAuditReportView, {
+      props: { courseId: 'course-1' },
+      global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    const reads = (suffix: string) => httpMock.get.mock.calls.filter(([url]) => String(url).endsWith(suffix))
+    expect(reads('/evolution/progress')).toHaveLength(1)
+    expect(reads('/evolution/course-context')).toHaveLength(1)
+    const input = wrapper.get('.request-composer textarea')
+    await input.setValue('统一术语，保留已有推导。')
+    const originalInput = input.element
+    const center = useCourseUpdateCenterStore(pinia)
+    let finishContext!: (value: any) => void
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.endsWith('/evolution/course-context')) return new Promise(resolve => { finishContext = resolve })
+      return Promise.resolve({ data: { course_evolution_plans: [] } })
+    })
+    const refresh = center.refreshAll()
+    await flushPromises()
+    expect(center.loading).toBe(true)
+    expect(wrapper.get('.request-composer textarea').element).toBe(originalInput)
+    expect((originalInput as HTMLTextAreaElement).value).toBe('统一术语，保留已有推导。')
+    finishContext({ data: courseContext })
+    await refresh
+    await flushPromises()
+    expect(wrapper.get('.request-composer textarea').element).toBe(originalInput)
+    expect((originalInput as HTMLTextAreaElement).value).toBe('统一术语，保留已有推导。')
+    expect(reads('/evolution/progress')).toHaveLength(2)
+    expect(reads('/evolution/course-context')).toHaveLength(2)
+    expect(httpMock.post).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('把材料变化与全课调整收入同一更新中心', async () => {

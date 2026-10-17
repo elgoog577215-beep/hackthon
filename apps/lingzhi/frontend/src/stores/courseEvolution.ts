@@ -314,6 +314,16 @@ export interface CourseEvolutionApplicationVisual extends CourseEvolutionApplica
   phase: CourseEvolutionApplicationPhase
 }
 
+interface WorkspaceRead {
+  courseId: string
+  epoch: number
+  sequence: number
+  promise: Promise<any>
+}
+// Parent and embedded workspace share pending reads, never a second state cache.
+const progressReads = new WeakMap<object, WorkspaceRead>()
+const contextReads = new WeakMap<object, WorkspaceRead>()
+
 export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
@@ -490,13 +500,21 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
       if (this.actingId || this.analysisSubmitting) return null
+      const pending = progressReads.get(this)
+      if (pending?.courseId === targetCourseId && pending.epoch === this.courseEpoch
+        && pending.sequence === this.payloadRequestSequence) return pending.promise
       const sequence = ++this.payloadRequestSequence
-      const response = await http.get(
+      const promise = http.get(
         `/api/courses/${targetCourseId}/evolution/progress`,
         { silentError: true },
-      )
-      if (this.courseId === targetCourseId && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
-      return response.data
+      ).then(response => {
+        if (this.courseId === targetCourseId && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
+        return response.data
+      })
+      const read = { courseId: targetCourseId, epoch: this.courseEpoch, sequence, promise }
+      progressReads.set(this, read)
+      try { return await promise }
+      finally { if (progressReads.get(this) === read) progressReads.delete(this) }
     },
     async evaluate(courseId: string) {
       this.selectCourse(courseId)
@@ -515,16 +533,23 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
+      const pending = contextReads.get(this)
+      if (pending?.courseId === targetCourseId && pending.epoch === this.courseEpoch
+        && pending.sequence === this.contextRequestSequence) return pending.promise
       const sequence = ++this.contextRequestSequence
       this.contextLoading = true
-      try {
-        const response = await http.get(
-          `/api/courses/${targetCourseId}/evolution/course-context`,
-          { silentError: true },
-        )
+      const promise = http.get(
+        `/api/courses/${targetCourseId}/evolution/course-context`,
+        { silentError: true },
+      ).then(response => {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.courseContext = response.data
         return response.data as TeacherCourseChangeContext
-      } finally {
+      })
+      const read = { courseId: targetCourseId, epoch: this.courseEpoch, sequence, promise }
+      contextReads.set(this, read)
+      try { return await promise }
+      finally {
+        if (contextReads.get(this) === read) contextReads.delete(this)
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },

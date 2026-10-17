@@ -16,7 +16,7 @@
       </div>
     </Teleport>
 
-    <section v-if="center.loading && !center.sources.length" class="center-state" role="status">
+    <section v-if="center.loading && !center.activeSource" class="center-state" role="status">
       <LoaderCircle :size="22" class="spin" />{{ t('courseAuditUpdates.loading', '正在读取材料、课程结构和历史变化…') }}
     </section>
 
