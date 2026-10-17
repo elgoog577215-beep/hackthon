@@ -47,7 +47,7 @@ it('continues the saved task only after the user clicks',async()=>{
   expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
 })
 it('shows source doubts beside the frozen quote without treating them as verified corrections',async()=>{
-  const v=view();(v.atomic_runs[0].pipeline as any).inventory_batches=[{id:'inventory-1',source_coverage:[],source_issues:[{source_key:'S1',quote:'原文中的可疑结论。',kind:'suspected_error',detail:'需要核对原讲义的适用条件。'}]}]
+  const v=view();(v.atomic_runs[0]!.pipeline as any).inventory_batches=[{id:'inventory-1',source_coverage:[],source_issues:[{source_key:'S1',quote:'原文中的可疑结论。',kind:'suspected_error',detail:'需要核对原讲义的适用条件。'}]}]
   vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   expect(w.get('[data-testid="knowledge-source-issues"]').text()).toContain('未核验')
