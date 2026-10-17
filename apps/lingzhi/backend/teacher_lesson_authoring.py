@@ -2713,7 +2713,11 @@ class TeacherLessonAuthoringRepository:
     def update_job(self, course_id: str, job_id: str, **changes: Any) -> dict[str, Any]:
         """Persist a semantic checkpoint or a lifecycle state transition."""
         with self._course_lock(course_id):
-            value = self.load(course_id)
+            # Only this job is mutated. _save owns the full durable snapshot;
+            # copying unrelated lesson/history bodies here duplicates that work.
+            value = self.read_projection(course_id, lambda state: {
+                **state, "jobs": dict(state.get("jobs") or {}),
+            })
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
@@ -2721,6 +2725,7 @@ class TeacherLessonAuthoringRepository:
                 return deepcopy(job)
             if job_id not in self._live_stream_jobs.get(course_id, {}) and all(key in job and job[key] == value for key, value in changes.items()):
                 return deepcopy(job)
+            job = deepcopy(job)
             if changes.get("restart_whole") and not job.get("restart_whole"):
                 changes["generation_base"] = deepcopy((value.get("lessons") or {}).get(job["lesson_unit_id"]))
                 previous = (value.get("jobs") or {}).get(changes.get("resume_from_job_id")) or {}

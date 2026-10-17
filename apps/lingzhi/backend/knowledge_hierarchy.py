@@ -111,6 +111,7 @@ def subtree_prompt(raw, context, task, points):
         '不得给每个叶子套同名分类，不得复制父范围或用同义名称造深度。'
         '当前主题已存在，不再输出它或其祖先；categories只含新增子孙分类，顶层parent_key为null，其余引用实际分类短键。'
         '每个知识点恰好归属一个分类；确实直接属于当前主题的点填__direct__。分支非空、无环，scope写具体共同问题而非列举多个无关主题。'
+        '只为本次实际给出的知识点建分类，不照预想的大纲添加空类别；输出前逐个核对每个分类至少包含一个直接或后代知识点，无知识的分类不要输出。'
         '只输出紧凑JSON：{"response_contract":"' + CONTRACT + '",'
         '"categories":[{"key":"S1","name":"子主题","scope":"具体共同问题", "parent_key":null}],'
         '"point_categories":{"K1":"S1","K2":"__direct__"}}。'
