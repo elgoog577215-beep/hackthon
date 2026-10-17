@@ -125,3 +125,4 @@ def test_focus_matching_ignores_presentation_markup_without_rewriting_sources(te
     from knowledge_compact import focus_matches
     assert focus_matches(term,source)
     assert not focus_matches('入栈','出栈移除元素。')
+    assert not focus_matches('$$','任意正文')
