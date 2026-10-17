@@ -121,7 +121,7 @@ def compile_inventory(response, context, keys, group_index):
     for row in rows:
         refs = row.get('item_keys', []); handling = row.get('handling')
         require(isinstance(refs, list) and all(k in aliases for k in refs), '来源承载引用未知清单')
-        require(handling in {'items', 'context', 'out_of_scope'}, '来源承载类型无效')
+        require(handling in ({'items','context','out_of_scope','pending'} if response.get('response_contract') == PASSAGES else {'items','context','out_of_scope'}), '来源承载类型无效')
         require(handling != 'items' or refs, '来源尚无知识清单承载')
         require(all(any(s['key'] == row['source_key'] for s in next(i for i in items if i['key'] == aliases[k])['sources']) for k in refs), '来源与清单引文不一致')
         mapped.append({**row, 'reason': text(row.get('reason'), '来源承载理由'), 'item_keys': [aliases[k] for k in refs],
@@ -256,9 +256,14 @@ def assemble(raw, context, pipeline):
     result['relations'] = [deepcopy(r) for r in existing.get('relations', []) if r['source_id'] in all_ids and r['target_id'] in all_ids]
     result['relation_index'] = relation_index(result)
     source_issues = [deepcopy(issue) for group in pipeline['inventory_batches'] for issue in group.get('source_issues',[])]
+    from knowledge_compact import passage_catalog
+    passage_lookup = {p['key']:p for p in passage_catalog(context,list(sources(context)))}
+    uncovered = [deepcopy(passage_lookup[key]) for group in pipeline['inventory_batches'] for row in group['source_coverage'] for key in row.get('uncovered_passage_keys',[])]
+    issues.extend({'code':'source_span_uncovered','severity':'blocking','source_key':p['source_key'],'passage_key':p['key']} for p in uncovered)
     issues.extend({'code':'source_review','severity':'review','source_key':issue['source_key']} for issue in source_issues)
     result['atomic_assessment'] = {'schema_version': PIPELINE, 'ready_for_adoption': not any(i['severity'] == 'blocking' for i in issues),
         'source_issues':source_issues,
+        'uncovered_passages':uncovered,
         'semantics_verified': False, 'issues': issues, 'inventory_count': len(pipeline['items']), 'relation_status': 'not_run'}
     result['identity_changes'] = {'retired_points': retired, 'new_ids': sorted(ids - {p['knowledge_id'] for p in old_points}), 'pending_rebinding': bool(retired)}
     result['knowledge_inventory'] = deepcopy(pipeline['items'])
