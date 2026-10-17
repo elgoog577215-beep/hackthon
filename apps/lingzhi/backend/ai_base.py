@@ -14,6 +14,7 @@ AI 基础服务模块 - LLM 调用层
 import asyncio
 import hashlib
 import inspect
+import ipaddress
 import json
 import logging
 import math
@@ -256,11 +257,18 @@ class AIBase:
         connect_timeout = max(1.0, float(os.getenv("AI_CONNECT_TIMEOUT_SECONDS", "10")))
         client_timeout = httpx.Timeout(request_timeout, connect=connect_timeout)
         if self.api_key:
+            provider_host = (urlparse(self.api_base).hostname or '').casefold()
+            try:
+                loopback_provider = ipaddress.ip_address(provider_host).is_loopback
+            except ValueError:
+                loopback_provider = provider_host == 'localhost'
             self.client = AsyncOpenAI(
                 base_url=self.api_base,
                 api_key=self.api_key,
                 timeout=client_timeout,
-                http_client=QwenCompatibleAsyncHttpxClient(timeout=client_timeout),
+                http_client=QwenCompatibleAsyncHttpxClient(
+                    timeout=client_timeout, trust_env=not loopback_provider,
+                ),
                 max_retries=0,
             )
         else:

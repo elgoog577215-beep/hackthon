@@ -250,6 +250,26 @@ def test_provider_client_disables_hidden_retries_and_bounds_timeouts(monkeypatch
     assert captured["timeout"].connect == 7
 
 
+def test_loopback_provider_client_bypasses_process_proxy(monkeypatch):
+    client_options = {}
+
+    def fake_http_client(**kwargs):
+        client_options.update(kwargs)
+        return SimpleNamespace()
+
+    def fake_openai(**_kwargs):
+        return SimpleNamespace()
+
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "http://127.0.0.1:18738/v1")
+    monkeypatch.setattr("ai_base.QwenCompatibleAsyncHttpxClient", fake_http_client)
+    monkeypatch.setattr("ai_base.AsyncOpenAI", fake_openai)
+
+    AIBase()
+
+    assert client_options["trust_env"] is False
+
+
 def test_extract_json_accepts_literal_newlines_in_code_strings(
     monkeypatch,
 ):
