@@ -80,6 +80,9 @@ def test_question_template_binds_exact_frozen_focus_without_rewriting_answer(svc
     assert result['tree']['knowledge_points'][0]['meta_question'] == '入栈执行什么操作？'
     assert result['tree']['knowledge_points'][0]['meta_answer'] == point['claim']
     assert result['report']['ready_for_adoption']
+    point['question_template'] = '{focus}'
+    with pytest.raises(ValidationError): validate(value, extraction_schema(['S1.1']))
+    with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
     point['question_template'] = '执行什么操作？'
     with pytest.raises(ValidationError): validate(value, extraction_schema(['S1.1']))
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
