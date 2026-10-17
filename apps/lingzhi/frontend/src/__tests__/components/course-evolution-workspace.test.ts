@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, type Pinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseEvolutionWorkspace from '@/components/CourseEvolutionWorkspace.vue'
@@ -138,18 +138,60 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('summarizes excessive historical questions and preserves their optional detail', async () => {
+  it('replaces excessive historical answers with one explicit request and keeps old questions read-only', async () => {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
-    const questions = Array.from({ length: 100 }, (_, i) => ({ question_id: `q${i}`,
-      prompt: `历史问题 ${i}`, response_type: 'free_text', required: true, options: [] }))
+    const questions = Array.from({ length: 137 }, (_, i) => ({ question_id: `q${i}`,
+      prompt: `历史问题 ${i}`, response_type: i < 107 ? 'single_choice' : 'free_text', required: true,
+      options: i < 107 ? [{ option_id: 'recommended', label: '推荐', recommended: true }] : [] }))
     store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification',
-      intent: { ...planning().intent, clarifications: questions as any, clarification_set_id: 'old-set' } }) })]
+      intent: { ...planning().intent, clarifications: questions as any, clarification_set_id: 'old-set' } }),
+      impact_summary: { request_asset_types: ['outline', 'course_content', 'script'], force_full_scan: true } })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'new-intent' } } as any)
     const wrapper = mountWorkspace(pinia)
-    expect(wrapper.text()).toContain('100 条待确认问题')
+    expect(wrapper.text()).toContain('137 条问题')
     expect(wrapper.findAll('.clarification-question')).toHaveLength(0)
     expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
+    const proceed = wrapper.get('[data-testid="reanalyze-legacy-request"]')
+    expect(proceed.attributes('disabled')).toBeDefined()
     await wrapper.get('[data-testid="expand-clarifications"]').trigger('click')
-    expect(wrapper.findAll('.clarification-question')).toHaveLength(100)
+    expect(wrapper.get('[data-testid="legacy-question-reference"]').findAll('strong')).toHaveLength(137)
+    expect(wrapper.findAll('input[type="radio"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
+    await wrapper.get('.request-context button').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="legacy-request"] textarea').element)
+    await wrapper.get('[data-testid="legacy-request"] textarea').setValue('把六步骤流程放到第一讲开头，保留其余讲次。')
+    expect(proceed.attributes('disabled')).toBeUndefined()
+    await proceed.trigger('click')
+    expect(create).toHaveBeenCalledWith({ courseId: 'course-1', requestId: expect.any(String),
+      instruction: '把六步骤流程放到第一讲开头，保留其余讲次。', supersedesPlanId: 'change-1',
+      assetTypes: ['outline', 'course_content', 'script'], forceFullScan: true })
+    wrapper.unmount()
+  })
+
+  it('explains remaining free-text answers after recommended choices and focuses the missing answer', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification', intent: {
+      ...planning().intent, clarification_set_id: 'mixed', clarifications: [
+        { question_id: 'placement', prompt: '放在哪里？', response_type: 'single_choice', required: true,
+          options: [{ option_id: 'opening', label: '课程开头', recommended: true }] },
+        { question_id: 'detail', prompt: '需要补充什么？', response_type: 'free_text', required: true, options: [] },
+      ],
+    } as any }) })]
+    const wrapper = mountWorkspace(pinia)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('2 项必答问题')
+    await wrapper.findAll('.clarification-actions button').find(button => button.text() === '采用推荐项')!.trigger('click')
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('1 项必答问题')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('.clarification-answer-status button').trigger('click')
+    const input = wrapper.get('.clarification-free-text textarea')
+    expect(document.activeElement).toBe(input.element)
+    await input.setValue('   ')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeDefined()
+    await input.setValue('补充步骤之间的关系。')
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('已全部确认')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 
