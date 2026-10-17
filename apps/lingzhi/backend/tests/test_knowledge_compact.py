@@ -136,3 +136,17 @@ def test_omitted_independent_item_becomes_a_blocking_coverage_issue_not_a_lost_b
     assert not report['ready_for_adoption']
     assert any(i['code']=='uncovered_inventory' and i['inventory_key']==items[0]['key'] for i in report['issues'])
     assert any(row['inventory_key']==items[0]['key'] and row['handling']=='context' for row in report['coverage'])
+
+
+@pytest.mark.asyncio
+async def test_global_quality_issues_keep_the_correct_point_after_batch_key_renumbering(svc,monkeypatch):
+    setup_course(svc,monkeypatch)
+    def wrong(data,result):
+        if data['stage']=='atomize' and data['items'][0]['name']=='出栈':
+            result['points'][0]['meta_question']='入栈执行什么操作？'
+            result['question_coverage'][0]['question_quote']='入栈执行什么操作？'
+    provider(svc,mutate=wrong);job=start(svc);await svc.run('c-pilot',job['id'])
+    tree=svc.authoring.get_job('c-pilot',job['id'])['checkpoint']['candidate']
+    point=next(p for p in tree['knowledge_points'] if p['name']=='出栈')
+    issue=next(i for i in tree['atomic_assessment']['issues'] if i['code']=='question_focus_missing')
+    assert issue['point_key']==point['key'] and issue['batch_point_key']=='K1'
