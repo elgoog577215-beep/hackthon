@@ -3,7 +3,7 @@ from copy import deepcopy
 from course_document import stable_hash
 from .semantic_scan import validate_batch
 
-INTENT_CONTRACT = 'teacher_change_intent_v1'
+INTENT_CONTRACT = 'teacher_change_intent_v2'
 
 
 async def assess_intent(*, overview, instruction, model_identity, analyzer, checkpoint, on_progress):

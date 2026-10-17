@@ -25,6 +25,7 @@ def historical_scan_results(
     additionally verify the complete indexed unit, including its full text.
     """
     retained, analyses, origins = set(), [], []
+    from .request_routing import routing_fingerprint
     expected = source.impact_summary
     outline = [{k: v for k, v in node.items() if k != "section_snapshot"} for node in context.outline]
     outline_ids = {f"outline:{node['node_id']}" for node in outline}
@@ -41,7 +42,8 @@ def historical_scan_results(
                 or summary.get("current_outline") != outline
                 or summary.get("source_mode") != context.source_mode
                 or summary.get("scan_model_identity") != model_identity
-                or summary.get("scan_contract", "teacher_semantic_scan_v2") != SCAN_CONTRACT
+                or summary.get("scan_contract", "teacher_semantic_scan_v2") != expected.get("scan_contract", SCAN_CONTRACT)
+                or routing_fingerprint(summary.get('request_routing') or {}) != routing_fingerprint(expected.get('request_routing') or {})
                 or summary.get("analysis_mode") != "ai_ranked"
                 or set(summary.get("request_asset_types") or []) != set(expected.get("request_asset_types") or [])
                 or summary.get("clarification_answer_digest", "") != expected.get("clarification_answer_digest", "")

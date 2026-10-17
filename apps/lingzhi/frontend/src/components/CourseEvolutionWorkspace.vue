@@ -37,7 +37,8 @@
           <p v-if="store.progressDisconnected" class="workspace-status-error" role="status">{{ t('courseEvolution.workspace.progressDisconnected') }}</p>
           <p v-if="candidatesGenerating" class="workspace-status-progress" role="status"><LoaderCircle :size="16" class="spinning" />{{ t('courseEvolution.workspace.durableProgress') }}</p>
           <p v-if="focusedPlan?.impact_summary?.generation_error" class="workspace-status-error" role="alert">{{ focusedPlan.impact_summary.generation_error }}</p>
-          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning' && !detailItem" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
+          <p v-if="executionSummary" class="coverage-status" data-testid="routing-summary">{{ executionSummary }}</p>
+          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning' && !detailItem" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.selected_units ?? coverage.indexed_units ?? 0)) }}</p>
           <div class="workspace-stage" :class="{ 'is-review': workspaceState === 'content' }">
             <section v-if="partialActive && workspaceState !== 'request' && !detailItem" class="partial-review-banner" data-testid="partial-review-banner">
               <div class="partial-status-copy">
@@ -88,6 +89,7 @@
                       <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
                     </details>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content', 'ppt'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" :disabled="asset.state === 'missing' || store.generating" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
+                    <label class="scan-depth-option"><input v-model="forceFullScan" type="checkbox" :disabled="store.generating" data-testid="force-full-scan" />{{ t('courseEvolution.workspace.forceFullScan') }}</label>
                   </div>
                   <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
@@ -119,6 +121,13 @@
                     <li v-for="finding in scanProgress.findings" :key="finding.unit_id">
                       <small>{{ assetLabel(finding.asset_type) }}</small><strong>{{ finding.title }}</strong>
                       <p v-if="finding.reason">{{ finding.reason }}</p>
+                      <details v-if="finding.preview" class="scan-preview" data-testid="scan-preview">
+                        <summary>{{ t('courseEvolution.workspace.scanPreview') }}</summary>
+                        <p>{{ t('courseEvolution.workspace.scanPreviewHint') }}</p>
+                        <strong>{{ t('courseEvolution.workspace.scanBefore') }}</strong><pre>{{ finding.preview.before }}</pre>
+                        <strong>{{ t('courseEvolution.workspace.scanAfter') }}</strong><pre>{{ finding.preview.after }}</pre>
+                        <small v-if="finding.preview.truncated">{{ t('courseEvolution.workspace.scanPreviewPartial') }}</small>
+                      </details>
                     </li>
                   </ul>
                   <p v-else>{{ t('courseEvolution.workspace.noLiveFindings') }}</p>
@@ -313,6 +322,7 @@ const semanticPresets = computed(() => [
   { id: 'logic', label: t('courseEvolution.workspace.semanticLogic', '逻辑调整'), prompt: t('courseEvolution.workspace.semanticLogicPrompt', '调整内容顺序和衔接，让论述逻辑更清楚，不新增知识。') },
   { id: 'explain', label: t('courseEvolution.workspace.semanticExplain', '增强解释'), prompt: t('courseEvolution.workspace.semanticExplainPrompt', '补足必要解释，让学生更容易理解，保留原有知识范围。') },
 ])
+const forceFullScan = ref(false)
 const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content', 'ppt'])
 function appendPreset(prompt: string) {
   if (!requestText.value.includes(prompt)) requestText.value = [requestText.value.trim(), prompt].filter(Boolean).join('\n')
@@ -392,6 +402,15 @@ const context = computed(() => store.courseContext)
 const analysisFailureDetails = computed(() => store.analysisTask?.status === 'failed' ? store.analysisTask.error_detail || null : null)
 const analysisRetryAvailable = computed(() => store.analysisTask?.status === 'failed')
 const scanProgress = computed(() => store.analysisSubmitting ? undefined : store.analysisTask?.phase_detail?.scan)
+const executionSummary = computed(() => {
+  if (workspaceState.value === 'scanning') {
+    const r = scanProgress.value?.routing
+    return r ? t('courseEvolution.workspace.routingPlanned').replace('{indexed}', String(r.indexed_units)).replace('{selected}', String(r.selected_units)).replace('{model}', String(r.model_units)).replace('{aliases}', String(r.alias_units)) : ''
+  }
+  const c = coverage.value
+  if (!focusedPlan.value?.impact_summary.request_routing || !c) return ''
+  return t('courseEvolution.workspace.routingCompleted').replace('{indexed}', String(c.indexed_units || 0)).replace('{selected}', String(c.selected_units || 0)).replace('{model}', String(c.model_units || 0)).replace('{aliases}', String(c.alias_units || 0)).replace('{reused}', String(c.retained_units || 0))
+})
 const courseLabel = computed(() => props.courseTitle || context.value?.course_title || t('courseEvolution.workspace.currentCourse', '当前课程'))
 const focusedPlan = computed(() => {
   const preferredId = selectedPlanId.value || props.focusPlanId
@@ -786,7 +805,7 @@ async function submitRequest() {
     ? [requestText.value.trim(), findText.value ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : ''].filter(Boolean).join('\n')
     : requestText.value.trim()
   try {
-    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction, ...(forceFullScan.value ? { forceFullScan: true } : {}), assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
     if (epoch === workspaceEpoch && !result.analysis_task) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
@@ -813,7 +832,7 @@ async function submitDecisionResolution() {
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
     const result = await store.createCoursePlan({ courseId: props.courseId, requestId,
-      instruction: decisionResolutionText.value.trim(), supersedesPlanId: plan.change_set_id,
+      instruction: decisionResolutionText.value.trim(), supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan), confirmedInterpretation: true })
     if (isCurrent()) { decisionResolutionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, t('courseEvolution.workspace.analysisFailed'))
@@ -834,7 +853,7 @@ async function submitCorrection() {
   const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
-    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}), assetTypes: planAssetTypes(plan) })
     if (isCurrent()) { correctionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, '重新分析失败，请重试。')
 }
@@ -846,7 +865,7 @@ async function confirmUnderstanding() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan),
       confirmedInterpretation: true,
     })
@@ -861,7 +880,7 @@ async function retryIncompleteScan() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       rescanIncompleteOnly: true,
       assetTypes: planAssetTypes(plan),
     })
@@ -908,7 +927,7 @@ async function confirmClarificationAnswers() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan),
       clarificationSetId: plan.teacher_change_planning?.intent.clarification_set_id || '',
       clarificationAnswers: clarificationAnswerPayload(),
@@ -1141,4 +1160,5 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .scan-findings li{padding-top:10px;border-top:1px solid #e5e6ef;font-size:15px}
 .scan-findings li small{display:inline-block;margin-right:8px;color:#6556d8;font-size:13px}
 .scan-findings li strong{color:#30394c;font-weight:600}
+.scan-depth-option{display:flex;align-items:center;gap:8px;font-size:15px;color:#52617b;margin:12px 0}.scan-preview{margin-top:10px;border-top:1px solid #e4def5;padding-top:10px}.scan-preview summary{cursor:pointer;color:#6550bd;font-size:15px}.scan-preview pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;max-height:180px;overflow:auto}.scan-preview>strong{display:block;margin-top:10px}.scan-findings:has(.scan-preview[open]){max-height:540px}
 </style>

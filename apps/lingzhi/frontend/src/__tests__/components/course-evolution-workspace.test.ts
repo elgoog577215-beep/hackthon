@@ -95,19 +95,49 @@ function plan(overrides: Partial<CourseEvolutionPlan> = {}): CourseEvolutionPlan
   }
 }
 
-function mountWorkspace(pinia: Pinia) {
+function mountWorkspace(pinia: Pinia, initialMode?: 'replace' | 'structure') {
   const store = useCourseEvolutionStore(pinia)
   store.courseContext = store.courseContext || context()
   vi.spyOn(store, 'refreshProgress').mockResolvedValue({} as any)
   vi.spyOn(store, 'loadCourseContext').mockResolvedValue(store.courseContext)
   return mount(CourseEvolutionWorkspace, {
     attachTo: document.body,
-    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理' },
+    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理', ...(initialMode ? { initialMode } : {}) },
     global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
   })
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('shows validated live diffs without apply permission and keeps routing counts distinct', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 2, total_parts: 8, reused_parts: 0, failed_parts: 0,
+      routing: { mode: 'topics', indexed_units: 100, selected_units: 10, model_units: 8, alias_units: 2, outside_units: 90 },
+      finding_count: 1, findings: [{ unit_id: 'u1', title: '用户画像', asset_type: 'course_content', reason: '补充依据',
+        preview: { before: '需要证据', after: '需要记录证据来源', truncated: false, change_count: 1 } }],
+    } } } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="routing-summary"]').text()).toContain('AI 检查范围 8 项')
+    expect(wrapper.get('[data-testid="routing-summary"]').text()).toContain('同源合并 2 项')
+    expect(wrapper.get('[data-testid="scan-preview"]').text()).toContain('需要记录证据来源')
+    expect(wrapper.get('[data-testid="scan-preview"]').text()).toContain('完整方案形成后再确认应用')
+    expect(wrapper.find('[data-testid="apply-course-change"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('lets the teacher explicitly request a full-text check through the existing task', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'full-scan' } } as any)
+    const wrapper = mountWorkspace(pinia, 'replace')
+    await wrapper.get('.request-state textarea').setValue('只修改用户画像')
+    await wrapper.get('[data-testid="force-full-scan"]').setValue(true)
+    await wrapper.get('form').trigger('submit')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ forceFullScan: true, instruction: '只修改用户画像' }))
+    wrapper.unmount()
+  })
+
   it('summarizes excessive historical questions and preserves their optional detail', async () => {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
     const questions = Array.from({ length: 100 }, (_, i) => ({ question_id: `q${i}`,

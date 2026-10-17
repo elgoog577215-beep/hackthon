@@ -8960,6 +8960,11 @@ class CourseService(AIBase):
             '每个问题包含 question_id、prompt、response_type=single_choice、required=true、options。'
             '每个选项包含 option_id、label、impact、recommended；选项应覆盖不同的修改方向，'
             '最多一个 recommended。不要把模型检查失败当作老师需要回答的问题。'
+            '另返回 scope 对象：mode 为 full、topics 或 lectures；默认 full。'
+            '明确只改某主题时 topics 放原话逐字出现的主题短语；明确指定讲次时 lecture_ids 从课程大纲选真实ID。'
+            'evidence 必须逐字引用原话中限定范围的完整短句。全课润色、关系重构或范围不确定时 mode=full。'
+            '例：“只把用户画像的案例讲清楚，其他不变”可用topics=["用户画像"]；'
+            '“优化全课表述，尤其是用户画像”必须full，不能把尤其强调的主题当成全部范围。'
         )
         response = await self._call_llm(
             prompt, use_fast_model=True, max_tokens=1600,

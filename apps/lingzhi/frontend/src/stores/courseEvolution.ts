@@ -49,10 +49,11 @@ export interface CourseChangeAnalysisTask {
     plan_id?: string
     scan?: {
       stage?: 'intent'
+      routing?: { mode: string; indexed_units: number; selected_units: number; model_units: number; alias_units: number; outside_units: number }
       completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number
       deferred_parts?: number; retained_units?: number; pending_units?: number
       finding_count?: number
-      findings?: Array<{ unit_id: string; title: string; asset_type: string; reason: string }>
+      findings?: Array<{ unit_id: string; title: string; asset_type: string; reason: string; preview?: { before: string; after: string; truncated: boolean; change_count: number } }>
     }
   }
 }
@@ -559,7 +560,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[]; rescanIncompleteOnly?: boolean }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[]; rescanIncompleteOnly?: boolean; forceFullScan?: boolean }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
@@ -577,6 +578,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
               || createUuid(),
             instruction: input.instruction,
             ...(input.rescanIncompleteOnly ? { rescan_incomplete_only: true } : {}),
+            ...(input.forceFullScan ? { force_full_scan: true } : {}),
             ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
             ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
             ...(input.confirmedInterpretation ? { confirmed_interpretation: true } : {}),

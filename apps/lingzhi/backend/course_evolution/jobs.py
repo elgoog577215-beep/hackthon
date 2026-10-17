@@ -124,6 +124,7 @@ async def enqueue_analysis(
     clarification_set_id: str = "",
     clarification_answers: list[dict[str, Any]] | None = None,
     rescan_incomplete_only: bool = False,
+    force_full_scan: bool = False,
 ) -> dict[str, Any]:
     """Persist whole-course analysis before any model call and return immediately."""
 
@@ -165,6 +166,7 @@ async def enqueue_analysis(
                 "clarification_set_id": clarification_set_id,
                 "clarification_answers": clarification_answers or [],
                 "rescan_incomplete_only": rescan_incomplete_only,
+                "force_full_scan": force_full_scan,
                 "_retrieval_actor_id": user_id,
             },
         )
@@ -286,6 +288,7 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             scan_checkpoint=checkpoint,
             on_scan_progress=scan_progress,
             rescan_incomplete_only=bool(request.get('rescan_incomplete_only')),
+            force_full_scan=bool(request.get('force_full_scan')),
         )
     )
     try:

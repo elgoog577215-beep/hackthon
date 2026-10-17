@@ -95,6 +95,7 @@ class GenerateTeacherCourseChangeRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=5000)
     supersedes_plan_id: str = Field(default="", max_length=240)
     rescan_incomplete_only: bool = False
+    force_full_scan: bool = False
     literal_replacement: TeacherLiteralReplacement | None = None
     asset_types: list[Literal["outline", "course_content", "lesson_plan", "script", "ppt", "question_bank"]] | None = None
     confirmed_interpretation: bool = False
@@ -250,6 +251,7 @@ async def create_teacher_course_plan(
             confirmed_interpretation=body.confirmed_interpretation,
             clarification_set_id=body.clarification_set_id,
             clarification_answers=[item.model_dump() for item in body.clarification_answers],
+            force_full_scan=body.force_full_scan,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={

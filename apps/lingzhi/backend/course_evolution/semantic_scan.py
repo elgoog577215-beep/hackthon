@@ -86,14 +86,15 @@ async def scan_batches(
     source_context_fingerprint: str = "",
     deprioritized_unit_ids: set[str] | None = None,
     batch_policy: str = 'legacy_chars_v1',
+    contract: str = SCAN_CONTRACT,
 ) -> tuple[list[dict[str, Any]], set[str], set[str], list[dict[str, Any]], int]:
     # Include the complete input, not only revision labels: legacy revisions may
     # remain unchanged when content changes. Never reuse another request/context.
-    signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
+    signature = stable_hash({"contract": contract, "overview": overview,
         "batches": source_context_fingerprint or batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
-    legacy_signature = stable_hash({"contract": SCAN_CONTRACT, "overview": overview,
+    legacy_signature = stable_hash({"contract": contract, "overview": overview,
         "batches": batches, "instruction": instruction, "revisions": revisions}, prefix="scan-")
-    saved = {"signature": signature, "results": {}, "batch_policy": batch_policy}
+    saved = {"signature": signature, "results": {}, "batch_policy": batch_policy, 'contract': contract}
     if isinstance(checkpoint, dict) and checkpoint.get("signature") in {signature, legacy_signature}:
         if isinstance(checkpoint.get("results"), dict):
             saved["results"] = deepcopy(checkpoint["results"])
@@ -111,6 +112,12 @@ async def scan_batches(
     consecutive_failed_units: set[str] = set()
     provider_stop: Exception | None = None
     findings: dict[str, dict[str, str]] = {}
+    expected_parts: dict[str, set[int]] = {}
+    accepted_parts: dict[tuple[str, int], set[int]] = {}
+    required_recovery_parts: dict[tuple[str, int], int] = {}
+    for batch in batches:
+        for item in batch:
+            expected_parts.setdefault(item['unit_id'], set()).add(int(item.get('part') or 1))
 
     async def report() -> None:
         if on_progress:
@@ -158,6 +165,19 @@ async def scan_batches(
         saved["results"][key(items)] = deepcopy(result)
         analyses.append(result)
         scanned.update(item["unit_id"] for item in items)
+        for item in items:
+            piece = (item['unit_id'], int(item.get('part') or 1))
+            if not item.get('recovery_part'):
+                accepted_parts[piece] = {0}
+            elif 0 not in accepted_parts.get(piece, set()):
+                accepted_parts.setdefault(piece, set()).add(int(item['recovery_part']))
+                required_recovery_parts[piece] = int(item['recovery_parts'])
+        complete_ids = {uid for uid,parts in expected_parts.items() if all(
+            0 in accepted_parts.get((uid,part), set()) or
+            len(accepted_parts.get((uid,part), set())) == required_recovery_parts.get((uid,part), -1)
+            for part in parts)} - unscanned
+        # Kept in the internal progress callback only; the planner emits bounded validated diffs.
+        detail['_complete_unit_ids'] = sorted(complete_ids)
         detail["completed_parts"] += len(items)
         sources = {item['unit_id']: item for item in items}
         for affected in result['affected_units']:

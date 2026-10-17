@@ -92,6 +92,8 @@ class CourseEvolutionApplicationService:
             authoring=authoring,
             question_bank=question_bank,
             representation_registries=representation_registries,
+            canonical_authoring=(self.document_repository.load_raw(course_id).get('teacher_production_schema') == 'unified_teacher_v1')
+                if hasattr(self.document_repository, 'load_raw') else False,
         )
 
     async def create_teacher_plan(
@@ -110,6 +112,7 @@ class CourseEvolutionApplicationService:
         scan_checkpoint: dict[str, Any] | None = None,
         on_scan_progress: ScanProgress | None = None,
         rescan_incomplete_only: bool = False,
+        force_full_scan: bool = False,
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -129,6 +132,7 @@ class CourseEvolutionApplicationService:
             scan_checkpoint=scan_checkpoint,
             on_scan_progress=on_scan_progress,
             rescan_incomplete_only=rescan_incomplete_only,
+            force_full_scan=force_full_scan,
             scan_model_identity=stable_hash({
                 "endpoint": getattr(self.course_service, "api_base", ""),
                 "models": getattr(self.course_service, "fast_models", []),
