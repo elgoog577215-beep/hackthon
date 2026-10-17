@@ -84,6 +84,10 @@ def setup_access(tmp_path, monkeypatch):
     def fact(course_id, request: Request):
         return {"user_id": request.headers["X-User-Id"]}
 
+    @app.get("/api/courses/{course_id}/diagnostics/active")
+    def active_diagnostic(course_id, request: Request):
+        return {"user_id": request.headers["X-User-Id"]}
+
     @app.post("/api/ask_events")
     def ask():
         return {"ok": True}
@@ -97,6 +101,19 @@ def setup_access(tmp_path, monkeypatch):
 
 def bearer(account):
     return {"Authorization": "Bearer " + account["token"]}
+
+
+def test_student_practice_can_read_only_own_active_diagnostic(setup_access):
+    client, store, course, first, second = setup_access
+    CourseLearningAccess(store).grant(course, first["user"]["id"])
+    path = "/api/courses/course/diagnostics/active"
+    assert learner_api_allowed(path, "GET")
+    response = client.get(path, headers={**bearer(first), "X-User-Id": second["user"]["id"]})
+    assert response.status_code == 200
+    assert response.json()["user_id"] == first["user"]["id"]
+    assert client.get(path, headers=bearer(second)).status_code == 404
+    assert not learner_api_allowed(path, "POST")
+    assert not learner_api_allowed("/api/courses/course/diagnostics/private", "GET")
 
 
 def test_owner_grants_registered_account_without_changing_course(setup_access):
