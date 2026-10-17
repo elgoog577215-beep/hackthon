@@ -160,7 +160,7 @@ def atomic_coverage(response, items, points):
     context = {}
     for note in notes:
         key = note.get('inventory_key')
-        require(key in by_item and key not in context and by_item[key]['kind'] in {'condition','boundary','example'},'独立知识不能转为背景，或附件去向重复、越界')
+        require(key in by_item and key not in context,'清单背景说明重复或引用越界')
         context[key] = text(note.get('reason'),'附件背景理由')
     for point in points:
         refs = point.get('inventory_keys')
