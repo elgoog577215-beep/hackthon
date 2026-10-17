@@ -89,3 +89,15 @@ def test_atomization_prompt_deduplicates_identical_quotes_without_dropping_evide
     assert len(data['frozen_evidence'])==1 and data['frozen_evidence'][0]['quote']==quote
     assert data['items'][0]['sources'][0]['evidence_key']==data['items'][1]['sources'][0]['evidence_key']
     assert all('quote' not in i['sources'][0] for i in data['items'])
+
+
+def test_already_bound_passage_can_retain_a_context_note_but_cannot_be_outside_scope(svc,monkeypatch):
+    from knowledge_compact import passage_catalog
+    from knowledge_atomic import compile_inventory
+    setup_course(svc,monkeypatch);context=ctx(svc);p=passage_catalog(context,['S1'])[0]
+    item=deepcopy(inventory()['items'][0]);item.pop('sources');item['source_passage_keys']=[p['key']]
+    result={'response_contract':V3,'items':[item],'unassigned_passages':[{'passage_key':p['key'],'handling':'context','reason':'该片段还提供背景说明。'}],'source_issues':[]}
+    _,coverage=compile_inventory(result,context,['S1'],1)
+    assert coverage[0]['passage_coverage'][0]['context_note']=='该片段还提供背景说明。'
+    result['unassigned_passages'][0]['handling']='out_of_scope'
+    with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
