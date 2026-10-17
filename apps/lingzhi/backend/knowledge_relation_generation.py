@@ -153,7 +153,7 @@ def assemble(tree, pipeline, lesson_id):
             if identity not in seen:
                 edges.append(deepcopy(edge)); seen.add(identity); added.append(edge['id'])
     validate_graph(pipeline['catalog'],edges)
-    result.update(status='candidate',relations=edges,scope_lesson_id=lesson_id)
+    result.update(status='candidate',relations=edges,scope_lesson_id=lesson_id,base_knowledge_revision=tree['revision_id'])
     result['relation_index'] = relation_index(result)
     for key in ('atomic_assessment','identity_changes'): result.pop(key,None)
     result['relation_assessment'] = {'schema_version':PIPELINE,'ready_for_adoption':True,'semantics_verified':False,
