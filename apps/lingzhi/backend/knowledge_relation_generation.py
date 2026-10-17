@@ -54,8 +54,11 @@ def prompt_for(raw, pipeline, batch, lesson_id):
         'necessity区分required必要前置与recommended建议先学，强关联不代表必要前置。'
         'derives从推导前提指向可推出结论，必须有至少两个可检查步骤并明确额外条件；'
         'applies_to从被使用的规则或方法指向实际使用它的目标，理由说明具体作用。'
+        '方法用于具体实例时优先表达applies_to；不要只因执行方法得到结果就把应用混标为一般命题推导。'
         '同学科、名称近似、同一复杂度或相邻讲次均不是充分理由；只连接有直接教学依据的关系。'
         '每条边至少一端是当前decision的focus_key；source_key/target_key只用目录P短键。'
+        '特别注意：全目录仅供比较，不授权为其他焦点提前生成边。links中每一条必须含该decision自己的focus_key，'
+        '不含它的边留待对应焦点所在批次，不能夹在reason或links里输出。reason简明陈述比较结论，不超过180字，不输出思考过程。'
         '保存context具体教学场景、reason命题层面的理由、conditions适用条件、strength弱weak/中medium/强strong或null未知。'
         '每条边的evidence必须分别引用两端statement或conditions中的连续逐字片段；这只证明依据来自冻结知识，不是独立学科核验。'
         '已有关系保留，不提出删除；相同两端、类型、场景与条件的重复边只提一次。不得输出模型置信概率。'
@@ -104,7 +107,7 @@ def compile_batch(raw, pipeline, batch, response, lesson_id):
         for link in links:
             a,b = link.get('source_key'),link.get('target_key'); kind = link.get('type')
             require(a in points and b in points and a != b and kind in TYPES, '关系端点或类型无效')
-            require(decision['focus_key'] in {a,b}, '关系必须包含本批正在比较的知识点')
+            require(decision['focus_key'] in {a,b}, f"关系{a}→{b}不包含当前比较点{decision['focus_key']}，请留待对应焦点所在批次")
             source,target = points[a],points[b]
             conditions = link.get('conditions',[])
             require(isinstance(conditions,list) and len(conditions) <= 20 and all(isinstance(c,str) and 0 < len(c) <= 1000 for c in conditions), '关系适用条件无效')
