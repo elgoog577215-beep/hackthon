@@ -370,10 +370,25 @@ async def test_replacing_coarse_point_requires_confirmation_and_preserves_histor
 @pytest.mark.asyncio
 async def test_completed_batches_change_observation_version_before_task_finishes(svc, monkeypatch):
     setup_course(svc, monkeypatch); versions = []
-    def observe(data, result):
-        if data['stage'] == 'atomize': versions.append(svc.status('c-pilot')['result_version'])
-    provider(svc, mutate=observe); job = start(svc); await svc.run('c-pilot', job['id'])
+    original = svc.authoring.update_job
+    def observe(cid, jid, **changes):
+        saved = original(cid, jid, **changes)
+        if changes.get('completed_batches') in {1, 2}:
+            versions.append(svc.status(cid)['result_version'])
+        return saved
+    monkeypatch.setattr(svc.authoring, 'update_job', observe)
+    provider(svc); job = start(svc); await svc.run('c-pilot', job['id'])
     assert len(versions) == 2 and versions[0] != versions[1]
+
+
+def test_task_and_source_checks_do_not_copy_all_historical_jobs(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    job = start(svc)
+    raw = svc.repository.load_raw('c-pilot')
+    expected = svc._context(raw, 'handouts', 'cpu')
+    monkeypatch.setattr(svc.authoring, 'load', lambda *_: pytest.fail('copied entire authoring history'))
+    assert svc._active('c-pilot', job['id'])['id'] == job['id']
+    assert svc._context(raw, 'handouts', 'cpu') == expected
 
 
 @pytest.mark.asyncio
