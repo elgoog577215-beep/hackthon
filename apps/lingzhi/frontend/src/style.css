@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "./styles/action-controls.css";
 @config "../tailwind.config.js";
 
 /* ============================================
@@ -370,27 +369,21 @@ body {
    ============================================ */
 
 .glass-panel {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  background: var(--lz-surface);
+  border: 1px solid var(--lz-border);
+  box-shadow: var(--lz-shadow-panel);
 }
 
 .glass-panel-elevated {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  background: var(--lz-surface);
+  border: 1px solid var(--lz-border);
+  box-shadow: var(--lz-shadow-panel);
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: var(--shadow-md);
+  background: var(--lz-surface);
+  border: 1px solid var(--lz-border);
+  box-shadow: var(--lz-shadow-panel);
   transition: all var(--transition-smooth);
   position: relative;
   overflow: hidden;
@@ -483,12 +476,13 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  font-size: var(--text-sm);
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 15px;
   font-weight: 500;
-  color: var(--lz-action-text);
-  background: var(--lz-action-bg);
-  border: 1px solid var(--lz-action-border);
+  color: var(--lz-action-primary-text);
+  background: var(--lz-action-primary-bg);
+  border: 1px solid var(--lz-action-primary-border);
   border-radius: var(--lz-action-radius);
   box-shadow: var(--lz-action-shadow);
   cursor: pointer;
@@ -497,13 +491,14 @@ body {
   overflow: hidden;
 }
 
-.btn-primary:hover {
-  transform: translateY(-2px);
+.btn-primary:hover:not(:disabled) {
+  background: var(--lz-action-primary-hover);
+  border-color: var(--lz-action-primary-hover);
   box-shadow: var(--lz-action-shadow-hover);
 }
 
-.btn-primary:active {
-  transform: translateY(0) scale(0.98);
+.btn-primary:active:not(:disabled) {
+  background: var(--lz-action-primary-hover);
 }
 
 .btn-primary:focus-visible {
@@ -517,25 +512,25 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  font-size: var(--text-sm);
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 15px;
   font-weight: 500;
-  color: var(--color-text-secondary);
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  color: var(--lz-action-text);
+  background: var(--lz-action-bg);
+  border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius);
   cursor: pointer;
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
 }
 
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.9);
+.btn-secondary:hover:not(:disabled) {
+  background: var(--lz-brand-soft);
   border-color: var(--color-primary-300);
   color: var(--color-primary-600);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: none;
 }
 
 .btn-secondary:active {
@@ -616,16 +611,18 @@ body {
 
 /* Icon Button Variants */
 .btn-icon-primary {
-  background: var(--lz-action-bg);
-  border-color: var(--lz-action-border);
-  color: var(--lz-action-text);
-  border: 1px solid var(--lz-action-border);
+  background: var(--lz-action-primary-bg);
+  border-color: var(--lz-action-primary-border);
+  color: var(--lz-action-primary-text);
+  border: 1px solid var(--lz-action-primary-border);
   border-radius: var(--lz-action-radius);
   box-shadow: var(--lz-action-shadow);
 }
 
-.btn-icon-primary:hover {
-  color: var(--lz-action-text);
+.btn-icon-primary:hover:not(:disabled) {
+  color: var(--lz-action-primary-text);
+  background: var(--lz-action-primary-hover);
+  border-color: var(--lz-action-primary-hover);
   box-shadow: var(--lz-action-shadow-hover);
 }
 

@@ -21,7 +21,7 @@ describe('LearningDock', () => {
       '学习概况',
       '知识树',
       '笔记本3',
-      '智能助教',
+      'AI 助手',
     ])
     expect(wrapper.find('[data-domain="learning"]').exists()).toBe(false)
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
@@ -43,6 +43,11 @@ describe('LearningDock', () => {
     expect(wrapper.emitted('stats')).toHaveLength(1)
     expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
     expect(wrapper.emitted('ai')).toHaveLength(1)
+    const assistant = wrapper.get('[data-domain="assistant"]')
+    expect(assistant.find('svg').exists()).toBe(false)
+    expect(assistant.attributes('aria-expanded')).toBe('false')
+    await wrapper.setProps({ assistantOpen: true })
+    expect(assistant.attributes('aria-expanded')).toBe('true')
   })
 
   it('当前打开的本子在底栏保持选中状态', () => {

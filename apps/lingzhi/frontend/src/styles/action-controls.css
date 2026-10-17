@@ -1,19 +1,33 @@
 /* Shared surfaces for course, learning, AI and dialog actions. */
 :root {
   --lz-action-bg: #fff;
-  --lz-action-text: var(--lz-brand-strong, #4f46e5);
+  --lz-action-text: var(--lz-text, #334155);
   --lz-action-border: var(--lz-border, rgba(203, 213, 225, .68));
-  --lz-action-border-hover: #c8c9dc;
-  --lz-action-radius: 10px;
-  --lz-action-focus: #9385ed;
-  --lz-action-shadow: inset 0 0 0 3px #f5f6fa, 0 2px 7px rgba(15, 23, 42, .08);
-  --lz-action-shadow-hover: inset 0 0 0 3px #f1f2f7, 0 2px 7px rgba(15, 23, 42, .12);
+  --lz-action-border-hover: var(--lz-brand-border, #c7d2fe);
+  --lz-action-radius: var(--lz-radius-control, 10px);
+  --lz-action-focus: var(--lz-brand, #6366f1);
+  --lz-action-shadow: none;
+  --lz-action-shadow-hover: none;
+  --lz-action-primary-bg: var(--lz-brand, #6366f1);
+  --lz-action-primary-text: #fff;
+  --lz-action-primary-border: var(--lz-brand, #6366f1);
+  --lz-action-primary-hover: var(--lz-brand-strong, #4f46e5);
   --lz-action-disabled-bg: #f8f9fc;
   --lz-action-disabled-text: #94a3b8;
+  --el-font-size-base: 15px;
+  --el-color-primary: var(--lz-brand, #6366f1);
+  --el-color-primary-light-3: #818cf8;
+  --el-color-primary-light-5: #a5b4fc;
+  --el-color-primary-light-7: #c7d2fe;
+  --el-color-primary-light-8: #e0e7ff;
+  --el-color-primary-light-9: #eef2ff;
+  --el-color-primary-dark-2: var(--lz-brand-strong, #4f46e5);
+  --el-border-radius-base: 10px;
 }
 
 /* Element Plus also supplies buttons in teleported confirmation dialogs. */
 .lz-action-button {
+  min-height: 38px;
   color: var(--lz-action-text);
   background: var(--lz-action-bg);
   border: 1px solid var(--lz-action-border);
@@ -22,6 +36,8 @@
   font-size: 15px;
 }
 .lz-action-button:hover:not(:disabled) {
+  color: var(--lz-brand-strong);
+  background: var(--lz-brand-soft);
   border-color: var(--lz-action-border-hover);
   box-shadow: var(--lz-action-shadow-hover);
 }
@@ -40,16 +56,21 @@
   border-bottom: 1px solid var(--lz-action-border);
 }
 
+.el-button:not(.is-text):not(.is-link):not(.el-button--small) {
+  min-height: 38px;
+  font-size: 15px;
+}
+
 .el-button.el-button--primary:not(.is-text):not(.is-link) {
-  --el-button-bg-color: var(--lz-action-bg);
-  --el-button-text-color: var(--lz-action-text);
-  --el-button-border-color: var(--lz-action-border);
-  --el-button-hover-bg-color: var(--lz-action-bg);
-  --el-button-hover-text-color: var(--lz-action-text);
-  --el-button-hover-border-color: var(--lz-action-border-hover);
-  --el-button-active-bg-color: var(--lz-action-bg);
-  --el-button-active-text-color: var(--lz-action-text);
-  --el-button-active-border-color: var(--lz-action-border-hover);
+  --el-button-bg-color: var(--lz-action-primary-bg);
+  --el-button-text-color: var(--lz-action-primary-text);
+  --el-button-border-color: var(--lz-action-primary-border);
+  --el-button-hover-bg-color: var(--lz-action-primary-hover);
+  --el-button-hover-text-color: var(--lz-action-primary-text);
+  --el-button-hover-border-color: var(--lz-action-primary-hover);
+  --el-button-active-bg-color: var(--lz-action-primary-hover);
+  --el-button-active-text-color: var(--lz-action-primary-text);
+  --el-button-active-border-color: var(--lz-action-primary-hover);
   --el-button-disabled-bg-color: var(--lz-action-disabled-bg);
   --el-button-disabled-text-color: var(--lz-action-disabled-text);
   --el-button-disabled-border-color: var(--lz-action-border);
@@ -65,4 +86,13 @@
 }
 .el-button.el-button--primary.is-disabled {
   box-shadow: none;
+}
+
+:is(.btn-primary, .btn-secondary, .btn-icon-primary, .clay-button):disabled {
+  color: var(--lz-action-disabled-text);
+  background: var(--lz-action-disabled-bg);
+  border-color: var(--lz-action-border);
+  box-shadow: none;
+  transform: none;
+  cursor: default;
 }

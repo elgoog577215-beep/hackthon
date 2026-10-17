@@ -86,11 +86,11 @@
         data-domain="assistant"
         :class="{ 'is-active': assistantOpen || activeDomain === 'assistant' }"
         :aria-pressed="assistantOpen || activeDomain === 'assistant'"
+        :aria-expanded="assistantOpen"
         :title="t('learningDock.assistantHint', '在当前页面打开 AI 老师')"
         @click="emit('ai')"
       >
-        <MessageSquareText :size="16" />
-        <span>{{ t('learningDock.assistant', '智能助教') }}</span>
+        <span>{{ t('learningDock.assistant', 'AI 助手') }}</span>
       </button>
     </nav>
   </component>
@@ -104,7 +104,6 @@ import {
   Library,
   LoaderCircle,
   MapPin,
-  MessageSquareText,
   NotebookTabs,
   PanelLeftOpen,
 } from 'lucide-vue-next'

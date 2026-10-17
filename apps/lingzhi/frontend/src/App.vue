@@ -249,12 +249,10 @@ function changeLocale(locale: string) {
   align-items: center;
   gap: 16px;
   padding: 0 17px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(250,250,255,.91));
-  box-shadow: 0 8px 26px rgba(79,70,229,.08), inset 0 1px 0 rgba(255,255,255,.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--lz-border);
+  border-radius: var(--lz-radius-surface);
+  background: var(--lz-surface);
+  box-shadow: var(--lz-shadow-panel);
 }
 
 .app-shell.is-course-workspace-route .app-header {
