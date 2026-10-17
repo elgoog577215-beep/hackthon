@@ -192,3 +192,26 @@ async def test_relation_status_is_light_and_changes_when_a_batch_finishes(svc,mo
     status=svc.status('c-pilot');body=json.dumps(status,ensure_ascii=False)
     assert len(versions)==2 and versions[0]!=versions[1]
     assert len(body)<20000 and '控制器按步骤' not in body and 'catalog' not in body
+
+
+@pytest.mark.asyncio
+async def test_owner_can_adopt_selected_relations_without_accepting_all_model_suggestions(svc,monkeypatch):
+    tree=seed(svc,monkeypatch);provider(svc);job=start(svc);await svc.run('c-pilot',job['id'])
+    candidate=svc.authoring.get_job('c-pilot',job['id'])['checkpoint']['candidate']
+    chosen=next(e['id'] for e in candidate['relations'] if e['type']=='applies_to')
+    view=svc.view('c-pilot',source_mode='handouts')
+    svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'],confirm_relations=True,selected_relation_ids=[chosen])
+    raw=svc.repository.load_raw('c-pilot');current=raw['course_knowledge_base']
+    assert [e['id'] for e in current['relations']]==[chosen]
+    assert len(current['relation_assessment']['rejected_ids'])==2
+    assert current['knowledge_points']==tree['knowledge_points']
+    assert raw['knowledge_first_history']['baseline']==tree
+
+
+@pytest.mark.asyncio
+async def test_relation_selection_may_not_inject_an_unknown_edge(svc,monkeypatch):
+    seed(svc,monkeypatch);provider(svc);job=start(svc);await svc.run('c-pilot',job['id'])
+    view=svc.view('c-pilot',source_mode='handouts');before=deepcopy(svc.repository.load_raw('c-pilot'))
+    with pytest.raises(CourseDocumentConflict):
+        svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'],confirm_relations=True,selected_relation_ids=['foreign'])
+    assert svc.repository.load_raw('c-pilot')==before

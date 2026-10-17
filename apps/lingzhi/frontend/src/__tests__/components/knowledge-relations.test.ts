@@ -22,3 +22,14 @@ it('keeps relation adoption disabled until the owner reviews the suggestions',as
   await w.get('[data-testid="confirm-knowledge-relations"]').setValue(true);await adopt.trigger('click');await flushPromises()
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/adopt/rjob',expect.objectContaining({confirm_relations:true}));w.unmount()
 })
+it('lets the owner omit a suggestion while adopting the others',async()=>{
+  const v:any=view();v.candidates=[{lesson_id:'cpu',job_id:'rjob',tree:{...tree,revision_id:'candidate',relations:[
+    {id:'r1',source_id:'k1',target_id:'k2',type:'applies_to',reason:'具体应用'},
+    {id:'r2',source_id:'k1',target_id:'k2',type:'prerequisite',reason:'待核对的必要性'},
+  ],relation_assessment:{ready_for_adoption:true,proposed_ids:['r1','r2'],proposed_count:2}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-relation-id="r2"]').setValue(false)
+  await w.get('[data-testid="confirm-knowledge-relations"]').setValue(true)
+  await w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/adopt/rjob',expect.objectContaining({selected_relation_ids:['r1']}));w.unmount()
+})
