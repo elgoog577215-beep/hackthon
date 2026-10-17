@@ -76,3 +76,16 @@ def test_paraphrased_auxiliary_focus_is_not_treated_as_an_exact_source_term(svc,
     assert saved[0]['focus_terms']==['入栈'] and saved[0]['unconfirmed_focus_terms']==['并非原文逐字词']
     item['focus_terms']=['并非原文逐字词']
     with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
+
+
+def test_atomization_prompt_deduplicates_identical_quotes_without_dropping_evidence(svc,monkeypatch):
+    import json
+    from knowledge_atomic import stage_prompt
+    setup_course(svc,monkeypatch);context=ctx(svc);items=deepcopy(inventory()['items'])
+    quote=context['evidence_package']['units'][0]['source_text']
+    for item in items:item['sources']=[{'key':'S1','quote':quote}]
+    prompt=stage_prompt(svc.repository.load_raw('c-pilot'),context,'atomize',source_keys=['S1'],items=items)
+    data=json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+    assert len(data['frozen_evidence'])==1 and data['frozen_evidence'][0]['quote']==quote
+    assert data['items'][0]['sources'][0]['evidence_key']==data['items'][1]['sources'][0]['evidence_key']
+    assert all('quote' not in i['sources'][0] for i in data['items'])
