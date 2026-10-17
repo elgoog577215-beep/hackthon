@@ -59,7 +59,8 @@ def expand_passage_inventory(response, context, keys):
     unassigned = {}
     for note in notes:
         key = note.get('passage_key')
-        require(key in passages and key not in unassigned and not used[key] and note.get('handling') in {'context','out_of_scope'},'原文片段去向重复、冲突或越界')
+        require(key in passages and key not in unassigned and note.get('handling') in {'context','out_of_scope'},'原文片段去向重复或越界')
+        require(not used[key] or note['handling']=='context',f'原文片段{key}已被清单引用，不能同时声明为范围外')
         unassigned[key] = {**note,'reason':text(note.get('reason'),'原文片段去向理由')}
     require(all(used[key] or key in unassigned for key in passages),'部分原文片段没有清单承载或明确的背景去向')
     rows = []
@@ -70,7 +71,8 @@ def expand_passage_inventory(response, context, keys):
             'reason':'逐片段显式绑定对照，非独立语义覆盖验收','mapping_origin':'program_validated_bindings',
             'passage_keys':part_keys,'passage_coverage':[{'passage_key':k,'item_keys':used[k],
                 'handling':'items' if used[k] else unassigned[k]['handling'],
-                'reason':'显式片段引用' if used[k] else unassigned[k]['reason']} for k in part_keys]})
+                'reason':'显式片段引用' if used[k] else unassigned[k]['reason'],
+                **({'context_note':unassigned[k]['reason']} if used[k] and k in unassigned else {})} for k in part_keys]})
     value['source_coverage'] = rows
     return value
 
