@@ -9,6 +9,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
+from course_document import stable_hash
 from course_generation_errors import classify_generation_failure
 
 from .core import CourseEvolutionPlan, CourseEvolutionRepository, CourseEvolutionState, course_evolution_repository
@@ -171,6 +172,8 @@ async def enqueue_analysis(
             },
         )
         try:
+            manager.tasks[job_id]['analysis_request_contract'] = _analysis_request_contract(
+                manager.tasks[job_id]['request_snapshot'])
             await manager._update_phase(
                 job_id,
                 "course_change_analysis_queued",
@@ -184,6 +187,38 @@ async def enqueue_analysis(
                 manager._remove_task_strict(job_id)
             raise
         return manager.get_task_summary(job_id)
+
+
+def _analysis_request_contract(request: dict[str, Any]) -> dict[str, str]:
+    """Compact identity survives terminal-task pruning of the private request."""
+    instruction = str(request.get('instruction') or '').strip()
+    assets = request.get('asset_types')
+    return {'schema_version': 'teacher_analysis_request_v1',
+        'instruction_fingerprint': stable_hash(instruction, prefix='intent-input-'),
+        'fingerprint': stable_hash({'instruction': instruction,
+            'asset_types': sorted(assets) if isinstance(assets, list) else None,
+            'literal_replacement': request.get('literal_replacement') or None,
+            'confirmed_interpretation': bool(request.get('confirmed_interpretation')),
+            'force_full_scan': bool(request.get('force_full_scan')),
+            'clarification_set_id': request.get('clarification_set_id') or '',
+            'clarification_answers': request.get('clarification_answers') or [],
+        }, prefix='analysis-input-')}
+
+
+def _compatible_analysis_request(previous_task: dict[str, Any], current: dict[str, Any]) -> bool:
+    """A new interpretation cannot inherit a checkpoint that already passed intent."""
+    previous = previous_task.get('analysis_request_contract')
+    if not previous and previous_task.get('request_snapshot'):
+        previous = _analysis_request_contract(previous_task['request_snapshot'])
+    if not isinstance(previous, dict) or previous.get('schema_version') != 'teacher_analysis_request_v1':
+        return False
+    if not str(current.get('instruction') or '').strip():
+        return False
+    current_contract = _analysis_request_contract(current)
+    if current.get('rescan_incomplete_only'):
+        # The planner validates scope/answers and the scanner validates sources.
+        return previous.get('instruction_fingerprint') == current_contract['instruction_fingerprint']
+    return previous.get('fingerprint') == current_contract['fingerprint']
 
 
 async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> None:
@@ -235,6 +270,7 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
             and str(candidate.get("course_id") or "") == course_id
             and candidate.get("status") in {"failed", "completed"}
             and candidate.get("analysis_checkpoint")
+            and _compatible_analysis_request(candidate, request)
             and (
                 (supersedes and (candidate.get("phase_detail") or {}).get("plan_id") == supersedes)
                 or (not supersedes and candidate.get("status") == "failed")
