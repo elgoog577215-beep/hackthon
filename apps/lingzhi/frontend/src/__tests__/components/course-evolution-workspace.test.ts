@@ -177,9 +177,15 @@ describe('CourseEvolutionWorkspace', () => {
           options: [{ option_id: 'opening', label: '课程开头', recommended: true }] },
         { question_id: 'detail', prompt: '需要补充什么？', response_type: 'free_text', required: true, options: [] },
       ],
-    } as any }) })]
+    } as any }), impact_summary: {
+      intent_preflight: { contract: 'teacher_change_intent_v2' },
+      coverage: { scanned_units: 0, unscanned_unit_ids: ['not-scanned-yet'], failed_batches: [] },
+      partial_review: { incomplete: true, can_preview: false },
+    } })]
     const wrapper = mountWorkspace(pinia)
     await flushPromises()
+    expect(wrapper.find('[data-testid="partial-review-banner"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="partial-rescan"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('2 项必答问题')
     await wrapper.findAll('.clarification-actions button').find(button => button.text() === '采用推荐项')!.trigger('click')
     expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('1 项必答问题')

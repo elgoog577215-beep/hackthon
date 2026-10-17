@@ -344,7 +344,10 @@ const requestCanSubmit = computed(() => requestMode.value === 'replace'
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
 const partialGate = computed(() => focusedPlan.value?.impact_summary?.partial_review)
-const partialActive = computed(() => Boolean(partialGate.value?.incomplete))
+const intentOnlyClarification = computed(() => Boolean(focusedPlan.value?.impact_summary?.intent_preflight)
+  && planning.value?.status === 'needs_clarification' && Number(coverage.value?.scanned_units || 0) === 0
+  && !planning.value.intent.system_blockers?.length && !coverage.value?.failed_batches?.length)
+const partialActive = computed(() => Boolean(partialGate.value?.incomplete) && !intentOnlyClarification.value)
 const partialPreview = computed(() => partialActive.value && Boolean(partialGate.value?.can_preview))
 const decisionRequired = computed(() => Boolean(planning.value?.intent.blocking_questions?.length))
 const decisionResolutionOpen = ref(false)
