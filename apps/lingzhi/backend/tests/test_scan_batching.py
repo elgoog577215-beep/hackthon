@@ -44,6 +44,7 @@ def test_large_course_overview_is_included_in_every_batch_budget():
 @pytest.mark.asyncio
 async def test_live_findings_are_bounded_and_do_not_expose_patch_payloads():
     items = fragments(12)
+    items[0]['block_title'] = '画像中的证据与推断'
     events = []
     async def analyze(overview, batch, instruction):
         return {'affected_units': [{'unit_id': item['unit_id'], 'reason': '补充边界。' * 200,
@@ -59,5 +60,6 @@ async def test_live_findings_are_bounded_and_do_not_expose_patch_payloads():
     assert first['completed_parts'] < first['total_parts']
     assert events[-1]['finding_count'] == 12
     assert len(events[-1]['findings']) == 8
+    assert events[-1]['findings'][0]['title'] == '画像中的证据与推断'
     assert all(len(finding['reason']) <= 320 for finding in events[-1]['findings'])
     assert 'PRIVATE_' not in str(events)

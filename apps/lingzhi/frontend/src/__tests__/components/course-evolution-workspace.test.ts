@@ -108,6 +108,23 @@ function mountWorkspace(pinia: Pinia) {
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('keeps a reopened running analysis attached to the completed review', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running' } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    // The embedded parent requests a new form when entering mode=semantic.
+    // That request must not hide the result of the analysis already running.
+    ;(wrapper.vm as any).startNewRequest()
+    store.plans = [plan()]
+    store.applyAnalysisTask({ id: 'scan-live', status: 'completed' } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.request-state').exists()).toBe(false)
+    expect(wrapper.find('.impact-list').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('shows preliminary impacts during scanning without exposing apply actions or rebuilding existing findings', async () => {
     const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
     store.selectCourse('course-1')

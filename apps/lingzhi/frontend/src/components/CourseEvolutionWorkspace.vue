@@ -988,7 +988,12 @@ async function discardPlan() {
     if (isCurrent()) { discardConfirm.value = false; startNewRequest() }
   }, '放弃方案失败，请重试。')
 }
-function startNewRequest() { forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus()) }
+function startNewRequest() {
+  // The parent also invokes this when reopening the semantic workspace.
+  // Keep an active analysis attached to its result instead of queuing a reset.
+  if (store.generating || store.analysisResultPending) return
+  forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus())
+}
 function openPlan(id: string) { selectedPlanId.value = id; forceRequest.value = false }
 function close() { emit('update:modelValue', false); nextTick(() => previousFocus.value?.focus()) }
 function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); if (detailMigrationId.value) closeDetail(); else close(); return } if (standalone.value || event.key !== 'Tab' || !workspaceRef.value) return; const focusable = [...workspaceRef.value.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.hasAttribute('hidden')); if (!focusable.length) { event.preventDefault(); workspaceRef.value.focus(); return } const first = focusable[0]!; const last = focusable[focusable.length - 1]!; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }

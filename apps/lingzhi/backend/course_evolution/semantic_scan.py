@@ -167,7 +167,7 @@ async def scan_batches(
             # plan or a second course document. Patch compilation still follows.
             findings[unit_id] = {
                 'unit_id': unit_id,
-                'title': str(source.get('title') or unit_id)[:120],
+                'title': str(source.get('block_title') or source.get('title') or unit_id)[:120],
                 'asset_type': str(source.get('asset_type') or '')[:40],
                 'reason': str(affected.get('reason') or '')[:320],
             }
