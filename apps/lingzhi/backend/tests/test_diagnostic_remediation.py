@@ -32,6 +32,23 @@ class MemoryStorage:
         self.data[filename] = deepcopy(value)
 
 
+def test_active_workflow_projects_nested_tasks_without_mutating_grading_contracts():
+    task = {"prompt": "Check the condition", "task_revision_id": "t1", "answer_spec": {"correct_answer": "SECRET"}, "grading_contract": {"private": True}}
+    workflow = {
+        "current_task": task,
+        "case": {"diagnostic_tasks": [task], "revision": 2},
+        "session": {"tasks": [task], "unit": {"micro_explanation": "Read the condition", "guided_task": task}},
+        "phase": "remediation",
+    }
+    public = diagnostics_router._public_active_workflow(workflow)
+    assert public["current_task"] == {"prompt": "Check the condition", "task_revision_id": "t1"}
+    assert public["case"]["diagnostic_tasks"] == [public["current_task"]]
+    assert public["session"]["tasks"] == [public["current_task"]]
+    assert public["session"]["unit"] == {"micro_explanation": "Read the condition"}
+    assert workflow["current_task"]["answer_spec"]["correct_answer"] == "SECRET"
+    assert public["case"]["revision"] == 2
+
+
 def _course(version="cv1"):
     objective = {
         "objective_id": "lo1",
@@ -295,6 +312,8 @@ def test_diagnostic_task_uses_same_practice_attempt_api(monkeypatch, tmp_path):
 
     assert active.status_code == 200
     assert active.json()["phase"] == "diagnostic"
+    assert "answer_spec" not in active.json()["current_task"]
+    assert "answer_spec" not in active.json()["case"]["diagnostic_tasks"][0]
     assert created.status_code == 200
     assert created.json()["attempt"]["task_purpose"] == "diagnostic_probe"
     assert created.json()["attempt"]["diagnostic_case_id"] == case["diagnostic_case_id"]

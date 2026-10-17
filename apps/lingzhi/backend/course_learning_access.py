@@ -35,6 +35,10 @@ def learner_api_allowed(path: str, method: str = "GET") -> bool:
         return path == "/api/usage-events" and method.upper() == "POST"
     if len(parts) == 3:
         return read
+    # The existing student practice workspace reads its own active workflow.
+    # Keep all other diagnostic routes and all diagnostic writes restricted.
+    if parts[3:] == ["diagnostics", "active"]:
+        return read
     if parts[3] in LEARNER_DOMAINS:
         return True
     return read and len(parts) == 4 and parts[3] in {"document", "knowledge-first"}

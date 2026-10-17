@@ -96,7 +96,7 @@ export const useNoteStore = defineStore('notes', {
       this.notes.push(note)
     },
 
-    async loadCourseRecords(courseId: string) {
+    async loadCourseRecords(courseId: string, options: { throwOnError?: boolean } = {}) {
       if (isTeacherPreviewCourse(courseId)) { if (!this.previewSession || this.courseId !== courseId) this.notes = []; this.previewSession = true; this.courseId = courseId; return this.notes }
       this.previewSession = false
       if (!courseId) return []
@@ -122,6 +122,7 @@ export const useNoteStore = defineStore('notes', {
         return this.notes
       } catch (error) {
         logger.error('Failed to load learning records', error)
+        if (options.throwOnError) throw error
         return []
       } finally {
         this.loading = false

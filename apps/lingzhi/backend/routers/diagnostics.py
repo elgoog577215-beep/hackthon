@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from assessment_contracts import project_public_question
 from dependencies import get_course_or_404
 from diagnostic_service import invalidate_stale_workflows, workflow_view
 from diagnostic_workflows import (
@@ -24,6 +27,28 @@ class WorkflowAction(BaseModel):
     reason: str = Field(default="", max_length=1000)
 
 
+def _public_active_workflow(workflow: dict) -> dict:
+    """Keep learner workflow state while withholding private task contracts."""
+    public = deepcopy(workflow)
+    if isinstance(public.get("current_task"), dict):
+        public["current_task"] = project_public_question(public["current_task"])
+    for container, field in (("case", "diagnostic_tasks"), ("session", "tasks")):
+        state = public.get(container)
+        if isinstance(state, dict) and isinstance(state.get(field), list):
+            state[field] = [project_public_question(task) for task in state[field] if isinstance(task, dict)]
+    session = public.get("session")
+    if isinstance(session, dict) and isinstance(session.get("unit"), dict):
+        session["unit"] = {
+            key: session["unit"][key]
+            for key in (
+                "revision_id", "category", "remediation_objective", "micro_explanation",
+                "worked_contrast", "content_block_ids",
+            )
+            if key in session["unit"]
+        }
+    return public
+
+
 @router.get("/active")
 async def get_active_workflow(course_id: str, request: Request, node_id: str | None = None):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
@@ -33,7 +58,7 @@ async def get_active_workflow(course_id: str, request: Request, node_id: str | N
         "schema_version": "diagnostic_remediation_api_v1",
         "course_id": course_id,
         "course_version_id": course.get("current_course_version_id"),
-        **workflow_view(user_id, course_id, node_id=node_id),
+        **_public_active_workflow(workflow_view(user_id, course_id, node_id=node_id)),
     }
 
 

@@ -91,7 +91,7 @@
         </Teleport>
 
         <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="region" :aria-label="t('learningDock.stats', '学习概况')">
-          <Teleport to="#course-companion-window-detail" :disabled="!aiFloating || !aiVisible || !selectedKnowledge"><LearningStats class="stats-tool" closable @close="closeStats" @select-knowledge="selectKnowledge" @ask-knowledge="askKnowledge" @discuss-evidence="discussEvidence" @open-lecture="openKnowledgeLecture" /></Teleport>
+          <LearningStats class="stats-tool" closable @close="closeStats" @open-lecture="openKnowledgeLecture" @open-knowledge="openMatrixKnowledge" @open-record="openStudyRecord" @open-practice="openMatrixPractice" />
         </section>
       </div>
 
@@ -950,6 +950,18 @@ async function openKnowledgePractice(nodeId:string, revision:string) {
   await closeKnowledgeLibrary(false)
   openTask(node,revision)
 }
+function openMatrixKnowledge(point: KnowledgeProfileNode) {
+  statsOpen.value = false
+  selectedKnowledge.value = null
+  courseStore.focusKnowledgeId = point.knowledge_id
+  courseStore.showKnowledgeLibrary = true
+}
+function openMatrixPractice(nodeId: string, revision: string) {
+  const node = courseStore.nodes.find(item => item.node_id === nodeId)
+  if (!node) return
+  statsOpen.value = false
+  openTask(node, revision)
+}
 function openKnowledgeLibrary() {
   if(courseStore.showKnowledgeLibrary) { void closeKnowledgeLibrary(); return }
   captureKnowledgeReading()
@@ -964,6 +976,7 @@ watch(()=>courseStore.showKnowledgeLibrary,visible=>{ if(visible && !knowledgeRe
 
 function openStats() {
   if (statsOpen.value) { closeStats(); return }
+  selectedKnowledge.value = null
   statsOpen.value = true
   notebookOpen.value = false
   taskOpen.value = false
