@@ -216,3 +216,11 @@ async def test_relation_selection_may_not_inject_an_unknown_edge(svc,monkeypatch
     with pytest.raises(CourseDocumentConflict):
         svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'],confirm_relations=True,selected_relation_ids=['foreign'])
     assert svc.repository.load_raw('c-pilot')==before
+
+
+def test_three_type_relation_prompt_does_not_prime_reemission_of_locked_other_types():
+    from knowledge_relation_generation import prompt_for
+    points=[{'key':'P1','knowledge_id':'one','revision_id':'r1','name':'源','statement':'源命题','conditions':[],'lesson_ids':['cpu']}]
+    pipeline={'catalog':points,'existing_relations':[{'source_key':'P1','target_key':'P2','type':'contrasts_with','reason':'旧的对比关系'}]}
+    data=json.loads(prompt_for({'course_name':'课'},pipeline,{'focus_keys':['P1']},'cpu').split('\nINPUT_JSON:\n')[1])
+    assert data['existing_relations']==[] and data['retained_other_relation_count']==1
