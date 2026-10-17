@@ -112,3 +112,17 @@ async def test_exact_regeneration_preserves_existing_manual_aliases(svc,monkeypa
     candidate=svc.authoring.get_job('c-pilot',second['id'])['checkpoint']['candidate']
     assert candidate['knowledge_points'][0]['knowledge_id']==tree['knowledge_points'][0]['knowledge_id']
     assert '已有手工别名' in candidate['knowledge_points'][0]['aliases']
+
+
+def test_attached_example_can_also_keep_its_background_explanation(svc,monkeypatch):
+    from knowledge_atomic import compile_inventory,compile_batch
+    setup_course(svc,monkeypatch);ctx=context(svc);response=inventory()
+    extra={**deepcopy(response['items'][0]),'key':'I3','kind':'example'}
+    response['items'].append(extra);response['source_coverage'][0]['item_keys'].append('I3')
+    items,_=compile_inventory(response,ctx,['S1'],1)
+    result=compact_atoms(items[:2]);result['points'][0]['inventory_keys'].append(items[2]['key'])
+    result['context_items']=[{'inventory_key':items[2]['key'],'reason':'本例用于背景说明，不单独作为通用命题。'}]
+    _,report=compile_batch(svc.repository.load_raw('c-pilot'),ctx,items,result)
+    assert report['ready_for_adoption']
+    row=next(row for row in report['coverage'] if row['inventory_key']==items[2]['key'])
+    assert row['handling']=='example' and row['context_note']=='本例用于背景说明，不单独作为通用命题。'
