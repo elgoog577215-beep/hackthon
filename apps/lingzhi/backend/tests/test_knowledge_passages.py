@@ -55,3 +55,11 @@ def test_atomic_binding_uses_frozen_inventory_evidence_instead_of_model_recopied
     tree,report=compile_batch(svc.repository.load_raw('c-pilot'),context,items,result)
     assert report['ready_for_adoption'] and tree['knowledge_points'][0]['source_quotes'][0]['quote']==items[0]['sources'][0]['quote']
     assert tree['knowledge_points'][0]['source_binding_origin']=='frozen_inventory_passage'
+
+
+def test_cross_group_dedup_keeps_nested_passage_references_resolvable():
+    from knowledge_compact import remap_coverage_keys
+    pipeline={'inventory_batches':[{'source_coverage':[{'item_keys':['I2_I1'],'passage_coverage':[{'item_keys':['I2_I1'],'passage_key':'S8.1'}]}]}]}
+    remap_coverage_keys(pipeline,{'I2_I1':'I1_I1'})
+    row=pipeline['inventory_batches'][0]['source_coverage'][0]
+    assert row['item_keys']==row['passage_coverage'][0]['item_keys']==['I1_I1']
