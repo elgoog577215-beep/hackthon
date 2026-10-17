@@ -94,12 +94,16 @@ def compile_inventory(response, context, keys, group_index):
         name, claim = text(item.get('name'), '清单名称', 200), text(item.get('claim'), '清单命题', 2000)
         focus = item.get('focus_terms') or [name]
         require(isinstance(focus, list) and 0 < len(focus) <= 8 and all(isinstance(f, str) and f.strip() and len(f) <= 100 for f in focus), '清单检查对象无效')
-        require(all(any(normalized(f) in normalized(r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
+        unconfirmed_focus = []
+        if response.get('response_contract') == PASSAGES:
+            unconfirmed_focus = [f for f in focus if not any(normalized(f) in normalized(r['quote']) for r in refs)]
+            focus = [f for f in focus if f not in unconfirmed_focus]
+        require(focus and all(any(normalized(f) in normalized(r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
         conditions = item.get('conditions', [])
         require(isinstance(conditions, list) and all(isinstance(c, str) for c in conditions), '清单条件无效')
         key = f'I{group_index}_{old_key}'; aliases[old_key] = key
         items.append({'key': key, 'name': name, 'claim': claim, 'kind': kind, 'sources': refs,
-            'focus_terms': focus, 'conditions': conditions})
+            'focus_terms': focus, 'unconfirmed_focus_terms':unconfirmed_focus, 'conditions': conditions})
     from knowledge_compact import INVENTORY, inventory_coverage
     rows = inventory_coverage(response,raw_items,keys) if response.get('response_contract') == INVENTORY else records(response.get('source_coverage'), '来源承载记录', len(keys))
     require({r.get('source_key') for r in rows} == set(keys) and len(rows) == len(keys), '部分来源缺少清单去向')

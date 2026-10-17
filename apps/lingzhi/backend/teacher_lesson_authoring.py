@@ -2202,7 +2202,16 @@ class TeacherLessonAuthoringRepository:
                 json.dump(payload, handle, ensure_ascii=False, indent=2)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temp_name, path)
+            # Windows readers/antivirus can briefly deny atomic replacement.
+            # Retry only this same fsynced file, never generation or mutations.
+            for attempt in range(6):
+                try:
+                    os.replace(temp_name, path)
+                    break
+                except PermissionError as exc:
+                    if getattr(exc,'winerror',None) not in {5,32,33} or attempt == 5:
+                        raise
+                    time.sleep(.025 * 2 ** attempt)
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
