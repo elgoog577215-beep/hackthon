@@ -1,3 +1,4 @@
+import asyncio
 import json
 from copy import deepcopy
 from types import SimpleNamespace
@@ -49,6 +50,39 @@ async def test_preview_keeps_all_frozen_points_reachable_during_subtree_generati
     assert all(p['parent_id'] == tree['categories'][0]['id'] for p in tree['knowledge_points'])
     assert tree['atomic_assessment']['ready_for_adoption'] is False
     assert saved == before
+
+
+@pytest.mark.asyncio
+async def test_inventory_and_atomize_batches_use_bounded_concurrency(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    calls = provider(svc)
+    original_factory = svc.provider_factory
+    active = 0
+    peak = 0
+
+    def factory():
+        nonlocal active, peak
+        base = original_factory()
+        original_call = base._call_llm
+
+        async def concurrent_call(prompt, **kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0.02)
+                return await original_call(prompt, **kwargs)
+            finally:
+                active -= 1
+
+        base._call_llm = concurrent_call
+        return base
+
+    svc.provider_factory = factory
+    job = start(svc)
+    await svc.run('c-pilot', job['id'])
+    assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status'] == 'completed'
+    assert peak >= 2
 
 
 def setup_course(svc, monkeypatch):
