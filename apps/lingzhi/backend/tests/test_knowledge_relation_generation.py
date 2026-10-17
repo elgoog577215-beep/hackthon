@@ -146,3 +146,47 @@ async def test_cross_lecture_definition_change_rejects_old_candidate(svc,monkeyp
     view = svc.view('c-pilot',source_mode='handouts')
     with pytest.raises(CourseDocumentConflict):
         svc.adopt('c-pilot',job['id'],view['knowledge_revision'],view['document_revision'],confirm_relations=True)
+
+
+@pytest.mark.asyncio
+async def test_retry_only_one_relation_batch_keeps_existing_edges_and_saved_batches(svc,monkeypatch):
+    tree = seed(svc,monkeypatch)
+    a,b = tree['knowledge_points'][:2]
+    old = {'id':'keep-legacy','source_id':b['knowledge_id'],'target_id':a['knowledge_id'],'type':'applies_to','reason':'旧理由','conditions':[]}
+    svc.storage.update_course_data('c-pilot',lambda r:{**r,'course_knowledge_base':{**tree,'relations':[old]}})
+    provider(svc);job=start(svc);await svc.run('c-pilot',job['id'])
+    prior=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
+    calls=provider(svc);retry=start(svc,'retry-selected',resume_job_id=job['id'],retry_batch_id='relations-2');await svc.run('c-pilot',retry['id'])
+    saved=svc.authoring.get_job('c-pilot',retry['id'])
+    assert len(calls)==1 and saved['status']=='completed'
+    assert saved['checkpoint']['relation_pipeline']['batches'][0]==prior['checkpoint']['relation_pipeline']['batches'][0]
+    assert next(e for e in saved['checkpoint']['candidate']['relations'] if e['id']=='keep-legacy')==old
+    assert saved['checkpoint']['candidate']['base_knowledge_revision']=='baseline'
+
+
+@pytest.mark.asyncio
+async def test_reader_cannot_access_relation_comparison_or_private_candidate(svc,monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from dependencies import get_course_document_repository,get_teacher_lesson_authoring_repository
+    from routers.knowledge_first import router
+    seed(svc,monkeypatch);provider(svc);job=start(svc);await svc.run('c-pilot',job['id'])
+    view=svc.view('c-pilot',source_mode='handouts')
+    svc.adopt('c-pilot',job['id'],'baseline',view['document_revision'],confirm_relations=True)
+    svc.storage.update_course_data('c-pilot',lambda r:{**r,'is_published':True})
+    app=FastAPI();app.include_router(router,prefix='/api')
+    app.dependency_overrides[get_course_document_repository]=lambda:svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository]=lambda:svc.authoring
+    result=TestClient(app).get('/api/courses/c-pilot/knowledge-first?source_mode=handouts',headers={'X-User-Id':'reader'}).json()
+    assert result['relation_runs']==[] and result['candidates']==[] and result['history']==[]
+    assert 'relation_assessment' not in result['tree']
+
+
+@pytest.mark.asyncio
+async def test_relation_status_is_light_and_changes_when_a_batch_finishes(svc,monkeypatch):
+    seed(svc,monkeypatch);versions=[]
+    def observe(data,result):versions.append(svc.status('c-pilot')['result_version'])
+    provider(svc,mutate=observe);job=start(svc);await svc.run('c-pilot',job['id'])
+    status=svc.status('c-pilot');body=json.dumps(status,ensure_ascii=False)
+    assert len(versions)==2 and versions[0]!=versions[1]
+    assert len(body)<20000 and '控制器按步骤' not in body and 'catalog' not in body
