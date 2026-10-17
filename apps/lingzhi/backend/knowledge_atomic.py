@@ -85,7 +85,7 @@ def stage_prompt(raw, context, stage, *, source_keys, items=None, feedback=None)
 
 
 def compile_inventory(response, context, keys, group_index):
-    from knowledge_compact import PASSAGES, expand_passage_inventory
+    from knowledge_compact import PASSAGES, expand_passage_inventory, focus_matches
     if response.get('response_contract') == PASSAGES:response = expand_passage_inventory(response,context,keys)
     available = sources(context)
     items, aliases = [], {}
@@ -106,9 +106,9 @@ def compile_inventory(response, context, keys, group_index):
         require(isinstance(focus, list) and 0 < len(focus) <= 8 and all(isinstance(f, str) and f.strip() and len(f) <= 100 for f in focus), '清单检查对象无效')
         unconfirmed_focus = []
         if response.get('response_contract') == PASSAGES:
-            unconfirmed_focus = [f for f in focus if not any(normalized(f) in normalized(r['quote']) for r in refs)]
+            unconfirmed_focus = [f for f in focus if not any(focus_matches(f,r['quote']) for r in refs)]
             focus = [f for f in focus if f not in unconfirmed_focus]
-        require(focus and all(any(normalized(f) in normalized(r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
+        require((focus or kind not in KNOWLEDGE_KINDS) and all(any(focus_matches(f,r['quote']) for r in refs) for f in focus), '清单检查对象缺少原文依据')
         conditions = item.get('conditions', [])
         require(isinstance(conditions, list) and all(isinstance(c, str) for c in conditions), '清单条件无效')
         key = f'I{group_index}_{old_key}'; aliases[old_key] = key
@@ -139,7 +139,7 @@ def compile_batch(raw, context, items, response):
     require(len(point_by_key) == len(points), '候选知识短键重复')
     issues = []
     def issue(code, **values): issues.append({'code': code, 'severity': 'blocking', **values})
-    from knowledge_compact import ATOMIC, atomic_coverage
+    from knowledge_compact import ATOMIC, atomic_coverage, focus_matches
     compact = bound or response.get('response_contract') == ATOMIC
     derived_rows, derived_checks = atomic_coverage(response,items,points) if compact else (None,None)
     rows = derived_rows if compact else response.get('coverage', [])
@@ -183,7 +183,7 @@ def compile_batch(raw, context, items, response):
             q, a = check.get('question_quote'), check.get('answer_quote')
             if not isinstance(q, str) or not q.strip() or q not in question or not isinstance(a, str) or not a.strip() or a not in answer:
                 issue('question_coverage_missing', point_key=key, inventory_key=inventory_key)
-            if not any(normalized(f) in normalized(question) for f in item_by_key[inventory_key]['focus_terms']):
+            if not any(focus_matches(f,question) for f in item_by_key[inventory_key]['focus_terms']):
                 issue('question_focus_missing', point_key=key, inventory_key=inventory_key)
             if any(normalized(c) not in {normalized(v) for v in point.get('conditions', []) if isinstance(v, str)} for c in item_by_key[inventory_key]['conditions']):
                 issue('condition_coverage_missing', point_key=key, inventory_key=inventory_key)

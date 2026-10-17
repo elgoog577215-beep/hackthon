@@ -1,11 +1,23 @@
 """Compact model contracts; coverage is derived only from explicit, validated bindings."""
 from copy import deepcopy
+import re
+import unicodedata
 from generic_knowledge import require, text, sources
 
 INVENTORY = 'knowledge_inventory_compact_v2'
 ATOMIC = 'knowledge_atomic_compact_v2'
 PASSAGES = 'knowledge_inventory_passages_v3'
 BINDINGS = 'knowledge_atomic_bindings_v3'
+
+
+def focus_matches(term, content):
+    def visible(value):
+        value = unicodedata.normalize('NFKC',value)
+        value = re.sub(r'\\(?:text|mathrm|operatorname)\{([^{}]*)\}',r'\1',value)
+        value = re.sub(r'_\{([^{}]*)\}',r'_\1',value)
+        for command,symbol in [(r'\Phi','Φ'),(r'\phi','φ'),(r'\times','×'),(r'\to','→'),(r'\geq','≥'),(r'\leq','≤')]:value=value.replace(command,symbol)
+        return re.sub(r'[\s`*$]+','',value).casefold()
+    return bool(term.strip()) and visible(term) in visible(content)
 
 
 def passage_catalog(context, keys):
