@@ -119,19 +119,37 @@ async def test_sibling_branches_are_partitioned_concurrently(monkeypatch):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1])
         active -= 1
         keys = [p['key'] for p in payload['points']]
-        if payload['is_root']:
+        if payload.get('is_root'):
             return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [
                 {'key': 'G1', 'name': '机制', 'scope': '机制'}, {'key': 'G2', 'name': '应用', 'scope': '应用'}],
                 'point_groups': {key: 'G1' if key in {'K1', 'K2'} else 'G2' for key in keys},
                 'stop_reason': '机制与应用分离'})
-        return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [],
-            'point_groups': {key: '__direct__' for key in keys}, 'stop_reason': '同一范围内直接并列'})
+        return json.dumps({'response_contract': 'knowledge_hierarchy_v5', 'categories': [],
+            'point_categories': {key: '__direct__' for key in keys}})
 
     monkeypatch.setattr('knowledge_atomic.call_stage', request)
     args = (None, 'c', 'j', None, {'course_id': 'c'},
             {'scope_lesson_id': 'l', 'handout_lessons': [{'title': '课题'}]}, pipeline, points)
     await organize(*args, lambda **extra: None, lambda: None)
     assert peak >= 2
+
+
+def test_subtree_places_all_points_and_preserves_multiple_semantic_levels():
+    from knowledge_hierarchy import compile_subtree, CONTRACT
+    task = {'key': 'C1', 'name': '队列', 'scope': '队列机制', 'path': ['队列']}
+    points = [{'key': f'K{i}'} for i in range(1, 5)]
+    response = {'response_contract': CONTRACT, 'categories': [
+        {'key': 'S1', 'name': '基本操作', 'scope': '操作接口', 'parent_key': None},
+        {'key': 'S2', 'name': '插入与删除', 'scope': '队列内容修改', 'parent_key': 'S1'},
+        {'key': 'S3', 'name': '顺序特性', 'scope': '先后次序', 'parent_key': None}],
+        'point_categories': {'K1': 'S2', 'K2': 'S2', 'K3': 'S1', 'K4': 'S3'}}
+    result = compile_subtree(response, task, points, 'c', 'l')
+    by_key = {c['key']: c for c in result['categories']}
+    assert by_key['S2']['parent_key'] == 'S1'
+    assert by_key['S1']['parent_key'] == '__branch__'
+    assert len(result['assignments']) == 4
+    response['point_categories'].pop('K4')
+    with pytest.raises(CourseDocumentConflict): compile_subtree(response, task, points, 'c', 'l')
 
 
 @pytest.mark.asyncio
@@ -144,23 +162,20 @@ async def test_recursive_partition_keeps_completed_branches_on_resume(monkeypatc
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data)
         keys = [p['key'] for p in data['points']]
         if len(calls) == 2: raise TimeoutError('interrupted branch')
-        if data['is_root']:
+        if data.get('is_root'):
             return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [
                 {'key': 'G1', 'name': '机制', 'scope': '定义与执行机制'}, {'key': 'G2', 'name': '复杂度', 'scope': '算法复杂度'}],
                 'point_groups': {k: 'G1' if k != 'K4' else 'G2' for k in keys}, 'stop_reason': '机制和复杂度分离'})
-        if len(keys) == 3:
-            return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [
-                {'key': 'G1', 'name': '执行过程', 'scope': '执行过程的操作'}],
-                'point_groups': {k: '__direct__' if k == 'K1' else 'G1' for k in keys}, 'stop_reason': '定义直接归属，操作继续分组'})
-        return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [],
-            'point_groups': {k: '__direct__' for k in keys}, 'stop_reason': '同一执行过程的原子规则，适合直接并列'})
+        return json.dumps({'response_contract': CONTRACT, 'categories': [
+            {'key': 'S1', 'name': '执行过程', 'scope': '执行过程的操作', 'parent_key': None}],
+            'point_categories': {k: '__direct__' if k == 'K1' else 'S1' for k in keys}})
     monkeypatch.setattr('knowledge_atomic.call_stage', request)
     args = (None, 'c', 'j', None, {'course_id': 'c'}, {'scope_lesson_id': 'l', 'handout_lessons': [{'title': '课题'}]}, pipeline, points)
     def save(**extra): saved.append(deepcopy(pipeline))
     with pytest.raises(TimeoutError): await organize(*args, save, lambda: None)
     completed_root = deepcopy(pipeline['hierarchy']['tasks'][0])
     result = await organize(*args, save, lambda: None)
-    assert sum(call['is_root'] for call in calls) == 1
+    assert sum(bool(call.get('is_root')) for call in calls) == 1
     assert pipeline['hierarchy']['tasks'][0] == completed_root
     assert pipeline['hierarchy']['status'] == 'completed' and result['schema_version'] == CONTRACT
     parents = {a['point_key']: a['category_key'] for a in result['assignments']}
