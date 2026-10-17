@@ -27,6 +27,26 @@ def test_inventory_groups_balance_source_size_without_splitting_or_losing_source
     assert all(sum(len(units[k]['source_text']) for k in group) <= 4500 for group in groups)
 
 
+@pytest.mark.asyncio
+async def test_batch_failure_keeps_inflight_success_and_does_not_start_more_work():
+    from knowledge_atomic import run_batches
+    rows = [{'id': i, 'status': 'pending'} for i in range(4)]
+    entered = asyncio.Event()
+    started = []
+    async def process(index, row):
+        started.append(row['id'])
+        if row['id'] == 0:
+            await entered.wait()
+            raise TimeoutError('one failed request')
+        entered.set()
+        await asyncio.sleep(.02)
+        row['status'] = 'completed'
+    with pytest.raises(TimeoutError): await run_batches(rows, process, width=2)
+    assert started == [0, 1]
+    assert rows[1]['status'] == 'completed'
+    assert all(r['status'] == 'pending' for r in (rows[0], rows[2], rows[3]))
+
+
 def test_progress_reserves_undiscovered_work_and_completes_only_after_save():
     from knowledge_atomic import pipeline_progress
     pipeline = {'organize_hierarchy': True, 'inventory_batches': [{'status': 'pending'}], 'batches': []}
@@ -93,6 +113,23 @@ async def test_inventory_and_atomize_batches_use_bounded_concurrency(svc, monkey
     await svc.run('c-pilot', job['id'])
     assert svc.authoring.load('c-pilot')['jobs'][job['id']]['status'] == 'completed'
     assert peak >= 2
+
+
+@pytest.mark.asyncio
+async def test_stream_metadata_does_not_persist_full_history_between_checkpoints(svc, monkeypatch):
+    setup_course(svc, monkeypatch); provider(svc)
+    job = start(svc)
+    persisted = []
+    original = svc.authoring.update_job
+    def record(cid, jid, **changes):
+        persisted.append(changes)
+        return original(cid, jid, **changes)
+    monkeypatch.setattr(svc.authoring, 'update_job', record)
+    await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
+    assert saved['status'] == 'completed'
+    assert len(saved['stage_observations']) == 3
+    assert not any('model_telemetry' in changes or 'raw_response' in changes and 'checkpoint' not in changes for changes in persisted)
 
 
 def setup_course(svc, monkeypatch):
