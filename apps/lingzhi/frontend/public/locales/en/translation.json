@@ -7900,6 +7900,7 @@
     "confirmIdentityChanges": "I reviewed the old and new scope and confirm that existing references retain their original revisions. New points require separate binding.",
     "inventoryAttachments": "Attached conditions, boundaries and examples",
     "inventoryKinds": {"definition":"Definition","rule":"Rule","method":"Method","comparison":"Comparison","condition":"Condition","boundary":"Boundary","example":"Example"},
+    "candidatePreparingBaseline":"Candidate pending · Showing adopted baseline",
     "generateRelations":"Analyze this lecture’s relations",
     "relationRequiresBaseline":"Adopt the lecture’s knowledge baseline before analyzing relations separately. Knowledge points are preserved.",
     "relationCandidates":"Knowledge relation candidates (not adopted)",

@@ -37,6 +37,7 @@
         <div class="toolbar">
           <h2 v-if="treeOnly">{{ t('knowledgeFirst.tree') }}</h2>
           <label v-if="treeOnly && (historyOptions.length || selectedCandidate)" class="tree-version"><span>{{ t('knowledgeFirst.version') }}</span><select v-model="treeChoice">
+            <option v-if="treeChoice === 'candidate' && !selectedCandidate && data.tree" value="candidate" disabled>{{ t('knowledgeFirst.candidatePreparingBaseline') }}</option>
             <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
             <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
           </select></label>
@@ -115,6 +116,7 @@
           </div>
           <div v-if="!treeOnly" class="section-heading"><div><h2>{{ t('knowledgeFirst.tree') }}</h2><p>{{ displayTree?.teaching_assessment ? t('knowledgeFirst.teachingProvenance') : displayTree?.provenance || data.provenance }}</p></div>
             <label v-if="historyOptions.length || selectedCandidate">{{ t('knowledgeFirst.version') }}<select v-model="treeChoice">
+            <option v-if="treeChoice === 'candidate' && !selectedCandidate && data.tree" value="candidate" disabled>{{ t('knowledgeFirst.candidatePreparingBaseline') }}</option>
               <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
@@ -292,7 +294,7 @@ const historyOptions = computed<any[]>(() => {
   }).reverse()
 })
 const displayTree = computed(() => {
-  const tree = treeChoice.value === 'candidate' ? (selectedCandidate.value?.revision_id !== data.value?.knowledge_revision ? selectedCandidate.value : null) : data.value?.history.find((v: any) => v.revision_id === treeChoice.value)
+  const tree = treeChoice.value === 'candidate' ? (selectedCandidate.value || data.value?.tree) : data.value?.history.find((v: any) => v.revision_id === treeChoice.value)
   if (!tree) return null
   const allPoints = (tree.knowledge_points || []).map((p: any) => ({ ...p, parent_id: p.parent_id || p.primary_concept_group_id, source_refs: p.source_refs || [] }))
   const points = perLesson.value ? allPoints.filter((p: any) => (p.section_refs || [p.topic]).includes(knowledgeLessonId.value)) : allPoints

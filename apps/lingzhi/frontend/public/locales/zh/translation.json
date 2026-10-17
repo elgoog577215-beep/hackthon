@@ -7900,6 +7900,7 @@
     "confirmIdentityChanges": "我已核对新旧知识范围，并确认保留旧引用原修订；新点的引用需另行绑定。",
     "inventoryAttachments": "附加条件、边界与案例",
     "inventoryKinds": {"definition":"定义","rule":"规则","method":"方法","comparison":"辨析","condition":"条件","boundary":"边界","example":"案例"},
+    "candidatePreparingBaseline":"候选准备中 · 正在显示已采用基线",
     "generateRelations":"分析本讲知识关系",
     "relationRequiresBaseline":"先采用本讲元知识基线，再独立分析关系；不重新生成知识点。",
     "relationCandidates":"知识关系候选（未采用）",
