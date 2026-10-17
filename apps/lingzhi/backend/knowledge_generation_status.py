@@ -18,7 +18,7 @@ def job_status(job, server_time):
     value = {key: job[key] for key in (
         "id", "type", "lesson_unit_id", "knowledge_lesson_id", "status", "phase", "progress",
         "created_at", "generation_started_at", "completed_at", "last_content_at", "received_chars",
-        "pipeline_stage", "batch_index", "batch_total", "inventory_count", "completed_batches", "relation_count",
+        "pipeline_stage", "batch_index", "batch_total", "inventory_count", "completed_batches", "relation_count", "model_call_count", "total_model_seconds",
     ) if key in job}
     value["message"] = str(job.get("message") or "")[:300]
     value["received_chars"] = int(job.get("received_chars") or len(job.get("partial_text") or ""))

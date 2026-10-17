@@ -605,7 +605,7 @@ class KnowledgeFirstService:
             atomic = tree.get('atomic_assessment')
             require(not atomic or atomic.get('ready_for_adoption') is True, '细化或元问题覆盖检查尚有阻塞问题')
             require(not atomic or not any(i.get('severity') == 'review' for i in atomic.get('issues', [])) or confirm_atomic_review,
-                    '请先核对复合命题与联合条件提示')
+                    '请先核对复合命题、联合条件与来源疑点提示')
             require(not (tree.get('identity_changes') or {}).get('retired_points') or confirm_identity_changes,
                     '请先确认知识身份变化；历史引用保留原修订')
             assessment = tree.get("teaching_assessment")
@@ -688,7 +688,7 @@ class KnowledgeFirstService:
         state = self.authoring.load(course_id)
         from knowledge_generation_status import job_status
         server_time = now()
-        jobs = [{**job_status(j, server_time), **{k: deepcopy(j[k]) for k in ("error", "partial_text", "model", "request_budget") if k in j}}
+        jobs = [{**job_status(j, server_time), **{k: deepcopy(j[k]) for k in ("error", "partial_text", "model", "request_budget", "stage_observations") if k in j}}
                 for j in state["jobs"].values() if j.get("type") in JOB_TYPES]
         active_jobs = [job_status(j, server_time)
                        for j in state["jobs"].values() if j.get("status") in ACTIVE]
