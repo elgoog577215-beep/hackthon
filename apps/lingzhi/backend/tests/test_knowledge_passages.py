@@ -63,3 +63,16 @@ def test_cross_group_dedup_keeps_nested_passage_references_resolvable():
     remap_coverage_keys(pipeline,{'I2_I1':'I1_I1'})
     row=pipeline['inventory_batches'][0]['source_coverage'][0]
     assert row['item_keys']==row['passage_coverage'][0]['item_keys']==['I1_I1']
+
+
+def test_paraphrased_auxiliary_focus_is_not_treated_as_an_exact_source_term(svc,monkeypatch):
+    from knowledge_compact import passage_catalog
+    from knowledge_atomic import compile_inventory
+    setup_course(svc,monkeypatch);context=ctx(svc);p=passage_catalog(context,['S1'])[0]
+    item=deepcopy(inventory()['items'][0]);item.pop('sources');item['source_passage_keys']=[p['key']]
+    item['focus_terms']=['入栈','并非原文逐字词']
+    result={'response_contract':V3,'items':[item],'unassigned_passages':[],'source_issues':[]}
+    saved,_=compile_inventory(result,context,['S1'],1)
+    assert saved[0]['focus_terms']==['入栈'] and saved[0]['unconfirmed_focus_terms']==['并非原文逐字词']
+    item['focus_terms']=['并非原文逐字词']
+    with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
