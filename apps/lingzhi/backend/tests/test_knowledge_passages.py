@@ -120,6 +120,50 @@ def test_already_bound_passage_can_retain_a_context_note_but_cannot_be_outside_s
     with pytest.raises(CourseDocumentConflict):compile_inventory(result,context,['S1'],1)
 
 
+def test_repeated_context_notes_preserve_both_reasons_without_rejecting_inventory(svc, monkeypatch):
+    from knowledge_compact import passage_catalog
+    from knowledge_atomic import compile_inventory
+    setup_course(svc, monkeypatch)
+    context = ctx(svc)
+    passage = passage_catalog(context, ['S1'])[0]
+    item = deepcopy(inventory()['items'][0])
+    item.pop('sources')
+    item['source_passage_keys'] = [passage['key']]
+    notes = [
+        {'passage_key': passage['key'], 'handling': 'context', 'reason': '本段含学习自检说明。'},
+        {'passage_key': passage['key'], 'handling': 'context', 'reason': '应用场景作为知识点背景。'},
+    ]
+    response = {'response_contract': V3, 'items': [item], 'unassigned_passages': notes, 'source_issues': []}
+    original = deepcopy(response)
+
+    saved, coverage = compile_inventory(response, context, ['S1'], 1)
+
+    assert len(saved) == 1
+    assert saved[0]['sources'][0]['quote'] == passage['text']
+    row = coverage[0]['passage_coverage'][0]
+    assert row['handling'] == 'items'
+    assert row['context_notes'] == [note['reason'] for note in notes]
+    assert all(note['reason'] in row['context_note'] for note in notes)
+    assert response == original
+
+
+@pytest.mark.parametrize('fault', ['unknown_passage', 'conflicting_handling'])
+def test_context_note_merge_still_rejects_unknown_or_conflicting_records(svc, monkeypatch, fault):
+    from knowledge_compact import passage_catalog
+    from knowledge_atomic import compile_inventory
+    setup_course(svc, monkeypatch)
+    context = ctx(svc)
+    passage = passage_catalog(context, ['S1'])[0]
+    notes = [
+        {'passage_key': passage['key'], 'handling': 'context', 'reason': '课程背景。'},
+        {'passage_key': 'S999.1' if fault == 'unknown_passage' else passage['key'],
+         'handling': 'context' if fault == 'unknown_passage' else 'out_of_scope', 'reason': '第二条说明。'},
+    ]
+    response = {'response_contract': V3, 'items': [], 'unassigned_passages': notes, 'source_issues': []}
+    with pytest.raises(CourseDocumentConflict):
+        compile_inventory(response, context, ['S1'], 1)
+
+
 @pytest.mark.parametrize('term,source',[('jg checks Signed Greater','`jg` checks Signed Greater'),('T_total','$T_{total}$'),('展开 N 次','展开 $N$ 次')])
 def test_focus_matching_ignores_presentation_markup_without_rewriting_sources(term,source):
     from knowledge_compact import focus_matches

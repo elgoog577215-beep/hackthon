@@ -132,9 +132,17 @@ def expand_passage_inventory(response, context, keys):
     unassigned = {}
     for note in notes:
         key = note.get('passage_key')
-        require(key in passages and key not in unassigned and note.get('handling') in {'context','out_of_scope'},'原文片段去向重复或越界')
+        require(key in passages and note.get('handling') in {'context','out_of_scope'},'原文片段去向重复或越界')
         require(not used[key] or note['handling']=='context',f'原文片段{key}已被清单引用，不能同时声明为范围外')
-        unassigned[key] = {**note,'reason':text(note.get('reason'),'原文片段去向理由')}
+        reason = text(note.get('reason'),'原文片段去向理由')
+        existing = unassigned.get(key)
+        if existing:
+            require(existing['handling'] == note['handling'], f'原文片段{key}去向冲突')
+            context_notes = [*existing.get('context_notes', [existing['reason']]), reason]
+            existing['context_notes'] = list(dict.fromkeys(context_notes))
+            existing['reason'] = '；'.join(existing['context_notes'])
+        else:
+            unassigned[key] = {**note,'reason':reason,'context_notes':[reason]}
     rows = []
     for source_key in keys:
         part_keys = [k for k,p in passages.items() if p['source_key'] == source_key]
@@ -146,7 +154,7 @@ def expand_passage_inventory(response, context, keys):
             'passage_coverage':[{'passage_key':k,'item_keys':used[k],
                 'handling':'items' if used[k] else unassigned.get(k,{}).get('handling','pending'),
                 'reason':'显式片段引用' if used[k] else unassigned.get(k,{}).get('reason','未承载且未说明去向，需补充'),
-                **({'context_note':unassigned[k]['reason']} if used[k] and k in unassigned else {})} for k in part_keys]})
+                **({'context_note':unassigned[k]['reason'],'context_notes':unassigned[k].get('context_notes',[])} if used[k] and k in unassigned else {})} for k in part_keys]})
     value['source_coverage'] = rows
     return value
 
