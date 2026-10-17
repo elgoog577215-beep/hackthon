@@ -1149,4 +1149,5 @@ onMounted(() => { if (courseId.value) void loadCenter() })
   .spin { animation: none; }
 }
 .update-center-grid.is-semantic-review { grid-template-columns: minmax(0, 1fr); }
+.update-center-grid.is-semantic-review > .course-change-surface { grid-column: 1 / -1; }
 </style>

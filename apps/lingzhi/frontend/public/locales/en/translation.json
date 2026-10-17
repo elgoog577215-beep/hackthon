@@ -6902,6 +6902,7 @@
   },
   "courseAuditUpdates": {
     "title": "Review & update",
+    "globalSemantic": "Course-wide semantic changes",
     "subtitle": "Review course materials and update related content",
     "open": "Review & update",
     "openHint": "Review material changes, generation relationships, and course-wide adjustments",

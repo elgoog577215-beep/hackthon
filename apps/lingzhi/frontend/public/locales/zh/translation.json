@@ -6902,6 +6902,7 @@
   },
   "courseAuditUpdates": {
     "title": "资料审阅与更新",
+    "globalSemantic": "全局语义修改",
     "subtitle": "检查课程资料并更新相关内容",
     "open": "资料审阅与更新",
     "openHint": "查看材料变化、生成关系和全课调整",
