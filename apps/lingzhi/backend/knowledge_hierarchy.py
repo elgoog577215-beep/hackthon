@@ -4,7 +4,6 @@ The model is allowed to choose category names and parent links only.  This
 module validates that it cannot create, delete, or rewrite a knowledge point.
 """
 from copy import deepcopy
-import asyncio
 import json
 
 from course_document import stable_hash
@@ -141,7 +140,7 @@ def compile_subtree(response, task, points, course_id, lesson_id):
 
 async def organize(svc, course_id, job_id, provider, raw, context, pipeline, points, save, validate_source, *, concurrency=None):
     """Partition once, then generate independent recursive subtrees in parallel."""
-    from knowledge_atomic import call_stage
+    from knowledge_atomic import call_stage, run_batches
     from knowledge_compact import parse_complete_json
     state = pipeline.get('hierarchy') or {}
     if state.get('contract') != CONTRACT:
@@ -195,12 +194,11 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
     from course_generation_budget import _env_int
     width = concurrency or _env_int('COURSE_KNOWLEDGE_HIERARCHY_CONCURRENCY', 2, minimum=1, maximum=4)
     pending = [t for t in state['tasks'][1:] if t['status'] != 'completed']
-    for offset in range(0, len(pending), width):
-        # Await every sibling even on failure so successful results are durable;
-        # an explicit continuation only requests branches that did not complete.
-        results = await asyncio.gather(*(process(t) for t in pending[offset:offset + width]), return_exceptions=True)
-        for failure in results:
-            if isinstance(failure, BaseException): raise failure
+    async def branch(_index, task):
+        await process(task)
+    # A short branch immediately frees its lane; failure retains other in-flight
+    # successes and stops dispatching further branches, as in extraction.
+    await run_batches(pending, branch, width=width)
     value = {'response_contract': CONTRACT, 'categories': state['categories'],
         'point_categories': {a['point_key']: a['category_key'] for a in state['assignments']}}
     result = compile_hierarchy(value, points, raw['course_id'], context['scope_lesson_id'])

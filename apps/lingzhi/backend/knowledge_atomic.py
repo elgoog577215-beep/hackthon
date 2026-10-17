@@ -537,7 +537,7 @@ async def run_atomic(svc, course_id, job_id):
         validate_source(); result = assemble(raw, context, pipeline, hierarchy)
         result.update(source_context_revision=context['revision_id'], source_evidence_package_revision=context['evidence_package']['package_revision_id'],
             source_scope_revision=context['scope_contract']['revision_id'], generation_job_id=job_id, model=provider.model_smart)
-        cp = deepcopy(svc.authoring.load(course_id)['jobs'][job_id]['checkpoint']); cp['candidate'] = result
+        cp = svc.authoring.read_projection(course_id, lambda state: deepcopy(state['jobs'][job_id]['checkpoint'])); cp['candidate'] = result
         svc._active(course_id, job_id)
         svc.authoring.update_job(course_id, job_id, status='completed', phase='completed', progress=100, checkpoint=cp,
             raw_response='', partial_text='', stream_complete=True, message='分批知识候选已保存，覆盖检查与内容待审阅')
