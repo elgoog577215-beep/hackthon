@@ -2,7 +2,7 @@
 import asyncio
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from course_repository import CourseDocumentConflict, CourseDocumentNotFound
@@ -112,6 +112,19 @@ def configure(course_id: str, body: InputRequest, svc=Depends(service)):
     action(lambda: svc.configure(course_id, body.document_revision, body.knowledge_revision,
         body.model_dump(exclude={"document_revision", "knowledge_revision", "input_revision"}), body.input_revision))
     return {"saved": True}
+
+
+@router.get("/courses/{course_id}/knowledge-first/source")
+def source(course_id: str, request: Request, tree_revision: str = Query(min_length=1, max_length=200),
+           knowledge_id: str = Query(min_length=1, max_length=200), evidence_id: str = Query(min_length=1, max_length=200),
+           svc=Depends(service)):
+    from knowledge_evidence import KnowledgeSourceNotFound
+    if svc is None or request.state.knowledge_first_course.get('owner_id') != require_actor_id(request.headers.get('X-User-Id')):
+        raise HTTPException(404, '来源不存在或无权限')
+    try:
+        return svc.source(course_id, tree_revision, knowledge_id, evidence_id, raw=request.state.knowledge_first_course)
+    except KnowledgeSourceNotFound:
+        raise HTTPException(404, '来源不存在或无权限') from None
 
 
 @router.post("/courses/{course_id}/knowledge-first/generate/{topic}", status_code=202)

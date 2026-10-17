@@ -23,7 +23,7 @@ export function courseStudyProfile(library:CourseStudyLibrary, courseId:string, 
     const evidence = eligible ? personal.nodes.find(p=>p.knowledge_id===n.knowledge_id && p.knowledge_revision_id===n.revision_id) : undefined
     return { knowledge_id:n.knowledge_id, knowledge_revision_id:n.revision_id, mastery:null, confidence:'none', status:'unassessed',
       assessment_count:0, independent_count:0, activity_count:0, historical_count:0, pending_attribution_count:0, next_action:'verify', evidence:[],
-      ...evidence, name:n.name, statement:n.statement || n.description || '', parent_id:parent(n.parent_id), section_refs:n.section_ids || [], block_refs:n.block_ids || [] }
+      ...evidence, name:n.name, aliases:n.aliases || [], terms:n.terms || [], statement:n.statement || n.description || '', parent_id:parent(n.parent_id), section_refs:n.section_ids || [], block_refs:n.block_ids || [] }
   })
   const byId = new Map(nodes.map(n=>[n.knowledge_id,n]))
   for(const node of nodes) node.links=[]

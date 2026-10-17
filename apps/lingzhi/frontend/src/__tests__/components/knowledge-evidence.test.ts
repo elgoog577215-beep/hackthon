@@ -75,3 +75,22 @@ it('shows a retained quotation when the original version is unavailable', async 
   expect(http.post).not.toHaveBeenCalled()
   w.unmount()
 })
+
+it('keeps the source quotation on a failed read and retries only that read', async () => {
+  let sourceReads = 0
+  vi.spyOn(http, 'get').mockImplementation(async url => {
+    if (!String(url).endsWith('/source')) return { data: view() }
+    if (++sourceReads === 1) throw new Error('offline')
+    return { data: { available: true, content: '重连后读取的旧原文', quote: '旧原文', source_kind: 'generated_handout' } }
+  })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.get('[data-knowledge-id="stable-id"]').trigger('click')
+  await w.get('[data-testid="locate-knowledge-source"]').trigger('click'); await flushPromises()
+  const reader = w.get('[data-testid="knowledge-source-reader"]')
+  expect(reader.get('[role="alert"]').text()).toContain('读取失败')
+  expect(reader.get('[data-testid="knowledge-source-excerpt"]').text()).toContain('Potential Function')
+  await reader.get('[role="alert"] button').trigger('click'); await flushPromises()
+  expect(reader.text()).toContain('重连后读取的旧原文')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})

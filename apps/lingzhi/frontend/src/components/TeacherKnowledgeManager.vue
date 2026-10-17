@@ -103,11 +103,15 @@
             </select></label></div>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
             <KnowledgeMasteryTree :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
-            <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" :aria-label="t('knowledgeFirst.pointDetails')">
-            <button type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
-            <article v-if="selectedPoint" :key="selectedId" class="point-card">
+            <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" tabindex="-1" :aria-label="t('knowledgeFirst.pointDetails')">
+            <button v-if="!selectedSource" type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
+            <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
+            <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
               <h2>{{ selectedPoint.name }}</h2><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
+              <p class="knowledge-extraction-method">{{ t(`knowledgeFirst.method_${selectedPoint.extraction_method || 'unspecified'}`) }}</p>
+              <p v-if="selectedPoint.derivation_note">{{ selectedPoint.derivation_note }}</p>
+              <KnowledgeTerms :point="selectedPoint" />
               <template v-if="selectedPoint.conditions?.length"><h3>{{ t('knowledgeFirst.conditions') }}</h3><ul><li v-for="c in selectedPoint.conditions" :key="c">{{ c }}</li></ul></template>
               <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
               <h3>{{ t('knowledgeFirst.relations') }}</h3>
@@ -124,8 +128,9 @@
               <TeachingCapabilityPanel v-if="!treeOnly" :tree="displayTree" :point-id="selectedId" />
               <KnowledgeQuestionSupply v-if="!generic && data.can_edit && displayTree.revision_id === data.knowledge_revision" :course-id="courseId" :knowledge-id="selectedId" :baseline-revision="data.knowledge_revision" />
               <div v-for="source in selectedPoint.source_quotes" :key="source.evidence_id + source.quote" class="source-evidence">
-                <template v-if="source.handout_ref"><div class="source-evidence-heading"><span>{{ t('knowledgeFirst.handoutSource') }} · {{ lessonLabels[source.handout_ref.lesson_id] || source.handout_ref.lesson_id }} · {{ short(source.handout_ref.script_revision_id) }}</span><button v-if="!treeOnly" type="button" @click="showHandoutSource(source.handout_ref)">{{ t('knowledgeFirst.locateHandout') }}</button></div><details><summary>{{ t('knowledgeFirst.readSourceText') }}</summary><blockquote><MarkdownRenderer :content="source.quote" /></blockquote></details></template>
+                <template v-if="source.handout_ref"><div class="source-evidence-heading"><span>{{ t('knowledgeFirst.generatedHandout') }} · {{ lessonLabels[source.handout_ref.lesson_id] || source.handout_ref.lesson_id }} · {{ short(source.handout_ref.script_revision_id) }}</span><button v-if="data.can_edit" type="button" data-testid="locate-knowledge-source" @click="selectedSource = source">{{ t('knowledgeFirst.locateSource') }}</button></div><details><summary>{{ t('knowledgeFirst.readSourceText') }}</summary><blockquote><MarkdownRenderer :content="source.quote" /></blockquote></details></template>
                 <blockquote v-else><MarkdownRenderer :content="source.quote" /></blockquote>
+                <button v-if="!source.handout_ref && data.can_edit" type="button" data-testid="locate-knowledge-source" @click="selectedSource = source">{{ t('knowledgeFirst.locateSource') }}</button>
               </div>
               <h3>{{ t('knowledgeFirst.trace') }}</h3><dl><dt>ID</dt><dd>{{ selectedPoint.knowledge_id }}</dd><dt>{{ t('knowledgeFirst.version') }}</dt><dd>{{ selectedPoint.revision_id }}</dd><dt>{{ t('knowledgeFirst.source') }}</dt><dd>{{ selectedPoint.source_refs.join(', ') }}</dd></dl>
             </article>
@@ -172,6 +177,8 @@ import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
 import { createContentKnowledgeTree } from '../utils/knowledge-tree-layout'
 import TeachingCapabilityPanel from './TeachingCapabilityPanel.vue'
 import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
+import KnowledgeSourceReader from './KnowledgeSourceReader.vue'
+import KnowledgeTerms from './KnowledgeTerms.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
 import HandoutReadingGuide from './HandoutReadingGuide.vue'
 import HandoutReadingLayout from './HandoutReadingLayout.vue'
@@ -189,6 +196,7 @@ const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
 const tab = ref('tree'), treeChoice = ref(''), selectedId = ref(''), lesson = ref('types'), handoutChoice = ref('')
 const detailPane = ref<HTMLElement | null>(null)
+const selectedSource = ref<any>(null)
 let pointTrigger: HTMLElement | null = null
 function selectGraphPoint(id: string, trigger: HTMLElement) { pointTrigger = trigger; selectedId.value = id }
 async function closePoint() { selectedId.value = ''; await nextTick(); pointTrigger?.focus({ preventScroll: true }) }
@@ -341,7 +349,9 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
   }
   node?.scrollIntoView?.({ block: 'nearest' })
 }
-watch(selectedId, async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
+watch([selectedId, selectedSource], async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
+async function closeSource() { selectedSource.value = null; await nextTick(); detailPane.value?.focus({ preventScroll: true }) }
+watch(() => [selectedId.value, treeChoice.value, courseId.value, knowledgeLessonId.value], () => { selectedSource.value = null })
 watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
 watch(() => props.initialLessonId, id => { if (id && id !== knowledgeLessonId.value) knowledgeLessonId.value = id })
 function scheduleObservation() {
@@ -444,14 +454,6 @@ async function uploadMaterials(event: Event) {
     inputDirty.value = true; await loadMaterials()
   } catch (e) { error.value = message(e) }
   finally { busy.value = false; (event.target as HTMLInputElement).value = '' }
-}
-async function showHandoutSource(ref: { lesson_id: string; script_revision_id: string; block_id: string }) {
-  lesson.value = ref.lesson_id
-  await nextTick()
-  handoutChoice.value = ref.script_revision_id
-  tab.value = 'handout'
-  await nextTick()
-  document.getElementById(`knowledge-handout-${ref.block_id}`)?.scrollIntoView({ block: 'center', behavior: 'auto' })
 }
 async function showSource(revision: string, id = '') { treeChoice.value = revision; selectedId.value = id; tab.value = 'tree'; await nextTick(); document.querySelector('.point-card')?.scrollIntoView({ block: 'start' }) }
 watch(lesson, () => { handoutChoice.value = currentLesson.value?.current_revision_id || '' })

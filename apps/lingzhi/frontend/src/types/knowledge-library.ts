@@ -26,6 +26,7 @@ export interface KnowledgeSourceBinding {
 }
 
 export interface KnowledgeNode {
+  terms?: import('../utils/knowledge-terms').KnowledgeTerm[]
   knowledge_id: string
   code: string
   parent_id: string | null

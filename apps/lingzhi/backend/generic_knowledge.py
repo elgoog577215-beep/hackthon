@@ -108,8 +108,7 @@ def tree_prompt(raw, context):
     if derived:
         prompt = prompt.replace('根据课程信息和上传资料生成', '根据课程信息和已保存讲义生成')
         prompt = prompt.replace('只提取材料支持的知识，每点至少给一段逐字引文，引用S编号；不得编造来源或把教学目标当已知事实。',
-            '只提取讲义段落支持的知识，每点的sources只填写有效S编号，不输出quote。程序按S编号保留原始段落，模型不得重写、缩写或拼接引文。')
-        prompt = prompt.replace('"sources":[{"key":"S1","quote":"逐字引文"}]', '"sources":["S1"]')
+            '只提取讲义段落支持的知识，每点sources填写有效S编号及精确支持该命题的逐字短引文quote。quote必须是该段原文的连续子串，不得改写、拼接或翻译。程序保留引用段落及版本。')
         prompt += '\n逐段检查：分别列出定义、规则、适用边界及可独立判断的步骤。即使同段介绍，也不能将两个独立定义合并为一个叶子。保留命题的全部适用条件；不得把例题数值作为通用事实。'
     if context.get('scope_lesson_id'):
         prompt += '\n本次只生成当前一讲知识。existing_knowledge仅包含其他讲已采用的元知识摘要，不包含本讲旧知识树。本讲必须从当前讲义重新提取，不得沿用或重建旧分类；其他讲知识只用于跨讲关系与确切复用。自主检查已有知识，避免同义重复：若本讲确实复用已有元知识，用{"key":"K1","category_key":"C2","reuse_key":"E1","sources":["S1"]}，不要改写已有命题与条件。新元知识使用原格式。relations端点可用K短键或E短键，自主判断合理的跨讲先修、应用、对比等关联；至少一端必须是本讲输出点，给出理由和条件，不强凑关联。只作关联而不在本讲教授的旧知识无需加入本讲points。不得引用目录之外的元知识ID，不把其他讲的已知内容当成本讲漏项。'
@@ -120,6 +119,7 @@ def tree_prompt(raw, context):
         prompt += '每个K点必须输出一条cross_alignment：{"knowledge_key":"K1","reason":"是否复用及其依据，仅此字段描述复用判断","relation_reason":"单独说明讲内与跨讲的具体语义联系；若没有，说明比较后为何不成立，不得以无复用代替","links":[{"source_key":"K1","target_key":"K2","type":"applies_to","reason":"精确说明被使用的规则与应用该规则的方法","conditions":[]}]}。links 与 relations 使用完全相同的关系格式：source_key 为起点，target_key 为终点，至少一端必须是当前 knowledge_key；另一端可以是本讲 K 短键或已存在的 E 短键。不输出 direction 或 other_key，不用相对方向，也不把关系类型放入端点字段。type 只表示关系语义。关联不要求覆盖旧命题的全部内容：新方法使用了旧命题的一个明确结论就可以是应用；明确条件补充、具体实现也可以与原理关联。links为空时必须给关系理由。无需让每点强制有边，也不设数量配额。相同语义边只输出一次，任一端登记即可，程序会补全另一端索引。推荐将全部讲内和跨讲边写入links，顶层relations可为空。'
     if context.get('cross_lesson_alignment_contract') == 'per_point_relations_v3':
         prompt += '\n返回前核对：即使 existing_knowledge 为空也必须逐点填写 cross_alignment，因为还需要判断本讲各知识点之间的关系。cross_alignment 的 knowledge_key 集合必须与 points 的 key 集合一致；无合理关系时 links 为空并给出 relation_reason，不能省略字段。'
+    prompt += '\n每点用extraction_method标注direct_statement（原文直述）、summary（归纳）或derived（推导）；derived时用derivation_note说明推导依据与步骤，此标注不代表独立核验通过。可选terms数组保留原文术语，格式：{"name":"原文中文名","english_name":"原文英文名","abbreviations":["原文缩写"],"aliases":["原文同义译名"],"source_key":"S1","quote":"包含这些名称的连续逐字原文"}。仅记录与本知识命题有关的术语；不要把同段其他概念的英文绑定到本点。无原文英文或别名时留空，不猜译名，不将术语当作新的知识ID。'
     return '输出关系格式：' + TREE_OUTPUT_FORMAT_VERSION + '\n' + prompt
 
 
@@ -258,7 +258,8 @@ def compile_tree(raw, context, response):
         for s in records(p.get('sources'), '知识来源', 20):
             source = available.get(s.get('key'))
             require(source is not None, '知识引用了未知来源')
-            quote = source['source_text'] if derived else text(s.get('quote'), '材料引文', 6000)
+            quote = source['source_text'] if derived and s.get('quote') is None else text(
+                s.get('quote'), '讲义引文' if derived else '材料引文', 6000)
             require(quote in source['source_text'], '知识引文不在上传材料中')
             quotes.append({'evidence_id': source['evidence_id'], 'quote': quote, 'locator': deepcopy(source['locator'])})
             if derived:
@@ -278,6 +279,17 @@ def compile_tree(raw, context, response):
             'source_refs': [q['evidence_id'] for q in quotes], 'source_quotes': quotes,
             'verification_status': 'handout_block_linked_semantics_pending' if derived else 'source_quote_checked_semantics_pending', 'aliases': []}
         point['revision_id'] = stable_hash(point, prefix='kpv_')
+        point['extraction_method'] = p.get('extraction_method') if p.get('extraction_method') in {'direct_statement', 'summary', 'derived'} else 'unspecified'
+        if p.get('extraction_method') == 'derived':
+            point['derivation_note'] = str(p.get('derivation_note') or '')[:2000]
+        for quoted in point['source_quotes']:
+            unit = next(u for u in available.values() if u['evidence_id'] == quoted['evidence_id'])
+            quoted['quote_scope'] = 'source_passage' if quoted['quote'] == unit['source_text'] else 'exact_excerpt'
+            quoted.setdefault('source_kind', 'provided_material')
+        from knowledge_evidence import enrich_point
+        point = enrich_point(point, proposed_terms=p.get('terms') if isinstance(p.get('terms'), list) else [],
+            source_passages=[{'evidence_id': available[s['key']]['evidence_id'], 'source_key': s['key'],
+                              'quote': available[s['key']]['source_text']} for s in p['sources']])
         by_key[key] = point
     lecture_ids, lecture_list = set(), []
     for l in lessons:
@@ -336,6 +348,7 @@ def compile_tree(raw, context, response):
             rendered_gaps.append(text(gap.get('name'), '缺口名称', 200) + '：' + text(gap.get('detail'), '缺口说明'))
     tree = {'schema_version': 'course_knowledge_base_v2', 'tree_schema': WORKFLOW, 'status': 'candidate',
         'categories': list(cats.values()), 'knowledge_points': list(by_key.values()), 'relations': edges,
+        'evidence_contract': 'knowledge_source_evidence_v2',
         'lessons': lecture_list, 'misconceptions': [], 'skill_units': [], 'bindings': [], 'mastery_criteria': [],
         'concept_groups': [{**c, 'concept_group_id': c['id']} for c in cats.values()],
         'terminology_revision': stable_hash([p['name'] for p in by_key.values()], prefix='term_'),

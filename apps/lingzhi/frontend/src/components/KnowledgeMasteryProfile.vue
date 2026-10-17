@@ -22,6 +22,7 @@
             <div class="mastery-status"><b>{{ t(`knowledgeProfile.${selected.status}`) }}</b><details :key="selected.knowledge_id" class="mastery-explanation"><summary :aria-label="t('knowledgeDetail.scoreInfo')"><Info :size="15" />{{ t('knowledgeDetail.scoreInfo') }}</summary><p>{{ t('knowledgeDetail.scoreHint') }} {{ t(`knowledgeProfile.confidence.${selected.confidence}`) }}</p></details></div>
           </div>
           <p v-if="selected.mastery === null" class="point-explanation">{{ t('knowledgeProfile.unknownHint') }}</p>
+          <KnowledgeTerms :point="selected" />
           <section class="point-rule"><h4>{{ t('knowledgeDetail.rule') }}</h4><p>{{ selectedContent?.rule || selected.statement }}</p></section>
           <section v-if="selectedContent?.example" class="point-example"><h4>{{ selectedContent.exampleTitle || t('knowledgeDetail.example') }}</h4><MarkdownRenderer v-if="selectedContent.exampleMarkdown" :content="selectedContent.example" /><p v-else>{{ selectedContent.example }}</p></section>
           <section v-if="selected.links?.length" class="point-connections">
@@ -59,6 +60,7 @@ import { ArrowLeft, ArrowUpRight, BookOpen, CheckCircle2, ChevronRight, CircleHe
 import type { KnowledgeProfile, KnowledgeProfileNode } from '../types/knowledge-profile'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
+import KnowledgeTerms from './KnowledgeTerms.vue'
 import { activeLocale, t } from '../shared/i18n'
 
 const props = defineProps<{ profile?: KnowledgeProfile | null; preview?: boolean; knowledgeOnly?: boolean; loading?: boolean; error?: string; canLocate?: boolean; canRead?: boolean; courseTitle?: string; learningContent?: Record<string, { rule?: string; example?: string; exampleTitle?: string; exampleMarkdown?: boolean }>; practiceIds?: string[] }>()

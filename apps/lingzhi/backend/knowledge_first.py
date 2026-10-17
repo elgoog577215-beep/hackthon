@@ -604,6 +604,12 @@ class KnowledgeFirstService:
         return self.authoring.read_projection(course_id, lambda state: project_status(
             state, raw, tree_generation_blockers, source_mode=source_mode))
 
+    def source(self, course_id, tree_revision, knowledge_id, evidence_id, *, raw=None):
+        from knowledge_evidence import locate_source
+        raw = self.repository.load_raw(course_id) if raw is None else raw
+        return self.authoring.read_projection(course_id, lambda state: locate_source(
+            raw, state, tree_revision, knowledge_id, evidence_id))
+
     def view(self, course_id, *, source_mode=""):
         raw = self.repository.load_raw(course_id)
         state = self.authoring.load(course_id)
@@ -646,7 +652,8 @@ class KnowledgeFirstService:
             handouts.append({"topic": topic, "title": bundle["title"], "current_revision_id": lesson.get("working_script_revision_id", ""), "revisions": revisions})
         from knowledge_generation_status import project_status
         status = project_status(state, raw, tree_generation_blockers, source_mode=source_mode)
-        return {"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
+        from knowledge_evidence import project_view
+        return project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
                 "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
                 "enabled": derived or raw.get("knowledge_first_workflow") in WORKFLOWS or tree.get("source_mode") == "handouts", "workflow": raw.get("knowledge_first_workflow", GENERIC_WORKFLOW),
                 "can_initialize": not (raw.get("course_document") or {}).get("sections") and not raw.get("generation_job_id"),
@@ -662,7 +669,7 @@ class KnowledgeFirstService:
                 "input_revision": raw.get("knowledge_input_revision", ""),
                 "inputs": {"requirements": (raw.get("generation_request") or {}).get("requirements", ""),
                     "target_audience": raw.get("target_audience", ""), "lesson_count": raw.get("knowledge_lesson_count", 3),
-                    "material_asset_ids": raw.get("knowledge_material_asset_ids", [])}}
+                    "material_asset_ids": raw.get("knowledge_material_asset_ids", [])}})
 
     def configure(self, course_id, expected_document, expected_knowledge, inputs, expected_input_revision=""):
         require(bool(inputs["requirements"].strip()), "请填写课程目标与范围")

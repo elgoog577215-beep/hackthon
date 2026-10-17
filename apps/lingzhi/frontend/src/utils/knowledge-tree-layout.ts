@@ -1,4 +1,5 @@
 import type { KnowledgeProfile } from '../types/knowledge-profile'
+import { knowledgeSearchText, normalizeKnowledgeSearch, type KnowledgeSearchFields } from './knowledge-terms'
 
 export interface ProfileTreeItem {
   id: string; sourceId: string; kind: 'course' | 'branch' | 'knowledge'
@@ -16,7 +17,7 @@ export function createContentKnowledgeTree(
   courseId: string,
   title: string,
   categories: Array<{ id: string; parent_id?: string | null; name: string }>,
-  points: Array<{ knowledge_id: string; parent_id?: string | null; name: string; statement?: string }>,
+  points: Array<{ knowledge_id: string; parent_id?: string | null; name: string; statement?: string } & KnowledgeSearchFields>,
 ): ProfileTreeItem {
   const groups = new Map(categories.map(category => [category.id, category]))
   const placed = new Set<string>()
@@ -25,7 +26,7 @@ export function createContentKnowledgeTree(
     if (placed.has(item.knowledge_id)) return null
     placed.add(item.knowledge_id)
     return { id: `knowledge:${item.knowledge_id}`, sourceId: item.knowledge_id, kind: 'knowledge',
-      label: item.name, searchText: `${item.name} ${item.statement || ''}`, progress: null, count: 1, children: [] }
+      label: item.name, searchText: knowledgeSearchText(item), progress: null, count: 1, children: [] }
   }
   const branch = (id: string): ProfileTreeItem | null => {
     const category = groups.get(id)
@@ -47,10 +48,10 @@ export function createContentKnowledgeTree(
 }
 
 export function filterKnowledgeTree(root: ProfileTreeItem, query: string): ProfileTreeItem {
-  const search = query.trim().toLocaleLowerCase()
+  const search = normalizeKnowledgeSearch(query)
   if (!search) return root
   const filter = (item: ProfileTreeItem): ProfileTreeItem | null => {
-    if (item.kind === 'knowledge') return (item.searchText || item.label).toLocaleLowerCase().includes(search) ? item : null
+    if (item.kind === 'knowledge') return normalizeKnowledgeSearch(item.searchText || item.label).includes(search) ? item : null
     const children = item.children.map(filter).filter((child): child is ProfileTreeItem => child !== null)
     return children.length || (item.pending && item.label.toLocaleLowerCase().includes(search)) ? { ...item, children } : null
   }
@@ -58,11 +59,11 @@ export function filterKnowledgeTree(root: ProfileTreeItem, query: string): Profi
 }
 
 export function createKnowledgeTree(profile: KnowledgeProfile, title: string, query = ''): ProfileTreeItem {
-  const search = query.trim().toLocaleLowerCase()
+  const search = normalizeKnowledgeSearch(query)
   const groups = new Map(profile.branches.map(b => [b.id, b]))
   const placed = new Set<string>()
   const point = (p: KnowledgeProfile['nodes'][number]): ProfileTreeItem | null => {
-    if (placed.has(p.knowledge_id) || (search && !`${p.name} ${p.statement}`.toLocaleLowerCase().includes(search))) return null
+    if (placed.has(p.knowledge_id) || (search && !knowledgeSearchText(p).includes(search))) return null
     placed.add(p.knowledge_id)
     return { id: `knowledge:${p.knowledge_id}`, sourceId: p.knowledge_id, kind: 'knowledge', label: p.name,
       progress: p.mastery, status: p.status, count: 1, children: [] }

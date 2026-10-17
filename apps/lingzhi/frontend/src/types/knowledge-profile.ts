@@ -1,9 +1,13 @@
+import type { KnowledgeTerm } from '../utils/knowledge-terms'
+
 export interface KnowledgeProfileSummary {
   total_count: number; assessed_count: number; unknown_count: number
   verified_progress: number; coverage: number; assessed_average: number | null
   mastered_count: number; attention_count: number
 }
 export interface KnowledgeProfileNode {
+  aliases?: string[]
+  terms?: KnowledgeTerm[]
   links?: Array<{ relation_id:string; knowledge_id:string; name:string; direction:'incoming'|'outgoing'; type:string; reason:string; conditions:string[]; lecture_names:string[] }>
   knowledge_id: string; knowledge_revision_id: string; name: string; statement: string
   parent_id: string; section_refs: string[]; block_refs?: string[]; mastery: number | null
