@@ -55,6 +55,15 @@ def stage_prompt(raw, context, stage, *, source_keys, items=None, feedback=None)
             '"unassigned_passages":[],"source_issues":[]}。数组内容必须来自真实材料，不能照抄格式示例或输出空清单回避任务。')
     else:
         payload.pop('sources')
+        evidence = {};compact_items = deepcopy(items or [])
+        for item in compact_items:
+            refs = []
+            for source in item.get('sources',[]):
+                identity = (source['key'],source['quote'])
+                if identity not in evidence:evidence[identity] = {'evidence_key':f'F{len(evidence)+1}',**source}
+                refs.append({'key':source['key'],'evidence_key':evidence[identity]['evidence_key']})
+            item['sources'] = refs
+        payload['items'] = compact_items;payload['frozen_evidence'] = list(evidence.values())
         instruction = (
             '仅细化本批清单为元知识候选，不生成知识关系，不修改旧知识身份。每点只表达一个可独立检查的命题。'
             '不同独立清单项必须分别成点；同一清单项有独立子命题时可拆为多个点。'
@@ -64,6 +73,7 @@ def stage_prompt(raw, context, stage, *, source_keys, items=None, feedback=None)
             '用inventory_keys显式绑定清单去向；程序会基于这些引用与元问题全文建立覆盖对照，不再输出重复coverage或question_coverage表。不能以一个Pop问题覆盖Push。'
             '条件、边界、例题尽量通过inventory_keys附着于对应点；没有绑定点的附件必须在context_items中明确说明背景用途，不能丢失。'
             '分类只组织当前命题，最多六层。原文依据由程序从已冻结清单绑定，不输出sources、不重抄引文，不补充清单以外的新事实。'
+            'items.sources中的evidence_key指向frozen_evidence唯一原文表；重复引用不代表丢失来源。'
             '数学含义完整保留，优先用Unicode符号或文字；反斜杠必须JSON双转义。英文术语由原文标注读取，不猜译名。'
             '只输出紧凑JSON，无缩进、围栏或过程解释：{"response_contract":"knowledge_atomic_bindings_v3","categories":[{"key":"C1","name":"主题","parent_key":null}],'
             '"points":[{"key":"K1","category_key":"C1","name":"具体知识","statement":"单一结论",'

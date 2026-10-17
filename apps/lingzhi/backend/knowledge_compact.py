@@ -166,12 +166,12 @@ def atomic_coverage(response, items, points):
     rows, checks = [], []
     for key,item in by_item.items():
         owners = [p for p in points if key in p['inventory_keys']]
-        require(not owners or key not in context,'附件不能同时绑定知识点和标为背景')
         handling = 'point' if item['kind'] in {'definition','rule','method','comparison'} else item['kind']
         if not owners and key in context: handling = 'context'
         if not owners and key not in context and handling != 'point': continue
         rows.append({'inventory_key':key,'point_keys':[p['key'] for p in owners],'handling':handling,
-            'reason':context.get(key,'依据知识点显式引用建立对照，未作独立语义核验'),'mapping_origin':'program_validated_bindings'})
+            'reason':context.get(key,'依据知识点显式引用建立对照，未作独立语义核验'),'mapping_origin':'program_validated_bindings',
+            **({'context_note':context[key]} if owners and key in context else {})})
         if handling == 'point':
             checks.extend({'inventory_key':key,'point_key':p['key'],'question_quote':p.get('meta_question'),
                 'answer_quote':p.get('meta_answer'),'mapping_origin':'program_validated_bindings'} for p in owners)
