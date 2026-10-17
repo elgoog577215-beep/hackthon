@@ -62,3 +62,10 @@ it('shows unresolved original passages and keeps the incomplete candidate unadop
   expect(w.get('[data-testid="knowledge-uncovered-passages"]').text()).toContain('尾部还有一个尚未承载的重要结论。')
   expect(w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.attributes('disabled')).toBeDefined();w.unmount()
 })
+it('rebuilds only leaf batches from the frozen inventory after an explicit click',async()=>{
+  vi.spyOn(http,'get').mockResolvedValue({data:view()})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="rebuild-knowledge-leaves"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({resume_job_id:'atomic-job',retry_batch_id:'all_atoms'}))
+  expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
+})
