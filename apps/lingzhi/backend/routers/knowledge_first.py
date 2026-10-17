@@ -1,8 +1,11 @@
 """Course-owned knowledge endpoints; auth applies to learners' own courses too."""
 import asyncio
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
 from course_repository import CourseDocumentConflict, CourseDocumentNotFound
@@ -25,6 +28,7 @@ class GenerateRequest(SourceRequest):
     pipeline: Literal['', 'inventory_atomic_v1', 'knowledge_relations_v1'] = ''
     resume_job_id: str = Field(default='', max_length=200)
     retry_batch_id: str = Field(default='', max_length=100)
+    organize_hierarchy: bool = True
 
 
 class AdoptRequest(SourceRequest):
@@ -88,7 +92,7 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
     view = svc.view(course_id, source_mode=source_mode)
     view["can_edit"] = svc.repository.load_raw(course_id).get("owner_id") == require_actor_id(request.headers.get("X-User-Id"))
     if not view["can_edit"]:
-        view.update(jobs=[], active_jobs=[], atomic_runs=[], relation_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
+        view.update(jobs=[], active_jobs=[], atomic_runs=[], generation_previews=[], relation_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
         # Historical candidates/source packages remain teacher data.
         view["history"] = []
         tree = view.get("tree") or {}
@@ -124,6 +128,48 @@ def configure(course_id: str, body: InputRequest, svc=Depends(service)):
     return {"saved": True}
 
 
+@router.get('/courses/{course_id}/knowledge-first/events/{job_id}')
+async def events(course_id: str, job_id: str, request: Request, svc=Depends(service)):
+    """Observe the existing durable job; disconnect never cancels generation."""
+    actor = require_actor_id(request.headers.get('X-User-Id'))
+    if svc is None or request.state.knowledge_first_course.get('owner_id') != actor:
+        raise HTTPException(404, '任务不存在或无权限')
+    from knowledge_atomic import project_preview
+    from knowledge_generation_status import job_status
+    from knowledge_first import now
+
+    def snapshot():
+        if svc.repository.load_raw(course_id).get('owner_id') != actor:
+            raise HTTPException(404, '任务不存在或无权限')
+        def project(state):
+            job = state.get('jobs', {}).get(job_id) or {}
+            if job.get('type') not in JOB_TYPES:
+                raise HTTPException(404, '任务不存在或无权限')
+            pipeline = (job.get('checkpoint') or {}).get('atomic_pipeline') or {}
+            revision = pipeline.get('revision', 0)
+            return {'job': job_status(job, now()), 'preview_revision': revision,
+                    'preview': project_preview(job, course_id)}
+        return svc.authoring.read_projection(course_id, project)
+
+    initial = await run_in_threadpool(snapshot)
+    async def stream():
+        value, last_revision = initial, None
+        while True:
+            if await request.is_disconnected(): return
+            payload = {**value, 'job_id': job_id}
+            if value['preview_revision'] == last_revision: payload.pop('preview', None)
+            yield 'event: snapshot\ndata: ' + json.dumps(payload, ensure_ascii=False) + '\n\n'
+            last_revision = value['preview_revision']
+            if value['job']['status'] not in {'pending', 'running'}:
+                yield 'event: complete\ndata: ' + json.dumps({'job_id': job_id}) + '\n\n'
+                return
+            await asyncio.sleep(1)
+            try: value = await run_in_threadpool(snapshot)
+            except HTTPException: return
+    return StreamingResponse(stream(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 @router.get("/courses/{course_id}/knowledge-first/source")
 def source(course_id: str, request: Request, tree_revision: str = Query(min_length=1, max_length=200),
            knowledge_id: str = Query(min_length=1, max_length=200), evidence_id: str = Query(min_length=1, max_length=200),
@@ -141,7 +187,7 @@ def source(course_id: str, request: Request, tree_revision: str = Query(min_leng
 async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depends(service)):
     job, created = action(lambda: svc.start(course_id, topic, body.request_id, body.knowledge_revision, body.document_revision,
         source_mode=body.source_mode, lesson_id=body.lesson_id, pipeline=body.pipeline,
-        resume_job_id=body.resume_job_id, retry_batch_id=body.retry_batch_id))
+        resume_job_id=body.resume_job_id, retry_batch_id=body.retry_batch_id, organize_hierarchy=body.organize_hierarchy))
     if created:
         task = asyncio.create_task(svc.run(course_id, job["id"]), name=job["id"])
         svc.authoring.track_runtime_job(course_id, task)

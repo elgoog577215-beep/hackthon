@@ -331,7 +331,7 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id=""):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
@@ -357,6 +357,7 @@ class KnowledgeFirstService:
             if duplicate:
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
+                require(pipeline != PIPELINE or bool(duplicate.get('organize_hierarchy')) == bool(organize_hierarchy or retry_batch_id == 'hierarchy'), '请求标识对应不同分类整理选项')
                 return duplicate, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
@@ -374,15 +375,23 @@ class KnowledgeFirstService:
                 continued_checkpoint = deepcopy(original.get('checkpoint') or {})
                 prior = continued_checkpoint.get('relation_pipeline' if pipeline == RELATIONS else 'atomic_pipeline')
                 require(bool(prior), '原任务没有可继续的知识清单')
-                if retry_batch_id:
+                if pipeline == PIPELINE and retry_batch_id == 'hierarchy':
+                    require(bool(prior.get('batches')) and all(b['status'] == 'completed' for b in prior['batches']), '请先完成知识点细化，再整理层级')
+                    organize_hierarchy = True
+                    prior['hierarchy'] = {'status': 'pending'}
+                elif retry_batch_id:
                     batches = prior['batches'] if pipeline == PIPELINE and retry_batch_id == 'all_atoms' else [b for b in prior['batches'] if b['id'] == retry_batch_id]
                     require(bool(batches), '细化批次不存在')
                     for batch in batches:
                         batch['retry_feedback'] = deepcopy((batch.get('report') or {}).get('issues', [])) or ([original['error']] if original.get('error') else [])
                         batch.update(status='pending'); batch.pop('tree', None); batch.pop('report', None); batch.pop('raw_response', None); batch.pop('result',None)
+                    if pipeline == PIPELINE:
+                        prior.pop('hierarchy', None)
                 else:
                     require(original.get('status') != 'completed', '已完成任务请明确选择需要重新细化的批次')
                 continued_checkpoint.pop('candidate', None)
+                if pipeline == PIPELINE:
+                    organize_hierarchy = bool(organize_hierarchy or prior.get('organize_hierarchy'))
                 if pipeline == RELATIONS:
                     from knowledge_relation_generation import validate_source
                     validate_source(self,raw,original)
@@ -405,6 +414,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
+                    organize_hierarchy=bool(organize_hierarchy),
                     checkpoint=continued_checkpoint or {}, resume_from_job_id=resume_job_id, parent_job_id=resume_job_id, retry_batch_id=retry_batch_id)
             return job, True
 
@@ -727,10 +737,11 @@ class KnowledgeFirstService:
         from knowledge_generation_status import project_status
         status = project_status(state, raw, tree_generation_blockers, source_mode=source_mode)
         from knowledge_evidence import project_view
-        from knowledge_atomic import project_runs
+        from knowledge_atomic import project_runs, project_previews
         from knowledge_relation_generation import project_runs as relation_runs
         return project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
                 "atomic_runs": project_runs(state, raw),
+                "generation_previews": project_previews(state, course_id),
                 "relation_runs": relation_runs(state, raw),
                 "title": raw.get("course_name"), "source_mode": "handouts" if derived else "", "source_handouts": source_handouts, "can_generate_tree": bool(source_handouts),
                 "enabled": derived or raw.get("knowledge_first_workflow") in WORKFLOWS or tree.get("source_mode") == "handouts", "workflow": raw.get("knowledge_first_workflow", GENERIC_WORKFLOW),

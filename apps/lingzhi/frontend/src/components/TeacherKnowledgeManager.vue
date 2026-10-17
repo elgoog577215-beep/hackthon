@@ -52,38 +52,34 @@
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
           <button type="button" :disabled="lessonOptions.at(-1)?.lesson_id === knowledgeLessonId" @click="stepLesson(1)">{{ t('knowledgeFirst.nextLesson') }}</button>
         </div>
-        <details v-if="sourceComparison" class="knowledge-source-version" :class="{ 'needs-review': staleTreeSource }" :open="staleTreeSource" data-testid="knowledge-source-version">
-          <summary>{{ t(staleTreeSource ? 'knowledgeFirst.sourceNeedsReview' : 'knowledgeFirst.sourceVersionDetails') }}</summary>
-          <p v-if="staleTreeSource">{{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}</p>
-          <dl v-for="source in sourceComparison.sources" :key="source.lessonId">
-            <dt>{{ source.title }}</dt>
-            <dd><span>{{ t('knowledgeFirst.recordedHandoutVersion') }}</span><code>{{ source.recorded || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
-            <dd><span>{{ t('knowledgeFirst.currentHandoutVersion') }}</span><code>{{ source.current || t('knowledgeFirst.handoutVersionUnavailable') }}</code></dd>
-          </dl>
-        </details>
+        <p v-if="staleTreeSource" class="notice error source-version-warning" role="alert">
+          {{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}
+        </p>
         <section v-for="job in sourceBlockingJobs" :key="job.id" class="notice job" role="status" data-testid="knowledge-source-blocker">
           <strong>{{ blockingJobLabel(job) }}</strong>
           <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
         </section>
-        <section v-if="activeJob" class="notice job generation-progress" role="status" aria-live="polite" data-testid="knowledge-generation-progress">
-          <div class="generation-progress-copy"><strong>{{ activeJob.knowledge_lesson_id ? `${lessonLabels[activeJob.knowledge_lesson_id] || ''} · ` : '' }}{{ jobPhase(activeJob) }}</strong>
-            <span v-if="activeJob.message && !activeJob.phase">{{ activeJob.message }}</span>
-            <span>{{ progressDetails(activeJob) }}</span>
-            <span v-if="activeJob.received_chars && activeJob.activity_age_seconds != null" class="muted">{{ t('knowledgeFirst.lastModelActivity').replace('{seconds}', String(activeJob.activity_age_seconds)) }}</span>
+        <section v-if="progressJob" class="notice job generation-progress" role="status" aria-live="polite" data-testid="knowledge-generation-progress">
+          <div class="generation-progress-heading">
+            <strong>{{ progressJob.knowledge_lesson_id ? `${lessonLabels[progressJob.knowledge_lesson_id] || ''} · ` : '' }}{{ progressJob.status === 'completed' ? t('knowledgeFirst.phase_completed') : jobPhase(progressJob) }}</strong>
+            <strong class="generation-progress-percent">{{ progressPercent }}%</strong>
           </div>
-          <button v-if="data.can_edit" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button></section>
-        <details v-if="otherKnowledgeJobs.length" class="notice other-knowledge-jobs" data-testid="knowledge-other-jobs">
-          <summary>{{ t('knowledgeFirst.otherLectureTasks').replace('{count}', String(otherKnowledgeJobs.length)) }}</summary>
-          <p v-for="job in otherKnowledgeJobs" :key="job.id"><button type="button" @click="knowledgeLessonId = job.knowledge_lesson_id">{{ lessonLabels[job.knowledge_lesson_id] || job.knowledge_lesson_id }}</button> · {{ jobPhase(job) }} · {{ progressDetails(job) }}</p>
-        </details>
+          <div class="generation-progress-track" role="progressbar" :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100" :aria-label="t('knowledgeFirst.generationProgress')">
+            <span :style="{ width: `${progressPercent}%` }" />
+          </div>
+          <div class="generation-progress-actions">
+            <button v-if="data.can_edit && activeJob" type="button" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>
+            <button v-if="data.can_edit && atomicCanContinue" type="button" data-testid="continue-knowledge-batches" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic()">{{ t('knowledgeFirst.continueGeneration') }}</button>
+            <button v-if="data.can_edit && atomicCanOrganize" type="button" data-testid="organize-knowledge-hierarchy" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('hierarchy')">{{ t('knowledgeFirst.organizeHierarchy') }}</button>
+            <button v-if="data.can_edit && atomicCanRebuild" type="button" data-testid="rebuild-knowledge-leaves" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('all_atoms')">{{ t('knowledgeFirst.reviseCandidate') }}</button>
+            <button v-if="data.can_edit && relationCanContinue" type="button" :disabled="busy || blockingJobs.length > 0" @click="generateRelations(true)">{{ t('knowledgeFirst.continueGeneration') }}</button>
+          </div>
+        </section>
         <p v-if="treeOnly && !activeJob && latestJob?.status === 'failed'" class="notice error" role="alert"><strong>{{ t('knowledgeFirst.lastGenerationFailed') }}：</strong>{{ generationFailureMessage(latestJob) }} <button v-if="data.can_edit && latestJob.recheck_available" :disabled="busy" @click="recheck(latestJob.id)">{{ t('knowledgeFirst.recheck') }}</button></p>
         <details v-if="!treeOnly && failedJobs.length" class="notice"><summary>{{ t('knowledgeFirst.jobHistory') }} · {{ failedJobs.length }}</summary>
           <details v-for="job in failedJobs" :key="job.id" class="notice error"><summary>{{ t('knowledgeFirst.interrupted') }} · {{ job.id }}</summary>
             <p>{{ generationFailureMessage(job) }}</p><button v-if="data.can_edit && job.recheck_available" :disabled="busy || !!activeJob" @click="recheck(job.id)">{{ t('knowledgeFirst.recheck') }}</button><pre v-if="job.partial_text">{{ job.partial_text }}</pre><p v-if="!['AIRequestBudgetExceeded', 'ModelConnectionUnavailable'].includes(job.error?.code)">{{ t('knowledgeFirst.retryHint') }}</p></details>
         </details>
-        <KnowledgeAtomicWorkbench v-if="atomicRunVisible" :run="atomicRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="continueAtomic()" @retry="continueAtomic($event)" />
-        <KnowledgeGenerationMetrics v-if="latestJob?.stage_observations?.length" :observations="latestJob.stage_observations" />
-        <KnowledgeRelationWorkbench v-if="relationRun" :run="relationRun" :can-edit="data.can_edit" :disabled="busy || blockingJobs.length > 0" @continue="generateRelations(true)" @retry="generateRelations(true,$event)" @navigate="navigateRelated" />
         <section v-if="treeChoice === 'candidate' && displayTree?.relation_assessment" class="notice" data-testid="knowledge-relation-adoption">
           <p>{{ t('knowledgeFirst.relationReviewHint') }}</p>
           <p>{{ t('knowledgeFirst.relationCandidateSummary').replace('{count}',String(displayTree.relation_assessment.proposed_count)) }}</p>
@@ -91,25 +87,14 @@
           <p v-for="(gap,index) in displayTree.relation_assessment.gaps || []" :key="index">{{ gap }}</p>
           <label><input v-model="confirmRelations" type="checkbox" data-testid="confirm-knowledge-relations" /> {{ t('knowledgeFirst.confirmRelations') }}</label>
         </section>
-        <section v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
-          <p>{{ t(displayTree.atomic_assessment.ready_for_adoption ? 'knowledgeFirst.atomicChecksPassed' : 'knowledgeFirst.atomicAdoptionBlocked') }}</p>
-          <ul v-if="displayTree.atomic_assessment.issues?.length"><li v-for="(issue, index) in displayTree.atomic_assessment.issues" :key="index">{{ displayTree.knowledge_points.find((point:any) => point.key === issue.point_key)?.name || issue.inventory_key || '' }} · {{ t(`knowledgeFirst.atomicIssueCodes.${issue.code}`, t('knowledgeFirst.atomicCheckFailed')) }}</li></ul>
-          <details v-if="displayTree.atomic_assessment.uncovered_passages?.length" open data-testid="knowledge-uncovered-passages"><summary>{{ t('knowledgeFirst.uncoveredPassages') }} · {{ displayTree.atomic_assessment.uncovered_passages.length }}</summary><blockquote v-for="passage in displayTree.atomic_assessment.uncovered_passages" :key="passage.key"><strong>{{ passage.key }}</strong><p>{{ passage.text }}</p></blockquote></details>
-          <p>{{ t('knowledgeFirst.relationsNotRun') }}</p>
+        <p v-if="displayTree?.generation_preview" class="notice" role="status">{{ t('knowledgeFirst.streamingPreview') }}</p>
+        <section v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment && !displayTree.generation_preview" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
+          <p v-if="displayTree.atomic_assessment.ready_for_adoption === false">{{ t('knowledgeFirst.candidateNeedsRevision') }}</p>
           <label v-if="atomicReviewRequired"><input v-model="confirmAtomicReview" type="checkbox" /> {{ t('knowledgeFirst.confirmAtomicReview') }}</label>
-          <template v-if="identityReviewRequired"><p>{{ t('knowledgeFirst.identityReviewHint') }}</p><ul><li v-for="point in displayTree.identity_changes.retired_points" :key="point.knowledge_id">{{ point.name }} · {{ point.statement }}</li></ul>
+          <template v-if="identityReviewRequired">
             <label><input v-model="confirmIdentityChanges" type="checkbox" /> {{ t('knowledgeFirst.confirmIdentityChanges') }}</label></template>
         </section>
         <section v-if="tab === 'tree'" class="tree-section">
-          <details v-if="generic && displayTree" class="notice source-review extraction-gaps" open data-testid="knowledge-extraction-gaps">
-            <summary>{{ t('knowledgeFirst.extractionNotes') }}<template v-if="perLesson"> · {{ extractionReport && !extractionReport.scope_lesson_id ? t('knowledgeFirst.courseGapReport') : lessonLabels[knowledgeLessonId] }}</template></summary>
-            <p>{{ t(displayTree.source_mode === 'handouts' ? 'knowledgeFirst.derivedReview' : displayTree.revision_id === data.knowledge_revision ? 'knowledgeFirst.adoptedReview' : 'knowledgeFirst.genericReview') }}</p>
-            <p v-if="!extractionReport">{{ t('knowledgeFirst.gapReportUnavailable') }}</p>
-            <template v-else><ul v-if="extractionReport.gaps?.length"><li v-for="(gap, index) in extractionReport.gaps" :key="index">{{ gap }}</li></ul>
-              <p v-else>{{ t('knowledgeFirst.noRecordedGaps') }}</p>
-              <p>{{ t('knowledgeFirst.unreferencedPassages').replace('{count}', String(extractionReport.uncovered_evidence_ids?.length || 0)) }}</p>
-            </template>
-          </details>
           <div v-if="!treeOnly && displayTree?.teaching_assessment" class="notice" :class="{ stale: !displayTree.teaching_assessment.ready_for_adoption }">
             <strong>{{ t('knowledgeFirst.teachingRound') }}</strong><p>{{ t('knowledgeFirst.candidateWarning') }}</p>
             <p>{{ t('knowledgeFirst.capabilities') }} {{ displayTree.teaching_assessment.capability_units }} · {{ t('knowledgeFirst.masteryCriteria') }} {{ displayTree.teaching_assessment.criteria }} · {{ t('knowledgeFirst.mistakesAndRepair') }} {{ displayTree.teaching_assessment.new_mistakes }}</p>
@@ -122,7 +107,17 @@
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
-            <KnowledgeMasteryTree :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
+            <div class="knowledge-tree-surface">
+              <div class="knowledge-tree-view-switch" role="group" :aria-label="t('knowledgeFirst.treeViewMode')">
+                <button type="button" data-testid="knowledge-tree-view" :aria-pressed="treeViewMode === 'tree'" :class="{ active: treeViewMode === 'tree' }" @click="treeViewMode = 'tree'">{{ t('knowledgeFirst.hierarchyView') }}</button>
+                <button type="button" data-testid="knowledge-relation-view" :aria-pressed="treeViewMode === 'graph'" :class="{ active: treeViewMode === 'graph' }" @click="treeViewMode = 'graph'">{{ t('knowledgeFirst.relationGraphView') }}<span v-if="relationGraphRelations.length"> · {{ relationGraphRelations.length }}</span></button>
+              </div>
+              <div v-if="treeViewMode === 'graph'">
+                <p v-if="displayTree?.atomic_assessment?.relation_status === 'not_run'" class="notice" data-testid="knowledge-relations-not-run">{{ t('knowledgeFirst.relationsNotRun') }}</p>
+                <KnowledgeRelationGraph :nodes="relationGraphNodes" :relations="relationGraphRelations" :candidate-view="treeChoice === 'candidate'" :selected-id="selectedId" @select="selectRelationNode" />
+              </div>
+              <KnowledgeMasteryTree v-else :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
+            </div>
             <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" tabindex="-1" :aria-label="t('knowledgeFirst.pointDetails')">
             <button v-if="!selectedSource" type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
             <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
@@ -191,7 +186,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import http from '../utils/http'
+import http, { activeIdentityHeaders, withApiBase } from '../utils/http'
+import { consumeEventStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -201,10 +197,8 @@ import TeachingCapabilityPanel from './TeachingCapabilityPanel.vue'
 import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
 import KnowledgeSourceReader from './KnowledgeSourceReader.vue'
 import KnowledgeTerms from './KnowledgeTerms.vue'
-import KnowledgeAtomicWorkbench from './KnowledgeAtomicWorkbench.vue'
-import KnowledgeGenerationMetrics from './KnowledgeGenerationMetrics.vue'
-import KnowledgeRelationWorkbench from './KnowledgeRelationWorkbench.vue'
 import KnowledgeRelationEvidence from './KnowledgeRelationEvidence.vue'
+import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
 import HandoutReadingGuide from './HandoutReadingGuide.vue'
 import HandoutReadingLayout from './HandoutReadingLayout.vue'
@@ -224,16 +218,26 @@ const generic = computed(() => data.value?.workflow === 'knowledge_first_generic
 const inputs = reactive({ requirements: '', target_audience: '', lesson_count: 3, material_asset_ids: [] as string[] })
 const inputDirty = ref(false), materials = ref<any[]>([]), handoutRoot = ref<HTMLElement | null>(null)
 const tab = ref('tree'), treeChoice = ref(''), selectedId = ref(''), lesson = ref('types'), handoutChoice = ref('')
+const treeViewMode = ref<'tree' | 'graph'>('tree')
 const detailPane = ref<HTMLElement | null>(null)
 const selectedSource = ref<any>(null)
 let pointTrigger: HTMLElement | null = null
 function selectGraphPoint(id: string, trigger: HTMLElement) { pointTrigger = trigger; selectedId.value = id }
+function selectRelationNode(node: any) {
+  if (displayTree.value?.knowledge_points.some((point: any) => point.knowledge_id === node.knowledge_id)) selectedId.value = node.knowledge_id
+  else {
+    const lessonId = node.section_ids.find((id: string) => lessonLabels.value[id])
+    if (lessonId) void navigateRelated({ lesson_id: lessonId, knowledge_id: node.knowledge_id })
+  }
+}
 async function closePoint() { selectedId.value = ''; await nextTick(); pointTrigger?.focus({ preventScroll: true }) }
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
 let retryCount = 0, observationStopped = false
 let readController: AbortController | undefined
 let readInFlight = false
+let streamController: AbortController | undefined
+let streamKey = ''
 const base = computed(() => `/api/courses/${courseId.value}/knowledge-first`)
 const activeJobs = computed<any[]>(() => (data.value?.active_jobs || data.value?.jobs || []).filter((j: any) => ['pending', 'running'].includes(j.status)))
 const blockingJobs = computed(() => {
@@ -242,8 +246,6 @@ const blockingJobs = computed(() => {
   return activeJobs.value.filter(j => !perLesson.value || !j.knowledge_lesson_id || j.knowledge_lesson_id === knowledgeLessonId.value)
 })
 const activeJob = computed(() => blockingJobs.value.find(j => (data.value?.jobs || []).some((known: any) => known.id === j.id)))
-const otherKnowledgeJobs = computed(() => perLesson.value ? activeJobs.value.filter(j => j.type === 'course_knowledge_tree_generation'
-  && j.knowledge_lesson_id && j.knowledge_lesson_id !== knowledgeLessonId.value) : [])
 const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => !perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
@@ -264,6 +266,9 @@ function blockingJobLabel(job: any) {
   return `${label} · ${t(`knowledgeFirst.${kind}`)}`
 }
 const selectedCandidateRecord = computed(() => {
+  const preview = (data.value?.generation_previews || []).find((p: any) => !perLesson.value || p.lesson_id === knowledgeLessonId.value)
+  const pendingJob = activeJobs.value.find(j => j.id === preview?.job_id)
+  if (preview && pendingJob) return preview
   if (!perLesson.value) return data.value?.candidate ? { tree: data.value.candidate, job_id: data.value.candidate_job_id, lesson_id: '' } : null
   const pending = (tree: any) => tree && !(data.value?.history || []).some((h: any) => h.revision_id === tree.revision_id)
   const candidates = (data.value?.candidates || []).filter((c: any) => !c.adopted && pending(c.tree) && (c.lesson_id || c.source_knowledge_revision === undefined || c.source_knowledge_revision === data.value.knowledge_revision))
@@ -277,24 +282,57 @@ const atomicRun = computed(() => {
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
 })
-const atomicRunVisible = computed(() => {
-  const pipeline = atomicRun.value?.pipeline
-  if (!pipeline) return false
-  return Boolean(
-    pipeline.items?.length
-    || pipeline.batches?.length
-    || pipeline.inventory_batches?.some((batch: any) => batch.status === 'completed'),
-  )
+const progressJob = computed(() => {
+  if (activeJob.value) return activeJob.value
+  if (latestJob.value) return latestJob.value
+  const run = relationRun.value || atomicRun.value
+  if (run) return { id: run.job_id, status: run.status, knowledge_lesson_id: run.lesson_id }
+  return null
 })
+const progressPercent = computed(() => {
+  const job = progressJob.value
+  if (!job) return 0
+  if (job.status === 'completed') return 100
+  const reported = Number(job.progress)
+  if (Number.isFinite(reported) && reported > 0) return Math.min(99, Math.max(0, Math.round(reported)))
+  const pipeline = atomicRun.value?.pipeline
+  if (pipeline) {
+    const fraction = (rows: any[] = []) => rows.length ? rows.filter(row => row.status === 'completed').length / rows.length : 0
+    return Math.floor(20 * fraction(pipeline.inventory_batches) + (pipeline.organize_hierarchy ? 65 : 75) * fraction(pipeline.batches)
+      + (pipeline.organize_hierarchy && pipeline.hierarchy?.status === 'completed' ? 10 : 0))
+  }
+  return job.phase === 'structure_check' ? 95 : job.phase === 'preparing' ? 5 : 0
+})
+const atomicCanContinue = computed(() => {
+  const run = atomicRun.value, pipeline = run?.pipeline
+  return Boolean(!activeJob.value && run && !run.adopted
+    && ['failed', 'paused', 'cancelled'].includes(run.status)
+    && (!pipeline?.batches?.length || [...(pipeline?.inventory_batches || []), ...(pipeline?.batches || [])].some((batch: any) => batch.status !== 'completed')
+      || pipeline?.organize_hierarchy && pipeline.hierarchy?.status !== 'completed'))
+})
+const atomicCanOrganize = computed(() => {
+  const run = atomicRun.value, pipeline = run?.pipeline
+  return Boolean(!activeJob.value && run && !run.adopted
+    && ['completed', 'failed', 'paused', 'cancelled'].includes(run.status)
+    && pipeline?.batches?.length
+    && pipeline.batches.every((batch: any) => batch.status === 'completed')
+    && (pipeline?.hierarchy?.status !== 'completed' || pipeline.hierarchy.result?.schema_version !== 'knowledge_hierarchy_v5'))
+})
+const atomicCanRebuild = computed(() => !activeJob.value && atomicRun.value && !atomicRun.value.adopted
+  && !['pending', 'running'].includes(atomicRun.value.status) && atomicRun.value.pipeline?.items?.length
+  && selectedCandidate.value?.atomic_assessment?.ready_for_adoption === false)
 const relationRun = computed(() => {
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.relation_runs || []).find((run:any)=>run.lesson_id === knowledgeLessonId.value)
 })
+const relationCanContinue = computed(() => !activeJob.value && relationRun.value && !relationRun.value.adopted
+  && ['failed', 'paused', 'cancelled'].includes(relationRun.value.status))
 const proposedRelations = computed(()=>(displayTree.value?.relations || []).filter((edge:any)=>(displayTree.value?.relation_assessment?.proposed_ids || []).includes(edge.id)))
 const canGenerateRelations = computed(()=>treeChoice.value === data.value?.knowledge_revision && data.value?.tree?.status === 'accepted' && selectedLesson.value?.can_generate && data.value.tree.knowledge_points?.some((p:any)=>(p.section_refs || [p.topic]).includes(knowledgeLessonId.value)))
 const atomicReviewRequired = computed(() => displayTree.value?.atomic_assessment?.issues?.some((issue:any)=>issue.severity === 'review'))
 const identityReviewRequired = computed(() => !!displayTree.value?.identity_changes?.retired_points?.length)
 const atomicAdoptionReady = computed(() => displayTree.value?.atomic_assessment?.ready_for_adoption !== false
+  && !displayTree.value?.generation_preview
   && (!displayTree.value?.relation_assessment || displayTree.value.relation_assessment.ready_for_adoption && confirmRelations.value)
   && (!atomicReviewRequired.value || confirmAtomicReview.value) && (!identityReviewRequired.value || confirmIdentityChanges.value))
 const canAdoptSelection = computed(() => !perLesson.value || selectedCandidateRecord.value?.lesson_id === knowledgeLessonId.value)
@@ -323,28 +361,11 @@ const displayTree = computed(() => {
   return { ...tree, allKnowledgePoints: allPoints, categories: perLesson.value ? categories.filter((c: any) => needed.has(c.id)) : categories,
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
-const extractionReport = computed(() => {
-  const tree = displayTree.value
-  if (!tree) return null
-  const hasReport = (value: any) => Array.isArray(value?.gaps) && Array.isArray(value?.uncovered_evidence_ids)
-  if (!perLesson.value || !tree.scope_lesson_id || tree.scope_lesson_id === knowledgeLessonId.value) return hasReport(tree) ? tree : null
-  const revision = tree.lesson_revisions?.[knowledgeLessonId.value]
-  return revision ? [...(data.value?.history || [])].reverse().find((h: any) => h.scope_lesson_id === knowledgeLessonId.value
-    && h.lesson_revisions?.[knowledgeLessonId.value] === revision && hasReport(h)) || null : null
-})
 function jobPhase(job: any) {
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
   const label = t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
-  return job.pipeline_stage ? `${t(job.pipeline_stage === 'relations' ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
-}
-function progressDetails(job: any) {
-  const parts: string[] = []
-  if (job.received_chars) parts.push(t('knowledgeFirst.receivedCharacters').replace('{count}', String(job.received_chars)))
-  if (job.elapsed_seconds != null) parts.push(t('knowledgeFirst.elapsedSeconds').replace('{seconds}', String(job.elapsed_seconds)))
-  if (job.pipeline_stage === 'atomize') parts.push(t('knowledgeFirst.atomicSummary').replace('{items}', String(job.inventory_count || 0)).replace('{done}', String(job.completed_batches || 0)).replace('{total}', String(job.batch_total || 0)))
-  if (job.pipeline_stage === 'relations') parts.push(t('knowledgeFirst.relationBatchSummary').replace('{done}',String(job.completed_batches || 0)).replace('{total}',String(job.batch_total || 0)))
-  return parts.join(' · ') || t('knowledgeFirst.observingTask')
+  return job.pipeline_stage ? `${t(job.pipeline_stage === 'relations' ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'hierarchy' ? 'knowledgeFirst.organizeHierarchy' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null
@@ -365,6 +386,32 @@ const contentTree = computed(() => createContentKnowledgeTree(
   displayTree.value?.categories || [],
   displayTree.value?.knowledge_points || [],
 ))
+const relationGraphNodes = computed(() => {
+  const ids = new Set((displayTree.value?.knowledge_points || []).map((p: any) => p.knowledge_id))
+  for (const edge of displayTree.value?.relations || []) { ids.add(edge.source_id); ids.add(edge.target_id) }
+  return (displayTree.value?.allKnowledgePoints || []).filter((p: any) => ids.has(p.knowledge_id)).map((point: any, index: number) => ({
+  knowledge_id: point.knowledge_id,
+  code: point.key || `K${index + 1}`,
+  parent_id: point.parent_id || null,
+  node_type: 'knowledge_point',
+  name: point.name,
+  description: point.statement || '',
+  depth: 0,
+  sort_order: index,
+  path_ids: [], path_names: [], aliases: point.aliases || [], learning_actions: [], typical_problems: [],
+  section_ids: point.section_refs || [], block_ids: [], objective_ids: [], criterion_ids: [], question_ids: [], misconception_ids: [], skill_unit_ids: [], mistake_point_ids: [], improvement_ids: [], mastery_criterion_ids: [],
+  statement: point.statement, conditions: point.conditions || [], boundaries: [], counterexamples: [], granularity_status: point.granularity_status,
+  covered_by_course: true, source_status: point.source_status || (displayTree.value?.source_mode === 'handouts' ? 'handout_grounded' : ''), source_refs: point.source_refs || [], source_bindings: [], status: point.status || displayTree.value?.status || 'candidate', revision_id: point.revision_id || '',
+  }))
+})
+const relationGraphRelations = computed(() => (displayTree.value?.relations || []).map((relation: any) => ({
+  relation_id: relation.relation_id || relation.id,
+  source_knowledge_id: relation.source_id,
+  target_knowledge_id: relation.target_id,
+  relation_type: relation.type || relation.relation_type || 'related',
+  source_status: relation.source_status || '', source_refs: relation.source_refs || [], status: (displayTree.value?.relation_assessment?.proposed_ids || []).includes(relation.id) ? 'candidate' : relation.status || 'accepted', reason: relation.reason || '',
+  conditions: relation.conditions || [], distinction: relation.distinction, derivation_steps: relation.derivation_steps || [], revision_id: relation.revision_id || '',
+})))
 const selectedPoint = computed(() => displayTree.value?.knowledge_points.find((p: any) => p.knowledge_id === selectedId.value))
 const relations = computed(() => displayTree.value?.relations.filter((r: any) => [r.source_id, r.target_id].includes(selectedId.value)) || [])
 const diagnoses = computed(() => displayTree.value?.misconceptions?.filter((d: any) => d.hypothesis_a && (d.knowledge_keys || []).includes(selectedPoint.value?.key)) || [])
@@ -417,6 +464,34 @@ async function closeSource() { selectedSource.value = null; await nextTick(); de
 watch(() => [selectedId.value, treeChoice.value, courseId.value, knowledgeLessonId.value], () => { selectedSource.value = null })
 watch(knowledgeLessonId, id => { selectedId.value = ''; chooseTreeVersion(); if (id) emit('lesson-change', id) })
 watch(() => props.initialLessonId, id => { if (id && id !== knowledgeLessonId.value) knowledgeLessonId.value = id })
+watch(() => [courseId.value, knowledgeLessonId.value, activeJob.value?.id], () => { void observeStream() })
+async function observeStream() {
+  const job = activeJob.value
+  const key = job ? `${courseId.value}:${job.id}` : ''
+  if (key === streamKey) return
+  streamController?.abort(); streamKey = key
+  if (!job || !data.value?.can_edit) return
+  const controller = new AbortController(); streamController = controller
+  const url = `${base.value}/events/${encodeURIComponent(job.id)}`
+  try {
+    const response = await fetch(withApiBase(url), { headers: activeIdentityHeaders({ Accept: 'text/event-stream' }), signal: controller.signal })
+    if (!response.ok || !response.headers.get('Content-Type')?.includes('text/event-stream')) return
+    await consumeEventStream(response, ({ event, data: eventData }) => {
+      if (disposed || controller.signal.aborted || key !== streamKey) return
+      const payload = eventData as any
+      if (event === 'complete') { void refresh(); return }
+      if (event !== 'snapshot' || payload.job_id !== job.id) return
+      const current = data.value
+      const jobs = (current.jobs || []).map((item: any) => item.id === job.id ? { ...item, ...payload.job } : item)
+      const active = (current.active_jobs || []).map((item: any) => item.id === job.id ? { ...item, ...payload.job } : item)
+      const previews = [...(current.generation_previews || []).filter((p: any) => p.job_id !== job.id)]
+      if (payload.preview) previews.push({ job_id: job.id, lesson_id: job.knowledge_lesson_id, tree: payload.preview })
+      else if (!('preview' in payload)) previews.push(...(current.generation_previews || []).filter((p: any) => p.job_id === job.id))
+      data.value = { ...current, jobs, active_jobs: active, generation_previews: previews }
+      if (payload.preview) treeChoice.value = 'candidate'
+    })
+  } catch { /* The existing status observer recovers connection failures. */ }
+}
 function scheduleObservation() {
   clearTimeout(timer)
   if (disposed || observationStopped || (data.value && !data.value.can_edit)) return
@@ -494,13 +569,13 @@ async function mutate(path: string, extra = {}) {
 async function generate(topic: string) {
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1' } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true } : {}) })
 }
 async function continueAtomic(batchId = '') {
   if (!atomicRun.value) return
   treeChoice.value = 'candidate'
   await mutate('generate/tree', { request_id: createUuid(), source_mode:'handouts', lesson_id:knowledgeLessonId.value,
-    pipeline:'inventory_atomic_v1', resume_job_id:atomicRun.value.job_id, retry_batch_id:batchId })
+    pipeline:'inventory_atomic_v1', organize_hierarchy:true, resume_job_id:atomicRun.value.job_id, retry_batch_id:batchId })
 }
 async function generateRelations(resume = false, batchId = '') {
   if (resume && !relationRun.value) return
@@ -536,7 +611,7 @@ watch(displayTree, tree => { if (tree && !tree.knowledge_points.some((p: any) =>
 watch(courseId, () => { observationStopped = false; retryCount = 0; observationNotice.value = ''; knowledgeLessonId.value = props.initialLessonId; data.value = null; inputDirty.value = false; materials.value = []; treeChoice.value = ''; selectedId.value = ''; handoutChoice.value = ''; void refresh() })
 watch(() => [generic.value, data.value?.enabled], () => { void loadMaterials() })
 onMounted(() => { void refresh(); window.addEventListener('online', resumeObservation); window.addEventListener('focus', resumeObservation) })
-onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abort(); clearTimeout(timer); window.removeEventListener('online', resumeObservation); window.removeEventListener('focus', resumeObservation) })
+onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abort(); streamController?.abort(); clearTimeout(timer); window.removeEventListener('online', resumeObservation); window.removeEventListener('focus', resumeObservation) })
 </script>
 
 <style scoped>
@@ -568,24 +643,27 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abor
 
 <style scoped>
 .knowledge-lesson-switch{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 20px}.knowledge-lesson-switch select{min-width:0;max-width:560px;flex:1}.knowledge-lesson-switch button{white-space:nowrap}
-.knowledge-source-version{margin:0 0 18px;padding:14px 18px;border:1px solid #e3deef;border-radius:10px;background:#faf9fd;font-size:15px;line-height:1.7;color:#635678;overflow-wrap:anywhere}.knowledge-source-version.needs-review{background:#fff8eb;border-color:#eddfc2;color:#78613d}.knowledge-source-version p{margin:4px 0 8px}.knowledge-source-version summary{cursor:pointer}.knowledge-source-version dl{margin:12px 0 0}.knowledge-source-version dt{font-weight:600}.knowledge-source-version dd{display:flex;flex-wrap:wrap;gap:6px 14px;margin:4px 0}.knowledge-source-version dd span{min-width:120px}.knowledge-source-version code{font-size:14px;overflow-wrap:anywhere}
 </style>
 
 <style scoped>
 .knowledge-detail-pane{min-width:0}.tree-only .knowledge-detail-pane{position:sticky;top:0;max-height:calc(100dvh - 230px);overflow:auto;scrollbar-gutter:stable;border:1px solid #e2e7f2;border-radius:12px;background:#fff}.tree-only .point-card{min-height:0;border:0;box-shadow:none;border-radius:0;padding:24px}.tree-only .point-card h2{font-size:22px;line-height:1.5;margin:14px 0}.relation+.relation{margin-top:12px}.relation button{font-weight:600;text-align:left;line-height:1.6}.relation-scope{display:block;color:#7866a9;font-size:13px;margin-bottom:8px}.relation-direction{color:#697496;font-size:14px;line-height:1.6}.related-statement{border-top:1px solid #e3e7f2;padding-top:10px;margin-top:10px;font-size:15px}.tree-only .point-card :deep(.markdown-body){overflow-wrap:anywhere}.tree-only .point-card dl{font-size:13px}.tree-only .source-evidence-heading{line-height:1.7}
 @media(max-width:1050px){.tree-only .point-card{padding:20px}}
 .teacher-knowledge-manager{container-type:inline-size}
-.generation-progress{align-items:flex-start;gap:18px;border-left:3px solid #8b7ab7;background:#f7f5fc}
-.generation-progress-copy{display:grid;gap:6px;flex:1;min-width:0;font-size:15px;line-height:1.65}
-.generation-progress-copy span{overflow-wrap:anywhere;font-size:15px}
+.generation-progress{display:block;border-left:3px solid #8b7ab7;background:#f7f5fc;padding:16px 18px}
+.generation-progress-heading,.generation-progress-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:15px;line-height:1.6}
+.generation-progress-percent{font-size:20px;color:#5e4580;white-space:nowrap}
+.generation-progress-track{height:10px;margin:12px 0 7px;overflow:hidden;border-radius:999px;background:#e5e0f1}
+.generation-progress-track span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7662d8,#a78be7);transition:width .3s ease}
+.generation-progress-meta{color:#766a88;font-size:14px}
+.generation-progress-message{margin:8px 0 0;overflow-wrap:anywhere;font-size:14px}
+.generation-progress-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.generation-progress-actions button{font:inherit;padding:6px 11px;border:1px solid #d8cde8;border-radius:7px;background:#fff;color:#654d82;cursor:pointer}
+.generation-progress-actions button:disabled{opacity:.5;cursor:not-allowed}
 .observation-notice{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:15px;background:#fff8eb}
-.other-knowledge-jobs,.extraction-gaps{font-size:15px;line-height:1.75;overflow-wrap:anywhere}
-.other-knowledge-jobs summary,.extraction-gaps summary{cursor:pointer;font-weight:600}
-.extraction-gaps{border:1px solid #e5dced;background:#faf8fd;padding:14px 18px;border-radius:10px}
-.extraction-gaps p{margin:8px 0}.extraction-gaps ul{padding-left:22px}
+.source-version-warning{margin:0 0 18px}
 .teacher-knowledge-manager .tree-layout{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start}
 .teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr) minmax(340px,400px)}
-.tree-layout>.mastery-tree{min-width:0}
+.tree-layout>.mastery-tree{min-width:0}.knowledge-tree-surface{min-width:0}.knowledge-tree-view-switch{display:flex;gap:6px;margin:0 0 10px;padding:4px;border:1px solid #e3deef;border-radius:10px;background:#faf9fd;width:max-content}.knowledge-tree-view-switch button{padding:7px 12px;border:0;border-radius:7px;background:transparent;color:#7a6a8d;font-size:14px}.knowledge-tree-view-switch button.active{background:#fff;color:#5e4580;box-shadow:0 1px 5px #68488716}.knowledge-tree-view-switch button:disabled{opacity:.45;cursor:not-allowed}.knowledge-tree-surface>.mastery-tree,.knowledge-tree-surface>.knowledge-relation-graph{min-width:0}
 .close-point-detail{margin:16px 24px 0;font-size:15px}
 @container(max-width:1000px){.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr)}.teacher-knowledge-manager .knowledge-detail-pane{position:absolute;z-index:5;top:0;right:0;width:min(420px,100%);max-height:clamp(420px,65vh,760px);overflow:auto;border:1px solid #ded3ed;border-radius:12px;background:#fff;box-shadow:-12px 12px 32px #4e396e20}}
 </style>
