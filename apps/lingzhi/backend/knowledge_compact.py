@@ -49,7 +49,8 @@ def focus_matches(term, content):
         value = re.sub(r'_\{([^{}]*)\}',r'_\1',value)
         for command,symbol in [(r'\Phi','Φ'),(r'\phi','φ'),(r'\times','×'),(r'\to','→'),(r'\geq','≥'),(r'\leq','≤')]:value=value.replace(command,symbol)
         return re.sub(r'[\s`*$]+','',value).casefold()
-    return bool(term.strip()) and visible(term) in visible(content)
+    anchor = visible(term)
+    return bool(anchor) and anchor in visible(content)
 
 
 def passage_catalog(context, keys):

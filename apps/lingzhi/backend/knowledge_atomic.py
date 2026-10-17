@@ -75,6 +75,7 @@ def stage_prompt(raw, context, stage, *, source_keys, items=None, feedback=None)
             '不同独立清单项必须分别成点；同一清单项有独立子命题时可拆为多个点。'
             '每点只绑定一个inventory_key，可用attachment_keys挂接附件。适用条件由程序继承冻结清单，不输出或改写conditions。完整方法必要步骤与不可分割定义可保留整体。'
             '为每点编写只检查本点的meta_question/meta_answer，保留适用条件；问题本身必须明确包含对应清单至少一个focus_terms。独立点不要共用笼统问题。'
+            '若focus_terms为空，表示原文检查词尚未确认；保留待审问题并在gaps说明，不能猜词后声称覆盖已通过。'
             'claims只写一次完整结论，程序直接组装statement，不输出重复正文或independent_claims。若有多个真正独立结论，应拆成多个points；不可把例题轨迹冒充一般规律。'
             '用inventory_key显式绑定一个知识项；程序会基于这些引用与元问题全文建立覆盖对照，不再输出重复coverage或question_coverage表。不能以一个Pop问题覆盖Push。'
             '条件、边界、例题通过attachment_keys附着于对应点；没有绑定点的附件必须在context_items中明确说明背景用途，不能丢失。'
