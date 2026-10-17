@@ -12,6 +12,7 @@
     <p v-if="loading" role="status">{{ t('knowledgeFirst.loadingSource') }}</p>
     <p v-if="error" class="source-warning" role="alert">{{ t('knowledgeFirst.sourceLoadFailed') }} <button type="button" @click="load">{{ t('common.retry') }}</button></p>
     <p v-else-if="data && !data.available" class="source-warning" role="status">{{ t(data.reason === 'source_quote_mismatch' ? 'knowledgeFirst.sourceQuoteMismatch' : 'knowledgeFirst.sourceVersionUnavailable') }}</p>
+    <p v-if="data?.available && data.quote_match === 'frozen_split_passage'" class="source-note" role="status">{{ t('knowledgeFirst.sourceSplitMatched') }}</p>
     <section class="source-excerpt" data-testid="knowledge-source-excerpt">
       <h3>{{ t('knowledgeFirst.boundQuotation') }}</h3>
       <p v-if="data?.quote_scope !== 'exact_excerpt'" class="source-note">{{ t('knowledgeFirst.passageQuotation') }}</p>

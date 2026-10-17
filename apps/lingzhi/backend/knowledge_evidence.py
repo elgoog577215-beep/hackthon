@@ -120,6 +120,21 @@ class KnowledgeSourceNotFound(Exception):
     pass
 
 
+def frozen_split_matches(state, ref, evidence_id, quote, content):
+    """Reproduce the existing splitter; never use approximate text matching."""
+    from material_evidence import _split_source
+    parts = set(_split_source(content))
+    for job in state.get('jobs', {}).values():
+        context = (job.get('request_snapshot') or {}).get('knowledge_generation_context') or {}
+        refs = context.get('handout_source_refs') or {}
+        for unit in (context.get('evidence_package') or {}).get('units', []):
+            frozen = unit.get('source_text', '')
+            if (unit.get('evidence_id') == evidence_id and quote and quote in frozen
+                    and frozen in parts and any(refs.get(key) == ref for key in unit.get('block_ids', []))):
+                return True
+    return False
+
+
 def locate_source(raw, state, tree_revision, knowledge_id, evidence_id):
     trees = [raw.get('course_knowledge_base') or {}, *(raw.get('knowledge_first_history') or {}).values()]
     trees.extend((j.get('checkpoint') or {}).get('candidate') or {} for j in state.get('jobs', {}).values()
@@ -155,6 +170,10 @@ def locate_source(raw, state, tree_revision, knowledge_id, evidence_id):
     if content and quote and quote in content:
         result.update(available=True, content=content, quote_start=content.index(quote),
                       quote_end=content.index(quote) + len(quote), reason='')
+    elif content and ref and frozen_split_matches(state, ref, evidence_id, quote, content):
+        # Split passages can elide layout separators. Show the original block,
+        # retain its recorded quote, and do not invent literal character offsets.
+        result.update(available=True, content=content, quote_match='frozen_split_passage', reason='')
     elif content:
         result['reason'] = 'source_quote_mismatch'
     return result
