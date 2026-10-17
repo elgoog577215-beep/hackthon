@@ -42,7 +42,17 @@ def test_tail_passages_cannot_be_hidden_by_an_earlier_reference_to_same_source(s
     context['evidence_package']['units'][0]['source_text']='入栈将元素插入栈顶。'+('独立的后续内容。'*400)
     rows=passage_catalog(context,['S1']);item=deepcopy(inventory()['items'][0]);item.pop('sources');item['source_passage_keys']=[rows[0]['key']]
     response={'response_contract':V3,'items':[item],'unassigned_passages':[],'source_issues':[]}
-    with pytest.raises(CourseDocumentConflict,match='片段'):compile_inventory(response,context,['S1'],1)
+    items,coverage=compile_inventory(response,context,['S1'],1)
+    assert coverage[0]['uncovered_passage_keys']==[p['key'] for p in rows[1:]]
+    from knowledge_atomic import compile_batch,assemble
+    value=atomic_answer(items);value.update(response_contract=ATOM3,context_items=[])
+    value.pop('coverage');value.pop('question_coverage')
+    for point in value['points']:point.pop('sources')
+    tree,report=compile_batch(svc.repository.load_raw('c-pilot'),context,items,value)
+    candidate=assemble(svc.repository.load_raw('c-pilot'),context,{'items':items,'inventory_batches':[{'source_coverage':coverage}],
+        'batches':[{'id':'atoms-1','tree':tree,'report':report}]})
+    assert not candidate['atomic_assessment']['ready_for_adoption']
+    assert any(i['code']=='source_span_uncovered' for i in candidate['atomic_assessment']['issues'])
 
 
 def test_atomic_binding_uses_frozen_inventory_evidence_instead_of_model_recopied_quotes(svc,monkeypatch):
