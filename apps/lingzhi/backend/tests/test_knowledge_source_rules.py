@@ -27,3 +27,17 @@ def test_hallucinated_ban_cannot_be_relabelled_as_a_source_error():
     original = value([invalid])
     filtered, records = quarantine_source_errors(original, {'S1.1': {'text': '圆括号字符串按前缀余额和总余额判断。'}})
     assert filtered == original and records == []
+
+
+def test_component_to_system_explanation_stays_context_without_blaming_the_source():
+    from knowledge_source_rules import contextualize_component_explanations
+    original = value([point('popleft()', property='保证特性', value='保证先入队先处理'),
+                      point('popleft()', property='操作效果', value='从左端弹出元素')])
+    original['_content_review_trace'] = [{'point_review_key':'global'}, {'point_review_key':'primitive'}]
+    source = {'S1.1': {'source_key':'S1','text':'queue = deque([root]); node=queue.popleft(); queue.append(child)'}}
+    before = deepcopy(original); filtered, records = contextualize_component_explanations(original, source)
+    assert filtered['passages']['S1.1']['points'] == [original['passages']['S1.1']['points'][1]]
+    assert filtered['_content_review_trace'] == [{'point_review_key':'primitive'}]
+    assert filtered['source_issues'] == [] and records[0]['origin'] == 'model_scope_loss'
+    assert records[0]['fifo_counterexample']['observed'] == 'B'
+    assert original == before
