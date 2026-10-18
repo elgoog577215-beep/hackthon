@@ -53,6 +53,25 @@ async def test_one_scoped_repair_preserves_valid_points_and_original_response(sv
 
 
 @pytest.mark.asyncio
+async def test_unaffected_context_note_is_not_overwritten_by_point_repair(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    passages = [{'key': 'S1.1', 'source_key': 'S1', 'text': '入栈将元素插入栈顶。', 'start': 0, 'end': 10},
+                {'key': 'S2.1', 'source_key': 'S2', 'text': '本讲学习目标。', 'start': 0, 'end': 7}]
+    monkeypatch.setattr('knowledge_extraction_repair.passage_catalog', lambda *args: deepcopy(passages))
+    monkeypatch.setattr('knowledge_semantic_contract.passage_catalog', lambda *args: deepcopy(passages))
+    original = value([point(property='效果和端点')])
+    note = {'points': [], 'note': {'handling': 'context', 'reason': '仅为教学目标，不是知识命题'}}
+    original['passages']['S2.1'] = deepcopy(note)
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'points': [point()], 'handling': 'replace', 'reason': '只改属性'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    corrected = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1', 'S2'], 1, original, {})
+    assert corrected['passages']['S2.1'] == note
+
+
+@pytest.mark.asyncio
 async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     calls = []; options = []

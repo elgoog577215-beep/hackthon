@@ -63,6 +63,11 @@ def test_one_relation_property_is_not_mistaken_for_two_independent_attributes():
     with pytest.raises(CourseDocumentConflict): build_point(point, ['DFS'])  # Frozen older contracts.
     point.update(property='时间和空间关系', value='O(n)和O(1)')
     with pytest.raises(CourseDocumentConflict): quality_point(point, 'DFS的时间和空间代价分别给出。')
+    comparison = {'form': 'comparison', 'left_subject': 'DFS', 'right_subject': 'BFS',
+        'property': '操作顺序与访问顺序关系', 'left_value': '栈的压入顺序与访问顺序相反（LIFO）',
+        'right_value': '队列的入队顺序与访问顺序一致（FIFO）', 'conditions': [], 'attachments': []}
+    _, audit = quality_point(comparison, 'DFS与BFS的顺序关系分别陈述。')
+    assert audit['property_kind'] == 'single_relation'
 
 
 def test_named_api_cost_is_not_a_specific_execution_trace():
