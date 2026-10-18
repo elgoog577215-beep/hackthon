@@ -291,8 +291,8 @@ def quality_point(point, source_text):
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
-    if point.get('form') == 'fact':
-        check(not any(s in {'算法', '策略', '数据结构'} for s in options),
+    if point.get('form') in {'fact', 'definition'}:
+        check(not any(s in {'算法', '策略', '数据结构'} and not re.search(r'(?:^|[。！？；;\n])\s*(?:\*\*)?' + re.escape(s) + r'(?:[（(][^）)]+[）)])?\s*(?:是|指)', source_text) for s in options),
               '知识主体须为当前块的具体方法或结构，不能用算法、策略、数据结构等栏目名代替实际检查对象')
     if claims_parenthesis_substring_ban(point, source_text):
         check(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
@@ -352,7 +352,10 @@ def quality_point(point, source_text):
         steps = '；'.join(str(s) for s in point.get('steps', [])) if isinstance(point.get('steps', []), list) else ''
         check(bool(re.search(r'初始.*(?:空栈|栈.*空)|(?:建立|创建|准备|设置|置|清空).*空栈|stack\s*=\s*\[\]', steps)),
               '完整括号匹配方法自身须包含空栈初始状态，不能只依赖来源代码中的初始化')
-        check(bool(re.search(r'未.*(?:提前|中途).*失败|没有.*(?:提前|中途).*失败|无.*提前失败|全部.*成功', str(point.get('completion', '')))),
+        completion = str(point.get('completion', ''))
+        no_failure = bool(re.search(r'(?:未|没有|无).*(?:提前|中途).*(?:失败|返回\s*False)|全部.*成功', completion, re.I))
+        final_empty = bool(re.search(r'(?:最终|结束|完毕).*(?:栈为空|空栈|栈.*空)', completion))
+        check(no_failure and final_empty,
               '括号匹配成功判据须包含没有提前失败且最终空栈；最终空栈不能覆盖此前失败')
     call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
     named_cost = bool(call and not re.search(r'之后|以后|后|结果|状态|轨迹|第\d+步', prop)
