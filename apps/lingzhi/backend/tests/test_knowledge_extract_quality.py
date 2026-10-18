@@ -88,6 +88,26 @@ def test_piecewise_function_definition_cannot_be_split_into_unqualified_facts():
         quality_point(point, 'fib的定义如下：if n <= 1: return n; return fib(n-1) + fib(n-2)')
 
 
+@pytest.mark.parametrize('subject,property,value,conditions,match', [
+    ('循环', '性能优势', '在内存占用和执行速度上通常优于递归', [], '独立量'),
+    ('循环', '内存占用', '恒定', [], '调用帧'),
+    ('DFS', '错误实现后果', '若用队列实现，搜索顺序变为广度优先', [], '前提'),
+    ('系统栈深度', '范围', '10^3至10^4', ['取决于语言和配置'], '环境'),
+])
+def test_known_source_overstatements_cannot_pass_as_unqualified_facts(subject, property, value, conditions, match):
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': subject, 'property': property, 'value': value, 'conditions': conditions, 'attachments': []}
+    with pytest.raises(CourseDocumentConflict, match=match): quality_point(point, subject+'：'+value)
+
+
+def test_partial_search_mechanism_is_not_a_complete_executable_method():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'procedure', 'subject': 'DFS', 'goal': '深度优先搜索',
+        'steps': ['访问当前节点，将子节点压入栈', '弹出栈顶节点'], 'completion': '所有节点被访问', 'conditions': [], 'attachments': []}
+    with pytest.raises(CourseDocumentConflict, match='机制'):
+        quality_point(point, 'DFS的机制：访问当前节点，将子节点压入栈。弹出栈顶节点。')
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
