@@ -35,3 +35,35 @@ async def test_silent_model_is_stopped_without_another_request_and_partial_outpu
     assert saved['status']=='failed' and saved['partial_text']=='{"partial":'
     assert len(calls)==1 and calls[0]['max_attempts']==1
     assert svc.repository.load_raw('c-pilot')==before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('prefix', ['', '{"partial":'])
+async def test_whitespace_stream_does_not_reset_meaningful_content_timeout(svc, monkeypatch, prefix):
+    import knowledge_atomic
+    setup_course(svc, monkeypatch)
+    before = deepcopy(svc.repository.load_raw('c-pilot'))
+    clock = {'now': 0.}
+    calls = []
+    whitespace = '\n \t' * 500
+    monkeypatch.setattr(knowledge_atomic.time, 'perf_counter', lambda: clock['now'])
+
+    async def stalled(prompt, **kwargs):
+        calls.append(kwargs)
+        if prefix:
+            kwargs['on_content_delta'](prefix)
+        clock['now'] = 100.
+        kwargs['on_content_delta'](whitespace)
+        await asyncio.Event().wait()
+
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=stalled, model_smart='test-qwen', client=None)
+    job = start(svc)
+    await asyncio.wait_for(svc.run('c-pilot', job['id']), timeout=4)
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'failed'
+    assert saved['error']['code'] == 'KnowledgeModelIdleTimeout'
+    assert saved['partial_text'] == prefix + whitespace
+    assert len(calls) == 1
+    assert saved['stage_observations'][0]['last_content_seconds'] == 0
+    assert (saved['last_content_at'] is not None) == bool(prefix)
+    assert svc.repository.load_raw('c-pilot') == before
