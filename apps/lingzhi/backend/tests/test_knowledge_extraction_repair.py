@@ -108,11 +108,13 @@ async def test_new_task_cannot_bypass_content_review_by_returning_an_old_contrac
 @pytest.mark.asyncio
 async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure(svc, monkeypatch):
     setup_course(svc, monkeypatch)
-    calls = []; options = []
+    calls = []; options = []; feedbacks = []
     async def model(prompt, **kwargs):
         options.append(kwargs)
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
-        if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
+        if payload['stage'] == 'content_review':
+            feedbacks.append(payload.get('previous_attempt_feedback'))
+            return json.dumps(keep_review(payload))
         if payload['stage'] == 'extract': return json.dumps(value([point(property='效果和端点')]))
         return json.dumps({'repairs': {'S1.1:0': {'points': [point(property='仍然和无效')], 'handling': 'replace', 'reason': '修复失败'}}, 'source_issues': []})
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
@@ -130,6 +132,10 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     assert all(field not in copied for field in ('repair', 'content_review', 'validation_error', 'raw_response'))
     assert copied['retry_feedback']['previous_batch_error']['message']
     assert copied['retry_feedback']['failed_correction_response']
+    assert svc.authoring.get_job('c-pilot', job['id']) == original
+    await svc.run('c-pilot', resumed['id'])
+    assert calls == ['extract', 'content_review', 'extract_repair', 'content_review', 'extract_repair']
+    assert feedbacks == [None, copied['retry_feedback']]
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 
 

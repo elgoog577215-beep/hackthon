@@ -574,7 +574,7 @@ async def run_atomic(svc, course_id, job_id):
                         try:
                             svc.authoring.update_job_live(course_id, job_id, batch_index=i)
                             parsed = await review_content(svc, course_id, job_id, provider, raw, context,
-                                batch['source_keys'], parsed, batch['content_review'])
+                                batch['source_keys'], parsed, batch['content_review'], feedback=batch.get('retry_feedback'))
                             validate_source()
                         except Exception:
                             batch['content_review']['status'] = 'failed'

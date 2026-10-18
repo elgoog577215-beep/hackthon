@@ -383,6 +383,15 @@ class KnowledgeFirstService:
                 prior = continued_checkpoint.get('relation_pipeline' if pipeline == RELATIONS else 'atomic_pipeline')
                 require(bool(prior), '原任务没有可继续的知识清单')
                 review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
+                if review_only:
+                    for batch in prior.get('inventory_batches', []):
+                        if batch.get('status') != 'completed' and batch.get('validation_error'):
+                            batch['retry_feedback'] = {
+                                'previous_batch_error': deepcopy(batch['validation_error']),
+                                'failed_correction_response': (batch.get('repair') or {}).get('raw_response', ''),
+                            }
+                        elif batch.get('status') == 'completed':
+                            batch.pop('retry_feedback', None)
                 def reusable_extract(batch):
                     from knowledge_compact import parse_complete_json, passage_catalog
                     response = batch.get('raw_response') or batch.get('frozen_extract_response')

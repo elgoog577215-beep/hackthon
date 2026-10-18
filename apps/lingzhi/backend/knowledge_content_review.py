@@ -12,7 +12,7 @@ from knowledge_source_rules import quarantine_source_errors, contextualize_compo
 CONTRACT = 'knowledge_content_review_v1'
 
 
-async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record):
+async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record, feedback=None):
     from knowledge_atomic import call_stage
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = passage_catalog(context, keys); catalog = {p['key']: p for p in passages}
@@ -26,6 +26,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     payload = {'stage': 'content_review', 'review_contract': CONTRACT,
                'source_passages': passages, 'points': originals, 'source_cautions': cautions,
                'source_issues': response.get('source_issues', []), 'scope_evidence': scope_evidence(context)}
+    if feedback:
+        payload['previous_attempt_feedback'] = deepcopy(feedback)
     prompt = (
         '核对冻结讲义提取出的知识候选。原文引用只证明出处，不能证明原文正确。只输出一个紧凑JSON，不思考、不解释。'
         '逐点检查是否为一般知识、单一检查目标、完整定义或完整算法，以及实际前提、对象、输入范围和量的意义。'
@@ -43,6 +45,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
         '阶乘n>=1整数、按包括当前帧的活动调用帧数计，最大深度为n；递归分支在n>=2，基本分支n=1。'
         'O是上界，不是紧确界；朴素fib的O(2^n)调用次数上界有效，不能仅因更紧的Theta(phi^n)存在就把O(2^n)判错或删除。'
         '所有n/d等数量符号都需在conditions中定义输入域或当前深度；帧空间按固定单帧上界说明，不扩大为程序总空间。'
+        'previous_attempt_feedback若存在，是上次失败的诊断及未通过的修正响应，不能作为已接受知识。'
+        '逐项修正诊断；拆分出的每一个fact或comparison若使用n/d等符号，都必须在该点自己的conditions中定义，不能依赖相邻点。'
         'scope_evidence是同一冻结讲义的讨论范围，只能据此限定分析模型；范围排除的拓展内容作为边界附件，不扩成独立必学知识。'
         '普通调用栈、未优化递归、基于显式栈/队列的本讲实现等前提必须进入conditions，不能仅写在核对reason里。'
         '分段函数的基本情况和递归关系应形成完整definition，不能把n<=1误写为整条函数定义的成立前提。'
@@ -66,6 +70,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     record.update(contract=CONTRACT, status='requested', original_point_count=len(originals), semantics_verified=False,
                   evidence_kind='separate_request_same_model', source_cautions=cautions,
                   scope_evidence=deepcopy(payload['scope_evidence']))
+    if feedback:
+        record['previous_attempt_feedback'] = deepcopy(feedback)
     text = await call_stage(svc, course_id, job_id, provider, prompt, 'content_review')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
