@@ -50,6 +50,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
         target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
             r'前提|范围|串用|条件|联合定义|仅说明机制', target.get('error', '')) else []
+        if target.get('error') == '知识主体必须逐字来自当前原文块':
+            target['fixed_fields'] = {k:deepcopy(v) for k,v in target['point'].items()
+                if k not in {'subject','left_subject','right_subject'}}
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
     payload.update(stage='extract_repair', targets=targets)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
@@ -61,6 +64,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '每个新拆出的点也须满足全部规则：成本单独用成本属性，n等符号在该点conditions定义；不能在访问权限属性里新增O(...)。'
         '每个替换或拆分点的conditions必须原样包含该target.required_conditions全部条目，可以增加来源支持的前提，不能清空、改写或移入attachments。'
         '只修正subject拼写或property时尤其不能顺手删除原有条件；reason里的范围说明不能代替conditions。'
+        'target若有fixed_fields，唯一错误是主体定位；只返回一个点，仅改subject/left_subject/right_subject，其他字段必须与fixed_fields完全相同，不改答案、不拆点。'
         '主体不能改成“策略”“数据结构”“算法”等栏目名，fact和definition都要指向当前块逐字出现的具体方法或结构。'
         '括号完整方法包含初始化空栈、空栈遇右括号立即失败；成功判据同时包括未提前失败和遍历结束空栈。'
         '错误“一个属性值不能夹带独立命题”指value内含分号或多个句子，应拆成分别成立的点，不可删掉其中事实。'
@@ -99,6 +103,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
                     and isinstance(repair['reason'], str) and repair['reason'].strip(), '修正结构无效')
             require(repair['handling'] == ('replace' if repair['points'] else 'context'), '修正去向不明确')
+            if targets[target].get('fixed_fields'):
+                fixed = targets[target]['fixed_fields']
+                require(len(repair['points']) == 1 and all(repair['points'][0].get(k) == v for k,v in fixed.items()),
+                        '仅主体定位错误的修正只能修改主体，不得改变原命题、前提或拆出其他知识')
             for point in repair['points']:
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
