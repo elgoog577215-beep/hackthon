@@ -120,6 +120,24 @@ def test_a_valid_parenthesis_string_can_contain_the_closing_opening_substring():
         quality_point(point, '括号匹配条件为顺序正确，即不能出现 `)(`。算法使用栈。')
 
 
+def test_one_correction_receives_all_missing_symbol_and_model_assumptions():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': '递归深度', 'property': '栈中数量', 'value': 'd', 'conditions': [], 'attachments': []}
+    with pytest.raises(CourseDocumentConflict) as error:
+        quality_point(point, '递归深度为d时，栈中有d个栈帧。')
+    assert '符号' in str(error.value) and '调用栈' in str(error.value)
+
+
+def test_explicit_implementation_scope_is_accepted_but_cannot_cross_algorithms():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': 'DFS', 'property': '数据结构作用', 'value': '维护当前路径',
+        'conditions': ['使用栈实现'], 'attachments': []}
+    assert quality_point(point, 'DFS用栈维护当前路径。')[0]['conditions'] == ['使用栈实现']
+    point.update(subject='BFS', value='队列', conditions=['此处展示显式栈实现以体现LIFO'])
+    with pytest.raises(CourseDocumentConflict, match='串用'):
+        quality_point(point, 'BFS当前用队列实现，DFS当前用显式栈实现。')
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
