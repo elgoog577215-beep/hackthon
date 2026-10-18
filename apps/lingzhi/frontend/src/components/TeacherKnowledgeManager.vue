@@ -591,7 +591,15 @@ async function generateRelations(resume = false, batchId = '') {
   await mutate('generate/tree',{request_id:createUuid(),source_mode:'handouts',lesson_id:knowledgeLessonId.value,
     pipeline:'knowledge_relations_v1',...(resume ? {resume_job_id:relationRun.value.job_id,retry_batch_id:batchId} : {})})
 }
-async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, { confirm_relations:confirmRelations.value, selected_relation_ids:selectedRelationIds.value, confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value }); if (!error.value) treeChoice.value = data.value.knowledge_revision }
+async function adopt() {
+  if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return
+  const confirmations = {
+    ...(displayTree.value?.relation_assessment ? { confirm_relations: confirmRelations.value, selected_relation_ids: selectedRelationIds.value } : {}),
+    ...(displayTree.value?.atomic_assessment ? { confirm_identity_changes: confirmIdentityChanges.value, confirm_atomic_review: confirmAtomicReview.value } : {}),
+  }
+  await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, confirmations)
+  if (!error.value) treeChoice.value = data.value.knowledge_revision
+}
 async function recheck(id: string) { treeChoice.value = 'candidate'; tab.value = 'tree'; await mutate(`recheck/${id}`, { request_id: createUuid() }) }
 async function loadMaterials() {
   if (!generic.value || derived.value || !data.value?.can_edit) return
