@@ -366,6 +366,10 @@ def assemble(raw, context, pipeline, hierarchy=None):
         content_review = {'contract': 'knowledge_content_review_v1', 'completed_batches': len(reviewed),
             'missing_batches': len(missing), 'evidence_kind': 'separate_request_same_model', 'semantics_verified': False,
             'decision_count': sum(len(batch['content_review'].get('decisions', {})) for batch in reviewed),
+            'program_contextualized_candidates': sum(record.get('status') == 'context_only' for batch in reviewed
+                for record in batch['content_review'].get('program_quarantines', [])),
+            'program_source_counterexamples': sum(record.get('verification_scope') == 'unqualified_substring_interpretation' for batch in reviewed
+                for record in batch['content_review'].get('program_quarantines', [])),
             'structural_correction_batches': sum(batch.get('repair', {}).get('status') == 'completed' for batch in pipeline['inventory_batches'])}
         issues.extend({'code': 'content_review_missing', 'severity': 'blocking', 'batch_id': batch_id} for batch_id in missing)
     issues.extend({'code':'text_integrity_pending','severity':'blocking','inventory_key':item['key']} for item in pipeline['items'] if item.get('text_integrity_pending'))

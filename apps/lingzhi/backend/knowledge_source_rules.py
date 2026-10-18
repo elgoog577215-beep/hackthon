@@ -1,5 +1,6 @@
 """Narrow, versioned counterexamples; never rewrite a frozen teaching source."""
 from copy import deepcopy
+from collections import deque
 import hashlib
 import re
 import unicodedata
@@ -53,7 +54,36 @@ def quarantine_source_errors(response, passages):
 def annotate_verified_issues(result, records):
     for issue in result.get('source_issues', []):
         for record in records:
+            if record.get('verification_scope') != 'unqualified_substring_interpretation': continue
             if issue['source_key'] == record['source_key'] and issue['detail'] == record['detail']:
                 issue.update(verification_status='program_counterexample_verified', verification_origin=record['rule_id'],
                     verification={'counterexample': record['counterexample'], 'prefix_balances': record['prefix_balances'],
                                   'scope': record['verification_scope'], 'source_hash': record['source_hash']})
+
+
+def contextualize_component_explanations(response, passages):
+    """An API's role in a full protocol is not an intrinsic system guarantee."""
+    output = deepcopy(response); records = []; traces = output.get('_content_review_trace'); cursor = 0; kept_traces = []
+    for key, entry in output['passages'].items():
+        source = passages[key]; kept = []
+        for ordinal, point in enumerate(entry['points']):
+            trace = traces[cursor] if traces is not None else None; cursor += 1
+            component_guarantee = (point.get('form') == 'fact' and 'popleft' in str(point.get('subject', ''))
+                and 'deque' in source['text'] and re.search(r'FIFO|先入先出|先入队先处理|按层|层序|层级扩散', str(point.get('value', '')), re.I))
+            if not component_guarantee:
+                kept.append(point)
+                if trace is not None: kept_traces.append(trace)
+                continue
+            sample = deque(); sample.appendleft('A'); sample.appendleft('B'); observed = sample.popleft()
+            detail = 'popleft的FIFO/层序作用属于完整入队协议或遍历方法的上下文解释，不作为单API固有性质的独立知识；原文和方法均保留。'
+            records.append({'rule_id': 'deque_primitive_vs_protocol_context_v1', 'origin': 'model_scope_loss',
+                'source_key': source.get('source_key', key.split('.')[0]), 'passage_key': key, 'point_ordinal': ordinal,
+                'point': deepcopy(point), 'status': 'context_only', 'detail': detail,
+                'fifo_counterexample': {'operations': ['appendleft(A)', 'appendleft(B)', 'popleft()'],
+                    'first_arrived': 'A', 'observed': observed, 'scope': 'standard deque primitive alone, not the complete frozen BFS implementation'},
+                'source_hash': hashlib.sha256(source['text'].encode()).hexdigest()})
+        entry['points'] = kept
+        if not kept and any(record['passage_key'] == key for record in records):
+            entry['note'] = {'handling': 'context', 'reason': '本块解释属于完整协议或方法的作用说明，不作为单API全局保证；原解释保留于核对记录。'}
+    if traces is not None: output['_content_review_trace'] = kept_traces
+    return output, records
