@@ -17,6 +17,11 @@ def value(points):
     return {'response_contract': 'knowledge_extract_v9', 'passages': {'S1.1': {'points': points, 'note': None}}, 'source_issues': []}
 
 
+def keep_review(payload):
+    return {'point_reviews': {key: {'decision': 'keep', 'points': [], 'reason': '隔离夹具保留原点'} for key in payload['points']},
+            'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}
+
+
 def test_small_repair_schema_enforces_the_exact_field_that_failed():
     from jsonschema import Draft202012Validator
     from knowledge_extraction_repair import repair_schema
@@ -72,23 +77,53 @@ async def test_unaffected_context_note_is_not_overwritten_by_point_repair(svc, m
 
 
 @pytest.mark.asyncio
+async def test_split_repair_preserves_review_provenance_for_each_new_point(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(), point('出栈', property='效果和端点')])
+    original['_content_review_trace'] = [{'point_review_key': 'A'}, {'point_review_key': 'B'}]
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:1': {'points': [point('出栈', value='移除并返回栈顶元素'),
+                point('出栈', property='返回对象', value='栈顶元素')], 'handling': 'replace', 'reason': '分别保留两个检查角度'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    corrected = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    assert [t['point_review_key'] for t in corrected['_content_review_trace']] == ['A', 'B', 'B']
+    assert corrected['_content_review_trace'][1]['structural_repair_target'] == 'S1.1:1'
+
+
+@pytest.mark.asyncio
+async def test_new_task_cannot_bypass_content_review_by_returning_an_old_contract(svc, monkeypatch):
+    from backend.tests.test_knowledge_extract import response
+    setup_course(svc, monkeypatch)
+    calls = []
+    async def model(prompt, **kwargs): calls.append(prompt); return json.dumps(response())
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
+    job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'failed' and len(calls) == 1
+    assert '合同' in saved['error']['message']
+
+
+@pytest.mark.asyncio
 async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     calls = []; options = []
     async def model(prompt, **kwargs):
         options.append(kwargs)
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
+        if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
         if payload['stage'] == 'extract': return json.dumps(value([point(property='效果和端点')]))
         return json.dumps({'repairs': {'S1.1:0': {'points': [point(property='仍然和无效')], 'handling': 'replace', 'reason': '修复失败'}}, 'source_issues': []})
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     job = start(svc, extraction_mode='single_pass_v1')
     await svc.run('c-pilot', job['id'])
     saved = svc.authoring.get_job('c-pilot', job['id'])
-    assert saved['status'] == 'failed' and calls == ['extract', 'extract_repair']
+    assert saved['status'] == 'failed' and calls == ['extract', 'content_review', 'extract_repair']
     batch = saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
-    assert 'json_schema' not in options[1]  # Validate the small contract locally too.
+    assert 'json_schema' not in options[-1]  # Validate the small contract locally too.
 
 
 @pytest.mark.asyncio
@@ -100,6 +135,7 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
     calls = []
     async def model(prompt, **kwargs):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
+        if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
         if payload['stage'] == 'extract':
             return json.dumps(value([point('判空', property='检查对象', value='栈是否为空'), point('判空', property='检查对象', value='队列是否为空')]))
         return json.dumps({'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],
@@ -107,7 +143,7 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
     saved = svc.authoring.get_job('c-pilot', job['id'])
-    assert calls == ['extract', 'extract_repair'] and saved['status'] == 'completed'
+    assert calls == ['extract', 'content_review', 'extract_repair'] and saved['status'] == 'completed'
     points = saved['checkpoint']['candidate']['knowledge_points']
     assert len({p['meta_question'] for p in points}) == 2
 
