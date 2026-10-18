@@ -210,7 +210,7 @@ def test_literal_question_parts_bind_source_without_inventing_or_repeating_the_s
     point.update(question_before='执行', question_after='操作时，元素插入哪一端？')
     if goal: point['claim'] = '能画出入栈的示意图。'
     value = {'response_contract': 'knowledge_extract_v5', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
-    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}, contract='knowledge_extract_v5'))
     result = compile_extraction(raw, context, ['S1'], 1, value)
     assert result['tree']['knowledge_points'][0]['meta_question'] == '执行入栈操作时，元素插入哪一端？'
     assert result['report']['ready_for_adoption'] is not goal

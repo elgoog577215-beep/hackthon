@@ -285,7 +285,7 @@ def compile_batch(raw, context, items, response):
 def assemble(raw, context, pipeline, hierarchy=None):
     from handout_knowledge import knowledge_facts, merge_lesson_tree
     from knowledge_relations import relation_index
-    categories, points, issues, gaps = [], [], [], []
+    categories, points, issues, gaps, resolved_reviews = [], [], [], [], []
     for batch in pipeline['batches']:
         tree = batch['tree']; local = {c['id']: c for c in tree['categories']}
         def path(cid):
@@ -300,6 +300,8 @@ def assemble(raw, context, pipeline, hierarchy=None):
             point['key'] = f'K{len(points)+1}';global_keys[original['key']] = point['key']
             points.append(point)
         issues.extend({**i, 'batch_id': batch['id'],**({'batch_point_key':i['point_key'],'point_key':global_keys[i['point_key']]} if i.get('point_key') in global_keys else {})} for i in batch['report']['issues']); gaps.extend(tree.get('gaps', []))
+        resolved_reviews.extend({**i, 'batch_id': batch['id'], 'point_key': global_keys[i['point_key']]}
+                                for i in batch['report'].get('resolved_review_issues', []))
     require(len(points) <= 160 and len({p['knowledge_id'] for p in points}) == len(points), '细化候选存在重复命题或超出本讲容量')
     existing = raw.get('course_knowledge_base') or {}; lesson_id = context['scope_lesson_id']
     old_points = [p for p in existing.get('knowledge_points', []) if lesson_id in (p.get('section_refs') or [p.get('topic')])]
@@ -349,6 +351,8 @@ def assemble(raw, context, pipeline, hierarchy=None):
     issues.extend({'code':'source_span_uncovered','severity':'blocking','source_key':p['source_key'],'passage_key':p['key']} for p in uncovered)
     issues.extend({'code':'source_review','severity':'review','source_key':issue['source_key']} for issue in source_issues)
     result['atomic_assessment'] = {'schema_version': PIPELINE, 'ready_for_adoption': not any(i['severity'] == 'blocking' for i in issues),
+        'atomicity_checks': [{'point_key': p['key'], **deepcopy(p['atomic_contract'])} for p in points if p.get('atomic_contract')],
+        'resolved_review_issues': resolved_reviews,
         'source_issues':source_issues,
         'uncovered_passages':uncovered,
         'semantics_verified': False, 'issues': issues, 'inventory_count': len(pipeline['items']), 'relation_status': 'not_run'}
