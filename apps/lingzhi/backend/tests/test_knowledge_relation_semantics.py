@@ -31,8 +31,10 @@ def test_relation_keeps_exact_endpoint_names_and_selected_evidence():
 @pytest.mark.parametrize('field,value', [('sn', '归并排序'), ('sq', '不存在的原文'), ('tq', '归并排序递归划分')])
 def test_wrong_endpoint_or_forged_quotation_is_rejected(field, value):
     value_response = response(); value_response['focus_links']['P1'][0][field] = value
-    with pytest.raises(CourseDocumentConflict):
-        compile_relations({'course_id': 'c'}, pipeline(), ['P1'], value_response, 'l')
+    result = compile_relations({'course_id': 'c'}, pipeline(), ['P1'], value_response, 'l')
+    assert result['relations'] == []
+    assert result['semantic_rejections'][0]['code'] in {'endpoint_name_mismatch', 'endpoint_quote_mismatch'}
+    assert result['semantic_rejections'][0]['link'] == value_response['focus_links']['P1'][0]
 
 
 def test_unrelated_cross_lesson_edge_is_retained_as_rejected_evidence_not_a_graph_edge():
