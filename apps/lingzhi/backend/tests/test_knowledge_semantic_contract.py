@@ -75,7 +75,8 @@ def test_structured_contract_schema_keeps_old_contract_frozen(svc, monkeypatch):
     payload = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])
     passage = payload['source_passages'][0]
     schema = extraction_schema(['S1.1'], {'S1.1': passage['focus_options']})
-    validate({'response_contract': 'knowledge_extract_v6', 'passages': {'S1.1': {'points': [fact()], 'note': None}}, 'source_issues': []}, schema)
+    validate({'response_contract': 'knowledge_extract_v6', 'passages': {'S1.1': {'points': [fact()], 'note': None}}, 'source_issues': []},
+             extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}, contract='knowledge_extract_v6'))
     old = json.loads(extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v5').split('\nINPUT_JSON:\n')[1])
     assert old['extraction_contract'] == 'knowledge_extract_v5'
 
@@ -86,3 +87,18 @@ def test_decoder_enforces_the_same_single_attribute_boundary_as_the_compiler():
     assert validator.is_valid(fact())
     assert not validator.is_valid(fact(property='操作端点和复杂度'))
     assert not validator.is_valid(fact(value='插入栈顶；出栈移除栈顶'))
+
+
+def test_uniform_wire_form_preserves_single_target_semantics_without_union_branch_repetition(svc, monkeypatch):
+    import json
+    from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
+    point = {'form': 'fact', 'subjects': ['入栈'], 'target': '操作端点', 'values': ['栈顶'], 'details': [], 'conditions': [], 'attachments': []}
+    value = {'response_contract': 'knowledge_extract_v7', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    compiled = compile_extraction(raw, context, ['S1'], 1, value)
+    assert compiled['tree']['knowledge_points'][0]['meta_question'] == '入栈的操作端点是什么？'
+    point['values'].append('另一个无关结论')
+    with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
