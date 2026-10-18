@@ -423,8 +423,9 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         # not teaching bodies. Keep headroom proportional to the actual set.
         options['max_tokens'] = min(options['max_tokens'], max(2048, len(payload['points']) * 240 + 1024))
         request_budget['max_output_tokens'] = options['max_tokens']
-    quality_job = svc.authoring.read_projection(course_id, lambda state:
-        ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9')
+    quality_job, observed_batch_index = svc.authoring.read_projection(course_id, lambda state: (
+        ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9',
+        state['jobs'][job_id].get('batch_index')))
     if quality_job:
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
@@ -466,7 +467,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         saved = svc.authoring.get_job(course_id,job_id);previous = saved.get('model_telemetry',[])
         safe_telemetry = [{k:event[k] for k in ('model_id','provider_route','status','duration_ms','input_tokens','output_tokens','tokens_source','physical_request_count','queue_wait_ms') if k in event} for event in telemetry if isinstance(event,dict)]
         event = safe_telemetry[-1] if safe_telemetry else {}
-        observation = {'stage':stage,'batch_index':saved.get('batch_index'), 'seconds':round(time.perf_counter()-started,3),
+        observation = {'stage':stage,'batch_index':observed_batch_index,
+            'request_fingerprint': stable_hash({'stage': stage, 'prompt': prompt}, prefix='kreq_'), 'seconds':round(time.perf_counter()-started,3),
             'first_content_seconds':round(first_content,3) if first_content is not None else None,'last_content_seconds':round(last_content-started,3),
             'input_chars':request_budget['input_chars'],'output_chars':activity['received_chars'],
             'requested_output_tokens':options['max_tokens'],**{k:event[k] for k in ('input_tokens','output_tokens','tokens_source','physical_request_count','status','queue_wait_ms') if k in event}}
@@ -531,6 +533,7 @@ async def run_atomic(svc, course_id, job_id):
                         from knowledge_content_review import review_content
                         batch['content_review'] = {'status': 'pending'}
                         try:
+                            svc.authoring.update_job_live(course_id, job_id, batch_index=i)
                             parsed = await review_content(svc, course_id, job_id, provider, raw, context,
                                 batch['source_keys'], parsed, batch['content_review'])
                             validate_source()
@@ -547,6 +550,7 @@ async def run_atomic(svc, course_id, job_id):
                         from knowledge_extraction_repair import repair_points
                         batch['repair'] = {'status': 'pending'}
                         try:
+                            svc.authoring.update_job_live(course_id, job_id, batch_index=i)
                             corrected = await repair_points(svc, course_id, job_id, provider, raw, context,
                                 batch['source_keys'], i, parsed, batch['repair'])
                             validate_source()
