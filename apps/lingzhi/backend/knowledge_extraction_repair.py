@@ -1,6 +1,7 @@
 """One visible correction request for precisely identified invalid point slots."""
 from copy import deepcopy
 import json
+from jsonschema import Draft202012Validator
 
 from course_repository import CourseDocumentConflict
 from generic_knowledge import require
@@ -11,8 +12,10 @@ from knowledge_semantic_contract import quality_point, quality_prompt, point_var
 def repair_schema(targets, passages):
     repairs = {}
     for key, target in targets.items():
-        choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'))['anyOf']
-        shape = next(choice for choice in choices if choice['properties']['form']['const'] == target['point']['form'])
+        choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'), contract='knowledge_extract_v9')['anyOf']
+        form = 'definition' if '联合定义' in target.get('error', '') else target['point']['form']
+        require(form in {'fact', 'definition', 'comparison', 'procedure'}, '无法精确限定修正形态')
+        shape = next(choice for choice in choices if choice['properties']['form']['const'] == form)
         properties = shape['properties']
         shape = obj({'form': properties['form'], **{k: v for k, v in properties.items() if k != 'form'}})
         repairs[key] = obj({'points': array(shape, 8), 'handling': {'enum': ['replace', 'context']}, 'reason': string(600)})
@@ -50,7 +53,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         'property不能包含任何与、和、及、顿号、分号、逗号，必须修改property本身。'
         '若描述两个对象或顺序的关系，使用单一性质名称（如对应方式、顺序一致性），保持原取值意义，不用并列名词充当属性名。'
         '错误“一个属性值不能夹带独立命题”指value内含分号或多个句子，应拆成分别成立的点，不可删掉其中事实。'
-        '每个修正点保持目标点的form，使用原形态需要的字段，不新增其他形态字段。'
+        '每个修正点保持目标点的form；若错误明确指出联合定义，则必须改为definition，meaning和constraints完整保留基本情况与递归关系，不拆成两个泛化fact。'
         '具体轨迹、教学目标或没有独立一般知识的点可明确归context并说明理由，不能虚构替代知识。'
         '不要返回原顶层passages。只输出{"repairs":{"目标键":{"points":[修正后完整点],"handling":"replace","reason":"具体修改"}},"source_issues":[]}。'
         '归背景时points=[]，handling="context"；新增疑点只能指向targets所属块。只允许这一轮修正，所有原输出会保留。\nINPUT_JSON:\n'
@@ -61,6 +64,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     parsed = parse_complete_json(text)
     require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == {'repairs', 'source_issues'}
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
+    clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
+    error = next(Draft202012Validator(repair_schema(targets, {k: p['text'] for k, p in passages.items()})).iter_errors(clean), None)
+    require(error is None, '修正响应字段无效：' + ('/'.join(str(k) for k in error.absolute_path) if error else ''))
     output = deepcopy(response); decisions = []
     for key, entry in output['passages'].items():
         points = []
@@ -77,7 +83,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             points.extend(deepcopy(repair['points']))
             decisions.append({'target_key': target, **deepcopy(repair)})
         entry['points'] = points
-        if not points:
+        if not points and any(target.startswith(key + ':') for target in targets):
             entry['note'] = {'handling': 'context', 'reason': '；'.join(d['reason'] for d in decisions if d['target_key'].startswith(key + ':'))}
     issues = parsed['source_issues']
     require(isinstance(issues, list) and all(isinstance(i, dict) and i.get('passage_key') in

@@ -32,7 +32,7 @@ def subject_options(content, *, contract=LEGACY_CONTRACT):
 
 
 def point_variants(subjects, *, contract=LEGACY_CONTRACT):
-    subject = {'type': 'string', 'enum': list(subjects)}
+    subject = string(40) if contract == QUALITY_CONTRACT else {'type': 'string', 'enum': list(subjects)}
     attachment = obj({'name': string(200), 'kind': {'type': 'string', 'enum': ['condition', 'boundary', 'example']}, 'claim': string()})
     common = {'conditions': array(string(1000), 20), 'attachments': array(attachment, 20)}
     if contract == WIRE_CONTRACT:
@@ -45,6 +45,8 @@ def point_variants(subjects, *, contract=LEGACY_CONTRACT):
                     'target': {'type': 'string', 'maxLength': 50}, 'value': string(1500),
                     'other_value': {'type': 'string', 'maxLength': 1500}, 'details': array(string(700), 12)})
     single_property = {**string(30), 'pattern': r'^[^、;；，,与和及]+$'}
+    if contract == QUALITY_CONTRACT:
+        single_property['pattern'] = r'^(?:[^、;；，,与和及]+|[^、;；，,与和及]+[与和及][^、;；，,与和及]+(?:关系|对应方式|一致性))$'
     forms = {
         'fact': {'subject': subject, 'property': single_property, 'value': {**string(1000), 'pattern': r'^[^;；。]+。?$'}},
         'definition': {'subject': subject, 'meaning': string(700), 'constraints': array(string(500), 12)},
@@ -180,7 +182,7 @@ def extraction_prompt(raw, context, keys, *, contract=CONTRACT):
     ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
 
 
-def build_point(point, options, *, allow_relation_property=False):
+def build_point(point, options, *, allow_relation_property=False, allow_named_operation_cost=False):
     form = point.get('form')
     fields = {'fact': {'subject', 'property', 'value'}, 'definition': {'subject', 'meaning', 'constraints'},
               'comparison': {'left_subject', 'right_subject', 'property', 'left_value', 'right_value'},
@@ -194,10 +196,13 @@ def build_point(point, options, *, allow_relation_property=False):
     audit = {'schema_version': CONTRACT, 'form': form, 'subjects': subjects, 'status': 'structure_checked', 'semantics_verified': False}
     if form in {'fact', 'comparison'}:
         prop = text(point['property'], '单一检查属性', 30)
-        require(not re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d', prop), '具体执行轨迹只能作为例题或附件')
-        single_relation = allow_relation_property and form == 'fact' and bool(re.fullmatch(
-            r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and bool(re.fullmatch(
-            r'(?:相反|一致|相同|不同|成正比|成反比|正相关|负相关|无关|一一对应|相等)(?:[（(][^()（）;；]+[）)])?。?', str(point.get('value', ''))))
+        require(allow_named_operation_cost or not re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d', prop), '具体执行轨迹只能作为例题或附件')
+        if allow_named_operation_cost: audit['property_kind'] = 'named_operation_cost'
+        relation_value = r'(?:相反|一致|相同|不同|成正比|成反比|正相关|负相关|无关|一一对应|相等)(?:[（(][^()（）;；]+[）)])?。?'
+        values = [point.get('value', '')] if form == 'fact' else [point.get('left_value', ''), point.get('right_value', '')]
+        single_relation = allow_relation_property and bool(re.fullmatch(
+            r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and all(
+                re.fullmatch(relation_value, str(value)) if form == 'fact' else re.fullmatch(r'[^;；。]*' + relation_value, str(value)) for value in values)
         require(single_relation or not re.search(r'[、;；，,]|以及|与|和|及', prop), '独立属性必须分别成为知识点')
         if single_relation: audit['property_kind'] = 'single_relation'
         audit['property'] = prop
@@ -273,7 +278,15 @@ def quality_point(point, source_text):
     require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
-    return build_point(point, options, allow_relation_property=True)
+    prop = str(point.get('property', ''))
+    if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', str(point.get('value', '')))) > 1:
+        require(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
+    call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
+    named_cost = bool(call and not re.search(r'之后|以后|后|结果|状态|轨迹|第\d+步', prop)
+        and re.search(re.escape(call.group()) + r'\s*(?:效率|性能|复杂度|开销|代价)', source_text))
+    result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost)
+    if named_cost: audit['operation_literal'] = call.group()
+    return result, audit
 
 
 def compile_extraction(raw, context, keys, index, response):
