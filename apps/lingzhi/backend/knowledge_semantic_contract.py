@@ -297,10 +297,16 @@ def quality_point(point, source_text):
     value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', [])) if isinstance(point.get('conditions', []), list) else ''
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:
         check(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
-    if point.get('form') == 'fact':
-        symbols = set(re.findall(r'\b[nmd]\b', value))
+    if point.get('form') in {'fact', 'comparison'}:
+        values = [value] if point['form'] == 'fact' else [str(point.get('left_value', '')), str(point.get('right_value', ''))]
+        symbols = set()
+        for scalar in values:
+            is_unit = bool(re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*m', scalar.strip()) and '米' in source_text
+                or re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*d', scalar.strip()) and '天' in source_text)
+            if not is_unit and not re.search(r'符号|标记|名称|字母', prop): symbols.update(re.findall(r'\b[nmd]\b', scalar))
         check(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
                 '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号')
+    if point.get('form') == 'fact':
         if point.get('subject') == '栈' and '物理' in prop and '必须' in value:
             check(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
         two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)

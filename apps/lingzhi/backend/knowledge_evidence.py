@@ -74,8 +74,16 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
     if not relevant:
         relevant = _specific_related(found, point)
     confirmed = [r for r in found if _normal(r['english_name']) in relevant]
-    confirmed.extend(deepcopy(point.get('terms') or []))
     candidates = deepcopy(point.get('term_candidates') or [])
+    for existing in point.get('terms') or []:
+        exact = any(_normal(r['name']) == _normal(existing.get('name')) and _normal(r['english_name']) == _normal(existing.get('english_name')) for r in found)
+        suffix_conflict = (existing.get('origin') == 'source_annotation' and bool(existing.get('name')) and not exact
+            and any(_normal(r['english_name']) == _normal(existing.get('english_name')) and _normal(r['name']) != _normal(existing['name'])
+                    and _normal(r['name']).endswith(_normal(existing['name'])) for r in found))
+        if suffix_conflict:
+            candidates.append({**deepcopy(existing), 'origin': 'legacy_source_annotation', 'status': 'source_unconfirmed',
+                               'reason': 'short_label_inside_another_source_entity'})
+        else: confirmed.append(deepcopy(existing))
     by_key = {q.get('source_key', q['evidence_id']): q for q in quotes}
     for proposed in (proposed_terms or [])[:30]:
         if not isinstance(proposed, dict):
@@ -89,8 +97,12 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
             _normal(r['english_name']) == _normal(record['english_name']) for r in found)
         identity_token = (_normal(record['name']) == _normal(record['english_name'])
                           and bool(re.fullmatch(r'[A-Za-z][A-Za-z0-9_\-]*', record['name'])))
+        declared_names = {_normal(v) for r in found if _normal(r['english_name']) == _normal(record['english_name'])
+                          for v in [r['name'], r['english_name'], *r['abbreviations']]}
+        if identity_token: declared_names.add(_normal(record['name']))
         if (source and quote and quote in source['quote'] and _related(record, point)
-                and (annotated_pair or identity_token) and all(_contains(v, quote) for v in values if v)):
+                and (annotated_pair or identity_token) and all(_contains(v, quote) for v in values if v)
+                and all(_normal(v) in declared_names for v in [*record['aliases'], *record['abbreviations']])):
             confirmed.append({**record, 'origin': 'source_annotation', 'status': 'source_text_matched',
                 'evidence_refs': [{'evidence_id': source['evidence_id'], 'quote': quote}]})
         elif any(values):
