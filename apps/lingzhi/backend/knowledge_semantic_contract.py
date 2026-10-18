@@ -279,6 +279,22 @@ def quality_point(point, source_text):
             '知识主体必须逐字来自当前原文块')
     require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
     prop = str(point.get('property', ''))
+    value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', []))
+    if point.get('form') == 'fact':
+        two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)
+        require(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
+        require(not re.match(r'^(?:若|当|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
+        if point.get('subject') == '循环' and re.search(r'内存|空间', prop) and re.search(r'恒定|固定|常数|O\(1\)', value):
+            require(bool(re.search(r'调用帧|栈帧|不分配|不新增.*(?:容器|数据结构)|固定数量.*(?:标量|变量)', conditions)),
+                    '循环总空间不一定恒定；仅说明额外调用帧时必须明确计量范围，否则归来源疑点')
+        if '系统' in str(point.get('subject', '')) + prop and re.search(r'栈|递归', str(point.get('subject', '')) + prop) and re.search(r'\d', value):
+            require(bool(re.search(r'版本|(?:Python|CPython|Java)\s*\d|配置\s*[:=]', source_text)),
+                    '环境相关深度数值缺少明确来源环境和配置，应记来源疑点，不能补造环境')
+    if point.get('form') == 'procedure' and re.search(r'搜索|遍历|匹配', str(point.get('goal', ''))) and re.search(r'DFS|BFS|算法|伪代码', source_text):
+        steps = '；'.join(str(s) for s in point.get('steps', []))
+        require(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
+                or bool(re.search(r'初始化|初始|(?:起点|根节点).*(?:入栈|入队|加入|放入)|(?:stack|queue)\s*=', steps)),
+                '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块')
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', str(point.get('value', '')))) > 1:
         require(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
     call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
