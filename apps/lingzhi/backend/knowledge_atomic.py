@@ -525,6 +525,8 @@ async def run_atomic(svc, course_id, job_id):
                 validate_source()
                 try:
                     parsed = parse_complete_json(response)
+                    if pipeline['prompt_contract'] == 'knowledge_extract_v9':
+                        require(parsed.get('response_contract') == pipeline['prompt_contract'], '模型返回合同与冻结提取合同不一致')
                     if pipeline['prompt_contract'] == 'knowledge_extract_v9' and parsed.get('response_contract') == 'knowledge_extract_v9':
                         from knowledge_content_review import review_content
                         batch['content_review'] = {'status': 'pending'}

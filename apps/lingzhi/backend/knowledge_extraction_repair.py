@@ -68,12 +68,17 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     error = next(Draft202012Validator(repair_schema(targets, {k: p['text'] for k, p in passages.items()})).iter_errors(clean), None)
     require(error is None, '修正响应字段无效：' + ('/'.join(str(k) for k in error.absolute_path) if error else ''))
     output = deepcopy(response); decisions = []
+    original_traces = response.get('_content_review_trace'); trace_cursor = 0; repaired_traces = []
     for key, entry in output['passages'].items():
         points = []
         for ordinal, original in enumerate(entry['points']):
             target = f'{key}:{ordinal}'
+            trace = deepcopy(original_traces[trace_cursor]) if original_traces is not None else None
+            trace_cursor += 1
             if target not in targets:
-                points.append(original); continue
+                points.append(original)
+                if trace is not None: repaired_traces.append(trace)
+                continue
             repair = parsed['repairs'][target]
             require(isinstance(repair, dict) and set(repair) == {'points', 'handling', 'reason'}
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
@@ -81,6 +86,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             require(repair['handling'] == ('replace' if repair['points'] else 'context'), '修正去向不明确')
             for point in repair['points']: quality_point(point, passages[key]['text'])
             points.extend(deepcopy(repair['points']))
+            if trace is not None:
+                repaired_traces.extend({**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False} for _ in repair['points'])
             decisions.append({'target_key': target, **deepcopy(repair)})
         entry['points'] = points
         if not points and any(target.startswith(key + ':') for target in targets):
@@ -90,5 +97,6 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             {v['passage_key'] for v in targets.values()} for i in issues), '修正来源疑点越界')
     output['source_issues'] = [*output['source_issues'], *deepcopy(issues)]
     output['_format_normalizations'] = sorted(set(output.get('_format_normalizations', [])) | set(parsed.get('_format_normalizations', [])))
+    if original_traces is not None: output['_content_review_trace'] = repaired_traces
     record.update(status='validated', decisions=decisions)
     return output
