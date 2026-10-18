@@ -23,11 +23,12 @@ def point_variants(subjects):
     subject = {'type': 'string', 'enum': list(subjects)}
     attachment = obj({'name': string(200), 'kind': {'type': 'string', 'enum': ['condition', 'boundary', 'example']}, 'claim': string()})
     common = {'conditions': array(string(1000), 20), 'attachments': array(attachment, 20)}
+    single_property = {**string(30), 'pattern': r'^[^、;；，,与和及]+$'}
     forms = {
-        'fact': {'subject': subject, 'property': string(30), 'value': string(1000)},
+        'fact': {'subject': subject, 'property': single_property, 'value': {**string(1000), 'pattern': r'^[^;；。]+。?$'}},
         'definition': {'subject': subject, 'meaning': string(700), 'constraints': array(string(500), 12)},
-        'comparison': {'left_subject': subject, 'right_subject': subject, 'property': string(30),
-                       'left_value': string(700), 'right_value': string(700)},
+        'comparison': {'left_subject': subject, 'right_subject': subject, 'property': single_property,
+                       'left_value': {**string(700), 'pattern': r'^[^;；]+$'}, 'right_value': {**string(700), 'pattern': r'^[^;；]+$'}},
         'procedure': {'subject': subject, 'goal': string(50), 'steps': array(string(700), 12, 1), 'completion': string(500)},
     }
     return {'anyOf': [obj({**common, 'form': {'type': 'string', 'const': form}, **fields}) for form, fields in forms.items()]}
@@ -62,6 +63,7 @@ def extraction_prompt(raw, context, keys):
         '同一算法的必要步骤不拆碎，定义约束也不拆成无上下文事实；列举同一属性的多个值不是多命题。'
         'subject/left_subject/right_subject必须直接选本段focus_options原文名词，不能选谓语、整条结论或答案作主体。'
         'property只写简短属性名，不含答案和并列维度；value只写该属性的值，不夹带另一个操作或属性。'
+        'property使用名词性字段，不写“与某物的区别/关系”；多个对象在同一维度的差异使用comparison。'
         'meaning只写属概念及区别，不重复subject或“subject是”；value和左右取值也不重复主体和属性名，程序会加上这些前缀。'
         '程序从同一组主体、属性和值组装名称、命题、答案和完整元问题，不需要另外输出name、claim、question。'
         '所有条件conditions保留原文范围，不将局部假设写成属性值；完整定义的必要限制放constraints。'
