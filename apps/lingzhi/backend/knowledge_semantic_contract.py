@@ -313,6 +313,9 @@ def quality_point(point, source_text):
             check(bool(re.search(r'版本|(?:Python|CPython|Java)\s*\d|配置\s*[:=]', source_text)),
                     '环境相关深度数值缺少明确来源环境和配置，应记来源疑点，不能补造环境')
     body = str(point.get('value', '')) + str(point.get('left_value', '')) + str(point.get('right_value', ''))
+    if point.get('form') in {'fact', 'comparison'} and re.search(r'O\s*\(', body) and re.search(r'算法|栈|队列|数组|递归|复杂度', source_text):
+        check(bool(re.search(r'时间|空间|复杂度|代价|成本|开销|次数|数量|帧数|深度|长度|大小|规模|上界|下界|误差|精度', prop)),
+              '复杂度不能藏在访问方式或权限等非成本属性中；将方式和成本拆为不同检查目标，不删除有效成本结论')
     scoped_model = bool(re.search(r'本讲|普通|常规|当前|所示|该实现|典型|未优化|(?:基于|使用|用|采用).*(?:栈|队列)|显式.*实现', conditions))
     if any('递归' in str(subject) for subject in options) and re.search(r'栈帧|调用栈', prop + body):
         check(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')

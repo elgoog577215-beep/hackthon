@@ -599,6 +599,9 @@ async def run_atomic(svc, course_id, job_id):
                     save()
                     raise
                 batch.pop('validation_error', None)
+                if batch.get('content_review', {}).get('program_quarantines'):
+                    from knowledge_source_rules import annotate_verified_issues
+                    annotate_verified_issues(result, batch['content_review']['program_quarantines'])
                 batch.update(status='completed', raw_response=response, **{k: result[k] for k in ('items', 'source_coverage', 'source_issues', 'format_normalizations')})
                 pipeline['items'] = [item for b in pipeline['inventory_batches'] if b['status'] == 'completed' for item in b['items']]
                 require(len(pipeline['items']) <= 320, '知识清单超出本讲容量')

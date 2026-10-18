@@ -6,6 +6,7 @@ import re
 from generic_knowledge import require
 from knowledge_compact import passage_catalog, parse_complete_json
 from knowledge_semantic_contract import scope_evidence
+from knowledge_source_rules import quarantine_source_errors
 
 
 CONTRACT = 'knowledge_content_review_v1'
@@ -99,6 +100,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     output['source_issues'] = [*output.get('source_issues', []), *deepcopy(issues)]
     output['_content_review_trace'] = traces
     output['_format_normalizations'] = sorted(set(output.get('_format_normalizations', [])) | set(parsed.get('_format_normalizations', [])))
+    output, quarantines = quarantine_source_errors(output, catalog)
     record.update(status='completed', decisions=deepcopy(reviews), additions=deepcopy(additions), source_issues=deepcopy(issues),
-                  reviewed_response=deepcopy(output), final_point_count=len(traces))
+                  reviewed_response=deepcopy(output), final_point_count=len(output['_content_review_trace']),
+                  program_quarantines=quarantines)
     return output
