@@ -30,6 +30,21 @@ def _related(record, point, *, name_only=False):
     return any(_contains(value, content) for value in [record['name'], record['english_name'], *record['abbreviations']])
 
 
+def _specific_related(records, point, *, name_only=False):
+    content = _normal(point.get('name', '') if name_only else f"{point.get('name', '')} {point.get('statement', '')}")
+    spans = []
+    for index, record in enumerate(records):
+        for value in [record['name'], record['english_name'], *record['abbreviations']]:
+            needle = _normal(value)
+            if not needle: continue
+            pattern = re.escape(needle)
+            if re.fullmatch(r'[a-z0-9 ]+', needle): pattern = r'(?<![a-z0-9])' + pattern + r'(?![a-z0-9])'
+            spans.extend((index, match.start(), match.end()) for match in re.finditer(pattern, content))
+    return {_normal(records[index]['english_name']) for index, start, end in spans
+            if not any(other_start <= start and end <= other_end and other_end-other_start > end-start
+                       for _, other_start, other_end in spans)}
+
+
 def enrich_point(point, *, proposed_terms=None, source_passages=None):
     """Add presentation metadata; stable knowledge and semantic revision IDs stay intact."""
     result = deepcopy(point)
@@ -43,7 +58,8 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
             label = match[1].strip()
             label = re.sub(r'^.*(?:也称|又称|称为|称作|简称|另有|变为)', '', label)
             name_core = re.sub(r'(?:的定义|定义|的作用|作用|的规则|规则)$', '', point.get('name', ''))
-            if len(name_core) >= 2 and label.endswith(name_core):
+            prefix = label[:-len(name_core)] if name_core and label.endswith(name_core) else ''
+            if prefix and re.fullmatch(r'(?:(?:使用|采用|称为|称作|简称|一种|该|这种|此处的))+', prefix):
                 label = name_core
             parts = [s.strip() for s in re.split(r'[,，]', match[2]) if s.strip()]
             abbreviations = [s for s in parts if re.fullmatch(r'[A-Z][A-Z0-9\-]{1,12}', s)]
@@ -54,9 +70,9 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
             found.append({'name': label, 'english_name': english, 'abbreviations': abbreviations,
                 'aliases': [], 'origin': 'source_annotation', 'status': 'source_text_matched',
                 'evidence_refs': [{'evidence_id': source['evidence_id'], 'quote': annotation[0] if annotation else raw_quote}]})
-    relevant = {_normal(r['english_name']) for r in found if _related(r, point, name_only=True)}
+    relevant = _specific_related(found, point, name_only=True)
     if not relevant:
-        relevant = {_normal(r['english_name']) for r in found if _related(r, point)}
+        relevant = _specific_related(found, point)
     confirmed = [r for r in found if _normal(r['english_name']) in relevant]
     confirmed.extend(deepcopy(point.get('terms') or []))
     candidates = deepcopy(point.get('term_candidates') or [])
@@ -69,8 +85,12 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
         source = by_key.get(proposed.get('source_key'))
         quote = str(proposed.get('quote') or '')
         values = [record['name'], record['english_name'], *record['abbreviations'], *record['aliases']]
+        annotated_pair = any(_normal(r['name']) == _normal(record['name']) and
+            _normal(r['english_name']) == _normal(record['english_name']) for r in found)
+        identity_token = (_normal(record['name']) == _normal(record['english_name'])
+                          and bool(re.fullmatch(r'[A-Za-z][A-Za-z0-9_\-]*', record['name'])))
         if (source and quote and quote in source['quote'] and _related(record, point)
-                and all(_contains(v, quote) for v in values if v)):
+                and (annotated_pair or identity_token) and all(_contains(v, quote) for v in values if v)):
             confirmed.append({**record, 'origin': 'source_annotation', 'status': 'source_text_matched',
                 'evidence_refs': [{'evidence_id': source['evidence_id'], 'quote': quote}]})
         elif any(values):
