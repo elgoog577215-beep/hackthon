@@ -1,0 +1,80 @@
+from copy import deepcopy
+
+import pytest
+from jsonschema import validate
+
+from backend.tests.test_knowledge_first import svc
+from backend.tests.test_knowledge_atomic import setup_course
+from course_repository import CourseDocumentConflict
+
+
+def fact(**extra):
+    return {'form': 'fact', 'subject': '入栈', 'property': '操作端点', 'value': '栈顶',
+            'conditions': [], 'attachments': [], **extra}
+
+
+def result(svc, monkeypatch, point):
+    from knowledge_extract import compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    value = {'response_contract': 'knowledge_extract_v6', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    return compile_extraction(raw, context, ['S1'], 1, value), value
+
+
+def test_single_property_assembles_subject_question_without_putting_answer_in_question(svc, monkeypatch):
+    output, _ = result(svc, monkeypatch, fact())
+    point = output['tree']['knowledge_points'][0]
+    assert point['statement'] == '入栈的操作端点为栈顶。'
+    assert point['meta_question'] == '入栈的操作端点是什么？'
+    assert '栈顶' not in point['meta_question']
+    assert point['atomic_contract']['form'] == 'fact'
+    assert output['report']['ready_for_adoption']
+
+
+@pytest.mark.parametrize('point', [fact(property='操作端点和复杂度'), fact(value='插入栈顶；出栈移除栈顶'), fact(subject='虚构对象')])
+def test_independent_claims_or_invented_subjects_are_not_silently_approved(svc, monkeypatch, point):
+    with pytest.raises(CourseDocumentConflict): result(svc, monkeypatch, point)
+
+
+def test_joint_definition_is_one_complete_target_and_keeps_all_constraints(svc, monkeypatch):
+    point = {'form': 'definition', 'subject': '入栈', 'meaning': '把元素加入栈中的操作',
+             'constraints': ['仅在栈顶插入', '不从栈底插入'], 'conditions': [], 'attachments': []}
+    output, value = result(svc, monkeypatch, point)
+    compiled = output['tree']['knowledge_points'][0]
+    assert '栈底' in compiled['statement'] and '全部限定条件' in compiled['meta_question']
+    assert not any(i['code'] == 'compound_review' for i in output['report']['issues'])
+    assert output['report']['atomicity_checks'][0]['form'] == 'definition'
+    assert value['passages']['S1.1']['points'][0] == point
+
+
+def test_single_dimension_comparison_checks_both_subjects_and_does_not_drop_an_answer(svc, monkeypatch):
+    point = {'form': 'comparison', 'left_subject': '入栈', 'right_subject': '出栈', 'property': '操作效果',
+             'left_value': '将元素插入栈顶', 'right_value': '移除并返回栈顶元素', 'conditions': [], 'attachments': []}
+    output, _ = result(svc, monkeypatch, point)
+    compiled = output['tree']['knowledge_points'][0]
+    assert all(s in compiled['meta_question'] for s in ('入栈', '出栈', '操作效果'))
+    assert '插入' in compiled['statement'] and '返回' in compiled['statement']
+    assert not any(i['code'] == 'compound_review' for i in output['report']['issues'])
+
+
+def test_complete_method_question_covers_steps_and_termination(svc, monkeypatch):
+    point = {'form': 'procedure', 'subject': '入栈', 'goal': '加入一个元素',
+             'steps': ['检查容量', '将元素放入栈顶', '更新栈顶指针'], 'completion': '新元素成为栈顶', 'conditions': [], 'attachments': []}
+    output, _ = result(svc, monkeypatch, point)
+    compiled = output['tree']['knowledge_points'][0]
+    assert '完整步骤' in compiled['meta_question'] and '结束判据' in compiled['meta_question']
+    assert all(step in compiled['statement'] for step in point['steps'])
+    assert not any(i['code'] == 'compound_review' for i in output['report']['issues'])
+
+
+def test_structured_contract_schema_keeps_old_contract_frozen(svc, monkeypatch):
+    import json
+    from knowledge_extract import extraction_prompt, extraction_schema
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    payload = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])
+    passage = payload['source_passages'][0]
+    schema = extraction_schema(['S1.1'], {'S1.1': passage['focus_options']})
+    validate({'response_contract': 'knowledge_extract_v6', 'passages': {'S1.1': {'points': [fact()], 'note': None}}, 'source_issues': []}, schema)
+    old = json.loads(extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v5').split('\nINPUT_JSON:\n')[1])
+    assert old['extraction_contract'] == 'knowledge_extract_v5'
