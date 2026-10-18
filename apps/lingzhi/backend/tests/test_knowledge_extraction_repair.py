@@ -17,6 +17,17 @@ def value(points):
     return {'response_contract': 'knowledge_extract_v9', 'passages': {'S1.1': {'points': points, 'note': None}}, 'source_issues': []}
 
 
+def test_small_repair_schema_enforces_the_exact_field_that_failed():
+    from jsonschema import Draft202012Validator
+    from knowledge_extraction_repair import repair_schema
+    targets = {'S1.1:0': {'point': point(property='效果和端点'), 'passage_key': 'S1.1'}}
+    validator = Draft202012Validator(repair_schema(targets, {'S1.1': '入栈将元素插入栈顶。出栈移除元素。'}))
+    result = {'repairs': {'S1.1:0': {'points': [point()], 'handling': 'replace', 'reason': '修正属性'}}, 'source_issues': []}
+    assert validator.is_valid(result)
+    result['repairs']['S1.1:0']['points'][0]['property'] = '效果和端点'
+    assert not validator.is_valid(result)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize('out_of_scope', [False, True])
 async def test_one_scoped_repair_preserves_valid_points_and_original_response(svc, monkeypatch, out_of_scope):
