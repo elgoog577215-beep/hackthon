@@ -12,12 +12,13 @@ from course_repository import CourseDocumentConflict
 
 
 def relation_response(data):
-    a, b = data['focus_keys'][:2]
     if 'edge_candidates' in data:
-        identity = next((key for key, row in data['edge_candidates'].items() if row['source_key'] == a and row['target_key'] == b), None)
+        a = data['focus_keys'][0]
+        identity = next(iter(data['edge_candidates']), None)
         return {'point_reviews': {key: '已比较冻结候选点对。' for key in data['focus_keys']},
             'focus_links': {a: ([{'e': identity, 't': 'prerequisite', 'n': 'recommended', 'c': '理解后续操作',
                 'r': '出栈明确引用入栈', 'if': [], 'w': 'medium'}] if identity else [])}, 'gaps': []}
+    a, b = data['focus_keys'][:2]
     if data.get('relation_contract') in {'knowledge_tree_relations_v3', 'knowledge_tree_relations_v4'}:
         source, target = data['catalog'][a], data['catalog'][b]
         return {'point_reviews': {key: '已核对两端对象和直接引用。' for key in data['focus_keys']},

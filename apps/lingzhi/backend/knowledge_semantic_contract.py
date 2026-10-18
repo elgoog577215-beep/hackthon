@@ -278,6 +278,9 @@ def quality_point(point, source_text):
     require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
+    definition = re.sub(r'[\s`*]', '', str(point.get('meaning', '')) + str(point.get('constraints', '')))
+    if point.get('form') == 'definition' and '括号' in source_text and '不能出现)(' in definition:
+        require(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
     prop = str(point.get('property', ''))
     value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', []))
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:

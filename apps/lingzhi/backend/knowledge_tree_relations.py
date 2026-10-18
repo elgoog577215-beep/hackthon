@@ -135,6 +135,8 @@ def prompt_for(raw, pipeline, focus_keys, lesson_id):
             '本讲点对优先由排序靠前的点提出，但程序会按真实方向、类型、场景和条件合并重复建议；不要为满足批次归属改写方向。')
     if pipeline.get('wire') == CANDIDATE_WIRE:
         payload['edge_candidates'] = candidate_links(pipeline, focus_keys, lesson_id)
+        eligible_focus = {row['focus_key'] for row in payload['edge_candidates'].values()}
+        payload['focus_keys'] = [key for key in focus_keys if key in eligible_focus]
         instruction = (
             '只核对冻结元知识之间有直接依据的教学关系，不修改知识或生成新知识。只输出一个紧凑JSON并停止。'
             'catalog含冻结名称、命题和前提；edge_candidates已固定每个候选的focus_key、source_key和target_key。'
@@ -161,20 +163,26 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
     require(isinstance(normalizations, list), '关系响应格式标记无效')
     require(isinstance(response, dict) and set(response) == {'point_reviews', 'focus_links', 'gaps'}, '关系响应不能改写知识或省略比较记录')
     reviews = response['point_reviews']
-    require(isinstance(reviews, dict) and set(reviews) == set(focus_keys), '关系比较必须覆盖每个本讲知识点')
+    selected_wire = pipeline.get('wire') == CANDIDATE_WIRE
+    candidates = candidate_links(pipeline, focus_keys, lesson_id) if selected_wire else {}
+    eligible_focus = {row['focus_key'] for row in candidates.values()}
+    program_excluded = set(focus_keys) - set(reviews) if isinstance(reviews, dict) else set()
+    require(isinstance(reviews, dict) and (eligible_focus <= set(reviews) <= set(focus_keys) if selected_wire else set(reviews) == set(focus_keys)),
+            '关系比较必须覆盖每个有冻结候选的焦点，不能补造缺失模型比较')
+    if selected_wire:
+        reviews = {key: reviews.get(key, '当前直接引用合同下无本焦点负责的可接受候选点对；这是程序范围排除，不是模型语义判断。') for key in focus_keys}
     focus_links = response['focus_links']
     sparse = pipeline.get('contract') == QUALITY_CONTRACT
     require(isinstance(focus_links, dict) and (set(focus_links) <= set(focus_keys) if sparse else set(focus_links) == set(focus_keys)), '关系必须按当前本讲焦点列出，不能越界')
     if sparse: focus_links = {key: focus_links.get(key, []) for key in focus_keys}
     points = {p['key']: p for p in pipeline['catalog']}
     modern = pipeline.get('contract') in {CONTRACT, QUALITY_CONTRACT}
-    selected_wire = pipeline.get('wire') == CANDIDATE_WIRE
-    candidates = candidate_links(pipeline, focus_keys, lesson_id) if selected_wire else {}
     rejections = []
     reasons = Counter(link.get('r') for links in focus_links.values() if isinstance(links, list)
                       for link in links if isinstance(link, dict) and isinstance(link.get('r'), str))
     lessons = list(dict.fromkeys(lid for p in points.values() for lid in p['lesson_ids']))
-    decisions = {key: {'focus_key': key, 'considered_lessons': lessons, 'reason': reviews[key], 'links': []} for key in focus_keys}
+    decisions = {key: {'focus_key': key, 'considered_lessons': lessons, 'reason': reviews[key], 'links': [],
+        'review_origin': 'program_no_eligible_owned_pairs' if key in program_excluded else 'model'} for key in focus_keys}
     for focus, links in focus_links.items():
         link_limit = max(12, 3 * sum(row['focus_key'] == focus for row in candidates.values())) if selected_wire else 12
         require(isinstance(links, list) and len(links) <= link_limit, '单个焦点的关系数量超出冻结候选范围')
@@ -295,8 +303,14 @@ async def generate(svc, course_id, job_id, provider, raw, context, pipeline, tre
         state['batches'] = [{'id': f'tree-relations-{i // size + 1}', 'focus_keys': focus[i:i + size], 'status': 'pending'} for i in range(0, len(focus), size)]
     async def process(_index, batch):
         validate_source()
-        response = await call_stage(svc, course_id, job_id, provider,
-            prompt_for(raw, state, batch['focus_keys'], context['scope_lesson_id']), 'tree_relations')
+        if state.get('wire') == CANDIDATE_WIRE and not candidate_links(state, batch['focus_keys'], context['scope_lesson_id']):
+            response = json.dumps({'point_reviews': {}, 'focus_links': {}, 'gaps': []})
+            batch['generation_origin'] = 'program_no_eligible_owned_pairs'
+        else:
+            if svc is not None: svc.authoring.update_job_live(course_id, job_id, batch_index=_index, pipeline_stage='tree_relations')
+            response = await call_stage(svc, course_id, job_id, provider,
+                prompt_for(raw, state, batch['focus_keys'], context['scope_lesson_id']), 'tree_relations')
+            batch['generation_origin'] = 'model'
         validate_source()
         try:
             result = compile_relations(raw, state, batch['focus_keys'], parse_complete_json(response), context['scope_lesson_id'])
@@ -339,5 +353,7 @@ def attach(tree, result):
     tree['relation_assessment'] = {'schema_version': result.get('contract', LEGACY_CONTRACT), 'mode': 'with_tree', 'ready_for_adoption': True,
         'semantic_rejections': deepcopy(result.get('semantic_rejections', [])),
         'semantics_verified': False, 'proposed_ids': added, 'proposed_count': len(added),
-        'checked_points': len(result['decisions']), 'gaps': result['gaps']}
+        'checked_points': len(result['decisions']), 'gaps': result['gaps'],
+        'model_reviewed_points': sum(d.get('review_origin', 'model') == 'model' for d in result['decisions']),
+        'program_excluded_points': sum(d.get('review_origin') == 'program_no_eligible_owned_pairs' for d in result['decisions'])}
     return tree

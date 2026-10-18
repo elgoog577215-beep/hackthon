@@ -57,6 +57,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '若错误指出当前块仅说明机制，则改为definition表达完整策略含义，不把缺少初始状态的几步机制冒充可执行完整算法。'
         '若错误指出环境数值或来源过强断言而无法由当前材料明确限定，则归context并在source_issues注明，不补造条件。'
         '若错误指出时间和空间独立量，则拆为不同property；若value中含若/当/如果，必须将真实前提移入conditions以进入元问题。'
+        '括号定义不能禁止任意)(子串，()()是反例；根据冻结扫描算法改为前缀余额非负且最终余额为0，或记来源疑点。'
         '具体轨迹、教学目标或没有独立一般知识的点可明确归context并说明理由，不能虚构替代知识。'
         '不要返回原顶层passages。只输出{"repairs":{"目标键":{"points":[修正后完整点],"handling":"replace","reason":"具体修改"}},"source_issues":[]}。'
         '归背景时points=[]，handling="context"；新增疑点只能指向targets所属块。只允许这一轮修正，所有原输出会保留。\nINPUT_JSON:\n'
