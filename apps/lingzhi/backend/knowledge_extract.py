@@ -177,7 +177,7 @@ def compile_extraction(raw, context, keys, index, response):
     require(isinstance(response, dict) and response.get('response_contract') in CONTRACTS, '直接提取合同无效')
     complete_question = response['response_contract'] in {CONTRACT, COMPLETE_CONTRACT}
     bound_focus = response['response_contract'] in {FOCUS_CONTRACT, COMPLETE_CONTRACT}
-    require(not bound_focus or 'passages' in response, '原文对象绑定需要逐片段响应')
+    require(not (bound_focus or complete_question) or 'passages' in response, '原文对象绑定需要逐片段响应')
     catalog = {p['key']: p for p in passage_catalog(context, keys)}
     if 'passages' in response:
         passages = response['passages']
