@@ -5,6 +5,7 @@ import re
 
 from generic_knowledge import require
 from knowledge_compact import passage_catalog, parse_complete_json
+from knowledge_semantic_contract import scope_evidence
 
 
 CONTRACT = 'knowledge_content_review_v1'
@@ -23,7 +24,7 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
         for p in passages for m in re.finditer(r'完全依赖|必须配|必须用|内存占用.{0,10}恒定|10\^\{?[34]|通常优于|通常比.{0,12}慢', p['text'])]
     payload = {'stage': 'content_review', 'review_contract': CONTRACT,
                'source_passages': passages, 'points': originals, 'source_cautions': cautions,
-               'source_issues': response.get('source_issues', [])}
+               'source_issues': response.get('source_issues', []), 'scope_evidence': scope_evidence(context)}
     prompt = (
         '核对冻结讲义提取出的知识候选。原文引用只证明出处，不能证明原文正确。只输出一个紧凑JSON，不思考、不解释。'
         '逐点检查是否为一般知识、单一检查目标、完整定义或完整算法，以及实际前提、对象、输入范围和量的意义。'
@@ -41,6 +42,7 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
         '阶乘n>=1整数、按包括当前帧的活动调用帧数计，最大深度为n；递归分支在n>=2，基本分支n=1。'
         'O是上界，不是紧确界；朴素fib的O(2^n)调用次数上界有效，不能仅因更紧的Theta(phi^n)存在就把O(2^n)判错或删除。'
         '所有n/d等数量符号都需在conditions中定义输入域或当前深度；帧空间按固定单帧上界说明，不扩大为程序总空间。'
+        'scope_evidence是同一冻结讲义的讨论范围，只能据此限定分析模型；范围排除的拓展内容作为边界附件，不扩成独立必学知识。'
         '普通调用栈、未优化递归、基于显式栈/队列的本讲实现等前提必须进入conditions，不能仅写在核对reason里。'
         '分段函数的基本情况和递归关系应形成完整definition，不能把n<=1误写为整条函数定义的成立前提。'
         '算法的提前失败分支与最终成功判据必须共同覆盖；例如括号扫描最终空栈不足以证明此前没有提前失败。'

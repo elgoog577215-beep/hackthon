@@ -122,7 +122,7 @@ def test_a_valid_parenthesis_string_can_contain_the_closing_opening_substring():
 
 def test_one_correction_receives_all_missing_symbol_and_model_assumptions():
     from knowledge_semantic_contract import quality_point
-    point = {'form': 'fact', 'subject': '递归深度', 'property': '栈中数量', 'value': 'd', 'conditions': [], 'attachments': []}
+    point = {'form': 'fact', 'subject': '递归深度', 'property': '栈中数量', 'value': '栈中同时存在 d 个栈帧', 'conditions': [], 'attachments': []}
     with pytest.raises(CourseDocumentConflict) as error:
         quality_point(point, '递归深度为d时，栈中有d个栈帧。')
     assert '符号' in str(error.value) and '调用栈' in str(error.value)

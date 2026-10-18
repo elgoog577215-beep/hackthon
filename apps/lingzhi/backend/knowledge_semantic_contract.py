@@ -3,7 +3,8 @@ from copy import deepcopy
 import json
 import re
 
-from generic_knowledge import require, text
+from generic_knowledge import require, text, sources
+from course_repository import CourseDocumentConflict
 from knowledge_compact import obj, array, string, passage_catalog, passage_schema
 
 LEGACY_CONTRACT = 'knowledge_extract_v6'
@@ -73,6 +74,13 @@ def extraction_schema(passage_keys, options, *, contract=CONTRACT):
     return schema
 
 
+def scope_evidence(context):
+    if not (context.get('evidence_package') or {}).get('units'): return []
+    return [{'source_key': key, 'quote': line.strip()} for key, source in sources(context).items()
+            for line in source['source_text'].splitlines()
+            if re.search(r'本[讲课节][^。\n]{0,80}不(?:展开|涉及|包含|讨论|考虑)', line)]
+
+
 def quality_prompt(raw, context, keys):
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = passage_catalog(context, keys)
@@ -80,7 +88,7 @@ def quality_prompt(raw, context, keys):
         passage['focus_options'] = subject_options(passage['text'], contract=QUALITY_CONTRACT)
     payload = {'stage': 'extract', 'extraction_contract': QUALITY_CONTRACT,
                'course_title': raw.get('course_name'), 'lesson_id': context['scope_lesson_id'],
-               'source_passages': passages}
+               'source_passages': passages, 'scope_evidence': scope_evidence(context)}
     return (
         '从完整冻结正文块提取可独立检查的一般知识。只输出一个紧凑JSON对象并停止；不要空行、思考或解释。'
         '每个source_passages编号都必须出现在passages中，不遗漏块；逐一判断定义、已命名操作、规则、前提和完整方法。'
@@ -103,6 +111,7 @@ def quality_prompt(raw, context, keys):
         '比较必须用comparison并保留两侧实际对象，不能在fact中夹带第二对象；值不重复主体和属性，不用分号夹带另一个独立结论。'
         '教学目标及其编号列表、纯具体轨迹、教学安排或纯重复总结填背景；不要从“需要掌握/分析为何”等目标推断已讲解结论。'
         '混有新的一般知识时仍提取新知识。'
+        'scope_evidence是同一冻结讲义的范围证据，仅用于限定讨论模型；明确排除的拓展内容只作相关边界附件，不扩成独立必学点。'
         '过强必要性、绝对断言、实现或环境相关常数、可疑代码/公式用source_issues逐块标明，不能作为已核实一般知识；不修改原文。'
         '每块有知识时points非空且note=null；无独立知识时points=[]且note={handling:"context"或"out_of_scope",reason:"具体原因"}。'
         'source_issues每项必须是{passage_key:"实际块号",kind:"suspected_error"或"contradiction",detail:"明确疑点"}，不可用字符串替代。'
@@ -273,48 +282,59 @@ def expand_scalar(point):
 
 def quality_point(point, source_text):
     require(isinstance(point, dict), '知识点必须是对象')
+    errors = []
+    def check(condition, message):
+        if not condition: errors.append(message)
     fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
     options = [point.get(field) for field in fields]
-    require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
+    check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
-    require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
+    check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
     definition = re.sub(r'[\s`*]', '', str(point.get('meaning', '')) + str(point.get('constraints', '')))
     if point.get('form') == 'definition' and '括号' in source_text and '不能出现)(' in definition:
-        require(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
+        check(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
     prop = str(point.get('property', ''))
-    value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', []))
+    value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', [])) if isinstance(point.get('conditions', []), list) else ''
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:
-        require(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
+        check(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
     if point.get('form') == 'fact':
         symbols = set(re.findall(r'\b[nmd]\b', value))
-        require(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
+        check(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
                 '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号')
         if point.get('subject') == '栈' and '物理' in prop and '必须' in value:
-            require(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
+            check(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
         two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)
-        require(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
-        require(not re.match(r'^(?:若|当|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
+        check(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
+        check(not re.match(r'^(?:若|当|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
         if point.get('subject') == '循环' and re.search(r'内存|空间', prop) and re.search(r'恒定|固定|常数|O\(1\)', value):
-            require(bool(re.search(r'调用帧|栈帧|不分配|不新增.*(?:容器|数据结构)|固定数量.*(?:标量|变量)', conditions)),
+            check(bool(re.search(r'调用帧|栈帧|不分配|不新增.*(?:容器|数据结构)|固定数量.*(?:标量|变量)', conditions)),
                     '循环总空间不一定恒定；仅说明额外调用帧时必须明确计量范围，否则归来源疑点')
         if '系统' in str(point.get('subject', '')) + prop and re.search(r'栈|递归', str(point.get('subject', '')) + prop) and re.search(r'\d', value):
-            require(bool(re.search(r'版本|(?:Python|CPython|Java)\s*\d|配置\s*[:=]', source_text)),
+            check(bool(re.search(r'版本|(?:Python|CPython|Java)\s*\d|配置\s*[:=]', source_text)),
                     '环境相关深度数值缺少明确来源环境和配置，应记来源疑点，不能补造环境')
     body = str(point.get('value', '')) + str(point.get('left_value', '')) + str(point.get('right_value', ''))
-    scoped_model = bool(re.search(r'本讲|普通|常规|当前|所示|该实现|典型|未优化|基于.*(?:栈|队列)', conditions))
-    if any('递归' in subject for subject in options) and re.search(r'栈帧|调用栈', prop + body):
-        require(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')
-    if any(re.search(r'DFS|BFS', subject) for subject in options) and re.search(r'依赖|数据结构', prop):
-        require(scoped_model, '策略与数据结构的关联必须限定当前实现，不能把某种实现当唯一必要条件')
+    scoped_model = bool(re.search(r'本讲|普通|常规|当前|所示|该实现|典型|未优化|(?:基于|使用|用|采用).*(?:栈|队列)|显式.*实现', conditions))
+    if any('递归' in str(subject) for subject in options) and re.search(r'栈帧|调用栈', prop + body):
+        check(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')
+    if any(re.search(r'DFS|BFS', str(subject)) for subject in options) and re.search(r'依赖|数据结构', prop):
+        check(scoped_model, '策略与数据结构的关联必须限定当前实现，不能把某种实现当唯一必要条件')
+        if 'BFS' in str(point.get('subject')) and re.search(r'队列|FIFO', value):
+            check(not re.search(r'显式栈|LIFO', conditions), 'BFS队列点不能串用DFS的显式栈/LIFO前提，必须按当前块正确算法限定')
+        if re.search(r'丢失.*回溯能力', body):
+            check(bool(re.search(r'本讲|当前|所示|直接替换', conditions)), '回溯能力结论须限定本讲直接替换实现，不能否定所有使用队列的算法能力')
     if point.get('form') == 'procedure' and re.search(r'搜索|遍历|匹配', str(point.get('goal', ''))) and re.search(r'DFS|BFS|算法|伪代码', source_text):
-        steps = '；'.join(str(s) for s in point.get('steps', []))
-        require(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
+        steps = '；'.join(str(s) for s in point.get('steps', [])) if isinstance(point.get('steps', []), list) else ''
+        check(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
                 or bool(re.search(r'初始化|初始|(?:起点|根节点).*(?:入栈|入队|加入|放入)|(?:stack|queue)\s*=', steps)),
                 '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块')
     call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
     named_cost = bool(call and not re.search(r'之后|以后|后|结果|状态|轨迹|第\d+步', prop)
         and re.search(re.escape(call.group()) + r'\s*(?:效率|性能|复杂度|开销|代价)', source_text))
-    result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost)
+    try:
+        result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost)
+    except CourseDocumentConflict as error:
+        errors.append(str(error))
+    require(not errors, '；'.join(dict.fromkeys(errors)))
     if named_cost: audit['operation_literal'] = call.group()
     return result, audit
 
