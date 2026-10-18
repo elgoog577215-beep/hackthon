@@ -291,6 +291,9 @@ def quality_point(point, source_text):
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
+    if point.get('form') == 'fact':
+        check(not any(s in {'算法', '策略', '数据结构'} for s in options),
+              '知识主体须为当前块的具体方法或结构，不能用算法、策略、数据结构等栏目名代替实际检查对象')
     if claims_parenthesis_substring_ban(point, source_text):
         check(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
     prop = str(point.get('property', ''))
@@ -307,7 +310,7 @@ def quality_point(point, source_text):
         check(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
                 '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号')
     if point.get('form') == 'fact':
-        if point.get('subject') == '栈' and '物理' in prop and '必须' in value:
+        if point.get('subject') == '栈' and '物理' in prop and '必须' in value + conditions:
             check(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
         two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)
         check(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
@@ -325,6 +328,15 @@ def quality_point(point, source_text):
     scoped_model = bool(re.search(r'本讲|普通|常规|当前|所示|该实现|典型|未优化|(?:基于|使用|用|采用).*(?:栈|队列)|显式.*实现', conditions))
     if any('递归' in str(subject) for subject in options) and re.search(r'栈帧|调用栈', prop + body):
         check(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')
+    if any('递归' in str(subject) for subject in options) and re.search(r'系统栈|栈空间', body):
+        check(scoped_model, '递归的系统栈限制必须限定普通调用栈实现，不能作为所有实现的普遍限制')
+    if point.get('form') == 'fact' and point.get('subject') in {'递归', '循环'} and re.search(r'速度|内存|效率|空间', prop) and re.search(r'优于|比.*慢|比.*快|更多|更少', body):
+        check(scoped_model and bool(re.search(r'同等|相同|等价|开销|成本|计量|单帧', conditions)),
+              '递归与循环的性能比较必须限定来源支持的实现和计量模型；缺少依据则记来源疑点，不保留无条件性能保证')
+    if point.get('form') == 'definition' and any(re.search(r'DFS|BFS', str(subject)) for subject in options):
+        implementation = str(point.get('meaning', '')) + '；'.join(str(c) for c in point.get('constraints', []))
+        if re.search(r'入栈|压入栈|出栈|入队|加入队尾|移出队头', implementation):
+            check(scoped_model, '搜索定义混入栈或队列步骤时必须限定当前实现；一般策略定义不能绑定唯一实现')
     if any(re.search(r'DFS|BFS', str(subject)) for subject in options) and re.search(r'依赖|数据结构', prop):
         check(scoped_model, '策略与数据结构的关联必须限定当前实现，不能把某种实现当唯一必要条件')
         if 'BFS' in str(point.get('subject')) and re.search(r'队列|FIFO', value):
@@ -336,6 +348,12 @@ def quality_point(point, source_text):
         check(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
                 or bool(re.search(r'初始化|初始|(?:起点|根节点).*(?:入栈|入队|加入|放入)|(?:stack|queue)\s*=', steps)),
                 '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块')
+    if point.get('form') == 'procedure' and re.search(r'括号.*匹配|匹配.*括号', str(point.get('goal', ''))):
+        steps = '；'.join(str(s) for s in point.get('steps', [])) if isinstance(point.get('steps', []), list) else ''
+        check(bool(re.search(r'初始.*(?:空栈|栈.*空)|(?:建立|创建|准备|设置|置|清空).*空栈|stack\s*=\s*\[\]', steps)),
+              '完整括号匹配方法自身须包含空栈初始状态，不能只依赖来源代码中的初始化')
+        check(bool(re.search(r'未.*(?:提前|中途).*失败|没有.*(?:提前|中途).*失败|无.*提前失败|全部.*成功', str(point.get('completion', '')))),
+              '括号匹配成功判据须包含没有提前失败且最终空栈；最终空栈不能覆盖此前失败')
     call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
     named_cost = bool(call and not re.search(r'之后|以后|后|结果|状态|轨迹|第\d+步', prop)
         and re.search(re.escape(call.group()) + r'\s*(?:效率|性能|复杂度|开销|代价)', source_text))
