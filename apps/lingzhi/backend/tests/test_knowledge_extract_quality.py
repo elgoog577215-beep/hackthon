@@ -138,6 +138,17 @@ def test_explicit_implementation_scope_is_accepted_but_cannot_cross_algorithms()
         quality_point(point, 'BFS当前用队列实现，DFS当前用显式栈实现。')
 
 
+def test_access_mechanism_and_its_cost_do_not_hide_in_one_non_cost_question():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'comparison', 'left_subject': '栈', 'right_subject': '队列', 'property': '访问方式',
+        'left_value': '需连续出栈，O(n)', 'right_value': '需出队，O(n)',
+        'conditions': ['n表示容器中的元素数量，比较最坏情况'], 'attachments': []}
+    with pytest.raises(CourseDocumentConflict, match='复杂度'):
+        quality_point(point, '栈和队列访问非首元素均需逐个取出，最坏代价O(n)。')
+    point['property'] = '访问时间复杂度'
+    assert quality_point(point, '栈和队列访问非首元素均需逐个取出，最坏代价O(n)。')[1]['form'] == 'comparison'
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
