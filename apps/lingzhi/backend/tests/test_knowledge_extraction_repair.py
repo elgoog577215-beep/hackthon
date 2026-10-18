@@ -93,6 +93,26 @@ async def test_split_repair_preserves_review_provenance_for_each_new_point(svc, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('preserve', [False, True])
+async def test_property_only_repair_preserves_valid_original_conditions(svc, monkeypatch, preserve):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(property='效果和端点', conditions=['栈未满'])])
+    async def call(*args):
+        payload = json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        if preserve: assert payload['targets']['S1.1:0']['required_conditions'] == ['栈未满']
+        return json.dumps({'repairs': {'S1.1:0': {'points': [point(conditions=['栈未满'] if preserve else [])],
+            'handling':'replace','reason':'只修正属性字段'}}, 'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    if preserve:
+        await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+    else:
+        with pytest.raises(CourseDocumentConflict, match='前提'):
+            await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+
+
+@pytest.mark.asyncio
 async def test_new_task_cannot_bypass_content_review_by_returning_an_old_contract(svc, monkeypatch):
     from backend.tests.test_knowledge_extract import response
     setup_course(svc, monkeypatch)
