@@ -258,6 +258,7 @@ async def test_failed_single_pass_continues_only_missing_source_group(svc, monke
     original = deepcopy(svc.authoring.load('c-pilot')['jobs'][first['id']])
     assert original['status'] == 'failed'
     assert original['checkpoint']['atomic_pipeline']['inventory_batches'][0]['status'] == 'completed'
+    assert {row['batch_index'] for row in original['stage_observations'] if row['stage'] == 'extract'} == {1, 2}
     fail = False; calls.clear()
     resumed = start(svc, 'resume-single-pass', resume_job_id=first['id'])
     assert resumed['extraction_mode'] == 'single_pass_v1'
