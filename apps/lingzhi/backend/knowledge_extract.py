@@ -25,6 +25,8 @@ def focus_options(content):
         # Split only at literal grammatical separators; never paraphrase anchors.
         for term in re.split(r'定义为|称为|通过|表示|包括|执行|遵循|插入|移除|返回|发生|的|是|将|把|在|从|向|为|与|和|并|则|当|若', token):
             add(term)
+    if not terms:
+        for token in re.findall(r'\S{1,100}', content): add(token)
     return {f'F{i}': term for i, term in enumerate(terms, 1)}
 
 
@@ -58,6 +60,9 @@ def extraction_schema(passage_keys, options=None):
         schema['properties']['response_contract']['const'] = CONTRACT
         definitions, passages = {}, {}
         for index, key in enumerate(passage_keys):
+            if not options[key]:
+                passages[key] = obj({'points': array({}, 0), 'note': note})
+                continue
             bound_point = deepcopy(point)
             bound_point['properties'].pop('focus_term'); bound_point['required'].remove('focus_term')
             bound_point['properties']['focus_key'] = {'type': 'string', 'enum': list(options[key])}
@@ -111,6 +116,12 @@ def extraction_prompt(raw, context, keys, *, contract=CONTRACT):
         instruction = instruction.replace('三段，程序原样拼接。', '三段，程序用短键对应原文词原样拼接。')
         instruction = instruction.replace('例如focus_key为“队列”', '例如短键F1对应“队列”，focus_key为“F1”')
         instruction = instruction.replace('"focus_key":"原文词"', '"focus_key":"当前片段的F短键"')
+        instruction = instruction.replace('元问题只检查该结论。',
+            '元问题只检查该结论，并且脱离上下文也能明确指向具体对象和待检查的性质。'
+            'focus_options只是原文字面片段，不是程序认定的学科对象；优先选具体术语。'
+            '若选择“机制”“选择依据”等泛称，问题前后必须补足具体对象，不能只问“机制是什么”。'
+            '两个对象的相似性质也必须分别点名对象，禁止共用同一个问题；同一对象的不同命题须明确不同检查角度。'
+            '只陈述具体例题过程的片段不能外推成未写出的通用公式或复杂度结论。')
     return instruction + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
 
 
