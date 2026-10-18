@@ -70,3 +70,4 @@ async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monk
     await svc.run('c-pilot', job['id'])
     assert recorded
     assert all(k.get('temperature') == 0 and k['max_attempts'] == 1 for k in recorded)
+    assert recorded[0]['json_mode'] is True and 'json_schema' not in recorded[0]
