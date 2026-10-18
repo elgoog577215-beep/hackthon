@@ -556,8 +556,13 @@ async def run_atomic(svc, course_id, job_id):
             validate_source(); svc.authoring.update_job_live(course_id, job_id, batch_index=i, pipeline_stage='inventory')
             if fast:
                 from knowledge_extract import extraction_prompt, compile_extraction
-                response = await call_stage(svc, course_id, job_id, provider,
-                    extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
+                if batch.get('frozen_extract_response'):
+                    response = batch['frozen_extract_response']
+                    batch['generation_origin'] = 'reused_frozen_extract_response'
+                else:
+                    response = await call_stage(svc, course_id, job_id, provider,
+                        extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
+                    batch['generation_origin'] = 'model_extract'
                 validate_source()
                 try:
                     parsed = parse_complete_json(response)
@@ -607,6 +612,7 @@ async def run_atomic(svc, course_id, job_id):
                     from knowledge_source_rules import annotate_verified_issues
                     annotate_verified_issues(result, batch['content_review']['program_quarantines'])
                 batch.update(status='completed', raw_response=response, **{k: result[k] for k in ('items', 'source_coverage', 'source_issues', 'format_normalizations')})
+                batch.pop('frozen_extract_response', None)
                 pipeline['items'] = [item for b in pipeline['inventory_batches'] if b['status'] == 'completed' for item in b['items']]
                 require(len(pipeline['items']) <= 320, '知识清单超出本讲容量')
                 if result['tree']:

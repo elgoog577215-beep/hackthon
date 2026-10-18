@@ -382,7 +382,37 @@ class KnowledgeFirstService:
                 continued_checkpoint = deepcopy(original.get('checkpoint') or {})
                 prior = continued_checkpoint.get('relation_pipeline' if pipeline == RELATIONS else 'atomic_pipeline')
                 require(bool(prior), '原任务没有可继续的知识清单')
-                if pipeline == PIPELINE and retry_batch_id == 'hierarchy':
+                review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
+                def reusable_extract(batch):
+                    from knowledge_compact import parse_complete_json, passage_catalog
+                    response = batch.get('raw_response') or batch.get('frozen_extract_response')
+                    if not response: return None
+                    try:
+                        parsed = parse_complete_json(response)
+                        expected = {p['key'] for p in passage_catalog({**context, 'knowledge_passage_mode':'source_blocks_v1'}, batch['source_keys'])}
+                        if isinstance(parsed, dict) and parsed.get('response_contract') == 'knowledge_extract_v9' and isinstance(parsed.get('passages'), dict) and set(parsed['passages']) == expected:
+                            if all(isinstance(entry, dict) and isinstance(entry.get('points'), list)
+                                and all(isinstance(point, dict) for point in entry['points'])
+                                and (entry['points'] and entry.get('note') is None or not entry['points'] and isinstance(entry.get('note'), dict)
+                                     and entry['note'].get('handling') in {'context', 'out_of_scope'} and bool(entry['note'].get('reason')))
+                                for entry in parsed['passages'].values()): return response
+                    except (ValueError, TypeError, CourseDocumentConflict): pass
+                    return None
+                if review_only and retry_batch_id and retry_batch_id not in {'hierarchy', 'relations'}:
+                    selected = list(enumerate(prior['inventory_batches'], 1)) if retry_batch_id == 'all_atoms' else [
+                        (i, batch) for i, batch in enumerate(prior['inventory_batches'], 1) if f'atoms-{i}' == retry_batch_id]
+                    require(bool(selected), '细化批次不存在')
+                    selected_ids = {f'atoms-{i}' for i, _ in selected}
+                    for _, batch in selected:
+                        response = reusable_extract(batch)
+                        if response:
+                            batch['frozen_extract_response'] = response
+                            batch['extraction_origin_job_id'] = batch.get('extraction_origin_job_id') or resume_job_id
+                        batch['status'] = 'pending'
+                    prior['batches'] = [batch for batch in prior['batches'] if batch['id'] not in selected_ids]
+                    prior['items'] = [item for batch in prior['inventory_batches'] if batch['status'] == 'completed' for item in batch.get('items', [])]
+                    prior.pop('hierarchy', None); prior.pop('relations', None)
+                elif pipeline == PIPELINE and retry_batch_id == 'hierarchy':
                     require(bool(prior.get('batches')) and all(b['status'] == 'completed' for b in prior['batches']), '请先完成知识点细化，再整理层级')
                     organize_hierarchy = True
                     prior['hierarchy'] = {'status': 'pending'}
@@ -405,6 +435,9 @@ class KnowledgeFirstService:
                     if prior.get('prompt_contract') == 'knowledge_extract_v9':
                         for batch in prior.get('inventory_batches', []):
                             if batch.get('status') == 'completed': continue
+                            if batch.get('content_review') and (response := reusable_extract(batch)):
+                                batch['frozen_extract_response'] = response
+                                batch['extraction_origin_job_id'] = batch.get('extraction_origin_job_id') or resume_job_id
                             batch['prior_attempt_job_id'] = resume_job_id
                             for field in ('raw_response', 'validation_error', 'repair', 'content_review'):
                                 batch.pop(field, None)
