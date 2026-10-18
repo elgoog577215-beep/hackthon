@@ -128,6 +128,8 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     resumed = start(svc, 'new-isolated-attempt', resume_job_id=job['id'])
     copied = resumed['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert all(field not in copied for field in ('repair', 'content_review', 'validation_error', 'raw_response'))
+    assert copied['retry_feedback']['previous_batch_error']['message']
+    assert copied['retry_feedback']['failed_correction_response']
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 
 
