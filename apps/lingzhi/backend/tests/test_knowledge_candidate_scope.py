@@ -21,6 +21,8 @@ def fact(subject, prop, value, conditions=None):
     (fact('循环', '执行速度优势', '通常优于递归'), '循环速度通常优于递归。', '模型'),
     (fact('递归深度', '限制因素', '系统栈空间'), '递归深度受系统栈空间限制。', '实现'),
     ({'form':'definition','subject':'DFS','meaning':'深度优先探索', 'constraints':['将子节点压入栈'], 'conditions':[], 'attachments':[]}, 'DFS用栈探索，将子节点压入栈。', '实现'),
+    ({'form':'definition','subject':'DFS','meaning':'深度优先探索', 'constraints':['依赖栈维护路径'], 'conditions':[], 'attachments':[]}, 'DFS依赖栈维护路径。', '实现'),
+    (fact('用队列实现 DFS', '搜索顺序', '广度优先'), '用队列实现 DFS时，搜索顺序变为广度优先。', '本讲'),
     ({'form':'procedure','subject':'栈','goal':'判断圆括号是否匹配', 'steps':['扫描字符','遇到左括号入栈','遇到右括号且栈空时立即失败','否则弹出一个左括号'], 'completion':'没有提前失败且最终栈为空', 'conditions':[], 'attachments':[]}, '栈算法：stack = []，然后扫描圆括号，空栈时失败。', '初始'),
     ({'form':'procedure','subject':'栈','goal':'判断圆括号是否匹配', 'steps':['初始化空栈','扫描字符','遇到左括号入栈','遇到右括号且栈空时立即失败','否则弹出一个左括号'], 'completion':'最终栈为空', 'conditions':[], 'attachments':[]}, '栈算法判断圆括号是否匹配。', '提前失败'),
 ])

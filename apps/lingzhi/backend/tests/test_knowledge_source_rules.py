@@ -29,9 +29,10 @@ def test_hallucinated_ban_cannot_be_relabelled_as_a_source_error():
     assert filtered == original and records == []
 
 
-def test_component_to_system_explanation_stays_context_without_blaming_the_source():
+@pytest.mark.parametrize('guarantee', ['保证先入队先处理', '保证先入队的节点先处理', '保证先进先出'])
+def test_component_to_system_explanation_stays_context_without_blaming_the_source(guarantee):
     from knowledge_source_rules import contextualize_component_explanations
-    original = value([point('popleft()', property='保证特性', value='保证先入队先处理'),
+    original = value([point('popleft()', property='保证特性', value=guarantee),
                       point('popleft()', property='操作效果', value='从左端弹出元素')])
     original['_content_review_trace'] = [{'point_review_key':'global'}, {'point_review_key':'primitive'}]
     source = {'S1.1': {'source_key':'S1','text':'queue = deque([root]); node=queue.popleft(); queue.append(child)'}}
