@@ -15,6 +15,13 @@ LEGACY_CONTRACT = 'knowledge_tree_relations_v2'
 CONTRACT = 'knowledge_tree_relations_v3'
 
 
+def missing_target_bound(statement, steps):
+    bounds = re.findall(r'(?:O|Θ|Ω|\\Theta|\\Omega)\s*\([^()]+\)', statement)
+    def normalized(value): return re.sub(r'[\s$`{}]|\\(?:left|right)', '', value).replace('\\log', 'log')
+    conclusion = normalized(steps[-1]) if steps and isinstance(steps[-1], str) else ''
+    return any(normalized(bound) not in conclusion for bound in bounds)
+
+
 def owned_targets(keys, local_keys, focus):
     # Each local pair is assessed once; incoming edges still express either direction.
     order = {key: i for i, key in enumerate(local_keys)}
@@ -144,6 +151,7 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
                             'endpoint_quote_mismatch' if not quotes_match else
                             'reused_pair_reason' if reasons[link['r']] > 1 else
                             'missing_direct_reference' if not any(subject in link['tq'] for subject in points[a].get('subjects', [points[a]['name']])) else
+                            'derivation_conclusion_mismatch' if kind == 'derives' and missing_target_bound(points[b]['statement'], link.get('s', [])) else
                             'comparison_is_not_derivation' if kind == 'derives' and re.search(r'作为.*(?:对比|参照|对照)|互为对立', link['r']) else None)
                     if code:
                         rejections.append({'code': code, 'focus_key': focus, 'link': deepcopy(link), 'status': 'excluded_from_graph'})
@@ -179,6 +187,10 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
     if modern: result['semantic_rejections'] = rejections
     for edge in result['relations']:
         edge['evidence_origin'] = 'model_selected_validated_statement_quotes' if modern else 'program_bound_full_frozen_statements'
+        if modern:
+            by_id = {point['knowledge_id']: point for point in points.values()}
+            edge['source_endpoint_conditions'] = deepcopy(by_id[edge['source_id']]['conditions'])
+            edge['target_endpoint_conditions'] = deepcopy(by_id[edge['target_id']]['conditions'])
     return result
 
 
