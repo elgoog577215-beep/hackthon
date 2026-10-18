@@ -409,6 +409,11 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         # not teaching bodies. Keep headroom proportional to the actual set.
         options['max_tokens'] = min(options['max_tokens'], max(2048, len(payload['points']) * 240 + 1024))
         request_budget['max_output_tokens'] = options['max_tokens']
+    quality_job = svc.authoring.read_projection(course_id, lambda state:
+        ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9')
+    if quality_job:
+        structure = None
+        request_budget['response_format'] = 'json_object_local_validation'
     svc.authoring.update_job_live(course_id, job_id, request_budget=request_budget,
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
@@ -435,7 +440,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         temperature=0,
         enable_thinking=False, reject_truncated=True, require_stop=True, raise_on_failure=True,
         inactivity_timeout_seconds=idle_limit,
-        json_mode=structure is not None or stage == 'extract', **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
+        json_mode=quality_job or structure is not None or stage == 'extract', **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
     try:
         done, _ = await asyncio.wait({checkpoint, call}, return_when=asyncio.FIRST_COMPLETED)
         if checkpoint in done: await checkpoint
@@ -505,7 +510,24 @@ async def run_atomic(svc, course_id, job_id):
                     extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
                 validate_source()
                 try:
-                    result = compile_extraction(raw, context, batch['source_keys'], i, parse_complete_json(response))
+                    parsed = parse_complete_json(response)
+                    try:
+                        result = compile_extraction(raw, context, batch['source_keys'], i, parsed)
+                    except CourseDocumentConflict as validation_error:
+                        if pipeline['prompt_contract'] != 'knowledge_extract_v9' or parsed.get('response_contract') != 'knowledge_extract_v9': raise
+                        from knowledge_extraction_repair import repair_points
+                        batch['repair'] = {'status': 'pending'}
+                        try:
+                            corrected = await repair_points(svc, course_id, job_id, provider, raw, context,
+                                batch['source_keys'], i, parsed, batch['repair'])
+                            validate_source()
+                            result = compile_extraction(raw, context, batch['source_keys'], i, corrected)
+                            batch['repair']['corrected_response'] = corrected
+                            batch['repair']['status'] = 'completed'
+                        except Exception:
+                            batch['repair']['status'] = 'failed'
+                            if not batch['repair'].get('target_keys'): raise validation_error
+                            raise
                 except Exception as error:
                     batch.update(raw_response=response, validation_error={'code': type(error).__name__,
                         'message': str(error) if isinstance(error, CourseDocumentConflict) else '完整响应未通过结构或语义校验'})

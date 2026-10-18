@@ -262,6 +262,16 @@ def expand_scalar(point):
     return expand_wire(wire)
 
 
+def quality_point(point, source_text):
+    require(isinstance(point, dict), '知识点必须是对象')
+    fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
+    options = [point.get(field) for field in fields]
+    require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
+            '知识主体必须逐字来自当前原文块')
+    require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
+    return build_point(point, options)
+
+
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
     if response['response_contract'] == QUALITY_CONTRACT:
@@ -275,14 +285,10 @@ def compile_extraction(raw, context, keys, index, response):
         for point in entry['points']:
             if response['response_contract'] == WIRE_CONTRACT: point = expand_wire(point)
             elif response['response_contract'] == CONTRACT: point = expand_scalar(point)
-            options = subject_options(passages[key]['text'], contract=response['response_contract'])
             if response['response_contract'] == QUALITY_CONTRACT:
-                fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
-                options = [point.get(field) for field in fields]
-                require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in passages[key]['text'] for s in options),
-                        '知识主体必须逐字来自当前原文块')
-                require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
-            normalized_point, audit = build_point(point, options)
+                normalized_point, audit = quality_point(point, passages[key]['text'])
+            else:
+                normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
             audit['schema_version'] = response['response_contract']
             normalized.append(normalized_point); audits.append(audit)
         entry['points'] = normalized
