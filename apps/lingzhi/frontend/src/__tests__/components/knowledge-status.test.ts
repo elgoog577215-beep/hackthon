@@ -30,6 +30,21 @@ beforeEach(async () => {
 })
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
+it('hides the ready-for-adoption progress notice after the generated version is adopted', async () => {
+  const v: any = state()
+  v.jobs = [{ id: 'adopted-job', type: 'course_knowledge_tree_generation', knowledge_lesson_id: 'cpu', status: 'completed', progress: 100 }]
+  v.active_jobs = []
+  v.lesson_options[0].blocking_job_ids = []
+  v.tree = { ...v.tree, generation_job_id: 'adopted-job', status: 'accepted' }
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  try {
+    expect(w.find('[data-testid="knowledge-generation-progress"]').exists()).toBe(false)
+    expect(w.find('.mastery-tree').exists()).toBe(true)
+  } finally { w.unmount() }
+})
+
 it('polls lightweight status and displays reported percentage without model diagnostics', async () => {
   const get = vi.spyOn(http, 'get').mockImplementation(async url => ({ data: String(url).endsWith('/status') ? status() : state() }))
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
