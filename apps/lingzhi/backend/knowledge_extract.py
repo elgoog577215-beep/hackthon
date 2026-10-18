@@ -13,8 +13,9 @@ LITERAL_CONTRACT = 'knowledge_extract_v4'
 PARTS_CONTRACT = 'knowledge_extract_v5'
 SEMANTIC_CONTRACT = 'knowledge_extract_v6'
 WIRE_CONTRACT = 'knowledge_extract_v7'
-CONTRACT = 'knowledge_extract_v8'
-CONTRACTS = {LEGACY_CONTRACT, FOCUS_CONTRACT, COMPLETE_CONTRACT, LITERAL_CONTRACT, PARTS_CONTRACT, SEMANTIC_CONTRACT, WIRE_CONTRACT, CONTRACT}
+SCALAR_CONTRACT = 'knowledge_extract_v8'
+CONTRACT = 'knowledge_extract_v9'
+CONTRACTS = {LEGACY_CONTRACT, FOCUS_CONTRACT, COMPLETE_CONTRACT, LITERAL_CONTRACT, PARTS_CONTRACT, SEMANTIC_CONTRACT, WIRE_CONTRACT, SCALAR_CONTRACT, CONTRACT}
 
 
 def focus_options(content):
@@ -57,7 +58,7 @@ def extraction_groups(context):
 def extraction_schema(passage_keys, options=None, *, contract=None):
     contract = contract or (CONTRACT if options is not None else LEGACY_CONTRACT)
     require(contract in CONTRACTS, '未知直接提取合同')
-    if contract in {CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
+    if contract in {CONTRACT, SCALAR_CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
         from knowledge_semantic_contract import extraction_schema as semantic_schema
         return semantic_schema(passage_keys, options, contract=contract)
     attachment = obj({'name': string(200), 'kind': {'type': 'string', 'enum': ['condition', 'boundary', 'example']},
@@ -107,7 +108,7 @@ def extraction_schema(passage_keys, options=None, *, contract=None):
 
 def extraction_prompt(raw, context, keys, *, contract=CONTRACT):
     require(contract in CONTRACTS, '未知直接提取合同')
-    if contract in {CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
+    if contract in {CONTRACT, SCALAR_CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
         from knowledge_semantic_contract import extraction_prompt as semantic_prompt
         return semantic_prompt(raw, context, keys, contract=contract)
     passages = passage_catalog(context, keys)
@@ -194,7 +195,7 @@ def compile_extraction(raw, context, keys, index, response):
     from knowledge_atomic import compile_inventory, compile_batch
     from knowledge_compact import source_issues
     require(isinstance(response, dict) and response.get('response_contract') in CONTRACTS, '直接提取合同无效')
-    if response['response_contract'] in {CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
+    if response['response_contract'] in {CONTRACT, SCALAR_CONTRACT, WIRE_CONTRACT, SEMANTIC_CONTRACT}:
         from knowledge_semantic_contract import compile_extraction as compile_semantic
         return compile_semantic(raw, context, keys, index, response)
     complete_question = response['response_contract'] in {LITERAL_CONTRACT, COMPLETE_CONTRACT}

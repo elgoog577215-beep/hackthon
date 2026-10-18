@@ -427,6 +427,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
                 phase='model_streaming' if activity['received_chars'] else 'model_wait', **activity)
     checkpoint = asyncio.create_task(pulse())
     call = asyncio.create_task(provider._call_llm(prompt, system_prompt=system, max_attempts=1, retry_count=1,
+        temperature=0,
         enable_thinking=False, reject_truncated=True, require_stop=True, raise_on_failure=True,
         inactivity_timeout_seconds=idle_limit,
         json_mode=structure is not None, **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
@@ -472,6 +473,8 @@ async def run_atomic(svc, course_id, job_id):
             'schema_version': PIPELINE, 'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
+        if pipeline['prompt_contract'] == 'knowledge_extract_v9':
+            context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))
         pipeline['include_relations'] = bool(job.get('include_relations', pipeline.get('include_relations', False)))
         def save(**extra):

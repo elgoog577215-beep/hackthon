@@ -1252,6 +1252,7 @@ class AIBase:
         on_content_reset: Callable[[], Any] | None = None,
         telemetry_sink: Callable[[dict], None] | None = None,
         measured_input: MeasuredChatInput | None = None,
+        temperature: float | None = None,
     ) -> Optional[str]:
         """
         通用 LLM 调用函数。
@@ -1281,6 +1282,11 @@ class AIBase:
         Returns:
             LLM 完整响应文本，失败返回 None
         """
+        if temperature is not None and (
+            isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+            or not math.isfinite(temperature) or not 0 <= temperature <= 2
+        ):
+            raise ValueError("temperature must be a finite number between 0 and 2")
         self.validate_request_budget(
             prompt,
             system_prompt,
@@ -1464,6 +1470,8 @@ class AIBase:
                         "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
+                    if temperature is not None:
+                        request_options["temperature"] = temperature
                     if json_mode and (json_schema is not None or self._supports_json_response_format(
                         model_id=model_id
                     )):

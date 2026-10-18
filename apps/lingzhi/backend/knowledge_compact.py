@@ -58,6 +58,10 @@ def passage_catalog(context, keys):
     available = sources(context); result = []
     for source_key in keys:
         content = available[source_key]['source_text']; start = 0; number = 0
+        if context.get('knowledge_passage_mode') == 'source_blocks_v1':
+            result.append({'key': f'{source_key}.1', 'source_key': source_key,
+                           'start': 0, 'end': len(content), 'text': content})
+            continue
         while start < len(content):
             end = min(start+600,len(content))
             if end < len(content):
