@@ -70,6 +70,27 @@ def test_named_concept_does_not_inherit_incidental_operation_names():
     assert 'Push' not in result['aliases']
 
 
+@pytest.mark.parametrize('name,expected', [('队列的定义', {'Queue'}), ('优先队列的定义', {'Priority Queue'}),
+                                          ('队列与优先队列对比', {'Queue', 'Priority Queue'})])
+def test_source_annotations_do_not_bind_a_short_name_inside_a_different_longer_concept(name, expected):
+    from knowledge_evidence import enrich_point
+    point = {'knowledge_id': 'fixed', 'revision_id': 'fixed-revision', 'name': name, 'statement': name,
+        'source_quotes': [{'evidence_id': 'e', 'source_key': 'S1', 'quote': '**队列（Queue）**遵循FIFO。**优先队列**（Priority Queue）按优先级。'}]}
+    before = deepcopy(point); result = enrich_point(point)
+    assert {r['english_name'] for r in result['terms']} == expected
+    assert result['knowledge_id'] == 'fixed' and result['revision_id'] == 'fixed-revision' and point == before
+
+
+def test_proposed_terms_cannot_relabel_priority_queue_as_queue_using_a_suffix_quote():
+    from knowledge_evidence import enrich_point
+    point = {'name': '队列的定义', 'statement': '队列按FIFO访问。', 'source_quotes': [
+        {'evidence_id': 'e', 'source_key': 'S1', 'quote': '**队列（Queue）**遵循FIFO。**优先队列**（Priority Queue）按优先级。'}]}
+    result = enrich_point(point, proposed_terms=[{'name': '队列', 'english_name': 'Priority Queue', 'source_key': 'S1',
+        'quote': '队列**（Priority Queue）'}])
+    assert not any(r['english_name'] == 'Priority Queue' for r in result['terms'])
+    assert any(r['english_name'] == 'Priority Queue' and r['status'] == 'source_unconfirmed' for r in result['term_candidates'])
+
+
 def test_exact_excerpt_is_checked_and_legacy_source_keys_still_work(svc):
     handouts(svc)
     raw = svc.repository.load_raw('c-pilot'); ctx = handout_context(raw, svc.authoring.load('c-pilot'))
