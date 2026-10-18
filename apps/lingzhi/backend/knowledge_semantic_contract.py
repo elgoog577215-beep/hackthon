@@ -180,7 +180,7 @@ def extraction_prompt(raw, context, keys, *, contract=CONTRACT):
     ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
 
 
-def build_point(point, options):
+def build_point(point, options, *, allow_relation_property=False):
     form = point.get('form')
     fields = {'fact': {'subject', 'property', 'value'}, 'definition': {'subject', 'meaning', 'constraints'},
               'comparison': {'left_subject', 'right_subject', 'property', 'left_value', 'right_value'},
@@ -195,7 +195,11 @@ def build_point(point, options):
     if form in {'fact', 'comparison'}:
         prop = text(point['property'], '单一检查属性', 30)
         require(not re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d', prop), '具体执行轨迹只能作为例题或附件')
-        require(not re.search(r'[、;；，,]|以及|与|和|及', prop), '独立属性必须分别成为知识点')
+        single_relation = allow_relation_property and form == 'fact' and bool(re.fullmatch(
+            r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and bool(re.fullmatch(
+            r'(?:相反|一致|相同|不同|成正比|成反比|正相关|负相关|无关|一一对应|相等)(?:[（(][^()（）;；]+[）)])?。?', str(point.get('value', ''))))
+        require(single_relation or not re.search(r'[、;；，,]|以及|与|和|及', prop), '独立属性必须分别成为知识点')
+        if single_relation: audit['property_kind'] = 'single_relation'
         audit['property'] = prop
     if form == 'fact':
         value = text(point['value'], '属性值', 1000).rstrip('。')
@@ -269,7 +273,7 @@ def quality_point(point, source_text):
     require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
-    return build_point(point, options)
+    return build_point(point, options, allow_relation_property=True)
 
 
 def compile_extraction(raw, context, keys, index, response):
