@@ -184,7 +184,14 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
                 kind = link.get('t') if isinstance(link, dict) else None
                 expected = {'e', 't', 'c', 'r', 'if', 'w'} | ({'n'} if kind == 'prerequisite' else {'s'} if kind == 'derives' else set())
                 candidate = candidates.get(link.get('e')) if isinstance(link, dict) and isinstance(link.get('e'), str) else None
-                code = ('invalid_relation_fields' if not isinstance(link, dict) or set(link) != expected else
+                typed = (isinstance(link, dict) and isinstance(kind, str) and kind in {'prerequisite', 'derives', 'applies_to'}
+                    and all(isinstance(link.get(k), str) and 0 < len(link[k].strip()) <= limit for k, limit in [('c', 100), ('r', 180)])
+                    and isinstance(link.get('if'), list) and len(link['if']) <= 20 and all(isinstance(c, str) and 0 < len(c) <= 1000 for c in link['if'])
+                    and (link.get('w') is None or isinstance(link.get('w'), str) and link['w'] in {'weak', 'medium', 'strong'})
+                    and (kind != 'prerequisite' or isinstance(link.get('n'), str) and link['n'] in {'required', 'recommended'})
+                    and (kind != 'derives' or isinstance(link.get('s'), list) and 2 <= len(link['s']) <= 12
+                         and all(isinstance(step, str) and 0 < len(step) <= 2000 for step in link['s'])))
+                code = ('invalid_relation_fields' if not typed or set(link) != expected else
                         'unknown_candidate_pair' if not candidate else 'candidate_focus_mismatch' if candidate['focus_key'] != focus else None)
                 if code:
                     rejections.append({'code': code, 'focus_key': focus, 'link': deepcopy(link), 'status': 'excluded_from_graph'}); continue

@@ -359,6 +359,15 @@ def assemble(raw, context, pipeline, hierarchy=None):
     result['relations'] = [deepcopy(r) for r in existing.get('relations', []) if r['source_id'] in all_ids and r['target_id'] in all_ids]
     result['relation_index'] = relation_index(result)
     source_issues = [deepcopy(issue) for group in pipeline['inventory_batches'] for issue in group.get('source_issues',[])]
+    content_review = None
+    if pipeline.get('prompt_contract') == 'knowledge_extract_v9':
+        reviewed = [batch for batch in pipeline['inventory_batches'] if batch.get('content_review', {}).get('status') == 'completed']
+        missing = [batch['id'] for batch in pipeline['inventory_batches'] if batch not in reviewed]
+        content_review = {'contract': 'knowledge_content_review_v1', 'completed_batches': len(reviewed),
+            'missing_batches': len(missing), 'evidence_kind': 'separate_request_same_model', 'semantics_verified': False,
+            'decision_count': sum(len(batch['content_review'].get('decisions', {})) for batch in reviewed),
+            'structural_correction_batches': sum(batch.get('repair', {}).get('status') == 'completed' for batch in pipeline['inventory_batches'])}
+        issues.extend({'code': 'content_review_missing', 'severity': 'blocking', 'batch_id': batch_id} for batch_id in missing)
     issues.extend({'code':'text_integrity_pending','severity':'blocking','inventory_key':item['key']} for item in pipeline['items'] if item.get('text_integrity_pending'))
     issues.extend({'code':'source_focus_pending','severity':'blocking','inventory_key':item['key']} for item in pipeline['items'] if item.get('source_focus_pending'))
     if any(group.get('format_normalizations') for group in pipeline['inventory_batches']):issues.append({'code':'response_format_review','severity':'review'})
@@ -368,6 +377,7 @@ def assemble(raw, context, pipeline, hierarchy=None):
     issues.extend({'code':'source_span_uncovered','severity':'blocking','source_key':p['source_key'],'passage_key':p['key']} for p in uncovered)
     issues.extend({'code':'source_review','severity':'review','source_key':issue['source_key']} for issue in source_issues)
     result['atomic_assessment'] = {'schema_version': PIPELINE, 'ready_for_adoption': not any(i['severity'] == 'blocking' for i in issues),
+        **({'content_review': content_review} if content_review is not None else {}),
         'exact_duplicate_consolidations': consolidations,
         'atomicity_checks': [{'point_key': p['key'], **deepcopy(p['atomic_contract'])} for p in points if p.get('atomic_contract')],
         'resolved_review_issues': resolved_reviews,

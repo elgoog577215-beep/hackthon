@@ -402,6 +402,12 @@ class KnowledgeFirstService:
                 continued_checkpoint.pop('candidate', None)
                 if pipeline == PIPELINE:
                     organize_hierarchy = bool(organize_hierarchy or prior.get('organize_hierarchy'))
+                    if prior.get('prompt_contract') == 'knowledge_extract_v9':
+                        for batch in prior.get('inventory_batches', []):
+                            if batch.get('status') == 'completed': continue
+                            batch['prior_attempt_job_id'] = resume_job_id
+                            for field in ('raw_response', 'validation_error', 'repair', 'content_review'):
+                                batch.pop(field, None)
                 if pipeline == RELATIONS:
                     from knowledge_relation_generation import validate_source
                     validate_source(self,raw,original)
