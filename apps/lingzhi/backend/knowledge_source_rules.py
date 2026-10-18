@@ -69,7 +69,7 @@ def contextualize_component_explanations(response, passages):
         for ordinal, point in enumerate(entry['points']):
             trace = traces[cursor] if traces is not None else None; cursor += 1
             component_guarantee = (point.get('form') == 'fact' and 'popleft' in str(point.get('subject', ''))
-                and 'deque' in source['text'] and re.search(r'FIFO|先入先出|先入队先处理|按层|层序|层级扩散', str(point.get('value', '')), re.I))
+                and 'deque' in source['text'] and re.search(r'FIFO|先[入进].{0,12}先(?:出|处理|离开)|按层|层序|层级扩散', str(point.get('value', '')), re.I))
             if not component_guarantee:
                 kept.append(point)
                 if trace is not None: kept_traces.append(trace)

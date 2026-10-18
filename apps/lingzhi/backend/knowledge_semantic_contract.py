@@ -335,8 +335,10 @@ def quality_point(point, source_text):
               '递归与循环的性能比较必须限定来源支持的实现和计量模型；缺少依据则记来源疑点，不保留无条件性能保证')
     if point.get('form') == 'definition' and any(re.search(r'DFS|BFS', str(subject)) for subject in options):
         implementation = str(point.get('meaning', '')) + '；'.join(str(c) for c in point.get('constraints', []))
-        if re.search(r'入栈|压入栈|出栈|入队|加入队尾|移出队头', implementation):
+        if re.search(r'入栈|压入栈|出栈|入队|加入队尾|移出队头|依赖.*(?:栈|队列)', implementation):
             check(scoped_model, '搜索定义混入栈或队列步骤时必须限定当前实现；一般策略定义不能绑定唯一实现')
+    if any(re.search(r'DFS|BFS', str(subject)) and re.search(r'用.*实现', str(subject)) for subject in options) and '搜索顺序' in prop:
+        check(bool(re.search(r'本讲|当前|所示|直接替换', conditions)), '替换容器导致的搜索顺序须限定本讲直接替换的实现，不能推广到所有用队列或栈的算法')
     if any(re.search(r'DFS|BFS', str(subject)) for subject in options) and re.search(r'依赖|数据结构', prop):
         check(scoped_model, '策略与数据结构的关联必须限定当前实现，不能把某种实现当唯一必要条件')
         if 'BFS' in str(point.get('subject')) and re.search(r'队列|FIFO', value):
