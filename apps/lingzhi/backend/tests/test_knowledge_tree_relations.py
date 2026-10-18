@@ -13,7 +13,7 @@ from course_repository import CourseDocumentConflict
 
 def relation_response(data):
     a, b = data['focus_keys'][:2]
-    if data.get('relation_contract') == 'knowledge_tree_relations_v3':
+    if data.get('relation_contract') in {'knowledge_tree_relations_v3', 'knowledge_tree_relations_v4'}:
         source, target = data['catalog'][a], data['catalog'][b]
         return {'point_reviews': {key: '已核对两端对象和直接引用。' for key in data['focus_keys']},
             'focus_links': {key: ([{'p': b, 'd': 'out', 't': 'prerequisite', 'n': 'recommended',
