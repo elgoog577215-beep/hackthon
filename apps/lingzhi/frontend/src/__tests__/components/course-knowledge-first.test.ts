@@ -41,7 +41,7 @@ describe('embedded teacher knowledge manager', () => {
     expect(w.text()).toContain('请先查看并采用知识树')
     w.unmount()
   })
-  it('adopts the server candidate with both frozen source revisions', async () => {
+  it('preserves legacy adoption requests with both frozen source revisions and no unrelated confirmations', async () => {
     const state = { ...base(), candidate: tree('kb1'), candidate_job_id: 'job1' }
     mock.get.mockResolvedValue({ data: state })
     const w = mountView(); await flushPromises()
