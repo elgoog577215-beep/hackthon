@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn() }))
+const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api, studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
 import zh from '../../../public/locales/zh/translation.json'
@@ -75,7 +75,7 @@ describe('personal study handouts', () => {
     const { wrapper, router } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     await wrapper.findAll('.source-selection input')[1]!.setValue(true)
-    await wrapper.get('input[placeholder="例如：线性代数前两章复习"]').setValue('方程组备考')
+    await wrapper.get('input[placeholder="例如：线性代数前两章"]').setValue('方程组备考')
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
     let resolve: (value: unknown) => void = () => {}
     api.generate.mockImplementation(() => new Promise(done => { resolve = done }))
@@ -143,9 +143,9 @@ describe('personal study handouts', () => {
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('Choose your sources')
-    expect(wrapper.text()).toContain('Deep understanding')
+    expect(wrapper.text()).toContain('Detailed study')
     expect(wrapper.text()).toContain('Exam preparation')
-    expect(wrapper.text()).toContain('Generate handout')
+    expect(wrapper.text()).toContain('Generate course handout')
     expect(wrapper.text()).not.toContain('预计阅读时间')
   })
 
@@ -153,13 +153,13 @@ describe('personal study handouts', () => {
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     await wrapper.find('.source-selection input').setValue(true)
-    await wrapper.get('input[placeholder="例如：线性代数前两章复习"]').setValue('原讲义')
+    await wrapper.get('input[placeholder="例如：线性代数前两章"]').setValue('原讲义')
     api.generate.mockRejectedValue(new Error('连接中断'))
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
     const originalId = api.generate.mock.calls[0]![0].request_id
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
     expect(api.generate.mock.calls[1]![0].request_id).toBe(originalId)
-    await wrapper.get('input[placeholder="例如：线性代数前两章复习"]').setValue('修改后的讲义')
+    await wrapper.get('input[placeholder="例如：线性代数前两章"]').setValue('修改后的讲义')
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
     expect(api.generate.mock.calls[2]![0].request_id).not.toBe(originalId)
   })
@@ -167,7 +167,7 @@ describe('personal study handouts', () => {
   it('discards an old owner’s late source response after logout and a different login', async () => {
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    await wrapper.find('.study-source-actions button').trigger('click')
+    await wrapper.find('.study-paste-toggle').trigger('click')
     await wrapper.find('.study-paste input').setValue('A 的私有资料')
     await wrapper.find('.study-paste textarea').setValue('A 的私有正文')
     let resolve: (value: unknown) => void = () => {}
@@ -183,6 +183,52 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).not.toContain('A 的私有资料')
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.findAll('.source-selection')).toHaveLength(0)
-    expect(wrapper.get('input[placeholder="例如：线性代数前两章复习"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('input[placeholder="例如：线性代数前两章"]').element).toHaveProperty('value', '')
   })
+  it('uploads an owned source and blocks generation until parsing returns', async () => {
+    api.sources.mockResolvedValue([])
+    const { wrapper } = await page('/study?create=1')
+    let complete!: (value: unknown) => void
+    api.upload.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    const file = new File(['# First lesson\nSource text'], 'my-course.md', { type: 'text/markdown' })
+    const input = wrapper.get('.study-upload-input')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await wrapper.get('form.study-create').trigger('submit')
+    expect(api.generate).not.toHaveBeenCalled()
+    complete({ ...source, filename: 'my-course.md' }); await flushPromises()
+    expect(api.upload).toHaveBeenCalledExactlyOnceWith(file)
+    expect(wrapper.get('input[placeholder="例如：线性代数前两章"]').element).toHaveProperty('value', 'my-course')
+    expect(wrapper.findAll('.source-selection input').every(input => (input.element as HTMLInputElement).checked)).toBe(true)
+    api.generate.mockResolvedValueOnce(saved)
+    await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
+    expect(api.generate).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'systematic', selections: [{ asset_id: 'mat-123', section_id: 'blk-1' }, { asset_id: 'mat-123', section_id: 'blk-3' }] }))
+  })
+
+  it('rejects oversized uploads and stale draft ranges before a generation request', async () => {
+    sessionStorage.setItem('lingzhi-study-draft:student-a', JSON.stringify({ form: { title: 'Old draft' }, selectedRanges: ['missing:deleted'] }))
+    const { wrapper } = await page('/study?create=1')
+    const file = new File(['data'], 'too-large.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'size', { value: 21 * 1024 * 1024 })
+    const input = wrapper.get('.study-upload-input')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change'); await flushPromises()
+    expect(wrapper.text()).toContain('20 MB')
+    expect(api.upload).not.toHaveBeenCalled()
+    await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
+    expect(api.generate).not.toHaveBeenCalled()
+  })
+
+  it('restores the create URL and chosen mode after returning from a saved course', async () => {
+    const { wrapper, router } = await page('/study?create=1')
+    await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
+    await wrapper.get('input[placeholder="例如：线性代数前两章"]').setValue('自建课程草稿')
+    await router.push('/study/material-a'); await flushPromises()
+    await router.push('/study?create=1'); await flushPromises()
+    expect(wrapper.find('form.study-create').exists()).toBe(true)
+    expect(wrapper.get('input[placeholder="例如：线性代数前两章"]').element).toHaveProperty('value', '自建课程草稿')
+    expect(wrapper.findAll('.study-purpose-options button')[1]!.attributes('aria-pressed')).toBe('true')
+    expect(api.generate).not.toHaveBeenCalled()
+  })
+
 })

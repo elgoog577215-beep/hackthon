@@ -52,14 +52,15 @@
         <form v-else class="study-create" @submit.prevent="generate">
           <div class="study-page-heading"><div><span class="study-eyebrow">CREATE YOUR HANDOUT</span><h1>{{ c('create') }}</h1><p>{{ c('intro') }}</p></div></div>
           <section class="study-form-section"><h2>{{ c('sourceHeading') }}</h2><p>{{ c('sourceHint') }}</p>
-            <div class="study-source-actions"><label class="study-upload"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}<input type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy" multiple @change="uploadFiles" /></label><button type="button" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
+            <div class="study-source-actions"><input ref="sourceFileInput" class="study-upload-input" type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy || busy" multiple @change="uploadFiles" /><button type="button" class="study-upload" :disabled="sourceBusy || busy" @click="sourceFileInput?.click()"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}</button><button type="button" class="study-paste-toggle" :disabled="sourceBusy || busy" :aria-expanded="pasting" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
             <div v-if="pasting" class="study-paste"><label>{{ c('sourceTitle') }}<input v-model="sourceTitle" maxlength="160" /></label><label>{{ c('sourceContent') }}<textarea v-model="sourceText" rows="8" maxlength="120000" /></label><button type="button" :disabled="sourceBusy || !sourceTitle.trim() || !sourceText.trim()" @click="addText">{{ sourceBusy ? c('busy') : c('addSource') }}</button></div>
             <p v-if="!sources.length && !pasting" class="study-source-empty">{{ c('emptySources') }}</p>
-            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('scope') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
+            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('sourceRanges') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters || (selectedRanges.length >= 6 && !selectedRanges.includes(`${source.id}:${section.id}`))" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
+            <p class="study-range-hint" role="status">{{ c('rangeLimit') }}</p>
           </section>
           <section class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
           <section class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<input v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<textarea v-model="form.requirements" rows="3" maxlength="2000" :placeholder="c('requirementsPlaceholder')" /></label></section>
-          <div class="study-generate-bar"><span>{{ selectedRanges.length }} · {{ c('scope') }}</span><button class="study-primary" :disabled="busy || sourceBusy || !selectedRanges.length">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
+          <div class="study-generate-bar"><div><strong>{{ selectedRanges.length }} / 6 · {{ c('scope') }}</strong><p>{{ c('personalCourseHint') }}</p></div><button class="study-primary" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
         </form>
       </section>
 
@@ -119,6 +120,13 @@ const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), mater
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
 const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
+const sourceFileInput = ref<HTMLInputElement | null>(null)
+const canGenerate = computed(() => {
+  const available = new Set(sources.value.flatMap(source => source.sections.filter(section => section.characters > 0).map(section => `${source.id}:${section.id}`)))
+  return Boolean(form.title.trim()) && selectedRanges.value.length > 0 && selectedRanges.value.length <= 6
+    && new Set(selectedRanges.value).size === selectedRanges.value.length && selectedRanges.value.every(range => available.has(range))
+    && Number.isInteger(form.time_minutes) && form.time_minutes >= 10 && form.time_minutes <= 600
+})
 const toolTabs = ['assistant', 'note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('assistant')
 const activeChapter = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
 const assistantContext = computed(() => {
@@ -186,33 +194,36 @@ async function loadLibrary() { const current = epoch; const result = await Promi
 async function connect() {
   const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled
   if (!studySession.get() && !qizhiAuth) return
-  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); await loadLibrary(); await openMaterial() }
+  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); await loadLibrary(); await openMaterial(); creating.value = !materialId.value && route.query.create === '1' }
   catch (cause) { showError(cause) }
 }
-async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else await openMaterial() }) }
+async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else { await openMaterial(); creating.value = !materialId.value && route.query.create === '1' } }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
 const authorizedCourses = ref<InstanceType<typeof StudentCourseLibrary> | null>(null)
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]); await openMaterial() } }) }
 async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
 async function goLibrary() { await openStudySection('materials') }
-async function startNew(purpose?: StudyPurpose) { await router.push('/study'); creating.value = true; if (purpose) form.purpose = purpose; await action(loadLibrary) }
+async function startNew(purpose?: StudyPurpose) { if (!user.value) return; persistDraft(); await router.push('/study?create=1'); creating.value = true; if (purpose) form.purpose = purpose }
 async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
-  sources.value.unshift(source)
+  sources.value = [source, ...sources.value.filter(existing => existing.id !== source.id)]
   if (!source.sections.length) { error.value = source.error || c('sourceFailed'); return }
-  selectedRanges.value.push(...source.sections.slice(0, 3).filter(section => section.characters).map(section => `${source.id}:${section.id}`))
+  if (!selectedRanges.value.length) selectedRanges.value = source.sections.filter(section => section.characters).slice(0, 3).map(section => `${source.id}:${section.id}`)
   if (!form.title) form.title = source.filename.replace(/\.[^.]+$/, '')
 }
-async function addText() { const owner = user.value?.id; sourceBusy.value = true; error.value = ''; try { const source = await studyApi.addText(sourceTitle.value.trim(), sourceText.value); if (!sameOwner(owner)) return; rememberSource(source); sourceText.value = ''; sourceTitle.value = ''; pasting.value = false } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false } }
+async function addText() { if (sourceBusy.value || busy.value || !user.value) return; const owner = user.value?.id; sourceBusy.value = true; error.value = ''; try { const source = await studyApi.addText(sourceTitle.value.trim(), sourceText.value); if (!sameOwner(owner)) return; rememberSource(source); sourceText.value = ''; sourceTitle.value = ''; pasting.value = false } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false } }
 async function uploadFiles(event: Event) {
   const input = event.target as HTMLInputElement, files = Array.from(input.files || [])
+  if (sourceBusy.value || busy.value || !user.value || !files.length) return
+  const oversized = files.find(file => file.size > 20 * 1024 * 1024)
+  if (oversized) { error.value = `${oversized.name}: ${c('sourceTooLarge')}`; input.value = ''; return }
   const owner = user.value?.id
   sourceBusy.value = true; error.value = ''
   try { for (const file of files) { const source = await studyApi.upload(file); if (!sameOwner(owner)) return; rememberSource(source) } } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false; input.value = '' }
 }
 async function generate() {
-  if (busy.value) return
-  if (!form.title.trim() || !selectedRanges.value.length || selectedRanges.value.length > 6) { error.value = c('scopeRequired'); return }
+  if (busy.value || sourceBusy.value) return
+  if (!canGenerate.value) { error.value = c('scopeRequired'); return }
   await action(async () => {
     const owner = user.value?.id
     const payload = { ...form, title: form.title.trim(), language: activeLocale.value, selections: selectedRanges.value.map(range => { const [asset_id, section_id] = range.split(':'); return { asset_id: asset_id!, section_id: section_id! } }) }
@@ -242,7 +253,8 @@ async function openMaterial() {
   }
   await refresh(true)
 }
-watch(materialId, () => { creating.value = false; void openMaterial() })
+watch(materialId, () => { creating.value = route.query.create === '1' && !materialId.value; void openMaterial() })
+watch(() => route.query.create, value => { creating.value = value === '1' && !materialId.value && Boolean(user.value) })
 async function resume() { await action(async () => { const owner = user.value?.id, id = materialId.value; await studyApi.resume(id); if (sameOwner(owner) && materialId.value === id) await openMaterial() }) }
 async function saveNote() { await action(async () => { const owner = user.value?.id, id = materialId.value, revision = material.value!.revisions[0]!.id, content = noteText.value; await studyApi.note(id, revision, content); if (sameOwner(owner) && id === materialId.value) { savedNote.value = content; noteSaved.value = true } }) }
 function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
@@ -287,4 +299,20 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-workspace { gap: 8px; }
 .study-workspace.is-library .study-main-scroll { border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.76); box-shadow: var(--lz-shadow-panel); }
 @media(max-width:1100px) { .study-header-actions .study-user { display: none; } }
+</style>
+
+<style scoped>
+.study-upload-input { display:none; }
+.study-create { width:100%; max-width:980px; margin:0 auto; padding:28px; box-sizing:border-box; }
+.study-create .study-page-heading p { max-width:740px; color:var(--lz-text-secondary); font-size:15px; line-height:1.7; margin:10px 0 0; }
+.study-form-section { border:1px solid var(--lz-border); border-radius:var(--lz-radius-surface); background:#fff; }
+.study-purpose-options button { align-content:start; text-align:left; border-radius:var(--lz-radius-control); }
+.study-purpose-options button > span { font-size:15px; line-height:1.7; color:var(--lz-text-secondary); }
+.study-purpose-options button.selected { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.study-range-hint { color:var(--lz-text-secondary); font-size:15px; margin-top:14px; }
+.study-generate-bar { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.study-generate-bar > div { flex:1; min-width:220px; color:var(--lz-text); font-size:15px; }
+.study-generate-bar p { margin:6px 0 0; font-size:15px; line-height:1.6; color:var(--lz-text-secondary); }
+.study-generate-bar button { flex:none; }
+@media (max-width:1280px) { .study-create { padding:24px 20px; } }
 </style>

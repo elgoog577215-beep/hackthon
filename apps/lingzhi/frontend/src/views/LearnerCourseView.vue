@@ -5,6 +5,7 @@
 
     <Transition name="slide-left">
       <CourseNavigator
+        :student-owner-id="!isTeacherPreview && !isGenerationPreview && getStudyIdentity()?.role === 'student' ? getStudyIdentity()?.id : undefined"
         v-if="navigatorVisible"
         class="navigator-surface"
         data-companion-obstacle

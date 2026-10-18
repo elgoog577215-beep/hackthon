@@ -66,7 +66,7 @@ export const studyApi = {
   addText: (title: string, content: string) => request<StudySource>('/sources/text', json({ title, content })),
   upload: (file: File) => { const form = new FormData(); form.append('file', file); return request<StudySource>('/sources/upload', { method: 'POST', body: form }) },
   downloadSource: (id: string) => request<Blob>(`/sources/${encodeURIComponent(id)}/download`),
-  list: () => request<StudySummary[]>('/materials'),
+  list: (signal?: AbortSignal) => request<StudySummary[]>('/materials', { signal }),
   generate: (body: StudyGenerationRequest) => request<StudyMaterial>('/materials', json(body)),
   get: (id: string) => request<StudyMaterial>(`/materials/${encodeURIComponent(id)}`),
   resume: (id: string) => request(`/materials/${encodeURIComponent(id)}/continue`, { method: 'POST' }),
