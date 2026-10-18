@@ -186,7 +186,7 @@ def test_literal_subject_enum_avoids_opaque_key_mismatches_without_accepting_par
     assert all(v in passage['text'] for v in choices)
     point = response()['points'][0]; point.pop('source_passage_keys')
     value = {'response_contract': 'knowledge_extract_v4', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
-    schema = extraction_schema(['S1.1'], {'S1.1': choices})
+    schema = extraction_schema(['S1.1'], {'S1.1': choices}, contract='knowledge_extract_v4')
     validate(value, schema)
     result = compile_extraction(raw, context, ['S1'], 1, value)
     assert result['report']['ready_for_adoption']
@@ -195,6 +195,25 @@ def test_literal_subject_enum_avoids_opaque_key_mismatches_without_accepting_par
     with pytest.raises(ValidationError): validate(value, schema)
     with pytest.raises(CourseDocumentConflict, match='原文对象'):
         compile_extraction(raw, context, ['S1'], 1, value)
+
+
+@pytest.mark.parametrize('goal', [False, True])
+def test_literal_question_parts_bind_source_without_inventing_or_repeating_the_subject(svc, monkeypatch, goal):
+    import json
+    from jsonschema import validate
+    from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
+    point = response()['points'][0]
+    point.pop('source_passage_keys'); point.pop('question')
+    point.update(question_before='执行', question_after='操作时，元素插入哪一端？')
+    if goal: point['claim'] = '能画出入栈的示意图。'
+    value = {'response_contract': 'knowledge_extract_v5', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    result = compile_extraction(raw, context, ['S1'], 1, value)
+    assert result['tree']['knowledge_points'][0]['meta_question'] == '执行入栈操作时，元素插入哪一端？'
+    assert result['report']['ready_for_adoption'] is not goal
 
 
 @pytest.mark.asyncio
