@@ -131,6 +131,20 @@ def test_source_focus_options_include_real_recursion_objects_and_keep_legacy_pro
     assert '"focus_term"' in prompt
 
 
+def test_symbol_only_sources_keep_literal_anchors_and_empty_sources_allow_only_explicit_notes():
+    from jsonschema import Draft202012Validator
+    from knowledge_extract import focus_options, extraction_schema
+    assert '2+3=5' in focus_options('2+3=5').values()
+    schema = extraction_schema(['S1.1'], {'S1.1': {}})
+    Draft202012Validator.check_schema(schema)
+    value = {'response_contract': 'knowledge_extract_v2', 'passages': {'S1.1': {
+        'points': [], 'note': {'handling': 'context', 'reason': '空白片段无可提取知识'}}}, 'source_issues': []}
+    validator = Draft202012Validator(schema)
+    assert validator.is_valid(value)
+    value['passages']['S1.1']['note'] = None
+    assert not validator.is_valid(value)
+
+
 @pytest.mark.asyncio
 async def test_failed_single_pass_continues_only_missing_source_group(svc, monkeypatch):
     import json
