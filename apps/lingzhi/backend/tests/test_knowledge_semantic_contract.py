@@ -97,8 +97,37 @@ def test_uniform_wire_form_preserves_single_target_semantics_without_union_branc
     passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
     point = {'form': 'fact', 'subjects': ['入栈'], 'target': '操作端点', 'values': ['栈顶'], 'details': [], 'conditions': [], 'attachments': []}
     value = {'response_contract': 'knowledge_extract_v7', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
-    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    validate(value, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}, contract='knowledge_extract_v7'))
     compiled = compile_extraction(raw, context, ['S1'], 1, value)
     assert compiled['tree']['knowledge_points'][0]['meta_question'] == '入栈的操作端点是什么？'
     point['values'].append('另一个无关结论')
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
+
+
+@pytest.mark.parametrize('form,target,value,other_subject,other_value,details', [
+    ('fact', '保存内容', '函数参数、局部变量、返回地址', '', '', []),
+    ('definition', '', '将元素加入栈中的操作', '', '', ['仅在栈顶插入']),
+    ('comparison', '操作效果', '插入元素', '出栈', '移除元素', []),
+    ('procedure', '加入元素', '新元素成为栈顶', '', '', ['放入元素', '更新指针']),
+])
+def test_scalar_slots_preserve_enumerations_and_form_specific_fields(svc, monkeypatch, form, target, value, other_subject, other_value, details):
+    import json
+    from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
+    point = {'form': form, 'subject': '入栈', 'target': target, 'value': value,
+             'other_subject': other_subject, 'other_value': other_value, 'details': details, 'conditions': [], 'attachments': []}
+    response = {'response_contract': 'knowledge_extract_v8', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    validate(response, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    result = compile_extraction(raw, context, ['S1'], 1, response)
+    assert result['report']['ready_for_adoption']
+    assert result['tree']['knowledge_points'][0]['atomic_contract']['form'] == form
+    assert value in result['tree']['knowledge_points'][0]['statement']
+
+
+def test_core_question_keeps_the_same_assumptions_as_its_answer():
+    from knowledge_semantic_contract import build_point
+    point, _ = build_point(fact(conditions=['栈未满']), ['入栈'])
+    assert '栈未满' in point['question']
+    assert point['conditions'] == ['栈未满']
