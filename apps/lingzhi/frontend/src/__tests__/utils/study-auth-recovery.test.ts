@@ -4,6 +4,7 @@ import { studyApi, studySession } from '@/api/study'
 const qizhi = vi.hoisted(() => ({ token: '' }))
 vi.mock('@/utils/http', () => ({
   getQizhiAccessToken: () => qizhi.token,
+  INTERACTIVE_READ_TIMEOUT_MS: 10000,
   withApiBase: (path: string) => path,
 }))
 

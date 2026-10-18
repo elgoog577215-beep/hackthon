@@ -1,5 +1,6 @@
-import { getQizhiAccessToken, withApiBase } from '../utils/http'
+import { getQizhiAccessToken, INTERACTIVE_READ_TIMEOUT_MS, withApiBase } from '../utils/http'
 import { STUDY_SESSION_KEY, setStudyIdentity } from '../utils/study-identity'
+import { studyCopy } from '../shared/study-copy'
 import type { NextLearningAction } from '../stores/learningProgress'
 
 export type StudyPurpose = 'systematic' | 'exam_prep'
@@ -39,18 +40,34 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = publicAuth ? '' : getQizhiAccessToken() || studySession.get()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  const response = await fetch(withApiBase(`/api/study${path}`), { ...options, headers })
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}))
-    const detail = body.detail
-    throw new StudyApiError(response.status, typeof detail === 'string' ? detail : detail?.message || body.error?.message || `HTTP ${response.status}`)
+  const binary = path.endsWith('/export') || path.endsWith('/download')
+  const controller = new AbortController()
+  const abort = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) abort()
+  else options.signal?.addEventListener('abort', abort, { once: true })
+  let timedOut = false
+  const timeout = !binary && (!options.method || options.method === 'GET') ? INTERACTIVE_READ_TIMEOUT_MS : 120000
+  const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeout)
+  try {
+    const response = await fetch(withApiBase(`/api/study${path}`), { ...options, headers, signal: controller.signal })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      const detail = body.detail
+      throw new StudyApiError(response.status, typeof detail === 'string' ? detail : detail?.message || body.error?.message || `HTTP ${response.status}`)
+    }
+    if (binary) return await response.blob() as T
+    return await response.json() as T
+  } catch (error) {
+    if (timedOut) throw new StudyApiError(408, studyCopy('requestTimeout'))
+    throw error
+  } finally {
+    clearTimeout(timer)
+    options.signal?.removeEventListener('abort', abort)
   }
-  if (path.endsWith('/export') || path.endsWith('/download')) return await response.blob() as T
-  return await response.json() as T
 }
 const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 export const studyApi = {
-  courses: () => request<StudyCourse[]>('/courses'),
+  courses: (signal?: AbortSignal) => request<StudyCourse[]>('/courses', { signal }),
   path: (id: string) => request<StudyLearningPath>(`/courses/${encodeURIComponent(id)}/path`),
   courseSource: (id: string, revision_id: string) => request<StudySource>(`/courses/${encodeURIComponent(id)}/sources`, json({ revision_id })),
   updateCourse: (id: string, expected_release_id: string) => request(`/courses/${encodeURIComponent(id)}/exchange/update`, json({ expected_release_id })),

@@ -1,6 +1,7 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  requestTimeout: ['连接超时。请重新连接并检查最新状态，已有内容和记录仍会保留。', 'The connection timed out. Reconnect and check the latest status; existing content and records are retained.'],
   authorizedCourses: ['教师授权课程', 'Authorized courses'],
   brand: ['我的学习空间', 'My study space'], subtitle: ['课程学习、练习与个人讲义', 'Courses, practice and personal handouts'],
   library: ['我的自建课程', 'My courses'], create: ['新建课程', 'Create a course'], teacher: ['启智 · 教师端', 'Qizhi · Teacher'],
