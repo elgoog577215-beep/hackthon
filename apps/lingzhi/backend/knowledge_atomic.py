@@ -376,7 +376,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
         passages = payload['source_passages']
         structure = extraction_schema([p['key'] for p in passages],
-            {p['key']: p['focus_options'] for p in passages} if all('focus_options' in p for p in passages) else None)
+            {p['key']: p['focus_options'] for p in passages} if all('focus_options' in p for p in passages) else None,
+            contract=payload.get('extraction_contract'))
     elif stage in {'inventory','atomize'}:
         from knowledge_compact import passage_schema, leaf_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
