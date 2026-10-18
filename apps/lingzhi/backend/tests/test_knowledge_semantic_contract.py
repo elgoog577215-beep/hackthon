@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 import pytest
-from jsonschema import validate
+from jsonschema import validate, Draft202012Validator
 
 from backend.tests.test_knowledge_first import svc
 from backend.tests.test_knowledge_atomic import setup_course
@@ -78,3 +78,11 @@ def test_structured_contract_schema_keeps_old_contract_frozen(svc, monkeypatch):
     validate({'response_contract': 'knowledge_extract_v6', 'passages': {'S1.1': {'points': [fact()], 'note': None}}, 'source_issues': []}, schema)
     old = json.loads(extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v5').split('\nINPUT_JSON:\n')[1])
     assert old['extraction_contract'] == 'knowledge_extract_v5'
+
+
+def test_decoder_enforces_the_same_single_attribute_boundary_as_the_compiler():
+    from knowledge_semantic_contract import point_variants
+    validator = Draft202012Validator(point_variants(['入栈']))
+    assert validator.is_valid(fact())
+    assert not validator.is_valid(fact(property='操作端点和复杂度'))
+    assert not validator.is_valid(fact(value='插入栈顶；出栈移除栈顶'))
