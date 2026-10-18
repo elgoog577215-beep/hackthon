@@ -19,6 +19,10 @@ class KnowledgeModelIdleTimeout(TimeoutError):
     pass
 
 
+class KnowledgeModelDegenerateOutput(RuntimeError):
+    pass
+
+
 def source_groups(context):
     from course_generation_budget import _env_int
     target = _env_int('COURSE_KNOWLEDGE_INVENTORY_BATCH_CHARS', 4500, minimum=1000, maximum=9000)
@@ -432,6 +436,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
     svc.authoring.update_job_live(course_id, job_id, request_budget=request_budget,
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
+    formatting = {'inside': False, 'escaped': False, 'whitespace': 0, 'invalid': False}
     started = time.perf_counter();first_content = None;last_content = started
     def receive(delta):
         nonlocal first_content,last_content
@@ -441,11 +446,24 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
             if first_content is None:first_content = time.perf_counter()-started
             last_content = time.perf_counter()
             activity['last_content_at'] = now()
+        for char in delta:
+            if formatting['inside']:
+                if formatting['escaped']: formatting['escaped'] = False
+                elif char == '\\': formatting['escaped'] = True
+                elif char == '"': formatting['inside'] = False
+            else:
+                formatting['whitespace'] = formatting['whitespace'] + 1 if char.isspace() else 0
+                if char == '"': formatting['inside'] = True
+                if formatting['whitespace'] > 2048: formatting['invalid'] = True
         partial.append(delta); activity['received_chars'] += len(delta)
-    def reset(): partial.clear(); activity.update(received_chars=0, last_content_at=None)
+    def reset():
+        partial.clear(); activity.update(received_chars=0, last_content_at=None)
+        formatting.update(inside=False, escaped=False, whitespace=0, invalid=False)
     async def pulse():
         while True:
             await asyncio.sleep(2); svc._active(course_id, job_id)
+            if formatting['invalid']:
+                raise KnowledgeModelDegenerateOutput('千问持续输出大量无意义JSON空白，已停止本次请求并保留片段和完成批次；不会自动重跑。')
             if time.perf_counter()-last_content > idle_limit:
                 raise KnowledgeModelIdleTimeout(f'千问连续{idle_limit}秒没有新增有效正文（空白不计），已保留片段与完成批次；请核对模型服务后主动继续。')
             svc.authoring.update_job_live(course_id, job_id, partial_text=''.join(partial),
@@ -460,6 +478,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         done, _ = await asyncio.wait({checkpoint, call}, return_when=asyncio.FIRST_COMPLETED)
         if checkpoint in done: await checkpoint
         response = await call
+        if formatting['invalid']:
+            raise KnowledgeModelDegenerateOutput('千问输出包含大量无意义JSON空白，已保留原始响应；不会作为生成成功结果。')
     finally:
         for task in (checkpoint, call):
             if not task.done(): task.cancel()
@@ -663,7 +683,7 @@ async def run_atomic(svc, course_id, job_id):
             from ai_base import AIProviderRequestError, AIRequestBudgetExceeded
             error = {
                 'code': type(exc).__name__,
-                'message': str(exc) if isinstance(exc, (CourseDocumentConflict, KnowledgeModelIdleTimeout))
+                'message': str(exc) if isinstance(exc, (CourseDocumentConflict, KnowledgeModelIdleTimeout, KnowledgeModelDegenerateOutput))
                 else '本次细化未完成，清单与已完成批次已保留；请主动继续缺失批次。',
             }
             provider_message = str(exc).casefold()

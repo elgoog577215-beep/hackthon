@@ -176,7 +176,8 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
     lessons = list(dict.fromkeys(lid for p in points.values() for lid in p['lesson_ids']))
     decisions = {key: {'focus_key': key, 'considered_lessons': lessons, 'reason': reviews[key], 'links': []} for key in focus_keys}
     for focus, links in focus_links.items():
-        require(isinstance(links, list) and len(links) <= 12, '单个焦点的关系数量无效')
+        link_limit = max(12, 3 * sum(row['focus_key'] == focus for row in candidates.values())) if selected_wire else 12
+        require(isinstance(links, list) and len(links) <= link_limit, '单个焦点的关系数量超出冻结候选范围')
         for link in links:
             selected_evidence = None
             if selected_wire:
