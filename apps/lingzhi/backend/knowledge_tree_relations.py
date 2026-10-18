@@ -137,16 +137,18 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
                 require(link['p'] in owned_targets(list(points), local, focus), '关系点对必须由本讲排序靠前的焦点负责')
                 if modern:
                     a, b = (focus, link['p']) if link['d'] == 'out' else (link['p'], focus)
-                    require(link['sn'] == points[a]['name'] and link['tn'] == points[b]['name'], '关系名称与端点身份或方向不一致')
-                    require(all(isinstance(link[field], str) and link[field].strip() and link[field] in points[key]['statement']
-                                for field, key in [('sq', a), ('tq', b)]), '关系依据不是对应端点命题的逐字片段')
-                    selected_evidence = [{'point_key': a, 'quote': link['sq']}, {'point_key': b, 'quote': link['tq']}]
-                    code = ('reused_pair_reason' if reasons[link['r']] > 1 else
+                    names_match = link['sn'] == points[a]['name'] and link['tn'] == points[b]['name']
+                    quotes_match = all(isinstance(link[field], str) and link[field].strip() and link[field] in points[key]['statement']
+                                       for field, key in [('sq', a), ('tq', b)])
+                    code = ('endpoint_name_mismatch' if not names_match else
+                            'endpoint_quote_mismatch' if not quotes_match else
+                            'reused_pair_reason' if reasons[link['r']] > 1 else
                             'missing_direct_reference' if not any(subject in link['tq'] for subject in points[a].get('subjects', [points[a]['name']])) else
                             'comparison_is_not_derivation' if kind == 'derives' and re.search(r'作为.*(?:对比|参照|对照)|互为对立', link['r']) else None)
                     if code:
                         rejections.append({'code': code, 'focus_key': focus, 'link': deepcopy(link), 'status': 'excluded_from_graph'})
                         continue
+                    selected_evidence = [{'point_key': a, 'quote': link['sq']}, {'point_key': b, 'quote': link['tq']}]
                 link = {'other_key': link['p'], 'direction': 'outgoing' if link['d'] == 'out' else 'incoming',
                     'type': kind, 'necessity': link.get('n'), 'context': link['c'], 'reason': link['r'],
                     'conditions': link['if'], 'strength': link['w'], 'derivation_steps': link.get('s', [])}
