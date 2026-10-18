@@ -173,3 +173,26 @@ async def test_exact_duplicate_claims_keep_one_identity_and_all_inventory_pointe
     assert pipeline == before
     assert result['atomic_assessment']['content_review']['missing_batches'] == 1
     assert result['atomic_assessment']['ready_for_adoption'] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('review_fails', [False, True])
+async def test_new_candidate_revision_reuses_extraction_and_never_bypasses_review(svc, monkeypatch, review_fails):
+    setup_course(svc, monkeypatch); calls = []; revising = False
+    async def model(prompt, **kwargs):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
+        if payload['stage'] == 'extract': return json.dumps(value([point()]))
+        if payload['stage'] == 'content_review':
+            result = keep_review(payload)
+            if revising and review_fails: result['point_reviews'] = {}
+            return json.dumps(result)
+        raise AssertionError('Old leaf generation must not bypass the v9 review contract')
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
+    original = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', original['id'])
+    before = svc.authoring.get_job('c-pilot', original['id']); assert before['status'] == 'completed'
+    calls.clear(); revising = True
+    revised = start(svc, 'explicit-revision', resume_job_id=original['id'], retry_batch_id='all_atoms')
+    await svc.run('c-pilot', revised['id']); saved = svc.authoring.get_job('c-pilot', revised['id'])
+    assert calls == ['content_review']
+    assert saved['status'] == ('failed' if review_fails else 'completed')
+    assert svc.authoring.get_job('c-pilot', original['id']) == before
