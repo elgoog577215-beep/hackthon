@@ -78,7 +78,7 @@ async def test_relation_failure_retains_points_and_hierarchy_and_resume_calls_on
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 
 
-@pytest.mark.parametrize('change', ['unknown', 'missing_review', 'cycle', 'rewrite', 'steps'])
+@pytest.mark.parametrize('change', ['unknown', 'missing_review', 'rewrite', 'steps'])
 def test_compact_relations_keep_existing_graph_guards(change):
     from knowledge_tree_relations import compile_relations
     points = [{'key': 'P1', 'knowledge_id': 'a', 'revision_id': 'r1', 'name': 'A', 'statement': '冻结命题甲', 'conditions': [], 'lesson_ids': ['l']},
@@ -87,7 +87,6 @@ def test_compact_relations_keep_existing_graph_guards(change):
     value = relation_response({'focus_keys': ['P1', 'P2']})
     if change == 'unknown': value['focus_links']['P1'][0]['other_key'] = 'foreign'
     if change == 'missing_review': value['point_reviews'].pop('P2')
-    if change == 'cycle': value['focus_links']['P2'].append({**value['focus_links']['P1'][0], 'other_key': 'P1'})
     if change == 'rewrite': value['knowledge_points'] = []
     if change == 'steps': value['focus_links']['P1'][0]['type'] = 'derives'
     with pytest.raises(CourseDocumentConflict): compile_relations({'course_id': 'c'}, pipeline, ['P1', 'P2'], value, 'l')
@@ -140,3 +139,79 @@ async def test_relation_shards_run_together_and_resume_only_failed_shard(monkeyp
     result = await generate(*args)
     assert calls == [['P3', 'P4']]
     assert len(result['relations']) == 2 and len(result['decisions']) == 4
+
+
+def compact_pipeline():
+    return {'catalog': [{'key': f'P{i}', 'knowledge_id': f'k{i}', 'revision_id': f'r{i}',
+        'name': f'知识{i}', 'statement': f'冻结完整命题{i}', 'conditions': ['完整条件'],
+        'lesson_ids': ['other' if i == 1 else 'l']} for i in range(1, 5)],
+        'focus_keys': ['P2', 'P3', 'P4'], 'existing_relations': [], 'baseline_relations': [], 'base_revision': 'frozen'}
+
+
+@pytest.mark.asyncio
+async def test_default_relation_batches_use_eight_points_and_resume_frozen_batches(monkeypatch):
+    from knowledge_tree_relations import generate
+    monkeypatch.delenv('COURSE_KNOWLEDGE_TREE_RELATION_BATCH_SIZE', raising=False)
+    points = [{'knowledge_id': f'k{i}', 'revision_id': f'r{i}', 'name': f'知识{i}',
+               'statement': f'冻结命题{i}', 'conditions': [], 'section_refs': ['l']} for i in range(17)]
+    tree = {'knowledge_points': points, 'relations': [], 'revision_id': 'frozen'}
+    pipeline = {}; calls = []
+    async def call(svc, cid, jid, provider, prompt, stage):
+        data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data['focus_keys'])
+        return json.dumps({'point_reviews': {k: '无直接关系' for k in data['focus_keys']},
+                           'focus_links': {k: [] for k in data['focus_keys']}, 'gaps': []}, ensure_ascii=False)
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    args = (None, 'c', 'j', None, {'course_id': 'c'}, {'scope_lesson_id': 'l'}, pipeline, tree, lambda **kw: None, lambda: None)
+    await generate(*args)
+    assert sorted(map(len, calls)) == [1, 8, 8]
+    frozen = deepcopy(pipeline)
+    monkeypatch.setenv('COURSE_KNOWLEDGE_TREE_RELATION_BATCH_SIZE', '2')
+    calls.clear(); await generate(*args)
+    assert calls == [] and pipeline == frozen
+
+
+def test_compact_prompt_retains_full_cross_lesson_catalog_without_duplicate_fields():
+    from knowledge_tree_relations import prompt_for
+    pipeline = compact_pipeline()
+    data = json.loads(prompt_for({'course_name': '课'}, pipeline, ['P2'], 'l').split('\nINPUT_JSON:\n')[1])
+    assert data['local_keys'] == ['P2', 'P3', 'P4']
+    assert data['catalog'] == {p['key']: [p['name'], p['statement'], p['conditions'], p['lesson_ids']] for p in pipeline['catalog']}
+    assert data['catalog']['P1'][-1] == ['other']
+
+
+def test_compact_schema_assigns_every_local_pair_once_and_keeps_cross_lesson_pairs():
+    from knowledge_tree_relations import response_schema, owned_targets
+    from jsonschema import Draft202012Validator
+    keys, local = ['P1', 'P2', 'P3', 'P4'], ['P2', 'P3', 'P4']
+    pairs = [(focus, target) for focus in local for target in owned_targets(keys, local, focus)]
+    assert len(pairs) == 6 and len({frozenset(pair) for pair in pairs}) == 6
+    assert all((focus, 'P1') in pairs for focus in local)
+    schema = response_schema(keys, ['P3'], local)
+    Draft202012Validator.check_schema(schema)
+    edge = {'p': 'P4', 'd': 'in', 't': 'derives', 'c': '场景', 'r': '依据', 'if': [], 'w': 'medium', 's': ['第一步', '第二步']}
+    value = {'point_reviews': {'P3': '已比较'}, 'focus_links': {'P3': [edge]}, 'gaps': []}
+    validator = Draft202012Validator(schema)
+    assert validator.is_valid(value)
+    edge['p'] = 'P2'
+    assert not validator.is_valid(value)
+    edge['p'] = 'P3'
+    assert not validator.is_valid(value)
+    edge['p'] = 'P1'; edge['s'] = ['只有一步']
+    assert not validator.is_valid(value)
+
+
+def test_compact_relations_expand_direction_conditions_and_derivation_without_losing_evidence():
+    from knowledge_tree_relations import compile_relations
+    pipeline = compact_pipeline()
+    value = {'point_reviews': {'P2': '已比较跨讲及本讲目录'}, 'focus_links': {'P2': [
+        {'p': 'P1', 'd': 'in', 't': 'derives', 'c': '公式推导', 'r': '前提推出结论',
+         'if': ['额外条件'], 'w': 'strong', 's': ['代入定义', '求出极限']}]}, 'gaps': []}
+    result = compile_relations({'course_id': 'c'}, pipeline, ['P2'], value, 'l')
+    edge = result['relations'][0]
+    assert (edge['source_id'], edge['target_id'], edge['type']) == ('k1', 'k2', 'derives')
+    assert edge['derivation_steps'] == ['代入定义', '求出极限']
+    assert edge['conditions'] == ['额外条件'] and edge['strength_level'] == 'strong'
+    assert [e['quote'] for e in edge['evidence_refs']] == ['冻结完整命题1', '冻结完整命题2']
+    value['focus_links']['P2'][0]['p'] = 'P2'
+    with pytest.raises(CourseDocumentConflict, match='排序靠前'):
+        compile_relations({'course_id': 'c'}, pipeline, ['P2'], value, 'l')

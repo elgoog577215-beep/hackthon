@@ -85,6 +85,52 @@ def test_question_parts_bind_exact_frozen_focus_without_rewriting_answer(svc, mo
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, value)
 
 
+def test_source_focus_keys_prevent_invented_subjects_without_changing_claims(svc, monkeypatch):
+    import json
+    from jsonschema import validate, ValidationError
+    from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    payload = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])
+    passage = payload['source_passages'][0]
+    options = passage['focus_options']
+    assert options and all(term in passage['text'] for term in options.values())
+    focus_key = next(k for k, term in options.items() if term == '入栈')
+    point = response()['points'][0]
+    for key in ('source_passage_keys', 'question', 'focus_term'): point.pop(key)
+    point.update(focus_key=focus_key, question_before='', question_after='执行什么操作？')
+    value = {'response_contract': 'knowledge_extract_v2', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    schema = extraction_schema(['S1.1'], {'S1.1': options})
+    validate(value, schema)
+    before = deepcopy(value)
+    result = compile_extraction(raw, context, ['S1'], 1, value)
+    assert result['report']['ready_for_adoption']
+    assert result['items'][0]['focus_terms'] == ['入栈']
+    assert result['tree']['knowledge_points'][0]['meta_question'] == '入栈执行什么操作？'
+    assert result['tree']['knowledge_points'][0]['statement'] == point['claim']
+    assert value == before
+    point['focus_key'] = 'invented-subject'
+    with pytest.raises(ValidationError): validate(value, schema)
+    with pytest.raises(CourseDocumentConflict, match='原文对象'):
+        compile_extraction(raw, context, ['S1'], 1, value)
+
+
+def test_source_focus_options_include_real_recursion_objects_and_keep_legacy_prompt(svc, monkeypatch):
+    import json
+    from knowledge_extract import focus_options, extraction_prompt
+    text = '**最大同时存在的栈帧数量（最大递归深度）**。return n * factorial(n - 1)  # 递归调用'
+    options = focus_options(text)
+    assert {'最大递归深度', '递归调用'} <= set(options.values())
+    assert all(term in text for term in options.values())
+    assert '最大深度' not in options.values()
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    prompt = extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v1')
+    payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+    assert all('focus_options' not in p for p in payload['source_passages'])
+    assert '"focus_term"' in prompt
+
+
 @pytest.mark.asyncio
 async def test_failed_single_pass_continues_only_missing_source_group(svc, monkeypatch):
     import json
