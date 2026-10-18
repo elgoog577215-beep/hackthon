@@ -53,6 +53,18 @@ def test_literal_subject_is_bound_to_source_instead_of_incomplete_token_hints(sv
     with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, response(point))
 
 
+def test_one_relation_property_is_not_mistaken_for_two_independent_attributes():
+    from knowledge_semantic_contract import quality_point, build_point
+    point = {'form': 'fact', 'subject': 'DFS', 'property': '压入顺序与访问顺序关系',
+             'value': '相反', 'conditions': [], 'attachments': []}
+    compiled, audit = quality_point(point, 'DFS使用栈时，压入顺序与访问顺序相反。')
+    assert audit['property_kind'] == 'single_relation'
+    assert compiled['question'] == 'DFS的压入顺序与访问顺序关系是什么？'
+    with pytest.raises(CourseDocumentConflict): build_point(point, ['DFS'])  # Frozen older contracts.
+    point.update(property='时间和空间关系', value='O(n)和O(1)')
+    with pytest.raises(CourseDocumentConflict): quality_point(point, 'DFS的时间和空间代价分别给出。')
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
