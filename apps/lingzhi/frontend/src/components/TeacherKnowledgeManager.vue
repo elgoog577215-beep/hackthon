@@ -284,10 +284,11 @@ const atomicRun = computed(() => {
 })
 const progressJob = computed(() => {
   if (activeJob.value) return activeJob.value
-  if (latestJob.value) return latestJob.value
   const run = relationRun.value || atomicRun.value
-  if (run) return { id: run.job_id, status: run.status, knowledge_lesson_id: run.lesson_id }
-  return null
+  const job = latestJob.value || (run ? { id: run.job_id, status: run.status, knowledge_lesson_id: run.lesson_id } : null)
+  const adopted = [data.value?.tree, ...(data.value?.history || [])].some(tree => tree?.generation_job_id === job?.id)
+    || run?.adopted && run.job_id === job?.id
+  return job?.status === 'completed' && adopted ? null : job
 })
 const progressPercent = computed(() => {
   const job = progressJob.value
