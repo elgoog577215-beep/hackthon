@@ -113,6 +113,9 @@ def test_source_focus_keys_prevent_invented_subjects_without_changing_claims(svc
     with pytest.raises(ValidationError): validate(value, schema)
     with pytest.raises(CourseDocumentConflict, match='原文对象'):
         compile_extraction(raw, context, ['S1'], 1, value)
+    bypass = response(); bypass['response_contract'] = 'knowledge_extract_v4'
+    with pytest.raises(CourseDocumentConflict, match='原文对象'):
+        compile_extraction(raw, context, ['S1'], 1, bypass)
 
 
 def test_source_focus_options_include_real_recursion_objects_and_keep_legacy_prompt(svc, monkeypatch):
