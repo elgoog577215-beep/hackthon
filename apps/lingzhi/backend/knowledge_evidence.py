@@ -49,7 +49,7 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
     """Add presentation metadata; stable knowledge and semantic revision IDs stay intact."""
     result = deepcopy(point)
     quotes = source_passages if source_passages is not None else point.get('source_quotes') or []
-    found = []
+    found = []; ambiguous = []
     for source in quotes:
         raw_quote = source.get('quote') or ''
         clean = re.sub(r'[*_`]+(?=\s*[（(])', '', raw_quote)
@@ -67,14 +67,18 @@ def enrich_point(point, *, proposed_terms=None, source_passages=None):
             if re.fullmatch(r'(?:Level|Case|Step|Figure|Table)\s*\d+', english, re.IGNORECASE):
                 continue
             annotation = re.search(re.escape(label) + r'(?:\*\*|__)?\s*[（(]' + re.escape(match[2]) + r'[）)]', raw_quote)
-            found.append({'name': label, 'english_name': english, 'abbreviations': abbreviations,
+            record = {'name': label, 'english_name': english, 'abbreviations': abbreviations,
                 'aliases': [], 'origin': 'source_annotation', 'status': 'source_text_matched',
-                'evidence_refs': [{'evidence_id': source['evidence_id'], 'quote': annotation[0] if annotation else raw_quote}]})
+                'evidence_refs': [{'evidence_id': source['evidence_id'], 'quote': annotation[0] if annotation else raw_quote}]}
+            if re.search(r'一致|相反|取决于|保证|意味着|优于|先于|等于', label):
+                ambiguous.append({**record, 'status':'source_unconfirmed', 'reason':'annotation_attached_to_predicate_clause'})
+            else: found.append(record)
     relevant = _specific_related(found, point, name_only=True)
     if not relevant:
         relevant = _specific_related(found, point)
     confirmed = [r for r in found if _normal(r['english_name']) in relevant]
     candidates = deepcopy(point.get('term_candidates') or [])
+    candidates.extend(record for record in ambiguous if _related(record, point))
     for existing in point.get('terms') or []:
         exact = any(_normal(r['name']) == _normal(existing.get('name')) and _normal(r['english_name']) == _normal(existing.get('english_name')) for r in found)
         suffix_conflict = (existing.get('origin') == 'source_annotation' and bool(existing.get('name')) and not exact
