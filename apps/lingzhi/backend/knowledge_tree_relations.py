@@ -210,7 +210,14 @@ async def generate(svc, course_id, job_id, provider, raw, context, pipeline, tre
         response = await call_stage(svc, course_id, job_id, provider,
             prompt_for(raw, state, batch['focus_keys'], context['scope_lesson_id']), 'tree_relations')
         validate_source()
-        result = compile_relations(raw, state, batch['focus_keys'], parse_complete_json(response), context['scope_lesson_id'])
+        try:
+            result = compile_relations(raw, state, batch['focus_keys'], parse_complete_json(response), context['scope_lesson_id'])
+        except Exception as error:
+            batch.update(raw_response=response, validation_error={'code': type(error).__name__,
+                'message': str(error) if isinstance(error, CourseDocumentConflict) else '完整响应未通过结构或语义校验'})
+            save()
+            raise
+        batch.pop('validation_error', None)
         batch.update(status='completed', result=result, raw_response=response)
         save()
     concurrency = _env_int('COURSE_KNOWLEDGE_TREE_RELATION_CONCURRENCY', 4, minimum=1, maximum=4)

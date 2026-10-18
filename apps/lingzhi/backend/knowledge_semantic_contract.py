@@ -141,11 +141,13 @@ def build_point(point, options):
     require(form in fields and set(point) == {'form', 'conditions', 'attachments'} | fields[form], '单目标知识字段无效')
     subjects = [point[k] for k in (('left_subject', 'right_subject') if form == 'comparison' else ('subject',))]
     require(all(isinstance(s, str) and s in options for s in subjects) and len(set(subjects)) == len(subjects), '知识主体必须来自当前原文且不能自我对比')
+    require(not any(re.search(r'必须|应当|需要|是否|^判断|^执行', s) for s in subjects), '知识主体不能是结论或谓语片段')
     require(not any(re.match(r'^(?:本讲|本课|学习目标|教学目标|能画|能够)', s) for s in subjects), '教学目标不能作为知识主体')
     subject = subjects[0]
     audit = {'schema_version': CONTRACT, 'form': form, 'subjects': subjects, 'status': 'structure_checked', 'semantics_verified': False}
     if form in {'fact', 'comparison'}:
         prop = text(point['property'], '单一检查属性', 30)
+        require(not re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d', prop), '具体执行轨迹只能作为例题或附件')
         require(not re.search(r'[、;；，,]|以及|与|和|及', prop), '独立属性必须分别成为知识点')
         audit['property'] = prop
     if form == 'fact':
@@ -175,7 +177,7 @@ def build_point(point, options):
         steps = [text(v, '方法步骤', 700) for v in steps]
         name = f'{subject}的{goal}方法'
         claim = f'{subject}的{goal}步骤：' + '；'.join(steps) + f'。结束判据：{completion}。'
-        question = f'在{subject}中，如何{goal}？请给出完整步骤和结束判据。'
+        question = f'如何运用{subject}{goal}？请给出完整步骤和结束判据。'
         audit.update(goal=goal, steps=steps, completion=completion); kind = 'method'
     conditions = point['conditions']
     require(isinstance(conditions, list) and len(conditions) <= 20 and all(isinstance(c, str) and c.strip() for c in conditions), '知识适用前提无效')

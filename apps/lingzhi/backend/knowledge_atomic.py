@@ -492,7 +492,14 @@ async def run_atomic(svc, course_id, job_id):
                 response = await call_stage(svc, course_id, job_id, provider,
                     extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
                 validate_source()
-                result = compile_extraction(raw, context, batch['source_keys'], i, parse_complete_json(response))
+                try:
+                    result = compile_extraction(raw, context, batch['source_keys'], i, parse_complete_json(response))
+                except Exception as error:
+                    batch.update(raw_response=response, validation_error={'code': type(error).__name__,
+                        'message': str(error) if isinstance(error, CourseDocumentConflict) else '完整响应未通过结构或语义校验'})
+                    save()
+                    raise
+                batch.pop('validation_error', None)
                 batch.update(status='completed', raw_response=response, **{k: result[k] for k in ('items', 'source_coverage', 'source_issues', 'format_normalizations')})
                 pipeline['items'] = [item for b in pipeline['inventory_batches'] if b['status'] == 'completed' for item in b['items']]
                 require(len(pipeline['items']) <= 320, '知识清单超出本讲容量')
