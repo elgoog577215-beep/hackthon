@@ -14,9 +14,10 @@ from course_repository import CourseDocumentConflict
 def relation_response(data):
     a, b = data['focus_keys'][:2]
     return {'point_reviews': {key: '已比较全目录，按命题判断直接教学依赖。' for key in data['focus_keys']},
-        'links': [{'source_key': a, 'target_key': b, 'type': 'prerequisite',
+        'focus_links': {key: ([{'source_key': a, 'target_key': b, 'type': 'prerequisite',
                    'necessity': 'recommended', 'context': '比较栈顶操作', 'reason': '先理解元素如何加入栈顶，再比较移除规则。',
-                   'conditions': [], 'strength': 'medium', 'derivation_steps': []}], 'gaps': []}
+                   'conditions': [], 'strength': 'medium', 'derivation_steps': []}] if key == a else [])
+            for key in data['focus_keys']}, 'gaps': []}
 
 
 def fake_provider(svc, *, relation_fails=False):
@@ -28,7 +29,7 @@ def fake_provider(svc, *, relation_fails=False):
             started.set()
             if relation_fails: raise TimeoutError('isolated relationship failure')
             value = relation_response(data)
-            assert set(value) == {'point_reviews', 'links', 'gaps'}
+            assert set(value) == {'point_reviews', 'focus_links', 'gaps'}
         else:
             # Relation generation must start while classification is in flight.
             await asyncio.wait_for(started.wait(), timeout=1)
@@ -84,12 +85,23 @@ def test_compact_relations_keep_existing_graph_guards(change):
               {'key': 'P2', 'knowledge_id': 'b', 'revision_id': 'r2', 'name': 'B', 'statement': '冻结命题乙', 'conditions': [], 'lesson_ids': ['l']}]
     pipeline = {'catalog': points, 'base_revision': 'frozen', 'baseline_relations': []}
     value = relation_response({'focus_keys': ['P1', 'P2']})
-    if change == 'unknown': value['links'][0]['target_key'] = 'foreign'
+    if change == 'unknown': value['focus_links']['P1'][0]['target_key'] = 'foreign'
     if change == 'missing_review': value['point_reviews'].pop('P2')
-    if change == 'cycle': value['links'].append({**value['links'][0], 'source_key': 'P2', 'target_key': 'P1'})
+    if change == 'cycle': value['focus_links']['P2'].append({**value['focus_links']['P1'][0], 'source_key': 'P2', 'target_key': 'P1'})
     if change == 'rewrite': value['knowledge_points'] = []
-    if change == 'steps': value['links'][0]['type'] = 'derives'
+    if change == 'steps': value['focus_links']['P1'][0]['type'] = 'derives'
     with pytest.raises(CourseDocumentConflict): compile_relations({'course_id': 'c'}, pipeline, ['P1', 'P2'], value, 'l')
+
+
+def test_relation_links_are_nested_under_their_focus_to_prevent_cross_batch_edges():
+    from knowledge_tree_relations import compile_relations
+    points = [{'key': f'P{i}', 'knowledge_id': chr(96+i), 'revision_id': f'r{i}', 'name': f'知识{i}',
+               'statement': f'冻结命题{i}', 'conditions': [], 'lesson_ids': ['l']} for i in range(1, 4)]
+    pipeline = {'catalog': points, 'base_revision': 'frozen', 'baseline_relations': []}
+    value = relation_response({'focus_keys': ['P1', 'P2']})
+    value['focus_links']['P1'][0]['target_key'] = 'P3'
+    with pytest.raises(CourseDocumentConflict, match='当前焦点'):
+        compile_relations({'course_id': 'c'}, pipeline, ['P1', 'P2'], value, 'l')
 
 
 @pytest.mark.asyncio
