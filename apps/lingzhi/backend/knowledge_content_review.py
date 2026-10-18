@@ -12,7 +12,14 @@ from knowledge_source_rules import quarantine_source_errors, contextualize_compo
 CONTRACT = 'knowledge_content_review_v1'
 
 
-async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record, feedback=None):
+def prior_question_context(pipeline, batch_index, response):
+    subjects = {point.get(field) for entry in response.get('passages', {}).values() for point in entry.get('points', [])
+                for field in ('subject', 'left_subject', 'right_subject') if isinstance(point.get(field), str)}
+    return [deepcopy(point) for point in pipeline.get('review_reference_catalog', [])
+            if point['batch_index'] < batch_index and subjects.intersection(point.get('subjects', []))]
+
+
+async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record, feedback=None, reference_points=None):
     from knowledge_atomic import call_stage
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = passage_catalog(context, keys); catalog = {p['key']: p for p in passages}
@@ -28,12 +35,17 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
                'source_issues': response.get('source_issues', []), 'scope_evidence': scope_evidence(context)}
     if feedback:
         payload['previous_attempt_feedback'] = deepcopy(feedback)
+    if reference_points:
+        payload['earlier_frozen_questions'] = deepcopy(reference_points)
     prompt = (
         '核对冻结讲义提取出的知识候选。原文引用只证明出处，不能证明原文正确。只输出一个紧凑JSON，不思考、不解释。'
         '逐点检查是否为一般知识、单一检查目标、完整定义或完整算法，以及实际前提、对象、输入范围和量的意义。'
         '每个points目标键必须回应一次：keep保留原点且points=[]；replace给出完整替换点；context归背景且points=[]；'
         'source_issue表示来源疑点且points=[]并在source_issues登记具体问题。reason只写明确依据，最多120字，不输出分析过程。'
         '有效原点不能为润色而重写。不要删掉真实独立知识以凑通过；遗漏的独立操作或完整方法可在对应原文块additions中补齐。'
+        'earlier_frozen_questions若存在，是本次显式复核开始前冻结的更早来源批次候选，仅作跨批次问题对照，不是独立真理认证。'
+        '不得修改这些前批次记录；总结或演示若只是重复已有定义则归context并引用其knowledge_id。'
+        '若本块还有新的独立性质，应按自身单一属性保留，不要把LIFO/FIFO性质重新写成与前文撞题的完整定义；独立含义不同不能仅因问题相同就丢弃。'
         '常见错误须特别核对：把普通调用栈实现说成递归或DFS的唯一必要实现；把循环不新增调用帧扩大为循环总内存恒定；'
         '把实现和配置相关的栈深度经验数值当通用范围；把队列等抽象接口的限制扩大为所有物理实现的限制；'
         '把通常性能比较当普遍保证。这些过强说法不能原样keep；只有冻结材料或代码支持明确限定时才能replace，否则source_issue。'
@@ -79,6 +91,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
                   scope_evidence=deepcopy(payload['scope_evidence']))
     if feedback:
         record['previous_attempt_feedback'] = deepcopy(feedback)
+    if reference_points:
+        record['earlier_frozen_questions'] = deepcopy(reference_points)
     text = await call_stage(svc, course_id, job_id, provider, prompt, 'content_review')
     record['raw_response'] = text
     parsed = parse_complete_json(text)

@@ -240,6 +240,9 @@ async def test_new_candidate_revision_reuses_extraction_and_never_bypasses_revie
     before = svc.authoring.get_job('c-pilot', original['id']); assert before['status'] == 'completed'
     calls.clear(); revising = True
     revised = start(svc, 'explicit-revision', resume_job_id=original['id'], retry_batch_id='all_atoms')
+    references = revised['checkpoint']['atomic_pipeline']['review_reference_catalog']
+    assert references[0]['knowledge_id'] == before['checkpoint']['candidate']['knowledge_points'][0]['knowledge_id']
+    assert references[0]['meta_question'] == before['checkpoint']['candidate']['knowledge_points'][0]['meta_question']
     await svc.run('c-pilot', revised['id']); saved = svc.authoring.get_job('c-pilot', revised['id'])
     assert calls == ['content_review']
     assert saved['status'] == ('failed' if review_fails else 'completed')

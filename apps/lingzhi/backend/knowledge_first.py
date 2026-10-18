@@ -384,6 +384,13 @@ class KnowledgeFirstService:
                 require(bool(prior), '原任务没有可继续的知识清单')
                 review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
                 if review_only:
+                    prior['review_reference_catalog'] = [
+                        {'batch_index': int(group['id'].split('-')[-1]), 'knowledge_id': point['knowledge_id'],
+                         'subjects': deepcopy((point.get('atomic_contract') or {}).get('subjects', [point['name']])),
+                         'meta_question': point['meta_question'], 'statement': point['statement'],
+                         'conditions': deepcopy(point.get('conditions', []))}
+                        for group in prior.get('batches', []) if group.get('status') == 'completed'
+                        for point in (group.get('tree') or {}).get('knowledge_points', [])]
                     for batch in prior.get('inventory_batches', []):
                         if batch.get('status') != 'completed' and batch.get('validation_error'):
                             batch['retry_feedback'] = {

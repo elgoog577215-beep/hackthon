@@ -569,12 +569,13 @@ async def run_atomic(svc, course_id, job_id):
                     if pipeline['prompt_contract'] == 'knowledge_extract_v9':
                         require(parsed.get('response_contract') == pipeline['prompt_contract'], '模型返回合同与冻结提取合同不一致')
                     if pipeline['prompt_contract'] == 'knowledge_extract_v9' and parsed.get('response_contract') == 'knowledge_extract_v9':
-                        from knowledge_content_review import review_content
+                        from knowledge_content_review import review_content, prior_question_context
                         batch['content_review'] = {'status': 'pending'}
                         try:
                             svc.authoring.update_job_live(course_id, job_id, batch_index=i)
                             parsed = await review_content(svc, course_id, job_id, provider, raw, context,
-                                batch['source_keys'], parsed, batch['content_review'], feedback=batch.get('retry_feedback'))
+                                batch['source_keys'], parsed, batch['content_review'], feedback=batch.get('retry_feedback'),
+                                reference_points=prior_question_context(pipeline, i, parsed))
                             validate_source()
                         except Exception:
                             batch['content_review']['status'] = 'failed'
