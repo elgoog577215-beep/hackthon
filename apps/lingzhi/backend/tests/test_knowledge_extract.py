@@ -91,7 +91,7 @@ def test_source_focus_keys_prevent_invented_subjects_without_changing_claims(svc
     from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
     setup_course(svc, monkeypatch)
     raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
-    payload = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])
+    payload = json.loads(extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v2').split('\nINPUT_JSON:\n')[1])
     passage = payload['source_passages'][0]
     options = passage['focus_options']
     assert options and all(term in passage['text'] for term in options.values())
@@ -135,7 +135,7 @@ def test_symbol_only_sources_keep_literal_anchors_and_empty_sources_allow_only_e
     from jsonschema import Draft202012Validator
     from knowledge_extract import focus_options, extraction_schema
     assert '2+3=5' in focus_options('2+3=5').values()
-    schema = extraction_schema(['S1.1'], {'S1.1': {}})
+    schema = extraction_schema(['S1.1'], {'S1.1': {}}, contract='knowledge_extract_v3')
     Draft202012Validator.check_schema(schema)
     value = {'response_contract': 'knowledge_extract_v3', 'passages': {'S1.1': {
         'points': [], 'note': {'handling': 'context', 'reason': '空白片段无可提取知识'}}}, 'source_issues': []}
@@ -152,14 +152,14 @@ def test_complete_questions_remain_model_authored_and_learning_goals_cannot_pass
     from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
     setup_course(svc, monkeypatch)
     raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
-    passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
+    passage = json.loads(extraction_prompt(raw, context, ['S1'], contract='knowledge_extract_v3').split('\nINPUT_JSON:\n')[1])['source_passages'][0]
     options = passage['focus_options']; key = next(k for k,v in options.items() if v == '入栈')
     point = response()['points'][0]
     for field in ('source_passage_keys', 'focus_term'): point.pop(field)
     point['focus_key'] = key
     if goal: point['claim'] = '能画出入栈的操作示意图，并准确指出元素进出方向。'
     value = {'response_contract': 'knowledge_extract_v3', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
-    validate(value, extraction_schema(['S1.1'], {'S1.1': options}))
+    validate(value, extraction_schema(['S1.1'], {'S1.1': options}, contract='knowledge_extract_v3'))
     result = compile_extraction(raw, context, ['S1'], 1, value)
     assert result['tree']['knowledge_points'][0]['meta_question'] == '入栈执行什么操作？'
     assert result['report']['ready_for_adoption'] is not goal
@@ -169,6 +169,29 @@ def test_complete_questions_remain_model_authored_and_learning_goals_cannot_pass
         result = compile_extraction(raw, context, ['S1'], 1, value)
         assert result['tree']['knowledge_points'][0]['meta_question'] == point['question']
         assert not result['report']['ready_for_adoption']  # No invented prefix to hide a wrong subject.
+
+
+def test_literal_subject_enum_avoids_opaque_key_mismatches_without_accepting_paraphrases(svc, monkeypatch):
+    import json
+    from jsonschema import validate, ValidationError
+    from knowledge_extract import extraction_prompt, extraction_schema, compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    passage = json.loads(extraction_prompt(raw, context, ['S1']).split('\nINPUT_JSON:\n')[1])['source_passages'][0]
+    choices = passage['focus_options']
+    assert isinstance(choices, list) and '入栈' in choices
+    assert all(v in passage['text'] for v in choices)
+    point = response()['points'][0]; point.pop('source_passage_keys')
+    value = {'response_contract': 'knowledge_extract_v4', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
+    schema = extraction_schema(['S1.1'], {'S1.1': choices})
+    validate(value, schema)
+    result = compile_extraction(raw, context, ['S1'], 1, value)
+    assert result['report']['ready_for_adoption']
+    assert result['tree']['knowledge_points'][0]['meta_question'] == point['question']
+    point['focus_term'] = '改写后的入栈对象'
+    with pytest.raises(ValidationError): validate(value, schema)
+    with pytest.raises(CourseDocumentConflict, match='原文对象'):
+        compile_extraction(raw, context, ['S1'], 1, value)
 
 
 @pytest.mark.asyncio
