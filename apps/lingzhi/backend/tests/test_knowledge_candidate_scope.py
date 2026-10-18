@@ -44,3 +44,9 @@ def test_scoped_implementation_and_complete_matching_method_remain_usable():
 def test_algorithm_itself_can_be_a_named_concept_when_the_source_defines_it():
     p = {'form':'definition','subject':'算法','meaning':'解决问题的有限步骤序列','constraints':[], 'conditions':[], 'attachments':[]}
     quality_point(p, '算法是解决问题的有限步骤序列。')
+
+
+@pytest.mark.parametrize('scope', ['此处展示队列实现', '本节展示队列实现', '这里讨论的队列实现'])
+def test_explicit_local_implementation_scope_is_not_rejected_by_word_choice(scope):
+    p = fact('BFS', '数据结构', '队列', [scope])
+    quality_point(p, 'BFS使用队列实现。')
