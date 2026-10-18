@@ -286,6 +286,7 @@ def assemble(raw, context, pipeline, hierarchy=None):
     from handout_knowledge import knowledge_facts, merge_lesson_tree
     from knowledge_relations import relation_index
     categories, points, issues, gaps, resolved_reviews = [], [], [], [], []
+    exact_points = {}; consolidations = []
     for batch in pipeline['batches']:
         tree = batch['tree']; local = {c['id']: c for c in tree['categories']}
         def path(cid):
@@ -297,8 +298,20 @@ def assemble(raw, context, pipeline, hierarchy=None):
         for original in tree['knowledge_points']:
             point = deepcopy(original); point['parent_id'] = point['primary_concept_group_id'] = mapped_categories[point['parent_id']]
             point['generation_batch_id'] = batch['id']
+            previous = exact_points.get(point['knowledge_id']) if pipeline.get('prompt_contract') == 'knowledge_extract_v9' else None
+            if previous:
+                require(normalized(previous['statement']) == normalized(point['statement'])
+                        and sorted(normalized(c) for c in previous.get('conditions', [])) == sorted(normalized(c) for c in point.get('conditions', [])),
+                        '重复知识身份的命题或前提不一致')
+                global_keys[original['key']] = previous['key']
+                for field in ('inventory_keys', 'source_refs', 'source_quotes', 'section_refs', 'aliases', 'terms', 'term_candidates', 'inventory_attachments'):
+                    for item in point.get(field, []):
+                        if item not in previous.setdefault(field, []): previous[field].append(deepcopy(item))
+                consolidations.append({'batch_id': batch['id'], 'batch_point_key': original['key'],
+                    'point_key': previous['key'], 'knowledge_id': previous['knowledge_id'], 'reason': 'identical_statement_and_conditions'})
+                continue
             point['key'] = f'K{len(points)+1}';global_keys[original['key']] = point['key']
-            points.append(point)
+            points.append(point); exact_points[point['knowledge_id']] = point
         issues.extend({**i, 'batch_id': batch['id'],**({'batch_point_key':i['point_key'],'point_key':global_keys[i['point_key']]} if i.get('point_key') in global_keys else {})} for i in batch['report']['issues']); gaps.extend(tree.get('gaps', []))
         resolved_reviews.extend({**i, 'batch_id': batch['id'], 'point_key': global_keys[i['point_key']]}
                                 for i in batch['report'].get('resolved_review_issues', []))
@@ -351,6 +364,7 @@ def assemble(raw, context, pipeline, hierarchy=None):
     issues.extend({'code':'source_span_uncovered','severity':'blocking','source_key':p['source_key'],'passage_key':p['key']} for p in uncovered)
     issues.extend({'code':'source_review','severity':'review','source_key':issue['source_key']} for issue in source_issues)
     result['atomic_assessment'] = {'schema_version': PIPELINE, 'ready_for_adoption': not any(i['severity'] == 'blocking' for i in issues),
+        'exact_duplicate_consolidations': consolidations,
         'atomicity_checks': [{'point_key': p['key'], **deepcopy(p['atomic_contract'])} for p in points if p.get('atomic_contract')],
         'resolved_review_issues': resolved_reviews,
         'source_issues':source_issues,
@@ -517,6 +531,9 @@ async def run_atomic(svc, course_id, job_id):
                     parsed = parse_complete_json(response)
                     try:
                         result = compile_extraction(raw, context, batch['source_keys'], i, parsed)
+                        if pipeline['prompt_contract'] == 'knowledge_extract_v9' and result.get('report') and any(
+                            issue['code'] == 'duplicate_meta_question' for issue in result['report'].get('issues', [])):
+                            raise CourseDocumentConflict('本批元问题对象或检查角度重复')
                     except CourseDocumentConflict as validation_error:
                         if pipeline['prompt_contract'] != 'knowledge_extract_v9' or parsed.get('response_contract') != 'knowledge_extract_v9': raise
                         from knowledge_extraction_repair import repair_points
@@ -526,6 +543,8 @@ async def run_atomic(svc, course_id, job_id):
                                 batch['source_keys'], i, parsed, batch['repair'])
                             validate_source()
                             result = compile_extraction(raw, context, batch['source_keys'], i, corrected)
+                            require(not result.get('report') or not any(issue['code'] == 'duplicate_meta_question'
+                                    for issue in result['report'].get('issues', [])), '修正后元问题仍重复，保留原输出与修正记录')
                             batch['repair']['corrected_response'] = corrected
                             batch['repair']['status'] = 'completed'
                         except Exception:
@@ -591,8 +610,11 @@ async def run_atomic(svc, course_id, job_id):
             batch.update(status='completed', tree=tree, report=report, raw_response=response); save()
         await run_batches(pipeline['batches'], atomize_batch, width=concurrency)
         hierarchy = None; relation_result = None
-        flat_points = [{**point, 'key': f'K{i}'} for i, point in enumerate(
-            [point for batch in pipeline['batches'] for point in batch['tree']['knowledge_points']], 1)]
+        local_points = [point for batch in pipeline['batches'] for point in batch['tree']['knowledge_points']]
+        if pipeline['prompt_contract'] == 'knowledge_extract_v9':
+            local_points = [point for point in assemble(raw, context, pipeline)['knowledge_points']
+                            if context['scope_lesson_id'] in point.get('section_refs', [])]
+        flat_points = [{**point, 'key': f'K{i}'} for i, point in enumerate(local_points, 1)]
         if fast and pipeline.get('include_relations'):
             from knowledge_tree_relations import generate as generate_relations
             async def hierarchy_stage():

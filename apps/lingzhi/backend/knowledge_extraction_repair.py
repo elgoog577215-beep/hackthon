@@ -26,13 +26,20 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(passages), '片段结构错误不可按知识点修正')
-    targets = {}
+    targets = {}; questions = {}
     for key, entry in response['passages'].items():
         require(isinstance(entry, dict) and isinstance(entry.get('points'), list), '片段结构错误不可按知识点修正')
         for ordinal, point in enumerate(entry['points']):
-            try: quality_point(point, passages[key]['text'])
+            try:
+                compiled, _ = quality_point(point, passages[key]['text'])
+                questions.setdefault(compiled['question'], []).append((key, ordinal, point, compiled['claim']))
             except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
                 targets[f'{key}:{ordinal}'] = {'point': point, 'error': str(error)[:400], 'passage_key': key}
+    for group in questions.values():
+        if len({entry[3] for entry in group}) <= 1: continue
+        for key, ordinal, point, _ in group:
+            targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
+                'error': '元问题重复且答案不同，必须用实际结构名作为subject，并在property中明确操作或检查角度；不改原答案含义。'}
     require(0 < len(targets) <= 16, '没有可精确定位或超出单次修正容量的知识点')
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
     payload.update(stage='extract_repair', targets=targets)
