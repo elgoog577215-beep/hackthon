@@ -131,3 +131,20 @@ def test_core_question_keeps_the_same_assumptions_as_its_answer():
     point, _ = build_point(fact(conditions=['栈未满']), ['入栈'])
     assert '栈未满' in point['question']
     assert point['conditions'] == ['栈未满']
+
+
+@pytest.mark.parametrize('point,options', [
+    (fact(subject='栈状态', property='Push(5)后', value='[5]'), ['栈状态']),
+    (fact(subject='栈必须为空', property='条件', value='空'), ['栈必须为空']),
+])
+def test_concrete_execution_states_and_predicate_subjects_cannot_become_general_facts(point, options):
+    from knowledge_semantic_contract import build_point
+    with pytest.raises(CourseDocumentConflict): build_point(point, options)
+
+
+def test_method_question_uses_its_named_tool_or_algorithm_naturally():
+    from knowledge_semantic_contract import build_point
+    point = {'form': 'procedure', 'subject': '栈', 'goal': '判断圆括号是否匹配', 'steps': ['扫描字符', '维护栈'],
+             'completion': '没有提前失败且栈为空', 'conditions': [], 'attachments': []}
+    compiled, _ = build_point(point, ['栈'])
+    assert compiled['question'].startswith('如何运用栈判断圆括号是否匹配？')
