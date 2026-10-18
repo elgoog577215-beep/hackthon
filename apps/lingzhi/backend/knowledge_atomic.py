@@ -382,6 +382,11 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         structure = extraction_schema([p['key'] for p in passages],
             {p['key']: p['focus_options'] for p in passages} if all('focus_options' in p for p in passages) else None,
             contract=payload.get('extraction_contract'))
+        if payload.get('extraction_contract') == 'knowledge_extract_v9':
+            # Keep syntax decoding simple. Form/source validation remains in the
+            # local compiler; large union grammars can degenerate into whitespace.
+            structure = None
+            request_budget['response_format'] = 'json_object_local_validation'
     elif stage in {'inventory','atomize'}:
         from knowledge_compact import passage_schema, leaf_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
@@ -430,7 +435,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         temperature=0,
         enable_thinking=False, reject_truncated=True, require_stop=True, raise_on_failure=True,
         inactivity_timeout_seconds=idle_limit,
-        json_mode=structure is not None, **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
+        json_mode=structure is not None or stage == 'extract', **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
     try:
         done, _ = await asyncio.wait({checkpoint, call}, return_when=asyncio.FIRST_COMPLETED)
         if checkpoint in done: await checkpoint

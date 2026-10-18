@@ -23,6 +23,11 @@ def subject_options(content, *, contract=LEGACY_CONTRACT):
         for token in re.findall(r'[\u3400-\u9fff]+', content):
             precise.extend(part for part in re.split(r'使用|用于|采用|利用|依赖|的|在|将|把|与|和', token) if part and part in content and len(part) <= 20)
         precise = list(dict.fromkeys(term for term in precise if not re.match(r'^(?:使用|用于|能够|可以|例如)', term)))
+    if contract == QUALITY_CONTRACT:
+        for token in re.findall(r'[\u3400-\u9fff]+', content):
+            precise.extend(re.split(r'是否|能否|如何|分析|理解|明确|判断|检查|识别|需要|必须|应当|用于|使用|通过|的|中|与|和', token))
+        precise = [term for term in dict.fromkeys(precise) if term and term in content and len(term) <= 40
+                   and not re.search(r'必须|应当|需要|是否|能否|如何|本讲|本课|学习目标|教学目标|选择依据|^判断|^执行|[/、]', term)]
     return precise or terms
 
 
@@ -77,13 +82,16 @@ def quality_prompt(raw, context, keys):
     return (
         '从完整冻结正文块提取可独立检查的一般知识。只输出一个紧凑JSON对象并停止；不要空行、思考或解释。'
         '每个source_passages编号都必须出现在passages中，不遗漏块；逐一判断定义、已命名操作、规则、前提和完整方法。'
-        '主体必须逐字选择本块focus_options中的具体对象名词，不选“本讲/选择依据/是否匹配/需要”等背景、谓语或问题。'
+        '主体必须选择本块focus_options中的具体对象名词，均是原文逐字片段；这些候选不是已经认证的学科术语。'
+        '不选“本讲/选择依据/是否匹配/需要”等背景、谓语或问题，不合并两个操作作一个主体。'
         '每点只选一种form，只输出该形态需要的字段，不输出其他形态的空槽位：'
         'fact={form:"fact",subject:"对象",property:"一个属性",value:"该属性的完整值",conditions:[],attachments:[]}；'
         'definition={form:"definition",subject:"对象",meaning:"属概念或完整定义",constraints:["必要限定"],conditions:[],attachments:[]}；'
         'comparison={form:"comparison",left_subject:"左对象",right_subject:"右对象",property:"一个维度",left_value:"左值",right_value:"右值",conditions:[],attachments:[]}；'
         'procedure={form:"procedure",subject:"工具或方法对象",goal:"方法目标",steps:["全部必要步骤"],completion:"完成判据",conditions:[],attachments:[]}。'
-        '每个已命名操作都要有可检查的操作效果，不能只列操作集合或把操作藏在定义中。'
+        '每个已命名操作用单独的fact记录操作效果，不能只列操作集合或把操作藏在定义中；不为一个基本操作编造多步procedure。'
+        '例如原文并列判空、判满，需要分别记录检查对象；判满的前提不能套到判空上。'
+        '不同结构具有同名操作时，subject用结构名，property指明该操作的检查角度，避免生成对象不明的“判空是什么”。'
         '不同操作、时间代价和空间代价分别成点；property不包含与/和/及/顿号等多个属性，不把答案写进属性。'
         '一个属性的完整枚举允许保留；定义的共同限定和一个算法的必要步骤不能拆碎。'
         'conditions只保留原文明确的输入或成立前提，不把题目结论、算法成功条件或学习目的误放在前提里。'
@@ -91,7 +99,8 @@ def quality_prompt(raw, context, keys):
         'subject用实际工具或算法名，不用“是否…”问句；特定输入的执行轨迹、状态表和数值答案仅为例题，不成为一般规则。'
         '不从代码或个例外推原文未给的一般公式，不添加原文没有的边界处理；原文代码缺陷应记录疑点。'
         '比较必须用comparison并保留两侧实际对象，不能在fact中夹带第二对象；值不重复主体和属性，不用分号夹带另一个独立结论。'
-        '教学目标、纯具体轨迹、教学安排或纯重复总结填背景；混有新的一般知识时仍提取新知识。'
+        '教学目标及其编号列表、纯具体轨迹、教学安排或纯重复总结填背景；不要从“需要掌握/分析为何”等目标推断已讲解结论。'
+        '混有新的一般知识时仍提取新知识。'
         '过强必要性、绝对断言、实现或环境相关常数、可疑代码/公式用source_issues逐块标明，不能作为已核实一般知识；不修改原文。'
         '每块有知识时points非空且note=null；无独立知识时points=[]且note={handling:"context"或"out_of_scope",reason:"具体原因"}。'
         'source_issues每项必须是{passage_key:"实际块号",kind:"suspected_error"或"contradiction",detail:"明确疑点"}，不可用字符串替代。'
@@ -266,7 +275,14 @@ def compile_extraction(raw, context, keys, index, response):
         for point in entry['points']:
             if response['response_contract'] == WIRE_CONTRACT: point = expand_wire(point)
             elif response['response_contract'] == CONTRACT: point = expand_scalar(point)
-            normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
+            options = subject_options(passages[key]['text'], contract=response['response_contract'])
+            if response['response_contract'] == QUALITY_CONTRACT:
+                fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
+                options = [point.get(field) for field in fields]
+                require(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in passages[key]['text'] for s in options),
+                        '知识主体必须逐字来自当前原文块')
+                require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
+            normalized_point, audit = build_point(point, options)
             audit['schema_version'] = response['response_contract']
             normalized.append(normalized_point); audits.append(audit)
         entry['points'] = normalized
