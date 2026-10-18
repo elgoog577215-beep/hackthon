@@ -54,6 +54,10 @@ def test_candidate_selection_binds_direction_and_evidence_before_generation():
     response['focus_links']['P2'][0]['e'] = 'not-a-frozen-pair'
     rejected = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
     assert not rejected['relations'] and rejected['semantic_rejections'][0]['code'] == 'unknown_candidate_pair'
+    response['focus_links']['P2'][0].update(e=identity)
+    response['focus_links']['P2'][0]['if'] = None
+    malformed = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
+    assert not malformed['relations'] and malformed['semantic_rejections'][0]['code'] == 'invalid_relation_fields'
 
 
 def test_prebound_candidate_count_replaces_the_old_arbitrary_twelve_edge_limit():

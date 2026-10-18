@@ -124,6 +124,11 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
     assert 'json_schema' not in options[-1]  # Validate the small contract locally too.
+    original = deepcopy(saved)
+    resumed = start(svc, 'new-isolated-attempt', resume_job_id=job['id'])
+    copied = resumed['checkpoint']['atomic_pipeline']['inventory_batches'][0]
+    assert all(field not in copied for field in ('repair', 'content_review', 'validation_error', 'raw_response'))
+    assert svc.authoring.get_job('c-pilot', job['id']) == original
 
 
 @pytest.mark.asyncio
@@ -166,3 +171,5 @@ async def test_exact_duplicate_claims_keep_one_identity_and_all_inventory_pointe
     assert len(result['atomic_assessment']['exact_duplicate_consolidations']) == 1
     assert 'another-inventory-pointer' in result['knowledge_points'][0]['inventory_keys']
     assert pipeline == before
+    assert result['atomic_assessment']['content_review']['missing_batches'] == 1
+    assert result['atomic_assessment']['ready_for_adoption'] is False
