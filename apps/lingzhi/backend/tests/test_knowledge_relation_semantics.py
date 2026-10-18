@@ -56,3 +56,22 @@ def test_reusing_one_generic_reason_for_distinct_pairs_cannot_fill_the_graph():
     result = compile_relations({'course_id': 'c'}, p, ['P1'], value, 'l')
     assert result['relations'] == []
     assert [r['code'] for r in result['semantic_rejections']] == ['reused_pair_reason', 'reused_pair_reason']
+
+
+def test_space_bound_derivation_cannot_be_attached_to_a_time_bound_target():
+    p=pipeline(); p['catalog'][0].update(name='递归帧开销',statement='递归的额外调用帧空间为O(d)。',subjects=['递归'])
+    p['catalog'][1].update(name='归并排序时间复杂度',statement='递归归并排序的时间复杂度为O(n log n)。')
+    value=response(); link=value['focus_links']['P1'][0]
+    link.update(t='derives',sn='递归帧开销',tn='归并排序时间复杂度',sq=p['catalog'][0]['statement'],tq=p['catalog'][1]['statement'],
+                r='递归深度决定栈空间',s=['递归深度为O(log n)', '代入d后额外调用帧空间为O(log n)'])
+    result=compile_relations({'course_id':'c'},p,['P1'],value,'l')
+    assert result['relations']==[]
+    assert result['semantic_rejections'][0]['code']=='derivation_conclusion_mismatch'
+
+
+def test_endpoint_assumptions_are_preserved_separately_without_turning_local_guards_into_global_preconditions():
+    p=pipeline();p['catalog'][0]['conditions']=['调用该操作时栈非空'];p['catalog'][1]['conditions']=['输入为有限树']
+    edge=compile_relations({'course_id':'c'},p,['P1'],response(),'l')['relations'][0]
+    assert edge['source_endpoint_conditions']==['调用该操作时栈非空']
+    assert edge['target_endpoint_conditions']==['输入为有限树']
+    assert edge['conditions']==[]
