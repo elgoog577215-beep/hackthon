@@ -1,11 +1,13 @@
 from copy import deepcopy
+import pytest
 
 from backend.tests.test_knowledge_extraction_repair import value, point
 
 
-def test_proven_false_source_clause_is_quarantined_without_editing_other_knowledge():
+@pytest.mark.parametrize('ban', ['不能出现 `)(`', '不能出现“)(”'])
+def test_proven_false_source_clause_is_quarantined_without_editing_other_knowledge(ban):
     from knowledge_source_rules import quarantine_source_errors
-    invalid = {'form': 'definition', 'subject': '匹配条件', 'meaning': '顺序正确，即不能出现 `)(`',
+    invalid = {'form': 'definition', 'subject': '匹配条件', 'meaning': '顺序正确，即'+ban,
                'constraints': ['字符串仅包含圆括号'], 'conditions': [], 'attachments': []}
     original = value([invalid, point()]); original['_content_review_trace'] = [{'point_review_key': 'bad'}, {'point_review_key': 'good'}]
     before = deepcopy(original)
