@@ -1,6 +1,7 @@
 """One visible correction request for precisely identified invalid point slots."""
 from copy import deepcopy
 import json
+import re
 from jsonschema import Draft202012Validator
 
 from course_repository import CourseDocumentConflict
@@ -44,6 +45,11 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
                 'error': '元问题重复且答案不同，必须用实际结构名作为subject，并在property中明确操作或检查角度；不改原答案含义。'}
     require(0 < len(targets) <= 16, '没有可精确定位或超出单次修正容量的知识点')
+    for target in targets.values():
+        conditions = target['point'].get('conditions', [])
+        # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
+        target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
+            r'前提|范围|串用|条件|联合定义|仅说明机制', target.get('error', '')) else []
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
     payload.update(stage='extract_repair', targets=targets)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
@@ -53,6 +59,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         'property不能包含任何与、和、及、顿号、分号、逗号，必须修改property本身。'
         '若描述两个对象或顺序的关系，使用单一性质名称（如对应方式、顺序一致性），保持原取值意义，不用并列名词充当属性名。'
         '每个新拆出的点也须满足全部规则：成本单独用成本属性，n等符号在该点conditions定义；不能在访问权限属性里新增O(...)。'
+        '每个替换或拆分点的conditions必须原样包含该target.required_conditions全部条目，可以增加来源支持的前提，不能清空、改写或移入attachments。'
+        '只修正subject拼写或property时尤其不能顺手删除原有条件；reason里的范围说明不能代替conditions。'
         '主体不能改成“策略”“数据结构”“算法”等栏目名，fact和definition都要指向当前块逐字出现的具体方法或结构。'
         '括号完整方法包含初始化空栈、空栈遇右括号立即失败；成功判据同时包括未提前失败和遍历结束空栈。'
         '错误“一个属性值不能夹带独立命题”指value内含分号或多个句子，应拆成分别成立的点，不可删掉其中事实。'
@@ -91,7 +99,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
                     and isinstance(repair['reason'], str) and repair['reason'].strip(), '修正结构无效')
             require(repair['handling'] == ('replace' if repair['points'] else 'context'), '修正去向不明确')
-            for point in repair['points']: quality_point(point, passages[key]['text'])
+            for point in repair['points']:
+                require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
+                        '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
+                quality_point(point, passages[key]['text'])
             points.extend(deepcopy(repair['points']))
             if trace is not None:
                 repaired_traces.extend({**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False} for _ in repair['points'])
