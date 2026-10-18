@@ -68,3 +68,44 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     batch = saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_points(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] += '栈的判空检查栈是否为空。队列的判空检查队列是否为空。'
+    svc.authoring._save(state)
+    calls = []
+    async def model(prompt, **kwargs):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
+        if payload['stage'] == 'extract':
+            return json.dumps(value([point('判空', property='检查对象', value='栈是否为空'), point('判空', property='检查对象', value='队列是否为空')]))
+        return json.dumps({'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],
+                    'handling': 'replace', 'reason': '明确操作所属结构'} for i, subject in enumerate(['栈', '队列'])}, 'source_issues': []})
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
+    job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert calls == ['extract', 'extract_repair'] and saved['status'] == 'completed'
+    points = saved['checkpoint']['candidate']['knowledge_points']
+    assert len({p['meta_question'] for p in points}) == 2
+
+
+@pytest.mark.asyncio
+async def test_exact_duplicate_claims_keep_one_identity_and_all_inventory_pointers(svc, monkeypatch):
+    from backend.tests.test_knowledge_atomic import provider
+    from knowledge_atomic import assemble
+    setup_course(svc, monkeypatch); provider(svc)
+    job = start(svc); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    pipeline = deepcopy(saved['checkpoint']['atomic_pipeline'])
+    pipeline['prompt_contract'] = 'knowledge_extract_v9'
+    copied = deepcopy(pipeline['batches'][0]); copied['id'] = 'duplicate-batch'
+    copied['tree']['knowledge_points'][0]['inventory_keys'] = ['another-inventory-pointer']
+    pipeline['batches'].append(copied)
+    before = deepcopy(pipeline)
+    result = assemble(svc.repository.load_raw('c-pilot'), saved['request_snapshot']['knowledge_generation_context'], pipeline)
+    assert len(result['knowledge_points']) == 2
+    assert len(result['atomic_assessment']['exact_duplicate_consolidations']) == 1
+    assert 'another-inventory-pointer' in result['knowledge_points'][0]['inventory_keys']
+    assert pipeline == before
