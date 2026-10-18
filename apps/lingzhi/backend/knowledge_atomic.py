@@ -525,6 +525,16 @@ async def run_atomic(svc, course_id, job_id):
                 validate_source()
                 try:
                     parsed = parse_complete_json(response)
+                    if pipeline['prompt_contract'] == 'knowledge_extract_v9' and parsed.get('response_contract') == 'knowledge_extract_v9':
+                        from knowledge_content_review import review_content
+                        batch['content_review'] = {'status': 'pending'}
+                        try:
+                            parsed = await review_content(svc, course_id, job_id, provider, raw, context,
+                                batch['source_keys'], parsed, batch['content_review'])
+                            validate_source()
+                        except Exception:
+                            batch['content_review']['status'] = 'failed'
+                            raise
                     try:
                         result = compile_extraction(raw, context, batch['source_keys'], i, parsed)
                         if pipeline['prompt_contract'] == 'knowledge_extract_v9' and result.get('report') and any(

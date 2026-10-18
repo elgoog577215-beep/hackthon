@@ -311,6 +311,10 @@ def compile_extraction(raw, context, keys, index, response):
         entry['points'] = normalized
     output = compile_legacy(raw, context, keys, index, value)
     if output['tree']:
+        traces = response.get('_content_review_trace')
+        if traces is not None:
+            require(len(traces) == len(output['tree']['knowledge_points']), '内容核对出处与知识数量不一致')
+            for point, trace in zip(output['tree']['knowledge_points'], traces): point['content_review'] = deepcopy(trace)
         checks = [{**audit, 'point_key': p['key']} for p, audit in zip(output['tree']['knowledge_points'], audits)]
         for point, audit in zip(output['tree']['knowledge_points'], audits): point['atomic_contract'] = audit
         report = output['report']
