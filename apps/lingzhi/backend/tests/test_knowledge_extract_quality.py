@@ -93,6 +93,10 @@ def test_piecewise_function_definition_cannot_be_split_into_unqualified_facts():
     ('循环', '内存占用', '恒定', [], '调用帧'),
     ('DFS', '错误实现后果', '若用队列实现，搜索顺序变为广度优先', [], '前提'),
     ('系统栈深度', '范围', '10^3至10^4', ['取决于语言和配置'], '环境'),
+    ('递归', '执行机制', '系统栈帧的压入与弹出', [], '实现'),
+    ('DFS', '依赖数据结构', '栈', [], '实现'),
+    ('栈', '物理存储基础', '必须建立在已有的线性表物理存储之上', [], '物理'),
+    ('factorial', '最大栈深度', 'n', [], '符号'),
 ])
 def test_known_source_overstatements_cannot_pass_as_unqualified_facts(subject, property, value, conditions, match):
     from knowledge_semantic_contract import quality_point
