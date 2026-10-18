@@ -404,6 +404,10 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         payload = json.loads(prompt.split('INPUT_JSON:', 1)[1])
         structure = response_schema(list(payload['catalog']), payload['focus_keys'], payload['local_keys'],
             **({'contract': payload['relation_contract']} if payload.get('relation_contract') else {}))
+    elif stage == 'extract_repair':
+        from knowledge_extraction_repair import repair_schema
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
+        structure = repair_schema(payload['targets'], {p['key']: p['text'] for p in payload['source_passages']})
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.
@@ -411,7 +415,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         request_budget['max_output_tokens'] = options['max_tokens']
     quality_job = svc.authoring.read_projection(course_id, lambda state:
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9')
-    if quality_job:
+    if quality_job and stage != 'extract_repair':
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     svc.authoring.update_job_live(course_id, job_id, request_budget=request_budget,

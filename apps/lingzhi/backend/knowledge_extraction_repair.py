@@ -4,8 +4,21 @@ import json
 
 from course_repository import CourseDocumentConflict
 from generic_knowledge import require
-from knowledge_compact import passage_catalog, parse_complete_json
-from knowledge_semantic_contract import quality_point, quality_prompt
+from knowledge_compact import passage_catalog, parse_complete_json, obj, array, string
+from knowledge_semantic_contract import quality_point, quality_prompt, point_variants, subject_options
+
+
+def repair_schema(targets, passages):
+    repairs = {}
+    for key, target in targets.items():
+        choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'))['anyOf']
+        shape = next(choice for choice in choices if choice['properties']['form']['const'] == target['point']['form'])
+        properties = shape['properties']
+        shape = obj({'form': properties['form'], **{k: v for k, v in properties.items() if k != 'form'}})
+        repairs[key] = obj({'points': array(shape, 8), 'handling': {'enum': ['replace', 'context']}, 'reason': string(600)})
+    issue = obj({'passage_key': {'enum': list(dict.fromkeys(v['passage_key'] for v in targets.values()))},
+                 'kind': {'enum': ['suspected_error', 'contradiction']}, 'detail': string(1000)})
+    return obj({'repairs': obj(repairs), 'source_issues': array(issue, 16)})
 
 
 async def repair_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record):
@@ -26,6 +39,11 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
         '\n本请求只修正targets列出的无效点；禁止改动其他点或添加其他块。每个目标必须回应一次。'
         '把单一属性、实际原文主体和对应取值写清；必要时拆成多个完整点。'
+        '错误“独立属性必须分别成为知识点”指的是property字段，而不是value；'
+        'property不能包含任何与、和、及、顿号、分号、逗号，必须修改property本身。'
+        '若描述两个对象或顺序的关系，使用单一性质名称（如对应方式、顺序一致性），保持原取值意义，不用并列名词充当属性名。'
+        '错误“一个属性值不能夹带独立命题”指value内含分号或多个句子，应拆成分别成立的点，不可删掉其中事实。'
+        '每个修正点保持目标点的form，使用原形态需要的字段，不新增其他形态字段。'
         '具体轨迹、教学目标或没有独立一般知识的点可明确归context并说明理由，不能虚构替代知识。'
         '不要返回原顶层passages。只输出{"repairs":{"目标键":{"points":[修正后完整点],"handling":"replace","reason":"具体修改"}},"source_issues":[]}。'
         '归背景时points=[]，handling="context"；新增疑点只能指向targets所属块。只允许这一轮修正，所有原输出会保留。\nINPUT_JSON:\n'
@@ -58,5 +76,6 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     require(isinstance(issues, list) and all(isinstance(i, dict) and i.get('passage_key') in
             {v['passage_key'] for v in targets.values()} for i in issues), '修正来源疑点越界')
     output['source_issues'] = [*output['source_issues'], *deepcopy(issues)]
+    output['_format_normalizations'] = sorted(set(output.get('_format_normalizations', [])) | set(parsed.get('_format_normalizations', [])))
     record.update(status='validated', decisions=decisions)
     return output
