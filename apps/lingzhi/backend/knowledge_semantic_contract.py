@@ -280,7 +280,14 @@ def quality_point(point, source_text):
     require(not any(re.search(r'[/、]|以及', s) for s in options), '独立操作不能合并为一个知识主体')
     prop = str(point.get('property', ''))
     value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', []))
+    if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:
+        require(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
     if point.get('form') == 'fact':
+        symbols = set(re.findall(r'\b[nmd]\b', value))
+        require(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
+                '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号')
+        if point.get('subject') == '栈' and '物理' in prop and '必须' in value:
+            require(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
         two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)
         require(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
         require(not re.match(r'^(?:若|当|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
@@ -290,13 +297,17 @@ def quality_point(point, source_text):
         if '系统' in str(point.get('subject', '')) + prop and re.search(r'栈|递归', str(point.get('subject', '')) + prop) and re.search(r'\d', value):
             require(bool(re.search(r'版本|(?:Python|CPython|Java)\s*\d|配置\s*[:=]', source_text)),
                     '环境相关深度数值缺少明确来源环境和配置，应记来源疑点，不能补造环境')
+    body = str(point.get('value', '')) + str(point.get('left_value', '')) + str(point.get('right_value', ''))
+    scoped_model = bool(re.search(r'本讲|普通|常规|当前|所示|该实现|典型|未优化|基于.*(?:栈|队列)', conditions))
+    if any('递归' in subject for subject in options) and re.search(r'栈帧|调用栈', prop + body):
+        require(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')
+    if any(re.search(r'DFS|BFS', subject) for subject in options) and re.search(r'依赖|数据结构', prop):
+        require(scoped_model, '策略与数据结构的关联必须限定当前实现，不能把某种实现当唯一必要条件')
     if point.get('form') == 'procedure' and re.search(r'搜索|遍历|匹配', str(point.get('goal', ''))) and re.search(r'DFS|BFS|算法|伪代码', source_text):
         steps = '；'.join(str(s) for s in point.get('steps', []))
         require(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
                 or bool(re.search(r'初始化|初始|(?:起点|根节点).*(?:入栈|入队|加入|放入)|(?:stack|queue)\s*=', steps)),
                 '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块')
-    if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', str(point.get('value', '')))) > 1:
-        require(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
     call = re.search(r'[A-Za-z_]\w*\(\s*[-+]?\d[^()]*\)', prop)
     named_cost = bool(call and not re.search(r'之后|以后|后|结果|状态|轨迹|第\d+步', prop)
         and re.search(re.escape(call.group()) + r'\s*(?:效率|性能|复杂度|开销|代价)', source_text))
