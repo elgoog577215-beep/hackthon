@@ -91,6 +91,16 @@ def test_proposed_terms_cannot_relabel_priority_queue_as_queue_using_a_suffix_qu
     assert any(r['english_name'] == 'Priority Queue' and r['status'] == 'source_unconfirmed' for r in result['term_candidates'])
 
 
+def test_order_clause_with_parenthesized_acronym_is_not_a_translated_entity():
+    from knowledge_evidence import enrich_point
+    point = {'name':'BFS的队列顺序关系','statement':'BFS中队列的入队顺序与访问顺序一致（FIFO）。',
+             'source_quotes':[{'evidence_id':'e','quote':'BFS中队列的入队顺序与访问顺序一致（FIFO）。'}]}
+    result = enrich_point(point)
+    assert not result['terms']
+    assert '中队列的入队顺序与访问顺序一致' not in result['aliases']
+    assert result['term_candidates'][0]['reason'] == 'annotation_attached_to_predicate_clause'
+
+
 def test_legacy_automatic_suffix_binding_is_unconfirmed_without_deleting_manual_aliases():
     from knowledge_evidence import enrich_point
     quote = '**队列（Queue）**。**优先队列**（Priority Queue）。'
