@@ -224,7 +224,7 @@ def visible_handout_tree(tree, document, handouts):
             for quote in quotes)
     result['knowledge_points'] = [p for p in result['knowledge_points'] if included(p)]
     for point in result['knowledge_points']:
-        for field in ('inventory_attachments', 'inventory_keys', 'generation_batch_id'):
+        for field in ('inventory_attachments', 'inventory_keys', 'generation_batch_id', 'content_review'):
             point.pop(field, None)
     point_ids = {p['knowledge_id'] for p in result['knowledge_points']}
     groups = {c['id']: c for c in result['categories']}
