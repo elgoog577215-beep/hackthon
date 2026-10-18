@@ -71,3 +71,15 @@ def test_prebound_candidate_count_replaces_the_old_arbitrary_twelve_edge_limit()
     links = [{'e': key, 't': 'prerequisite', 'n': 'recommended', 'c': '当前操作', 'r': f"规则直接用于{row['target_key']}", 'if': [], 'w': 'medium'} for key, row in candidates.items()]
     result = compile_relations({'course_id': 'c'}, pipeline, ['P1'], {'point_reviews': {'P1': '逐项核对冻结候选'}, 'focus_links': {'P1': links}, 'gaps': []}, 'l')
     assert len(result['relations']) == 14
+
+
+def test_program_exclusion_is_explicit_and_never_replaces_an_eligible_model_review():
+    from knowledge_tree_relations import compile_relations
+    pipeline, _ = case(); pipeline['wire'] = 'candidate_edges_v1'
+    response = {'point_reviews': {'P2': '已核对可接受候选点对'}, 'focus_links': {}, 'gaps': []}
+    result = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
+    records = {d['focus_key']: d for d in result['decisions']}
+    assert records['P3']['review_origin'] == 'program_no_eligible_owned_pairs'
+    assert records['P2']['review_origin'] == 'model'
+    response['point_reviews'] = {}
+    with pytest.raises(CourseDocumentConflict): compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')

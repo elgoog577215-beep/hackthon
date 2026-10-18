@@ -112,6 +112,14 @@ def test_partial_search_mechanism_is_not_a_complete_executable_method():
         quality_point(point, 'DFS的机制：访问当前节点，将子节点压入栈。弹出栈顶节点。')
 
 
+def test_a_valid_parenthesis_string_can_contain_the_closing_opening_substring():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'definition', 'subject': '匹配条件', 'meaning': '顺序正确，即不能出现 `)(`',
+             'constraints': [], 'conditions': ['字符串仅包含圆括号'], 'attachments': []}
+    with pytest.raises(CourseDocumentConflict, match='前缀'):
+        quality_point(point, '括号匹配条件为顺序正确，即不能出现 `)(`。算法使用栈。')
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
