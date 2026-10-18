@@ -67,3 +67,29 @@ async def test_whitespace_stream_does_not_reset_meaningful_content_timeout(svc, 
     assert saved['stage_observations'][0]['last_content_seconds'] == 0
     assert (saved['last_content_at'] is not None) == bool(prefix)
     assert svc.repository.load_raw('c-pilot') == before
+
+
+@pytest.mark.asyncio
+async def test_runaway_json_formatting_stops_early_without_waiting_for_idle_deadline(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    async def runaway(prompt, **kwargs):
+        kwargs['on_content_delta']('{"partial":' + '\n ' * 1200)
+        await asyncio.Event().wait()
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=runaway, model_smart='test-qwen', client=None)
+    job = start(svc)
+    await asyncio.wait_for(svc.run('c-pilot', job['id']), timeout=4)
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'failed' and saved['error']['code'] == 'KnowledgeModelDegenerateOutput'
+    assert saved['partial_text'].endswith('\n ' * 1200)
+
+
+@pytest.mark.asyncio
+async def test_long_whitespace_inside_a_quoted_json_value_is_preserved(svc, monkeypatch):
+    from knowledge_atomic import call_stage
+    setup_course(svc, monkeypatch); job = start(svc)
+    text = '{"text":"' + ' ' * 3000 + '"}'
+    async def normal(prompt, **kwargs):
+        for delta in [text[:10], text[10:-2], text[-2:]]: kwargs['on_content_delta'](delta)
+        return text
+    result = await call_stage(svc, 'c-pilot', job['id'], SimpleNamespace(_call_llm=normal), '诊断', 'diagnostic')
+    assert result == text

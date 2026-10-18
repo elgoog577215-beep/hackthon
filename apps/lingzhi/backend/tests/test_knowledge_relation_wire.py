@@ -54,3 +54,16 @@ def test_candidate_selection_binds_direction_and_evidence_before_generation():
     response['focus_links']['P2'][0]['e'] = 'not-a-frozen-pair'
     rejected = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
     assert not rejected['relations'] and rejected['semantic_rejections'][0]['code'] == 'unknown_candidate_pair'
+
+
+def test_prebound_candidate_count_replaces_the_old_arbitrary_twelve_edge_limit():
+    from knowledge_tree_relations import candidate_links, compile_relations
+    source = {'key': 'P1', 'knowledge_id': 'source', 'revision_id': 's1', 'name': '规则', 'statement': '规则的冻结定义。', 'subjects': ['规则'], 'conditions': [], 'lesson_ids': ['l']}
+    points = [source, *[{'key': f'P{i}', 'knowledge_id': f't{i}', 'revision_id': f'r{i}', 'name': f'操作{i}',
+        'statement': f'操作{i}明确使用规则。', 'subjects': [f'操作{i}'], 'conditions': [], 'lesson_ids': ['l']} for i in range(2, 16)]]
+    pipeline = {'contract': 'knowledge_tree_relations_v4', 'wire': 'candidate_edges_v1', 'catalog': points,
+        'focus_keys': [p['key'] for p in points], 'baseline_relations': [], 'base_revision': 'frozen'}
+    candidates = candidate_links(pipeline, ['P1'], 'l')
+    links = [{'e': key, 't': 'prerequisite', 'n': 'recommended', 'c': '当前操作', 'r': f"规则直接用于{row['target_key']}", 'if': [], 'w': 'medium'} for key, row in candidates.items()]
+    result = compile_relations({'course_id': 'c'}, pipeline, ['P1'], {'point_reviews': {'P1': '逐项核对冻结候选'}, 'focus_links': {'P1': links}, 'gaps': []}, 'l')
+    assert len(result['relations']) == 14
