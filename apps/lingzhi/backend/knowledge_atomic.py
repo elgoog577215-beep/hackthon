@@ -410,15 +410,19 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
     started = time.perf_counter();first_content = None;last_content = started
     def receive(delta):
         nonlocal first_content,last_content
-        if delta and first_content is None:first_content = time.perf_counter()-started
-        if delta:last_content = time.perf_counter()
-        partial.append(delta); activity.update(received_chars=activity['received_chars'] + len(delta), last_content_at=now())
+        # Structured decoding can emit whitespace indefinitely. Preserve every
+        # delta, but only substantive text counts as generation progress.
+        if delta.strip():
+            if first_content is None:first_content = time.perf_counter()-started
+            last_content = time.perf_counter()
+            activity['last_content_at'] = now()
+        partial.append(delta); activity['received_chars'] += len(delta)
     def reset(): partial.clear(); activity.update(received_chars=0, last_content_at=None)
     async def pulse():
         while True:
             await asyncio.sleep(2); svc._active(course_id, job_id)
             if time.perf_counter()-last_content > idle_limit:
-                raise KnowledgeModelIdleTimeout(f'千问连续{idle_limit}秒没有新增正文，已保留片段与完成批次；请核对模型服务后主动继续。')
+                raise KnowledgeModelIdleTimeout(f'千问连续{idle_limit}秒没有新增有效正文（空白不计），已保留片段与完成批次；请核对模型服务后主动继续。')
             svc.authoring.update_job_live(course_id, job_id, partial_text=''.join(partial),
                 phase='model_streaming' if activity['received_chars'] else 'model_wait', **activity)
     checkpoint = asyncio.create_task(pulse())
