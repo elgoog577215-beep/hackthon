@@ -2,10 +2,20 @@
 from copy import deepcopy
 import hashlib
 import re
+import unicodedata
 
 
 def _compact(value):
-    return re.sub(r'[\s`*]', '', str(value))
+    return re.sub(r'[\s`*“”‘’]', '', unicodedata.normalize('NFKC', str(value))).replace(chr(34), '').replace(chr(39), '')
+
+
+def claims_parenthesis_substring_ban(point, source_text):
+    meaning = _compact(point.get('meaning', '')) + _compact(point.get('constraints', ''))
+    scope = _compact(point.get('conditions', []))
+    return (point.get('form') == 'definition' and bool(re.search(r'匹配|括号', str(point.get('subject', ''))))
+        and '括号' in source_text and '不能出现)(' in meaning
+        and not re.search(r'单对|仅一对|每对|每个.{0,3}对|长度(?:为)?2|开头|前缀|初始|未匹配', scope)
+        and not re.search(r'说法.{0,4}(?:错误|不正确|不准确)|不应将|不能将', meaning))
 
 
 def quarantine_source_errors(response, passages):
@@ -14,21 +24,21 @@ def quarantine_source_errors(response, passages):
         source = passages[key]; source_text = source['text']; kept = []
         for ordinal, point in enumerate(entry['points']):
             trace = traces[cursor] if traces is not None else None; cursor += 1
-            meaning = _compact(point.get('meaning', '')) + _compact(point.get('constraints', ''))
-            scope = _compact(point.get('conditions', []))
-            refuted = (point.get('form') == 'definition' and bool(re.search(r'匹配|括号', str(point.get('subject', ''))))
-                and '字符串' in source_text and '括号' in source_text and '不能出现)(' in _compact(source_text)
-                and '不能出现)(' in meaning and not re.search(r'单对|仅一对|长度(?:为)?2', scope)
-                and not re.search(r'说法.{0,4}(?:错误|不正确|不准确)|不应将|不能将', meaning))
+            refuted = claims_parenthesis_substring_ban(point, source_text) and '字符串' in source_text and '不能出现)(' in _compact(source_text)
             if not refuted:
                 kept.append(point)
                 if trace is not None: kept_traces.append(trace)
                 continue
             detail = '将“不能出现)(”理解为任意子串禁令会被合法串()()反驳；需核对原文歧义及前缀条件，未将该无条件定义加入知识候选。'
+            witness = '()()'; balances = []; balance = 0
+            for char in witness:
+                balance += 1 if char == '(' else -1
+                balances.append(balance)
+            assert min(balances) >= 0 and balance == 0 and ')(' in witness
             record = {'rule_id': 'balanced_parenthesis_substring_counterexample_v1', 'passage_key': key,
                 'source_key': source.get('source_key', key.split('.')[0]), 'point_ordinal': ordinal,
-                'point': deepcopy(point), 'status': 'excluded_from_candidate', 'counterexample': '()()',
-                'prefix_balances': [1, 0, 1, 0], 'verification_scope': 'unqualified_substring_interpretation',
+                'point': deepcopy(point), 'status': 'excluded_from_candidate', 'counterexample': witness,
+                'prefix_balances': balances, 'verification_scope': 'unqualified_substring_interpretation',
                 'source_hash': hashlib.sha256(source_text.encode()).hexdigest(), 'detail': detail}
             records.append(record)
             issue = {'passage_key': key, 'kind': 'suspected_error', 'detail': detail}

@@ -5,6 +5,7 @@ import re
 
 from generic_knowledge import require, text, sources
 from course_repository import CourseDocumentConflict
+from knowledge_source_rules import claims_parenthesis_substring_ban
 from knowledge_compact import obj, array, string, passage_catalog, passage_schema
 
 LEGACY_CONTRACT = 'knowledge_extract_v6'
@@ -290,8 +291,7 @@ def quality_point(point, source_text):
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
             '知识主体必须逐字来自当前原文块')
     check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
-    definition = re.sub(r'[\s`*]', '', str(point.get('meaning', '')) + str(point.get('constraints', '')))
-    if point.get('form') == 'definition' and '括号' in source_text and '不能出现)(' in definition:
+    if claims_parenthesis_substring_ban(point, source_text):
         check(False, '括号匹配应检查任意前缀和最终余额；()()合法但含)(子串，不能将其当任意子串禁令')
     prop = str(point.get('property', ''))
     value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', [])) if isinstance(point.get('conditions', []), list) else ''
