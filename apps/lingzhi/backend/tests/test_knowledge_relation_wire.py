@@ -37,3 +37,20 @@ def test_new_wire_never_infers_missing_point_reviews_or_accepts_unknown_endpoint
     assert result['semantic_rejections'][0]['code'] == 'unknown_endpoint'
     response['point_reviews'].pop('P2')
     with pytest.raises(CourseDocumentConflict): compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
+
+
+def test_candidate_selection_binds_direction_and_evidence_before_generation():
+    from knowledge_tree_relations import candidate_links, compile_relations
+    pipeline, _ = case(); pipeline['wire'] = 'candidate_edges_v1'
+    candidates = candidate_links(pipeline, ['P2', 'P3'], 'l')
+    identity, candidate = next((k, v) for k, v in candidates.items() if v['source_key'] == 'P2' and v['target_key'] == 'P3')
+    assert candidate['focus_key'] == 'P2'
+    response = {'point_reviews': {'P2': '知识3明确使用知识2', 'P3': '前一焦点负责该点对'},
+        'focus_links': {'P2': [{'e': identity, 't': 'prerequisite', 'n': 'recommended', 'c': '当前操作',
+            'r': '知识3以知识2为基础', 'if': [], 'w': 'medium'}]}, 'gaps': []}
+    result = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
+    assert len(result['relations']) == 1
+    assert result['relations'][0]['evidence_origin'] == 'program_bound_selected_candidate_statements'
+    response['focus_links']['P2'][0]['e'] = 'not-a-frozen-pair'
+    rejected = compile_relations({'course_id': 'c'}, pipeline, ['P2', 'P3'], response, 'l')
+    assert not rejected['relations'] and rejected['semantic_rejections'][0]['code'] == 'unknown_candidate_pair'
