@@ -6,6 +6,7 @@ export interface ProfileTreeItem {
   label: string; progress: number | null; count: number; status?: string; pending?: boolean
   children: ProfileTreeItem[]
   searchText?: string
+  scope?: string
 }
 export interface PositionedProfileNode extends ProfileTreeItem {
   x: number; y: number; width: number; height: number; expanded: boolean
@@ -16,7 +17,7 @@ export interface ProfileTreeEdge { id: string; source: PositionedProfileNode; ta
 export function createContentKnowledgeTree(
   courseId: string,
   title: string,
-  categories: Array<{ id: string; parent_id?: string | null; name: string }>,
+  categories: Array<{ id: string; parent_id?: string | null; name: string; scope?: string }>,
   points: Array<{ knowledge_id: string; parent_id?: string | null; name: string; statement?: string } & KnowledgeSearchFields>,
 ): ProfileTreeItem {
   const groups = new Map(categories.map(category => [category.id, category]))
@@ -38,7 +39,7 @@ export function createContentKnowledgeTree(
     ].filter((item): item is ProfileTreeItem => item !== null)
     if (!children.length) return null
     return { id: `branch:${id}`, sourceId: id, kind: 'branch', label: category.name,
-      progress: null, count: children.reduce((total, child) => total + child.count, 0), children }
+      scope: category.scope, progress: null, count: children.reduce((total, child) => total + child.count, 0), children }
   }
   const children = categories.filter(item => !item.parent_id || !groups.has(item.parent_id))
     .map(item => branch(item.id)).filter((item): item is ProfileTreeItem => item !== null)

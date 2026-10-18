@@ -10,12 +10,13 @@
         <strong>{{ t('knowledgeLibrary.graphTitle', '知识关系图') }}</strong>
         <span>
           {{ graphNodes.length }} {{ t('knowledgeLibrary.graphPoints', '个关系节点') }}
-          · {{ validRelations.length }} {{ t('knowledgeLibrary.graphRelations', '条已启用关系') }}
+          · {{ validRelations.filter(edge => edge.status === 'accepted').length }} {{ t('knowledgeLibrary.graphRelations', '条已启用关系') }}
+          <template v-if="candidateView"> · {{ validRelations.filter(edge => edge.status === 'candidate').length }} {{ t('knowledgeFirst.candidateRelationCount') }}</template>
         </span>
       </div>
       <span class="knowledge-relation-graph__readonly">
         <LockKeyhole :size="12" aria-hidden="true" />
-        {{ t('knowledgeLibrary.graphReadonly', '只读 · 来自当前知识图谱版本') }}
+        {{ t(candidateView ? 'knowledgeFirst.candidateGraphReadonly' : 'knowledgeLibrary.graphReadonly') }}
       </span>
       <div class="knowledge-relation-graph__controls" :aria-label="t('knowledgeLibrary.graphControls', '图谱缩放控制')">
         <button type="button" :title="t('knowledgeLibrary.zoomOut', '缩小')" @click="changeZoom(-0.15)"><Minus :size="14" /></button>
@@ -58,7 +59,7 @@
           <svg
             :viewBox="viewportViewBox"
             role="img"
-            :aria-label="t('knowledgeLibrary.graphAriaLabel', '当前课程知识点之间的已启用关系')"
+            :aria-label="t(candidateView ? 'knowledgeFirst.candidateGraphAriaLabel' : 'knowledgeLibrary.graphAriaLabel')"
           >
             <defs>
               <marker
@@ -80,15 +81,18 @@
               class="knowledge-relation-graph__edge"
               :class="[
                 `is-${edge.relation.relation_type}`,
+                { 'is-candidate': edge.relation.status === 'candidate' },
                 { 'is-muted': selectedGraphNode && !edgeTouchesSelected(edge.relation) },
               ]"
               data-testid="knowledge-graph-edge"
               :data-relation-id="edge.relation.relation_id"
+              :data-relation-status="edge.relation.status"
             >
               <title>{{ edge.relation.reason || relationTypeLabel(edge.relation.relation_type) }}</title>
               <path :d="edge.path" marker-end="url(#knowledge-graph-arrow)" />
               <text :x="edge.labelX" :y="edge.labelY">
                 {{ relationTypeLabel(edge.relation.relation_type) }}
+                <tspan v-if="edge.relation.status === 'candidate'"> · {{ t('knowledgeFirst.candidate') }}</tspan>
               </text>
             </g>
 
@@ -147,7 +151,7 @@
             :data-source="selectedGraphNode.source_status"
             data-testid="knowledge-graph-source"
           >
-            {{ knowledgeSourceLabel(selectedGraphNode.source_status) }}
+            {{ selectedGraphNode.source_status === 'handout_grounded' ? t('knowledgeFirst.handoutGrounded') : knowledgeSourceLabel(selectedGraphNode.source_status) }}
           </span>
 
           <template v-if="selectedGraphNode.learning_actions?.length">
@@ -168,12 +172,13 @@
           <div v-if="selectedConnections.length" class="knowledge-relation-graph__connections">
             <article v-for="entry in selectedConnections" :key="entry.relation.relation_id">
               <span>{{ relationTypeLabel(entry.relation.relation_type) }}</span>
+              <span v-if="entry.relation.status === 'candidate'">{{ t('knowledgeFirst.candidate') }}</span>
               <strong><MathText :content="entry.otherNode.name" /></strong>
               <MathText v-if="entry.relation.reason" tag="p" :content="entry.relation.reason" />
             </article>
           </div>
           <p v-else class="knowledge-relation-graph__no-connections">
-            {{ t('knowledgeLibrary.graphNoSelectedRelations', '该知识点暂无已启用关系') }}
+            {{ t(candidateView ? 'knowledgeFirst.noCandidateRelations' : 'knowledgeLibrary.graphNoSelectedRelations') }}
           </p>
         </template>
         <div v-else class="knowledge-relation-graph__selection-hint">
@@ -208,6 +213,7 @@ const props = defineProps<{
   nodes: KnowledgeNode[]
   relations: KnowledgeRelation[]
   selectedId?: string | null
+  candidateView?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -230,7 +236,7 @@ const nodeById = computed(() => new Map(
 ))
 
 const validRelations = computed(() => props.relations.filter(relation => (
-  relation.status === 'accepted'
+  (relation.status === 'accepted' || props.candidateView && relation.status === 'candidate')
   && nodeById.value.has(relation.source_knowledge_id)
   && nodeById.value.has(relation.target_knowledge_id)
 )))
@@ -420,6 +426,7 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 </script>
 
 <style scoped>
+.knowledge-relation-graph__edge.is-candidate path{stroke-dasharray:6 4}
 .knowledge-relation-graph { min-width:0; min-height:0; flex:1; display:flex; flex-direction:column; overflow:hidden; color:#41475e; background:#fff; }
 .knowledge-relation-graph__header { min-height:54px; flex:0 0 auto; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:12px; padding:0 16px 0 18px; border-bottom:1px solid #e8eaf2; background:#fff; }
 .knowledge-relation-graph__header > div { min-width:0; display:flex; align-items:center; gap:7px; }

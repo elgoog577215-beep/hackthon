@@ -88,12 +88,11 @@ def test_recursive_categories_preserve_point_identity_and_reject_cycles(svc):
     raw = svc.repository.load_raw('c-pilot'); context = course_generation_context(raw)
     shallow = compile_tree(raw, context, response())
     deep = response()
-    deep['categories'] += [{'key': 'C3', 'name': '部件职责', 'parent_key': 'C2'},
-                           {'key': 'C4', 'name': '执行职责', 'parent_key': 'C3'}]
-    deep['points'][0]['category_key'] = 'C4'
+    deep['categories'] += [{'key': f'C{i}', 'name': f'细分职责{i}', 'parent_key': f'C{i-1}'} for i in range(3, 10)]
+    deep['points'][0]['category_key'] = 'C9'
     tree = compile_tree(raw, context, deep)
     assert tree['knowledge_points'][0]['knowledge_id'] == shallow['knowledge_points'][0]['knowledge_id']
-    deep['categories'][0]['parent_key'] = 'C4'
+    deep['categories'][0]['parent_key'] = 'C9'
     with pytest.raises(CourseDocumentConflict, match='环'):
         compile_tree(raw, context, deep)
 

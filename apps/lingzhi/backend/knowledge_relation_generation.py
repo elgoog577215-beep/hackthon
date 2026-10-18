@@ -198,9 +198,11 @@ async def run(svc, course_id, job_id):
         def save(**extra):
             svc._active(course_id,job_id); pipeline['revision'] += 1
             cp = deepcopy(svc.authoring.get_job(course_id,job_id).get('checkpoint') or {}); cp['relation_pipeline'] = deepcopy(pipeline)
+            done = sum(b['status'] == 'completed' for b in pipeline['batches'])
             svc.authoring.update_job(course_id,job_id,checkpoint=cp,batch_total=len(pipeline['batches']),
                 completed_batches=sum(b['status'] == 'completed' for b in pipeline['batches']),
-                relation_count=sum(len(b.get('result',{}).get('relations',[])) for b in pipeline['batches']),**extra)
+                relation_count=sum(len(b.get('result',{}).get('relations',[])) for b in pipeline['batches']),
+                progress=min(99, int(done * 100 / len(pipeline['batches']))) if pipeline['batches'] else 0, **extra)
         svc.authoring.update_job(course_id,job_id,status='running',generation_started_at=now(),phase='preparing',pipeline_stage='relations')
         if svc.provider_factory is None:
             from ai_base import AIBase

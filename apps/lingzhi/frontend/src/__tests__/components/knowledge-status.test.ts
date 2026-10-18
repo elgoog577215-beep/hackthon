@@ -30,13 +30,14 @@ beforeEach(async () => {
 })
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
-it('polls only lightweight status and shows actual output rather than a fixed percentage', async () => {
+it('polls lightweight status and displays reported percentage without model diagnostics', async () => {
   const get = vi.spyOn(http, 'get').mockImplementation(async url => ({ data: String(url).endsWith('/status') ? status() : state() }))
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
   const progress = w.get('[data-testid="knowledge-generation-progress"]')
-  expect(progress.text()).toContain('120')
-  expect(progress.text()).toContain('23')
-  expect(progress.text()).not.toContain('10%')
+  expect(progress.text()).toContain('10%')
+  expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('10')
+  expect(progress.text()).not.toContain('120')
+  expect(progress.text()).not.toContain('23')
   await vi.advanceTimersByTimeAsync(4000); await flushPromises()
   expect(get.mock.calls.filter(([url]) => String(url).endsWith('/status')).length).toBe(2)
   expect(get.mock.calls.filter(([url]) => !String(url).endsWith('/status')).length).toBe(1)
@@ -69,13 +70,13 @@ it('recovers status polling after an outage and loads the completed result once'
   expect(get).toHaveBeenCalledTimes(calls)
 })
 
-it('keeps other-lecture tasks visible and exposes gaps in the inline tree', async () => {
+it('keeps other lecture tasks from cluttering or blocking the selected lecture', async () => {
   vi.spyOn(http, 'get').mockResolvedValue({ data: state() })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  expect(w.get('[data-testid="knowledge-extraction-gaps"]').text()).toContain('需要补充边界条件')
-  expect(w.get('[data-testid="knowledge-extraction-gaps"]').text()).toContain('1')
+  expect(w.find('[data-testid="knowledge-extraction-gaps"]').exists()).toBe(false)
   await w.get('select[aria-label="讲次"]').setValue('memory')
-  expect(w.get('[data-testid="knowledge-other-jobs"]').text()).toContain('处理器')
+  expect(w.find('[data-testid="knowledge-other-jobs"]').exists()).toBe(false)
+  expect(w.find('[data-testid="knowledge-generation-progress"]').exists()).toBe(false)
   expect(w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!.attributes('disabled')).toBeUndefined()
   w.unmount()
 })
@@ -87,7 +88,7 @@ it('renders waiting, streaming and reconnect states in English', async () => {
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
   expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('Waiting for model output')
-  expect(w.get('[data-testid="knowledge-extraction-gaps"]').text()).toContain('Unreferenced source passages')
+  expect(w.get('[role="progressbar"]').attributes('aria-label')).toBe('Generation progress')
   w.unmount()
 })
 
@@ -142,11 +143,8 @@ it('does not attribute another lecture gap report to the selected lecture', asyn
   v.history = [v.tree]
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  const report = w.get('[data-testid="knowledge-extraction-gaps"]')
-  expect(report.text()).toContain('尚无可用的缺口记录')
-  expect(report.text()).not.toContain('主存讲独有的缺口')
-  await w.get('select[aria-label="讲次"]').setValue('memory')
-  expect(report.text()).toContain('主存讲独有的缺口')
+  expect(w.text()).not.toContain('主存讲独有的缺口')
+  expect(w.find('[data-testid="knowledge-extraction-gaps"]').exists()).toBe(false)
   w.unmount()
 })
 
@@ -161,7 +159,7 @@ it('retries loading a completed result if the first full read fails', async () =
   })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
   await vi.advanceTimersByTimeAsync(2000); await flushPromises()
-  expect(w.find('[data-testid="knowledge-extraction-gaps"]').exists()).toBe(true)
+  expect(w.find('[data-testid="knowledge-generation-progress"]').exists()).toBe(true)
   await vi.advanceTimersByTimeAsync(4000); await flushPromises()
   expect(fullReads).toBe(3)
   expect(w.find('[data-testid="knowledge-observation-notice"]').exists()).toBe(false)

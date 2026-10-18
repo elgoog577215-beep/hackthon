@@ -69,7 +69,7 @@
           </div>
           <div class="generation-progress-actions">
             <button v-if="data.can_edit && activeJob" type="button" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>
-            <button v-if="data.can_edit && atomicCanContinue" type="button" data-testid="continue-knowledge-batches" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic()">{{ t('knowledgeFirst.continueGeneration') }}</button>
+            <button v-if="data.can_edit && atomicCanContinue" type="button" data-testid="continue-knowledge-batches" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic(relationOnlyContinue ? 'relations' : '')">{{ t('knowledgeFirst.continueGeneration') }}</button>
             <button v-if="data.can_edit && atomicCanOrganize" type="button" data-testid="organize-knowledge-hierarchy" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('hierarchy')">{{ t('knowledgeFirst.organizeHierarchy') }}</button>
             <button v-if="data.can_edit && atomicCanRebuild" type="button" data-testid="rebuild-knowledge-leaves" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('all_atoms')">{{ t('knowledgeFirst.reviseCandidate') }}</button>
             <button v-if="data.can_edit && relationCanContinue" type="button" :disabled="busy || blockingJobs.length > 0" @click="generateRelations(true)">{{ t('knowledgeFirst.continueGeneration') }}</button>
@@ -308,7 +308,15 @@ const atomicCanContinue = computed(() => {
   return Boolean(!activeJob.value && run && !run.adopted
     && ['failed', 'paused', 'cancelled'].includes(run.status)
     && (!pipeline?.batches?.length || [...(pipeline?.inventory_batches || []), ...(pipeline?.batches || [])].some((batch: any) => batch.status !== 'completed')
-      || pipeline?.organize_hierarchy && pipeline.hierarchy?.status !== 'completed'))
+      || pipeline?.organize_hierarchy && pipeline.hierarchy?.status !== 'completed'
+      || pipeline?.include_relations && pipeline.relations?.status !== 'completed'))
+})
+const relationOnlyContinue = computed(() => {
+  const pipeline = atomicRun.value?.pipeline
+  return Boolean(pipeline?.include_relations && pipeline.relations?.status !== 'completed'
+    && [...(pipeline.inventory_batches || []), ...(pipeline.batches || [])].length
+    && [...(pipeline.inventory_batches || []), ...(pipeline.batches || [])].every((batch: any) => batch.status === 'completed')
+    && (!pipeline.organize_hierarchy || pipeline.hierarchy?.status === 'completed'))
 })
 const atomicCanOrganize = computed(() => {
   const run = atomicRun.value, pipeline = run?.pipeline
@@ -365,7 +373,7 @@ function jobPhase(job: any) {
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
   const label = t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
-  return job.pipeline_stage ? `${t(job.pipeline_stage === 'relations' ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'hierarchy' ? 'knowledgeFirst.organizeHierarchy' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return job.pipeline_stage ? `${t(['relations','tree_relations'].includes(job.pipeline_stage) ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'hierarchy' ? 'knowledgeFirst.organizeHierarchy' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null
@@ -569,7 +577,7 @@ async function mutate(path: string, extra = {}) {
 async function generate(topic: string) {
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true, include_relations: true } : {}) })
 }
 async function continueAtomic(batchId = '') {
   if (!atomicRun.value) return
@@ -583,7 +591,7 @@ async function generateRelations(resume = false, batchId = '') {
   await mutate('generate/tree',{request_id:createUuid(),source_mode:'handouts',lesson_id:knowledgeLessonId.value,
     pipeline:'knowledge_relations_v1',...(resume ? {resume_job_id:relationRun.value.job_id,retry_batch_id:batchId} : {})})
 }
-async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, displayTree.value?.relation_assessment ? {confirm_relations:confirmRelations.value,selected_relation_ids:selectedRelationIds.value} : displayTree.value?.atomic_assessment ? { confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value } : {}); if (!error.value) treeChoice.value = data.value.knowledge_revision }
+async function adopt() { if (!canAdoptSelection.value || staleTreeSource.value || !atomicAdoptionReady.value) return; await mutate(`adopt/${selectedCandidateRecord.value.job_id}`, { confirm_relations:confirmRelations.value, selected_relation_ids:selectedRelationIds.value, confirm_identity_changes:confirmIdentityChanges.value, confirm_atomic_review:confirmAtomicReview.value }); if (!error.value) treeChoice.value = data.value.knowledge_revision }
 async function recheck(id: string) { treeChoice.value = 'candidate'; tab.value = 'tree'; await mutate(`recheck/${id}`, { request_id: createUuid() }) }
 async function loadMaterials() {
   if (!generic.value || derived.value || !data.value?.can_edit) return

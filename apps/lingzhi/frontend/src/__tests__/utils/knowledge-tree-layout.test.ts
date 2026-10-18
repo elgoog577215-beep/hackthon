@@ -5,6 +5,25 @@ import { createContentKnowledgeTree, createKnowledgeTree, filterKnowledgeTree, l
 
 const profile = demo.cases.at(-1)!.profile as KnowledgeProfile
 describe('horizontal knowledge tree', () => {
+  it('preserves mixed leaf depths and every ancestor beyond six levels', () => {
+    const categories = Array.from({ length: 9 }, (_, i) => ({ id: `c${i}`, name: `主题${i}`, parent_id: i ? `c${i - 1}` : null, scope: `范围${i}` }))
+    const tree = createContentKnowledgeTree('c', '递归', categories, [
+      { knowledge_id: 'simple', parent_id: 'c1', name: '递归定义' },
+      { knowledge_id: 'deep', parent_id: 'c8', name: '调用树分析', statement: '重复子问题' },
+    ])
+    const layout = layoutKnowledgeTree(tree, new Set())
+    const shallow = layout.nodes.find(node => node.sourceId === 'simple')!
+    const deep = layout.nodes.find(node => node.sourceId === 'deep')!
+    expect(deep.x).toBeGreaterThan(shallow.x)
+    expect(layout.nodes.find(node => node.sourceId === 'c8')).toMatchObject({ scope: '范围8' })
+    const search = layoutKnowledgeTree(filterKnowledgeTree(tree, '重复子问题'), new Set())
+    expect(search.nodes.filter(node => node.kind === 'branch').map(node => node.sourceId)).toEqual(categories.map(c => c.id))
+    expect(search.nodes.filter(node => node.kind === 'knowledge').map(node => node.sourceId)).toEqual(['deep'])
+    const folded = layoutKnowledgeTree(tree, new Set(['branch:c4']))
+    expect(folded.nodes.some(node => node.sourceId === 'deep')).toBe(false)
+    expect(folded.nodes.some(node => node.sourceId === 'simple')).toBe(true)
+    expect(folded.nodes.find(node => node.sourceId === 'c4')?.count).toBe(1)
+  })
   it('places each unique knowledge point once, to the right of its ancestors', () => {
     const tree = createKnowledgeTree(profile, 'C')
     const layout = layoutKnowledgeTree(tree, new Set())

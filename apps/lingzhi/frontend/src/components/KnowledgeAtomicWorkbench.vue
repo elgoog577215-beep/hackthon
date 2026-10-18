@@ -5,6 +5,8 @@
     <details v-if="sourceIssues.length" class="atomic-issues" open data-testid="knowledge-source-issues"><summary>{{ t('knowledgeFirst.sourceIssuesTitle') }}</summary><div v-for="(issue,index) in sourceIssues" :key="index"><p>{{ issue.source_key }} · {{ issue.detail }}</p><blockquote>{{ issue.quote }}</blockquote></div></details>
     <button v-if="canEdit && !run.adopted && hasPending && ['failed','paused','cancelled'].includes(run.status)" type="button" :disabled="disabled" data-testid="continue-knowledge-batches" @click="emit('continue')">{{ t('knowledgeFirst.continueAtomic') }}</button>
     <button v-if="canEdit && !run.adopted && pipeline.items?.length && !['pending','running'].includes(run.status)" type="button" :disabled="disabled" data-testid="rebuild-knowledge-leaves" @click="emit('retry','all_atoms')">{{ t('knowledgeFirst.rebuildLeaves') }}</button>
+    <button v-if="canEdit && !run.adopted && done > 0 && done === pipeline.batches?.length && !['pending','running'].includes(run.status)" type="button" :disabled="disabled" data-testid="organize-knowledge-hierarchy" @click="emit('retry','hierarchy')">{{ t('knowledgeFirst.organizeHierarchy') }}</button>
+    <p v-if="pipeline.hierarchy?.status === 'completed'" class="atomic-note">{{ t('knowledgeFirst.hierarchySaved') }}</p>
     <details class="inventory-panel">
       <summary>{{ t('knowledgeFirst.inventoryTitle') }} · {{ pipeline.items?.length || 0 }}</summary>
       <p v-if="!pipeline.items?.length">{{ t('knowledgeFirst.inventoryPending') }}</p>
@@ -43,7 +45,7 @@ const props = defineProps<{ run:any; canEdit:boolean; disabled:boolean }>()
 const emit = defineEmits<{ continue:[]; retry:[batchId:string] }>()
 const pipeline = computed(()=>props.run.pipeline)
 const done = computed(()=>(pipeline.value.batches || []).filter((b:any)=>b.status==='completed').length)
-const hasPending = computed(()=>!pipeline.value.batches?.length || [...(pipeline.value.inventory_batches || []), ...(pipeline.value.batches || [])].some((b:any)=>b.status !== 'completed'))
+const hasPending = computed(()=>!pipeline.value.batches?.length || [...(pipeline.value.inventory_batches || []), ...(pipeline.value.batches || [])].some((b:any)=>b.status !== 'completed') || pipeline.value.organize_hierarchy && pipeline.value.hierarchy?.status !== 'completed')
 const sourceCoverage = computed(()=>(pipeline.value.inventory_batches || []).flatMap((b:any)=>b.source_coverage || []))
 const sourceIssues = computed(()=>(pipeline.value.inventory_batches || []).flatMap((b:any)=>b.source_issues || []))
 function issueContext(issue:any, batch:any) {

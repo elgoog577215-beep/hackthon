@@ -22,11 +22,10 @@ it('explains that an adopted tree retains an older handout without starting gene
   v.history = [v.tree]
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  const notice = w.get('[data-testid="knowledge-source-version"]')
-  expect(notice.text()).toContain('讲义来源需要核对')
+  const notice = w.get('.source-version-warning')
   expect(notice.text()).toContain('保留原讲义版本')
-  expect(notice.text()).toContain('handout-used')
-  expect(notice.text()).toContain('handout-current')
+  expect(w.find('[data-testid="knowledge-source-version"]').exists()).toBe(false)
+  expect(notice.text()).not.toContain('handout-used')
   expect(w.get('.mastery-tree').text()).toContain('CPU知识')
   expect(http.post).not.toHaveBeenCalled()
   w.unmount()
@@ -38,7 +37,7 @@ it('prevents adopting a candidate after its handout source changes', async () =>
   v.candidates = [{ job_id: 'candidate-job', lesson_id: 'cpu', tree: { ...tree('candidate-v1'), source_handouts: [{ lesson_id: 'cpu', script_revision_id: 'old' }] } }]
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  expect(w.get('[data-testid="knowledge-source-version"]').text()).toContain('暂不能采用')
+  expect(w.get('.source-version-warning').text()).toContain('暂不能采用')
   const adopt = w.findAll('button').find(b => b.text() === '采用这版知识树')!
   expect(adopt.attributes('disabled')).toBeDefined()
   await adopt.trigger('click'); await flushPromises()
@@ -53,11 +52,9 @@ it('compares only the selected lecture and treats a missing current source as un
   v.history = [v.tree]
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  expect(w.get('[data-testid="knowledge-source-version"]').classes()).not.toContain('needs-review')
-  expect(w.get('[data-testid="knowledge-source-version"]').text()).not.toContain('memory-old')
+  expect(w.find('.source-version-warning').exists()).toBe(false)
   await w.get('select[aria-label="讲次"]').setValue('memory')
-  expect(w.get('[data-testid="knowledge-source-version"]').classes()).toContain('needs-review')
-  expect(w.get('[data-testid="knowledge-source-version"]').text()).toContain('未记录可用版本')
+  expect(w.get('.source-version-warning').text()).toContain('保留原讲义版本')
   expect(w.get('.mastery-tree').text()).toContain('主存知识')
   expect(http.post).not.toHaveBeenCalled()
   w.unmount()
@@ -72,9 +69,8 @@ it('shows handout version differences in English', async () => {
   v.history = [v.tree]
   vi.spyOn(http, 'get').mockResolvedValue({ data: v })
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
-  const notice = w.get('[data-testid="knowledge-source-version"]')
-  expect(notice.text()).toContain(en.knowledgeFirst.sourceNeedsReview)
-  expect(notice.text()).toContain(en.knowledgeFirst.recordedHandoutVersion)
+  const notice = w.get('.source-version-warning')
+  expect(notice.text()).toContain(en.knowledgeFirst.adoptedSourceChanged)
   expect(notice.text()).not.toContain('讲义来源')
   w.unmount()
 })
@@ -123,7 +119,7 @@ it('reconciles a conflicting start response with the accepted background task', 
   vi.mocked(http.post).mockRejectedValue({ response: { status: 409, data: { detail: '已有生成任务' } } })
   await w.findAll('button').find(b => b.text().includes('生成本讲知识树'))!.trigger('click'); await flushPromises()
   expect(w.find('[role="alert"]').exists()).toBe(false)
-  expect(w.get('[role="status"]').text()).toContain('正在生成')
+  expect(w.get('[role="status"]').text()).toContain('15%')
   expect(w.text()).not.toContain('本讲还没有知识树，点击“生成本讲知识树”开始。')
   expect(http.post).toHaveBeenCalledTimes(1)
   w.unmount()
@@ -195,6 +191,67 @@ it('opens a cross-lecture knowledge link in the matching lecture without leaving
   expect(w.get('.point-card').text()).toContain('主存保存数据')
   expect(http.post).not.toHaveBeenCalled()
   w.unmount()
+})
+
+it('switches from the hierarchy tree to the relation graph without losing the selected lecture', async () => {
+  const v: any = state()
+  v.tree.knowledge_points.push({ knowledge_id: 'alu', name: '运算器', statement: '运算器执行运算', parent_id: 'c', section_refs: ['cpu'] })
+  v.tree.relations = [{ id: 'local', source_id: 'cpu-k', target_id: 'alu', type: 'applies_to', reason: '执行依赖运算' }]
+  v.history = [v.tree]
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  expect(w.find('[data-testid="knowledge-tree-view"]').exists()).toBe(true)
+  expect(w.find('[data-testid="knowledge-relation-view"]').attributes('disabled')).toBeUndefined()
+  await w.get('[data-testid="knowledge-relation-view"]').trigger('click')
+  expect(w.find('[data-testid="knowledge-relation-graph"]').exists()).toBe(true)
+  expect(w.findAll('[data-testid="knowledge-graph-edge"]').length).toBe(1)
+  w.unmount()
+})
+
+it('includes cross-lecture endpoints in the graph and navigates to their adopted version', async () => {
+  const v:any=state()
+  v.tree.relations=[{id:'cross',source_id:'cpu-k',target_id:'memory-k',type:'applies_to',reason:'取指使用主存'}]
+  v.history=[v.tree]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="knowledge-relation-view"]').trigger('click')
+  expect(w.findAll('[data-testid="knowledge-graph-edge"]')).toHaveLength(1)
+  await w.get('[data-testid="knowledge-relation-graph"] [data-knowledge-id="memory-k"]').trigger('click');await flushPromises()
+  expect((w.get('select[aria-label="讲次"]').element as HTMLSelectElement).value).toBe('memory')
+  expect(w.get('.point-card').text()).toContain('主存保存数据')
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
+
+it('shows proposed graph edges as candidates and preserves inherited accepted labels', async () => {
+  const v:any=state();const candidate:any=tree('candidate')
+  candidate.source_mode='handouts'
+  candidate.knowledge_points.push({knowledge_id:'alu',name:'运算器',statement:'执行运算',parent_id:'c',section_refs:['cpu']})
+  candidate.relations=[{id:'proposed',source_id:'cpu-k',target_id:'alu',type:'derives'},
+    {id:'inherited',source_id:'cpu-k',target_id:'memory-k',type:'applies_to'}]
+  candidate.relation_assessment={ready_for_adoption:true,proposed_ids:['proposed']}
+  v.candidates=[{job_id:'rjob',lesson_id:'cpu',tree:candidate}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="knowledge-relation-view"]').trigger('click')
+  const graph=w.get('[data-testid="knowledge-relation-graph"]')
+  expect(graph.get('[data-relation-id="proposed"]').attributes('data-relation-status')).toBe('candidate')
+  expect(graph.get('[data-relation-id="inherited"]').attributes('data-relation-status')).toBe('accepted')
+  expect(graph.text()).toContain('1 条待审关系')
+  await graph.get('[data-knowledge-id="cpu-k"]').trigger('click')
+  expect(graph.get('[data-testid="knowledge-graph-source"]').text()).toBe('来自本讲讲义')
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
+
+it('explains missing relation analysis instead of disabling the graph', async () => {
+  const v:any=state();const candidate:any=tree('candidate')
+  candidate.atomic_assessment={ready_for_adoption:false,relation_status:'not_run',issues:[]}
+  v.candidates=[{job_id:'atomic-job',lesson_id:'cpu',tree:candidate}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="knowledge-relation-view"]').trigger('click')
+  expect(w.get('[data-testid="knowledge-relations-not-run"]').text()).toContain('新关系尚未分析')
+  expect(w.findAll('[data-testid="knowledge-graph-edge"]')).toHaveLength(0)
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
 
 it('shows related definitions and provenance in the right pane without switching to the handout', async () => {

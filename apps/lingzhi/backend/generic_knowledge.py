@@ -89,7 +89,7 @@ def tree_prompt(raw, context):
         '只返回严格JSON。分类树按知识主题组织，讲次另行引用知识；不要用讲次替代分类。'
         '叶子是可独立检查的定义、规则、方法或条件，一点只表达一个可判断命题。'
         '只提取材料支持的知识，每点至少给一段逐字引文，引用S编号；不得编造来源或把教学目标当已知事实。'
-        '根据内容复杂度组织领域→主题→子主题→细分主题→知识点，通常3至5层分类，最多6层；简单分支可更浅。'
+        '按共同问题域递归组织主题、子主题与元知识点，不固定层数；每个分支独立决定细分深度，叶子无需处于同层。复杂分支继续细分，简单分支可以更浅，禁止同义套层。'
         '不要把一讲的所有点塞进一个类别，也不要以同义套层凑深度。拆分可独立判断的规则、适用条件与方法，例题不能冒充一般命题。'
         '首层parent_key为null，知识点归入最具体的合适分类。'
         '六种关系为prerequisite/derives/applies_to/contrasts_with/equivalent_to/generalizes，关系是待审建议，必须有理由和条件。'
@@ -237,7 +237,6 @@ def compile_tree(raw, context, response):
         while node:
             require(node['id'] not in seen, '分类存在环')
             seen.add(node['id'])
-            require(len(seen) <= 6, '分类深度不能超过六层')
             node = by_cat_id.get(node['parent_id'])
     available = sources(context)
     references = {p['key']: p for p in context.get('reference_knowledge', [])}

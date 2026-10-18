@@ -331,11 +331,12 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode=''):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
         require(extraction_mode in {'', 'single_pass_v1'}, '未知知识提取模式')
+        require(type(include_relations) is bool, '关系生成选项无效')
         require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
         require(not (resume_job_id or retry_batch_id) or pipeline in {PIPELINE, RELATIONS}, '继续批次需要原生成流程')
         require(not retry_batch_id or resume_job_id, '重新细化需要原任务')
@@ -355,11 +356,13 @@ class KnowledgeFirstService:
             existing_jobs = state["jobs"]
             if resume_job_id:
                 extraction_mode = (existing_jobs.get(resume_job_id) or {}).get('extraction_mode', '')
+                include_relations = bool((existing_jobs.get(resume_job_id) or {}).get('include_relations', False))
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(pipeline != PIPELINE or duplicate.get('extraction_mode', '') == extraction_mode, '请求标识对应不同提取模式')
+                require(pipeline != PIPELINE or bool(duplicate.get('include_relations')) == bool(include_relations), '请求标识对应不同关系生成选项')
                 require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
                 require(pipeline != PIPELINE or bool(duplicate.get('organize_hierarchy')) == bool(organize_hierarchy or retry_batch_id == 'hierarchy'), '请求标识对应不同分类整理选项')
                 return duplicate, False
@@ -383,6 +386,9 @@ class KnowledgeFirstService:
                     require(bool(prior.get('batches')) and all(b['status'] == 'completed' for b in prior['batches']), '请先完成知识点细化，再整理层级')
                     organize_hierarchy = True
                     prior['hierarchy'] = {'status': 'pending'}
+                elif pipeline == PIPELINE and retry_batch_id == 'relations':
+                    require(prior.get('include_relations') and prior.get('items'), '原任务没有待继续的关系分析')
+                    require(prior.get('relations', {}).get('status') != 'completed', '关系分析已完成，请继续其他未完成阶段')
                 elif retry_batch_id:
                     batches = prior['batches'] if pipeline == PIPELINE and retry_batch_id == 'all_atoms' else [b for b in prior['batches'] if b['id'] == retry_batch_id]
                     require(bool(batches), '细化批次不存在')
@@ -420,6 +426,7 @@ class KnowledgeFirstService:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
+                    include_relations=include_relations if pipeline == PIPELINE else False,
                     checkpoint=continued_checkpoint or {}, resume_from_job_id=resume_job_id, parent_job_id=resume_job_id, retry_batch_id=retry_batch_id)
             return job, True
 
@@ -606,6 +613,7 @@ class KnowledgeFirstService:
             tree = deepcopy((job.get("checkpoint") or {}).get("candidate"))
             require(bool(tree), "候选不存在")
             relation_assessment = tree.get('relation_assessment')
+            relation_mode = relation_assessment.get('mode') if relation_assessment else None
             require(not relation_assessment or relation_assessment.get('ready_for_adoption') is True and confirm_relations,
                     '请先核对关系方向、推导步骤、必要性与适用条件，再确认采用关系候选')
             if relation_assessment:
@@ -634,7 +642,7 @@ class KnowledgeFirstService:
                 if knowledge_revision(raw) == tree["revision_id"]:
                     return raw
                 scope = job.get('knowledge_lesson_id', '')
-                if relation_assessment:
+                if relation_assessment and relation_mode != 'with_tree':
                     from knowledge_relation_generation import validate_source, validate_graph
                     require(knowledge_revision(raw) == expected_revision == job['source_knowledge_revision'] and raw.get('course_document_revision') == expected_document, '关系依据版本已变化，请重新分析')
                     validate_source(self,raw,job)
@@ -660,6 +668,12 @@ class KnowledgeFirstService:
                     if knowledge_revision(raw) != job['source_knowledge_revision']:
                         tree = merge_lesson_tree(current, scoped, scope)
                         tree['generation_job_id'] = job_id
+                    if relation_mode == 'with_tree':
+                        proposed = set(relation_assessment.get('proposed_ids', []))
+                        for edge in tree.get('relations', []):
+                            if edge.get('id') in proposed: edge['review_status'] = 'accepted'
+                        from knowledge_relation_generation import validate_graph
+                        validate_graph(tree['knowledge_points'], tree['relations'])
                 else:
                     if job.get('source_context_revision'):
                         require(self._context(raw, job.get('source_mode', ''))['revision_id'] == job['source_context_revision'], '候选的课程上下文或材料已变化')
