@@ -41,6 +41,18 @@ def test_new_extraction_does_not_cut_a_method_or_code_block_at_600_chars(monkeyp
     assert passage['text'] == content and passage['end'] == len(content)
 
 
+def test_literal_subject_is_bound_to_source_instead_of_incomplete_token_hints(svc, monkeypatch):
+    from knowledge_extract import compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    monkeypatch.setattr('knowledge_semantic_contract.subject_options', lambda *a, **k: ['入栈', '出栈'])
+    point = {'form': 'fact', 'subject': '栈顶元素', 'property': '返回时机', 'value': '出栈时', 'conditions': [], 'attachments': []}
+    result = compile_extraction(raw, context, ['S1'], 1, response(point))
+    assert result['tree']['knowledge_points'][0]['meta_question'] == '栈顶元素的返回时机是什么？'
+    point['subject'] = '虚构元素'
+    with pytest.raises(CourseDocumentConflict): compile_extraction(raw, context, ['S1'], 1, response(point))
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)

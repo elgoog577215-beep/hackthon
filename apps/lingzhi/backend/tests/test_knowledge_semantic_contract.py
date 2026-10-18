@@ -119,7 +119,7 @@ def test_scalar_slots_preserve_enumerations_and_form_specific_fields(svc, monkey
     point = {'form': form, 'subject': '入栈', 'target': target, 'value': value,
              'other_subject': other_subject, 'other_value': other_value, 'details': details, 'conditions': [], 'attachments': []}
     response = {'response_contract': 'knowledge_extract_v8', 'passages': {'S1.1': {'points': [point], 'note': None}}, 'source_issues': []}
-    validate(response, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}))
+    validate(response, extraction_schema(['S1.1'], {'S1.1': passage['focus_options']}, contract='knowledge_extract_v8'))
     result = compile_extraction(raw, context, ['S1'], 1, response)
     assert result['report']['ready_for_adoption']
     assert result['tree']['knowledge_points'][0]['atomic_contract']['form'] == form
