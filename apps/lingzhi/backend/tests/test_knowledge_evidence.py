@@ -91,6 +91,19 @@ def test_proposed_terms_cannot_relabel_priority_queue_as_queue_using_a_suffix_qu
     assert any(r['english_name'] == 'Priority Queue' and r['status'] == 'source_unconfirmed' for r in result['term_candidates'])
 
 
+def test_legacy_automatic_suffix_binding_is_unconfirmed_without_deleting_manual_aliases():
+    from knowledge_evidence import enrich_point
+    quote = '**队列（Queue）**。**优先队列**（Priority Queue）。'
+    point = {'knowledge_id': 'k', 'revision_id': 'r', 'name': '队列的定义', 'statement': 'FIFO队列。',
+        'aliases': ['原手工检索别名', 'Priority Queue'], 'terms': [{'name': '队列', 'english_name': 'Priority Queue',
+        'abbreviations': [], 'aliases': [], 'origin': 'source_annotation', 'status': 'source_text_matched',
+        'evidence_refs': [{'evidence_id': 'e', 'quote': '队列**（Priority Queue）'}]}], 'source_quotes': [{'evidence_id': 'e', 'quote': quote}]}
+    before = deepcopy(point); result = enrich_point(point)
+    assert not any(r['english_name'] == 'Priority Queue' for r in result['terms'])
+    assert any(r['english_name'] == 'Priority Queue' and r['status'] == 'source_unconfirmed' for r in result['term_candidates'])
+    assert set(before['aliases']) <= set(result['aliases']) and point == before
+
+
 def test_exact_excerpt_is_checked_and_legacy_source_keys_still_work(svc):
     handouts(svc)
     raw = svc.repository.load_raw('c-pilot'); ctx = handout_context(raw, svc.authoring.load('c-pilot'))

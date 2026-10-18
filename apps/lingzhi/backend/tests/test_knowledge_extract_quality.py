@@ -147,6 +147,18 @@ def test_access_mechanism_and_its_cost_do_not_hide_in_one_non_cost_question():
         quality_point(point, '栈和队列访问非首元素均需逐个取出，最坏代价O(n)。')
     point['property'] = '访问时间复杂度'
     assert quality_point(point, '栈和队列访问非首元素均需逐个取出，最坏代价O(n)。')[1]['form'] == 'comparison'
+    point['conditions'] = []
+    with pytest.raises(CourseDocumentConflict, match='符号'):
+        quality_point(point, '栈和队列访问非首元素均需逐个取出，最坏代价O(n)。')
+
+
+@pytest.mark.parametrize('prop,value,source', [('符号', 'm', '质量的常用符号是m。'),
+                                            ('高度', '3 m', '物体高度为3 m，即3米。')])
+def test_symbol_definitions_and_explicit_units_are_not_undefined_algorithm_parameters(prop, value, source):
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': '质量' if prop=='符号' else '物体', 'property': prop,
+        'value': value, 'conditions': [], 'attachments': []}
+    assert quality_point(point, source)[0]['claim']
 
 
 @pytest.mark.asyncio
