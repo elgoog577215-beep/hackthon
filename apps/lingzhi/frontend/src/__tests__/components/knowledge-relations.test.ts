@@ -33,3 +33,26 @@ it('lets the owner omit a suggestion while adopting the others',async()=>{
   await w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.trigger('click');await flushPromises()
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/adopt/rjob',expect.objectContaining({selected_relation_ids:['r1']}));w.unmount()
 })
+
+it('adopts generated knowledge and its relations together with all review confirmations',async()=>{
+  const v:any=view();v.candidates=[{lesson_id:'cpu',job_id:'combined',tree:{...tree,revision_id:'combined-v',
+    atomic_assessment:{ready_for_adoption:true,issues:[{severity:'review',code:'compound_review'}]},
+    identity_changes:{retired_points:[{knowledge_id:'old'}]},
+    relation_assessment:{mode:'with_tree',ready_for_adoption:true,proposed_ids:[],proposed_count:0}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="confirm-knowledge-relations"]').setValue(true)
+  for(const box of w.findAll('.atomic-adoption input')) await box.setValue(true)
+  await w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/adopt/combined',expect.objectContaining({
+    confirm_relations:true,confirm_atomic_review:true,confirm_identity_changes:true,selected_relation_ids:[]}));w.unmount()
+})
+
+it('continues a failed relation stage inside the original knowledge task',async()=>{
+  const v:any=view();v.jobs=[{id:'combined',status:'failed',knowledge_lesson_id:'cpu',type:'course_knowledge_tree_generation'}]
+  v.atomic_runs=[{job_id:'combined',lesson_id:'cpu',status:'failed',pipeline:{include_relations:true,organize_hierarchy:true,
+    inventory_batches:[{status:'completed'}],batches:[{status:'completed'}],hierarchy:{status:'completed'},relations:{status:'pending'}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="continue-knowledge-batches"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({
+    pipeline:'inventory_atomic_v1',resume_job_id:'combined'}));w.unmount()
+})
