@@ -33,3 +33,16 @@ async def test_content_review_accounts_for_every_point_and_keeps_source_warnings
         assert reviewed['source_issues'] and record['status'] == 'completed'
         assert record['semantics_verified'] is False
     assert original == before and calls == ['content_review']
+
+
+def test_published_projection_does_not_disclose_private_review_notes():
+    from handout_knowledge import visible_handout_tree
+    tree = {'knowledge_points': [{'knowledge_id': 'k', 'revision_id': 'v', 'parent_id': 'c', 'section_refs': ['l'], 'source_refs': ['e'],
+        'source_quotes': [{'evidence_id': 'e', 'quote': '公开正文', 'handout_ref': {'block_id': 'visible', 'lesson_id': 'l', 'script_revision_id': 'r'}}],
+        'content_review': {'reason': '私有候选核对笔记'}}], 'categories': [{'id': 'c', 'parent_id': None}],
+        'concept_groups': [{'id': 'c'}], 'relations': [], 'lessons': [{'topic': 'l', 'knowledge_ids': ['k']}], 'sources': [{'evidence_id': 'e'}]}
+    before = deepcopy(tree)
+    visible = visible_handout_tree(tree, {'blocks': [{'block_id': 'visible'}]}, {'l': {'revision_id': 'r'}})
+    assert len(visible['knowledge_points']) == 1
+    assert 'content_review' not in visible['knowledge_points'][0]
+    assert tree == before
