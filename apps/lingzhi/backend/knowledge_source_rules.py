@@ -10,9 +10,9 @@ def _compact(value):
 
 
 def claims_parenthesis_substring_ban(point, source_text):
-    meaning = _compact(point.get('meaning', '')) + _compact(point.get('constraints', ''))
+    meaning = _compact(point.get('meaning', '')) + _compact(point.get('constraints', '')) + _compact(point.get('value', ''))
     scope = _compact(point.get('conditions', []))
-    return (point.get('form') == 'definition' and bool(re.search(r'匹配|括号', str(point.get('subject', ''))))
+    return (point.get('form') in {'definition', 'fact'} and bool(re.search(r'匹配|括号', str(point.get('subject', ''))))
         and '括号' in source_text and '不能出现)(' in meaning
         and not re.search(r'单对|仅一对|每对|每个.{0,3}对|长度(?:为)?2|开头|前缀|初始|未匹配', scope)
         and not re.search(r'说法.{0,4}(?:错误|不正确|不准确)|不应将|不能将', meaning))
