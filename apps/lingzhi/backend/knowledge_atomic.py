@@ -397,7 +397,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
     elif stage == 'tree_relations':
         from knowledge_tree_relations import response_schema
         payload = json.loads(prompt.split('INPUT_JSON:', 1)[1])
-        structure = response_schema(list(payload['catalog']), payload['focus_keys'], payload['local_keys'])
+        structure = response_schema(list(payload['catalog']), payload['focus_keys'], payload['local_keys'],
+            **({'contract': payload['relation_contract']} if payload.get('relation_contract') else {}))
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.

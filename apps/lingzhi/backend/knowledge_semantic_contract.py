@@ -62,6 +62,7 @@ def extraction_prompt(raw, context, keys):
         '同一算法的必要步骤不拆碎，定义约束也不拆成无上下文事实；列举同一属性的多个值不是多命题。'
         'subject/left_subject/right_subject必须直接选本段focus_options原文名词，不能选谓语、整条结论或答案作主体。'
         'property只写简短属性名，不含答案和并列维度；value只写该属性的值，不夹带另一个操作或属性。'
+        'meaning只写属概念及区别，不重复subject或“subject是”；value和左右取值也不重复主体和属性名，程序会加上这些前缀。'
         '程序从同一组主体、属性和值组装名称、命题、答案和完整元问题，不需要另外输出name、claim、question。'
         '所有条件conditions保留原文范围，不将局部假设写成属性值；完整定义的必要限制放constraints。'
         '教学目标、能力要求、具体题目/输入/执行轨迹、重复总结作context或附件，不成为一般知识。'

@@ -13,6 +13,13 @@ from course_repository import CourseDocumentConflict
 
 def relation_response(data):
     a, b = data['focus_keys'][:2]
+    if data.get('relation_contract') == 'knowledge_tree_relations_v3':
+        source, target = data['catalog'][a], data['catalog'][b]
+        return {'point_reviews': {key: '已核对两端对象和直接引用。' for key in data['focus_keys']},
+            'focus_links': {key: ([{'p': b, 'd': 'out', 't': 'prerequisite', 'n': 'recommended',
+                'c': '理解后续操作', 'r': f"{target['name']}明确引用{source['name']}。", 'if': [], 'w': 'medium',
+                'sn': source['name'], 'tn': target['name'], 'sq': source['claim'], 'tq': target['claim']}] if key == a else [])
+                for key in data['focus_keys']}, 'gaps': []}
     return {'point_reviews': {key: '已比较全目录，按命题判断直接教学依赖。' for key in data['focus_keys']},
         'focus_links': {key: ([{'other_key': b, 'direction': 'outgoing', 'type': 'prerequisite',
                    'necessity': 'recommended', 'context': '比较栈顶操作', 'reason': '先理解元素如何加入栈顶，再比较移除规则。',
@@ -24,7 +31,9 @@ def fake_provider(svc, *, relation_fails=False):
     calls = []; started = asyncio.Event()
     async def call(prompt, **kwargs):
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); stage = data['stage']
-        if stage == 'extract': value = response()
+        if stage == 'extract':
+            value = response()
+            value['points'][1]['claim'] = '出栈从入栈后的栈中移除并返回栈顶元素。'
         elif stage == 'tree_relations':
             started.set()
             if relation_fails: raise TimeoutError('isolated relationship failure')
@@ -119,7 +128,7 @@ def test_relation_assembly_keeps_acyclic_edges_and_reports_cycle_conflicts():
 async def test_relation_shards_run_together_and_resume_only_failed_shard(monkeypatch):
     from knowledge_tree_relations import generate
     monkeypatch.setenv('COURSE_KNOWLEDGE_TREE_RELATION_BATCH_SIZE', '2')
-    points = [{'knowledge_id': f'k{i}', 'revision_id': f'r{i}', 'name': f'知识{i}', 'statement': f'冻结命题{i}',
+    points = [{'knowledge_id': f'k{i}', 'revision_id': f'r{i}', 'name': f'知识{i}', 'statement': f'知识{i}建立在知识{i-1}的基础上。',
                'conditions': [], 'section_refs': ['l']} for i in range(4)]
     tree = {'knowledge_points': points, 'relations': [], 'revision_id': 'frozen'}
     pipeline = {}; failed = True; calls = []; entered = asyncio.Event()
