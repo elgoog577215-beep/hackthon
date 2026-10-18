@@ -55,8 +55,9 @@ async def test_one_scoped_repair_preserves_valid_points_and_original_response(sv
 @pytest.mark.asyncio
 async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure(svc, monkeypatch):
     setup_course(svc, monkeypatch)
-    calls = []
+    calls = []; options = []
     async def model(prompt, **kwargs):
+        options.append(kwargs)
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
         if payload['stage'] == 'extract': return json.dumps(value([point(property='效果和端点')]))
         return json.dumps({'repairs': {'S1.1:0': {'points': [point(property='仍然和无效')], 'handling': 'replace', 'reason': '修复失败'}}, 'source_issues': []})
@@ -68,6 +69,7 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     batch = saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
+    assert 'json_schema' not in options[1]  # Validate the small contract locally too.
 
 
 @pytest.mark.asyncio

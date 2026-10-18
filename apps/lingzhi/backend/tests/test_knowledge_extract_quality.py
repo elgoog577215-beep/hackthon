@@ -65,6 +65,24 @@ def test_one_relation_property_is_not_mistaken_for_two_independent_attributes():
     with pytest.raises(CourseDocumentConflict): quality_point(point, 'DFS的时间和空间代价分别给出。')
 
 
+def test_named_api_cost_is_not_a_specific_execution_trace():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': 'Python列表', 'property': 'pop(0)效率',
+             'value': '效率低', 'conditions': [], 'attachments': []}
+    compiled, audit = quality_point(point, 'Python列表pop(0)效率低，实际用deque。')
+    assert 'pop(0)' in compiled['question'] and audit['property_kind'] == 'named_operation_cost'
+    point.update(subject='栈', property='Push(5)后状态', value='[5]')
+    with pytest.raises(CourseDocumentConflict): quality_point(point, '栈执行Push(5)后状态是[5]。')
+
+
+def test_piecewise_function_definition_cannot_be_split_into_unqualified_facts():
+    from knowledge_semantic_contract import quality_point
+    point = {'form': 'fact', 'subject': 'fib', 'property': '递归定义',
+             'value': 'if n <= 1: return n; return fib(n-1) + fib(n-2)', 'conditions': [], 'attachments': []}
+    with pytest.raises(CourseDocumentConflict, match='联合定义'):
+        quality_point(point, 'fib的定义如下：if n <= 1: return n; return fib(n-1) + fib(n-2)')
+
+
 @pytest.mark.asyncio
 async def test_knowledge_requests_pin_sampling_but_keep_single_attempt(svc, monkeypatch):
     setup_course(svc, monkeypatch); calls = fake_provider(svc)
