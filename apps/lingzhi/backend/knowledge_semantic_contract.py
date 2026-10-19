@@ -209,7 +209,7 @@ def build_point(point, options, *, allow_relation_property=False, allow_named_op
         prop = text(point['property'], '单一检查属性', 30)
         require(allow_named_operation_cost or not re.search(r'\b(?!(?:O|o|Theta|Omega)\s*\()[A-Za-z_]\w*\(\s*[-+]?\d', prop), '具体执行轨迹只能作为例题或附件')
         if allow_named_operation_cost: audit['property_kind'] = 'named_operation_cost'
-        relation_value = r'(?:相反|一致|相同|不同|成正比|成反比|正相关|负相关|无关|一一对应|相等)(?:[（(][^()（）;；]+[）)])?。?'
+        relation_value = r'(?:相反|一致|相同|不同|成正比|成反比|正相关|负相关|无关|一一对应|相等)\s*(?:[（(][^()（）;；]+[）)])?。?'
         values = [point.get('value', '')] if form == 'fact' else [point.get('left_value', ''), point.get('right_value', '')]
         single_relation = allow_relation_property and bool(re.fullmatch(
             r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and all(

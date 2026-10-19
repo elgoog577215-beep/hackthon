@@ -17,7 +17,7 @@ def correction_plan(point, diagnostics):
     editable = sorted({field for code in codes for field in narrow.get(code, ()) if field in point})
     restricted = bool(codes) and codes <= narrow.keys()
     forms = ['definition'] if codes & {'joint_definition', 'incomplete_method'} else (
-        ['fact', 'comparison'] if 'cost_property' in codes else [point.get('form')])
+        ['fact', 'comparison'] if codes & {'cost_property', 'compound_property'} else [point.get('form')])
     return {'schema_version': 'knowledge_correction_plan_v1', 'diagnostics': deepcopy(diagnostics),
             'editable_fields': editable if restricted else sorted(point),
             'fixed_fields': {k: deepcopy(v) for k, v in point.items() if restricted and k not in editable},
