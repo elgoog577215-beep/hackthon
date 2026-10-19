@@ -127,8 +127,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             target['correction_plan'] = correction_plan(target['point'], [{'code': 'duplicate_question', 'message': target['error']}])
         conditions = target['point'].get('conditions', [])
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
-        target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
-            r'前提|范围|串用|条件|联合定义', target.get('error', '')) else []
+        target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and (target.get('duplicate_group') or not re.search(
+            r'前提|范围|串用|条件|联合定义', target.get('error', ''))) else []
         target['correction_plan']['conditions_mode'] = 'replace' if conditions and not target['required_conditions'] else 'append'
         if target.get('error') == '知识主体必须逐字来自当前原文块':
             target['fixed_fields'] = {k:deepcopy(v) for k,v in target['point'].items()
