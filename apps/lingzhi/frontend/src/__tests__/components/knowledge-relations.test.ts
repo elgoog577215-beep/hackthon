@@ -61,6 +61,9 @@ it('adopts generated knowledge and its relations together with all review confir
     identity_changes:{retired_points:[{knowledge_id:'old'}]},
     relation_assessment:{mode:'with_tree',ready_for_adoption:true,proposed_ids:[],proposed_count:0}}}]
   vi.spyOn(http,'get').mockResolvedValue({data:v});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('.atomic-adoption').element.tagName).toBe('DETAILS')
+  expect((w.get('.atomic-adoption').element as HTMLDetailsElement).open).toBe(false)
+  expect(w.get('.atomic-adoption summary').text()).toContain('采用前核对 · 2')
   await w.get('[data-testid="confirm-knowledge-relations"]').setValue(true)
   for(const box of w.findAll('.atomic-adoption input')) await box.setValue(true)
   await w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.trigger('click');await flushPromises()
