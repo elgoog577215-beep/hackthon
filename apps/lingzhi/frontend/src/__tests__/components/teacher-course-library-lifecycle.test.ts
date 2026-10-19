@@ -29,13 +29,12 @@ const course = (id: string, overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-function mountLibrary(management = true): VueWrapper {
+function mountLibrary(): VueWrapper {
   const generation = useGenerationStore()
   vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
   const wrapper = mount(CourseLibraryView, {
     global: { plugins: [router], stubs: { Teleport: true } },
   })
-  if (management) void wrapper.get('.library-layout-switch button:nth-child(2)').trigger('click')
   return wrapper
 }
 
@@ -54,19 +53,16 @@ describe('teacher course library management', () => {
     await router.isReady()
   })
 
-  it('默认使用课程卡片进入原工作台，管理操作可主动展开', async () => {
+  it('默认课程表直接进入原备课工作台', async () => {
     const courses = useCourseStore()
     courses.courseList = [course('math', { course_name: '线性代数' })] as any
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
-    const wrapper = mountLibrary(false)
+    const wrapper = mountLibrary()
     await flushPromises()
-    expect(wrapper.find('.teacher-course-grid').exists()).toBe(true)
-    expect(wrapper.find('table').exists()).toBe(false)
-    expect(wrapper.find('.card-enter').text()).toContain('进入备课')
-    await wrapper.get('.library-layout-switch button:nth-child(2)').trigger('click')
     expect(wrapper.find('table.course-table').exists()).toBe(true)
-    await wrapper.get('.library-layout-switch button:first-child').trigger('click')
-    expect(wrapper.find('.teacher-course-grid').text()).toContain('线性代数')
+    await wrapper.get('.course-main').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params.courseId).toBe('math')
     wrapper.unmount()
   })
 

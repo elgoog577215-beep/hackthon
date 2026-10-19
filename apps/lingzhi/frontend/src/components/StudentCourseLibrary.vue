@@ -539,9 +539,9 @@ button {
   cursor: pointer;
 }
 button.primary {
-  background: var(--lz-action-bg);
-  color: var(--lz-action-text);
-  border-color: var(--lz-action-border);
+  background: var(--lz-action-primary-bg);
+  color: var(--lz-action-primary-text);
+  border-color: var(--lz-action-primary-border);
   box-shadow: var(--lz-action-shadow);
 }
 .library-filters {
@@ -549,6 +549,7 @@ button.primary {
   flex-wrap: wrap;
 }
 .library-search {
+  flex: 1;
   gap: 9px;
   min-width: 240px;
   color: var(--lz-text-muted);

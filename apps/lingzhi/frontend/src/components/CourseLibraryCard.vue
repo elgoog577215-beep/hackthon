@@ -1,7 +1,7 @@
 <template>
   <article class="course-library-card">
     <div class="course-library-card__heading">
-      <CourseCover :course-id="courseId" :title="title" />
+      <span class="course-library-card__mark" aria-hidden="true"><BookOpenText :size="22" /></span>
       <div class="course-library-card__identity">
         <p v-if="origin" class="course-library-card__origin">{{ origin }}</p>
         <h2>
@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import CourseCover from "./CourseCover.vue";
+import { BookOpenText } from "lucide-vue-next";
 defineProps<{ courseId: string; title: string; origin?: string }>();
 </script>
 
@@ -36,10 +36,13 @@ defineProps<{ courseId: string; title: string; origin?: string }>();
 }
 .course-library-card__heading {
   display: flex;
-  align-items: center;
-  gap: 22px;
-  min-height: 126px;
-  --course-cover-width: 72px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 18px;
+}
+.course-library-card__mark {
+  width: 40px; height: 40px; display: grid; place-items: center;
+  border-radius: 10px; background: #f1efff; color: #7161e8;
 }
 .course-library-card__identity {
   min-width: 0;
@@ -85,7 +88,8 @@ h2 :deep(button:hover) {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: auto;
-  padding-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #eceef4;
   font-size: 15px;
 }
 .course-library-card :deep(a:focus-visible),

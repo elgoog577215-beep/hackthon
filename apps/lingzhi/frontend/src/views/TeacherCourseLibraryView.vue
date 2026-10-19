@@ -48,11 +48,6 @@
           :accessibility-label="t('teacherCourseLibrary.termFilter')"
           @update:model-value="setTermFilter"
         />
-        <span class="toolbar-spacer" />
-        <div class="library-layout-switch" role="group" :aria-label="t('teacherCourseLibrary.management.tableLabel')">
-          <button type="button" :aria-pressed="!managementOpen" @click="managementOpen = false">{{ t('workspaceUi.courseCards') }}</button>
-          <button type="button" :aria-pressed="managementOpen" @click="managementOpen = true">{{ t('workspaceUi.manageCourses') }}</button>
-        </div>
         <span v-if="courseStore.loading && courseStore.courseList.length" class="toolbar-loading" role="status">
           <LoaderCircle class="spin" :size="15" />{{ t('courseLibrary.loading', '正在读取课程') }}
         </span>
@@ -85,14 +80,6 @@
       <span>{{ hasActiveFilters ? t('teacherCourseLibrary.noFilterMatchBody') : t('teacherCourseLibrary.emptyBody') }}</span>
     </div>
 
-    <div v-else-if="!managementOpen" class="teacher-course-grid">
-      <CourseLibraryCard v-for="{ course, production } in courseRows" :key="course.course_id" :course-id="course.course_id" :title="formatCourseTitle(course.course_name)" :origin="courseTermLabel(course)">
-        <template #title><button type="button" @click="openCourse(course.course_id)">{{ formatCourseTitle(course.course_name) }}</button></template>
-        <template #summary><span class="card-production" :data-tone="production.tone" role="status">{{ production.label }}</span></template>
-        <p v-if="course.next_session" class="card-session">{{ courseNextSessionWhen(course) }}<span v-if="course.next_session.location"> · {{ course.next_session.location }}</span></p>
-        <template #actions><button type="button" class="card-enter" @click="openCourse(course.course_id, production.query)">{{ t('workspaceUi.openCourse') }}<ChevronRight :size="16" /></button><span class="card-updated">{{ courseUpdatedLabel(course) }}</span></template>
-      </CourseLibraryCard>
-    </div>
     <div v-else class="course-table-region">
       <table class="course-table">
         <caption class="sr-only">{{ t('teacherCourseLibrary.management.tableLabel') }}</caption>
@@ -213,7 +200,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, LoaderCircle, Search, Trash2 } from 'lucide-vue-next'
-import CourseLibraryCard from '../components/CourseLibraryCard.vue'
 import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
@@ -246,7 +232,6 @@ type CourseProductionView = {
   query: Record<string, string>
 }
 
-const managementOpen = ref(false)
 const query = ref(String(route.query.q || ''))
 const statusFilter = ref<CourseStatusFilter>(['preparing', 'prepared'].includes(String(route.query.status)) ? route.query.status as CourseStatusFilter : 'all')
 const termFilter = ref(String(route.query.term || 'all'))
@@ -491,21 +476,8 @@ async function deleteSelectedCourses() {
 </script>
 
 <style scoped>
-.teacher-course-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; padding: 26px 8px; align-items: stretch; }
-.card-production { color: var(--lz-text-secondary); font-size: 15px; line-height: 1.6; }
-.card-production[data-tone='active'] { color: var(--lz-brand-strong); }
-.card-production[data-tone='attention'] { color: var(--lz-danger); }
-.card-production[data-tone='ready'] { color: var(--lz-success); }
-.card-session { margin: 0; }
-.card-enter { display: inline-flex; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; color: var(--lz-brand-strong); font: inherit; font-weight: 600; cursor: pointer; min-height: 36px; }
-.card-updated { margin-left: auto; color: var(--lz-text-muted); font-size: 13px; }
-.library-layout-switch { display: flex; padding: 3px; background: var(--lz-surface-subtle); border-radius: var(--lz-radius-control); }
-.library-layout-switch button { padding: 7px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--lz-text-secondary); font: inherit; font-size: 15px; cursor: pointer; }
-.library-layout-switch button[aria-pressed='true'] { background: white; color: var(--lz-brand-strong); box-shadow: 0 1px 4px rgba(49,46,129,.08); }
-@media(max-width:1150px) { .teacher-course-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:760px) { .teacher-course-grid { grid-template-columns:1fr; } }
-
-.course-library,.course-library *{box-sizing:border-box}.course-library{width:100%;height:100%;overflow:auto;padding:24px clamp(20px,3.2vw,44px) 40px;color:var(--lz-text);background:#f5f6f8}.course-library--embedded{border:0;border-radius:0;box-shadow:none}
+.course-library,.course-library *{box-sizing:border-box}
+.course-library{width:100%;height:100%;overflow:auto;padding:24px clamp(20px,3.2vw,44px) 40px;color:var(--lz-text);background:#f5f6f8}.course-library--embedded{border:0;border-radius:0;box-shadow:none}
 .library-toolbar{width:100%;max-width:1320px;min-height:42px;margin:0 auto 18px;display:flex;align-items:center;gap:10px}.library-search{height:42px;min-width:320px;flex:1 1 520px;display:flex;align-items:center;gap:9px;padding:0 13px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-muted);background:var(--lz-surface)}.library-search:focus-within{border-color:var(--lz-brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--lz-brand) 12%,transparent)}.library-search input{min-width:0;flex:1;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.library-search input::placeholder{color:var(--lz-text-muted)}.library-toolbar :deep(.ui-select-menu){width:164px;flex:0 0 164px}.toolbar-spacer{flex:1}.toolbar-loading{display:inline-flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}
 .library-toolbar--selecting{padding:0 2px}.selection-summary{margin:0;color:var(--lz-text-strong);font-size:14px;font-weight:750}.toolbar-button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.toolbar-button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.toolbar-button--danger{border-color:color-mix(in srgb,var(--lz-danger) 32%,var(--lz-border));color:var(--lz-danger)}.toolbar-button--danger:hover:not(:disabled){border-color:var(--lz-danger);color:var(--lz-danger);background:var(--lz-danger-soft)}.toolbar-button:disabled{opacity:.55;cursor:not-allowed}
 .library-inline-error{max-width:1320px;min-height:38px;margin:-8px auto 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-danger) 22%,var(--lz-border));color:var(--lz-danger);font-size:12px}.library-inline-error button,.library-state button{height:32px;padding:0 11px;border:1px solid currentColor;border-radius:7px;color:inherit;background:transparent;font-size:12px;font-weight:700;cursor:pointer}

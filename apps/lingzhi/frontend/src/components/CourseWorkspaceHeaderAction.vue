@@ -41,8 +41,5 @@ defineProps<{ label: string; displayLabel?: string; hint?: string; primary?: boo
 .workspace-header-action:focus-visible { outline: 3px solid #9385ed; outline-offset: 3px; }
 .workspace-header-action.is-icon-only { width: 38px; padding: 0; }
 .workspace-header-action.is-icon-only .workspace-header-action__label { display: none; }
-@container course-workspace-header (max-width: 1480px) {
-  .workspace-header-action { width: 38px; padding: 0; }
-  .workspace-header-action__label { display: none; }
-}
+
 </style>

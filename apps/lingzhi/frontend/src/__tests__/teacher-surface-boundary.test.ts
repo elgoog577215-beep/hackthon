@@ -184,7 +184,7 @@ describe('calendar and course file-space boundary', () => {
     expect(workbench).toContain('initialLessonId?: string')
   })
 
-  it('keeps explicit course management beside the default course cards', () => {
+  it('keeps course management in the default table', () => {
     const library = source('views/TeacherCourseLibraryView.vue')
 
     expect(library).toContain('class="course-table"')
@@ -199,8 +199,7 @@ describe('calendar and course file-space boundary', () => {
     expect(library).toContain('courseStore.deleteCourses(ids, { surface: \'teacher\' })')
     expect(library).not.toContain('UiSegmentedControl')
     expect(library).not.toContain('aria-haspopup="menu"')
-    expect(library).toContain('teacher-course-grid')
-    expect(library).toContain('library-layout-switch')
+    expect(library).toContain('course-table-region')
   })
 
   it('opens both teaching calendars on the Zhejiang University weekly timetable', () => {

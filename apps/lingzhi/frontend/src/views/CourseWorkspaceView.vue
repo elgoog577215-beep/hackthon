@@ -38,14 +38,13 @@
         <CourseWorkspaceHeaderAction
           class="audit-action"
           :label="t('courseAuditUpdates.globalChange', '全局修改')"
-          :display-label="t('courseFiles.headerActions.change')"
           :hint="t('courseAuditUpdates.openHint', '查看材料变化、生成关系和全课调整')"
           @click="openGlobalChange"
         >
           <ScanSearch :size="16" />
         </CourseWorkspaceHeaderAction>
         <CoursePublicationPanel ref="publicationPanel" :course-id="courseId" />
-        <CourseWorkspaceHeaderAction class="preview-action" :label="t('courseFiles.previewCourse')" :display-label="t('courseFiles.headerActions.preview')" primary @click="openCoursePreview"><Eye :size="16" /></CourseWorkspaceHeaderAction>
+        <CourseWorkspaceHeaderAction class="preview-action" :label="t('courseFiles.previewCourse')" primary @click="openCoursePreview"><Eye :size="16" /></CourseWorkspaceHeaderAction>
       </div>
     </Teleport>
 

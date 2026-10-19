@@ -35,7 +35,7 @@ describe('teacher and student product branding', () => {
     await router.push(home)
     const wrapper = mount(ProductBrand, { props:{ surface:surface as ProductSurface }, global:{ plugins:[router] } })
     expect(wrapper.get('strong').text()).toBe(name)
-    expect(wrapper.get('small').text()).toBe(role)
+    expect(wrapper.get('a').attributes('aria-label')).toBe(`${name} · ${role}`)
     expect(wrapper.get('a').attributes('href')).toBe(home)
     expect(wrapper.get('img').attributes('alt')).toBe(name)
     expect(wrapper.get('img').attributes('src')).toContain(icon)

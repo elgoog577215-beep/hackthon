@@ -92,8 +92,8 @@ describe('App home navigation', () => {
       expect(wrapper.get('a.qizhi-home-link').isVisible()).toBe(true)
       expect(wrapper.get('a.qizhi-home-link').attributes('href')).toBe('/')
     } else {
-      expect(wrapper.get('a.product-brand').isVisible()).toBe(true)
-      expect(wrapper.get('a.product-brand').attributes('data-product-surface')).toBe('teacher')
+      expect(wrapper.find('a.product-brand').exists()).toBe(false)
+      expect(wrapper.find('#app-header-route-context').exists()).toBe(true)
     }
     expect(wrapper.classes()).toContain('is-course-workspace-route')
 
@@ -102,7 +102,8 @@ describe('App home navigation', () => {
     expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(false)
     expect(wrapper.find('.header-search').exists()).toBe(true)
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
-    expect(wrapper.get('a.product-brand').text()).toBe('启智教师端')
+    expect(wrapper.get('a.product-brand').text()).toBe('启智')
+    expect(wrapper.get('a.product-brand').attributes('aria-label')).toBe('启智 · 教师端')
     expect(document.title).toBe('启智 · 教师端')
     wrapper.unmount()
   })

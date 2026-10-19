@@ -91,11 +91,31 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).toContain('真实讲义正文')
   })
 
+  it('moves only the reading scroller when restoring a chapter', async () => {
+    const { wrapper } = await page('/study/material-a')
+    const scroller = wrapper.get('.study-document-scroll').element as HTMLElement
+    const section = wrapper.get('[data-section-id="s1"]').element as HTMLElement
+    const outer = wrapper.get('.study-workspace').element as HTMLElement
+    scroller.scrollTop = 100
+    const scrollTo = vi.fn()
+    scroller.scrollTo = scrollTo
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 120 } as DOMRect)
+    vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ top: 420 } as DOMRect)
+    await wrapper.get('.study-chapter-list button').trigger('click')
+    expect(scrollTo).toHaveBeenCalledWith({ top: 376, behavior: 'instant' })
+    expect(outer.scrollTop).toBe(0)
+    expect(sessionStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')).toBe('s1')
+  })
+
   it('keeps an unsaved note after save failure and saves it to its material revision on retry', async () => {
     const { wrapper } = await page('/study/material-a')
-    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
+    await wrapper.get('.learning-dock__actions button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '已保存的理解')
     await wrapper.get('.study-note textarea').setValue('新的理解与问题')
+    await wrapper.get('.study-tool-heading button').trigger('click')
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+    await wrapper.get('.learning-dock__actions button:nth-child(2)').trigger('click')
+    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新的理解与问题')
     api.note.mockRejectedValueOnce(new Error('保存失败')).mockResolvedValueOnce({})
     await wrapper.get('.study-note button').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('保存失败')
@@ -106,8 +126,11 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).toContain('笔记已保存')
   })
 
-  it('opens the assistant by default and binds a real reading selection to the exact owned block', async () => {
+  it('opens the assistant on demand and binds a real reading selection to the exact owned block', async () => {
     const { wrapper } = await page('/study/material-a')
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+    await wrapper.get('.learning-dock__actions button:first-child').trigger('click')
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
     const assistant = wrapper.getComponent({ name: 'PersonalHandoutAssistant' })
     expect(assistant.props()).toMatchObject({ ownerId: 'student-a', materialId: 'material-a', revisionId: 'revision-a', context: { section_id: 's1', block_id: '', quote: '' } })
     const body = wrapper.get('[data-block-id="b1"]').element
@@ -124,7 +147,7 @@ describe('personal study handouts', () => {
     sessionStorage.setItem('lingzhi-study-note:student-a:material-a:revision-a', '未提交的草稿')
     sessionStorage.setItem('lingzhi-study-note:student-b:material-a:revision-a', '另一人的笔记')
     const { wrapper } = await page('/study/material-a')
-    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
+    await wrapper.get('.learning-dock__actions button:nth-child(2)').trigger('click')
     expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '未提交的草稿')
     expect(wrapper.text()).not.toContain('另一人的笔记')
     expect(api.note).not.toHaveBeenCalled()
@@ -305,7 +328,7 @@ describe('personal study handouts', () => {
 
   it('keeps visible reading and the current unsaved note while reconnecting the same material', async () => {
     const { wrapper } = await page('/study/material-a')
-    await wrapper.get('.study-tool-tabs button:nth-child(2)').trigger('click')
+    await wrapper.get('.learning-dock__actions button:nth-child(2)').trigger('click')
     await wrapper.get('.study-note textarea').setValue('重连时保留我的笔记')
     api.note.mockRejectedValueOnce(new Error('笔记暂未保存'))
     await wrapper.get('.study-note button').trigger('click'); await flushPromises()

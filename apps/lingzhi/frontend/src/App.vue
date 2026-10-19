@@ -1,6 +1,7 @@
 <template>
   <div
     class="app-shell"
+    :lang="activeLocale"
     :class="{
       'is-fullscreen-concept': isFullscreenConceptRoute,
       'is-course-workspace-route': isCourseWorkspaceRoute,
@@ -17,7 +18,7 @@
           <ArrowLeft :size="17" aria-hidden="true" />
           <span>{{ t('app.backToQizhi') }}</span>
         </a>
-        <ProductBrand :surface="brandingSurface" />
+        <ProductBrand v-if="!isCourseWorkspaceRoute" :surface="brandingSurface" />
         <div v-if="!isLearningRoute" id="app-header-route-context" class="route-header-context" />
       </div>
 
@@ -249,20 +250,20 @@ function changeLocale(locale: string) {
   align-items: center;
   gap: 16px;
   padding: 0 17px;
-  border: 1px solid var(--lz-border);
-  border-radius: var(--lz-radius-surface);
-  background: var(--lz-surface);
-  box-shadow: var(--lz-shadow-panel);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(250,250,255,.91));
+  box-shadow: 0 8px 26px rgba(79,70,229,.08), inset 0 1px 0 rgba(255,255,255,.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .app-shell.is-course-workspace-route .app-header {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 1fr) auto auto;
   gap: 12px;
-  container: course-workspace-header / inline-size;
 }
 
 .app-shell.is-course-workspace-route .app-header-start { gap:12px; }
-.app-shell.is-course-workspace-route :deep(.product-brand) { padding-right:12px; border-right:1px solid #e2e8f0; }
 
 .brand-button,
 .header-icon-button,
@@ -372,10 +373,28 @@ function changeLocale(locale: string) {
   .header-search { display: none; }
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1280px) {
+  .app-shell.is-course-workspace-route:lang(en) { grid-template-rows:102px minmax(0,1fr); }
+  .app-shell.is-course-workspace-route:lang(en) .app-header {
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:58px 44px;
+    gap:0 8px;
+    padding:0 10px;
+  }
+  .app-shell.is-course-workspace-route:lang(en) .app-header-start { grid-column:1; grid-row:1; }
+  .app-shell.is-course-workspace-route:lang(en) .app-header-center {
+    grid-column:1/-1;
+    grid-row:2;
+    align-self:stretch;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-top:1px solid var(--lz-border);
+  }
+  .app-shell.is-course-workspace-route:lang(en) .route-header-actions { grid-column:2; grid-row:1; }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1100px) {
   .app-shell.is-course-workspace-route { grid-template-rows:102px minmax(0,1fr); }
   .app-shell.is-course-workspace-route .app-header {
     grid-template-columns:minmax(0,1fr) auto;
