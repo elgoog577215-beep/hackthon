@@ -42,7 +42,8 @@ async def test_retries_are_bounded_and_never_repeat_partial_output(svc, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_saved_nine_relation_shards_stay_frozen_and_only_seven_eight_recover(svc, monkeypatch):
+@pytest.mark.parametrize('persistent', [False, True])
+async def test_saved_nine_relation_shards_stay_frozen_and_only_seven_eight_recover(svc, monkeypatch, persistent):
     setup_course(svc, monkeypatch); fake_provider(svc)
     job = start(svc, extraction_mode='single_pass_v1', organize_hierarchy=True, include_relations=True)
     await svc.run('c-pilot', job['id']); original = svc.authoring.get_job('c-pilot', job['id'])
@@ -63,14 +64,92 @@ async def test_saved_nine_relation_shards_stay_frozen_and_only_seven_eight_recov
     fake_provider(svc); base = svc.provider_factory(); calls = []
     async def interrupted(prompt, **kwargs):
         stage = json.loads(prompt.split('\nINPUT_JSON:\n')[1])['stage']; calls.append(stage)
-        if len(calls) <= 2: raise AIProviderRequestError('Connection error.')
+        if persistent or len(calls) <= 2: raise AIProviderRequestError('Connection error.')
         return await base._call_llm(prompt, **kwargs)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=interrupted, model_smart='test-qwen', client=None)
     await svc.run('c-pilot', job['id']); saved = svc.authoring.get_job('c-pilot', job['id'])
-    assert saved['status'] == 'completed' and calls == ['tree_relations'] * 4
+    if persistent:
+        assert saved['status'] == 'failed' and calls == ['tree_relations'] * 6
+        assert saved['error']['stage'] == saved['pipeline_stage'] == 'tree_relations'
+        assert saved['error']['batch_id'] in {'tree-relations-7', 'tree-relations-8'}
+        assert saved['error']['transport_attempts'] == 3
+        assert saved['error']['recovery_action'] == 'continue_missing_batches'
+    else:
+        assert saved['status'] == 'completed' and calls == ['tree_relations'] * 4
     actual = saved['checkpoint']['atomic_pipeline']
     assert {k: actual[k] for k in protected} == protected
     assert [b for b in actual['relations']['batches'] if b['id'] not in {'tree-relations-7', 'tree-relations-8'}] == completed
     assert {v['batch_id'] for v in saved['stage_observations']} == {'tree-relations-7', 'tree-relations-8'}
     assert svc.repository.load_raw('c-pilot') == baseline
     assert len(svc.authoring.load('c-pilot')['jobs']) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('message', ['Error code: 401 - invalid key', 'Error code: 429 - quota exhausted', 'empty_response'])
+async def test_non_connection_provider_failures_are_not_retried(svc, monkeypatch, message):
+    from knowledge_atomic import call_stage
+    setup_course(svc, monkeypatch); job=start(svc);calls=[]
+    async def model(*args, **kwargs): calls.append(1);raise AIProviderRequestError(message)
+    with pytest.raises(AIProviderRequestError):
+        await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'输入','content_review')
+    assert calls==[1]
+
+
+@pytest.mark.asyncio
+async def test_source_change_during_backoff_prevents_the_next_request(svc, monkeypatch):
+    from knowledge_atomic import call_stage
+    from knowledge_transport import model_scope
+    from course_repository import CourseDocumentConflict
+    setup_course(svc, monkeypatch);job=start(svc);calls=[];changed=False
+    async def pause(_seconds):
+        nonlocal changed
+        changed=True
+    def guard():
+        if changed: raise CourseDocumentConflict('来源已变化')
+    async def model(*args,**kwargs):calls.append(1);raise AIProviderRequestError('Connection error.')
+    monkeypatch.setattr('knowledge_transport.retry_pause',pause)
+    with model_scope(validate_source=guard), pytest.raises(CourseDocumentConflict,match='来源'):
+        await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'输入','content_review')
+    assert calls==[1]
+
+
+@pytest.mark.asyncio
+async def test_parallel_requests_share_a_job_retry_budget(svc, monkeypatch):
+    import asyncio
+    from knowledge_atomic import call_stage
+    from knowledge_transport import model_scope
+    setup_course(svc, monkeypatch);job=start(svc);calls=[];budget={'used':5,'active':{}}
+    async def pause(_seconds):await asyncio.sleep(0)
+    async def model(*args,**kwargs):calls.append(1);raise AIProviderRequestError('Connection error.')
+    monkeypatch.setattr('knowledge_transport.retry_pause',pause)
+    with model_scope(retry_budget=budget):
+        result=await asyncio.gather(*(call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'输入','content_review') for _ in range(2)),return_exceptions=True)
+    assert all(isinstance(e,AIProviderRequestError) for e in result)
+    assert len(calls)==3 and budget['used']==6 and budget['active']=={}
+
+
+def test_light_status_keeps_recovery_fields_without_bodies():
+    from knowledge_generation_status import job_status
+    result=job_status({'id':'j','status':'running','transport_retry_active_count':1,'transport_retry_stage':'tree_relations',
+        'failed_stage':'tree_relations','partial_text':'PRIVATE'},'2026-10-19T00:00:00+00:00')
+    assert result['transport_retry_stage']==result['failed_stage']=='tree_relations'
+    assert result['transport_retry_active_count']==1 and 'partial_text' not in result
+
+
+def test_local_persistence_error_cannot_inherit_network_retry_from_exception_context():
+    from knowledge_transport import transient_connection
+    error=PermissionError('cannot save checkpoint');error.__context__=ConnectionError('connection reset')
+    assert not transient_connection(error)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_backoff_prevents_the_next_request(svc, monkeypatch):
+    from knowledge_atomic import call_stage
+    from course_repository import CourseDocumentConflict
+    setup_course(svc,monkeypatch);job=start(svc);calls=[]
+    async def pause(_seconds):svc.authoring.update_job('c-pilot',job['id'],status='cancelled',phase='cancelled')
+    async def model(*args,**kwargs):calls.append(1);raise AIProviderRequestError('Connection error.')
+    monkeypatch.setattr('knowledge_transport.retry_pause',pause)
+    with pytest.raises(CourseDocumentConflict):
+        await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'输入','content_review')
+    assert calls==[1] and svc.authoring.get_job('c-pilot',job['id'])['status']=='cancelled'

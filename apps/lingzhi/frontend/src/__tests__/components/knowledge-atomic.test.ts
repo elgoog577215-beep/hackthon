@@ -94,7 +94,7 @@ it('hides an empty refinement panel after the model service fails before invento
   vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   expect(w.find('[data-testid="knowledge-atomic-workbench"]').exists()).toBe(false)
-  expect(w.text()).toContain('模型服务暂未连接')
+  expect(w.text()).toContain('模型连接暂不可用')
   w.unmount()
 })
 it('shows unresolved original passages and keeps the incomplete candidate unadoptable',async()=>{
@@ -140,5 +140,14 @@ it('shows compact connection recovery while other parallel work reports hierarch
   vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('正在恢复模型连接')
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
+
+it('uses unrecovered failed observations for a historical job with a stale hierarchy label',async()=>{
+  const v:any=view();v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',phase:'failed',pipeline_stage:'hierarchy',progress:93,
+    stage_observations:[{stage:'tree_relations',status:'failed',request_fingerprint:'r7'},{stage:'hierarchy_subtree',status:'completed',request_fingerprint:'h1'}]}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain(zh.knowledgeFirst.relationCandidates)
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
