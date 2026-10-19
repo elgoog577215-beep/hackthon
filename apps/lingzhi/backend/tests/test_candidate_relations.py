@@ -62,3 +62,28 @@ def test_foreign_stale_incomplete_or_other_lesson_candidate_is_rejected(svc,monk
     source,_=candidate(svc,monkeypatch)
     state=svc.authoring.load('c-pilot');state['jobs'][source['id']][field]=value;svc.authoring._save(state)
     with pytest.raises(CourseDocumentConflict):start(svc,relation_source_job_id=source['id'])
+
+
+@pytest.mark.asyncio
+async def test_source_change_during_relation_request_prevents_candidate_save(svc,monkeypatch):
+    source,_=candidate(svc,monkeypatch)
+    def mutate(data,result):
+        state=svc.authoring.load('c-pilot');state['jobs'][source['id']]['checkpoint']['candidate']['revision_id']='changed';svc.authoring._save(state)
+    provider(svc,mutate=mutate);job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
+    saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='failed' and not saved['checkpoint'].get('candidate')
+
+
+@pytest.mark.asyncio
+async def test_candidate_relations_adoption_requires_original_quality_confirmations(svc,monkeypatch):
+    source,tree=candidate(svc,monkeypatch,blocked=False)
+    state=svc.authoring.load('c-pilot');state['jobs'][source['id']]['checkpoint']['candidate']['atomic_assessment']['issues']=[{'severity':'review','code':'compound_review'}];svc.authoring._save(state)
+    provider(svc);job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
+    view=svc.view('c-pilot',source_mode='handouts')
+    with pytest.raises(CourseDocumentConflict,match='复合'):
+        svc.adopt('c-pilot',job['id'],view['knowledge_revision'],view['document_revision'],confirm_relations=True)
+    svc.adopt('c-pilot',job['id'],view['knowledge_revision'],view['document_revision'],
+        confirm_relations=True,confirm_atomic_review=True)
+    adopted=svc.repository.load_raw('c-pilot')['course_knowledge_base']
+    assert adopted['knowledge_points']==tree['knowledge_points']
+    assert adopted['status']=='accepted'

@@ -331,10 +331,11 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode=''):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', relation_source_job_id=''):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
+        require(not relation_source_job_id or pipeline == RELATIONS, '候选来源仅用于独立关系分析')
         require(extraction_mode in {'', 'single_pass_v1'}, '未知知识提取模式')
         require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
         require(not (resume_job_id or retry_batch_id) or pipeline in {PIPELINE, RELATIONS}, '继续批次需要原生成流程')
@@ -355,9 +356,14 @@ class KnowledgeFirstService:
             existing_jobs = state["jobs"]
             if resume_job_id:
                 extraction_mode = (existing_jobs.get(resume_job_id) or {}).get('extraction_mode', '')
+                if pipeline == RELATIONS:
+                    original_source = (existing_jobs.get(resume_job_id) or {}).get('relation_source_job_id','')
+                    require(not relation_source_job_id or relation_source_job_id == original_source, '不能更换关系任务的候选来源')
+                    relation_source_job_id = original_source
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(duplicate.get('relation_source_job_id','') == relation_source_job_id, '请求标识对应不同候选来源')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(pipeline != PIPELINE or duplicate.get('extraction_mode', '') == extraction_mode, '请求标识对应不同提取模式')
                 require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
@@ -365,8 +371,12 @@ class KnowledgeFirstService:
                 return duplicate, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
+            relation_baseline = raw.get('course_knowledge_base') or {}
             if pipeline == RELATIONS:
-                validate_baseline(raw.get('course_knowledge_base') or {}, lesson_id)
+                if relation_source_job_id:
+                    from knowledge_relation_generation import candidate_baseline
+                    relation_baseline = candidate_baseline(existing_jobs, relation_source_job_id, raw, context, lesson_id)
+                validate_baseline(relation_baseline, lesson_id, allow_candidate=bool(relation_source_job_id))
             continued_checkpoint = None
             if resume_job_id:
                 original = existing_jobs.get(resume_job_id) or {}
@@ -414,7 +424,9 @@ class KnowledgeFirstService:
                 source_context_revision=context["revision_id"],
                 source_evidence_package_revision=context["evidence_package"]["package_revision_id"],
                 source_scope_revision=context["scope_contract"]["revision_id"],
-                request_snapshot={"knowledge_generation_context": context, **({'relation_baseline':deepcopy(raw['course_knowledge_base'])} if pipeline == RELATIONS else {})},
+                request_snapshot={"knowledge_generation_context": context, **({'relation_baseline':deepcopy(relation_baseline),
+                    'relation_adopted_baseline':deepcopy(raw.get('course_knowledge_base') or {})} if pipeline == RELATIONS else {})},
+                relation_source_job_id=relation_source_job_id,
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
@@ -634,7 +646,15 @@ class KnowledgeFirstService:
                 if knowledge_revision(raw) == tree["revision_id"]:
                     return raw
                 scope = job.get('knowledge_lesson_id', '')
-                if relation_assessment:
+                if relation_assessment and job.get('relation_source_job_id'):
+                    from knowledge_relation_generation import validate_source, validate_graph
+                    validate_source(self,raw,job)
+                    frozen_tree = job['request_snapshot']['relation_baseline']
+                    require(all(tree.get(k) == frozen_tree.get(k) for k in ('knowledge_points','categories','lessons','sources','atomic_assessment','identity_changes')), '关联不能改写原知识候选')
+                    validate_graph(tree['knowledge_points'],tree['relations'])
+                    for edge in tree['relations']:
+                        if edge['id'] in relation_assessment['proposed_ids']: edge['review_status']='accepted'
+                if relation_assessment and not job.get('relation_source_job_id'):
                     from knowledge_relation_generation import validate_source, validate_graph
                     require(knowledge_revision(raw) == expected_revision == job['source_knowledge_revision'] and raw.get('course_document_revision') == expected_document, '关系依据版本已变化，请重新分析')
                     validate_source(self,raw,job)

@@ -25,12 +25,25 @@ def catalog(tree):
         for i,p in enumerate(tree.get('knowledge_points',[]),1)]
 
 
-def validate_baseline(tree, lesson_id):
-    require(tree.get('status') == 'accepted' and tree.get('source_mode') == 'handouts', '请先采用本讲讲义的元知识基线，再分析关系')
+def validate_baseline(tree, lesson_id, *, allow_candidate=False):
+    require(tree.get('status') in ({'accepted','candidate'} if allow_candidate else {'accepted'}) and tree.get('source_mode') == 'handouts', '请先生成完整知识候选或采用元知识基线，再分析关系')
     points = catalog(tree)
     require(points and len(points) <= 1200 and len({p['knowledge_id'] for p in points}) == len(points), '课程知识目录为空、重复或超过关系分析容量')
     require(any(lesson_id in p['lesson_ids'] for p in points), '本讲尚无已采用元知识')
     require(all(p['revision_id'] and p['statement'] and p['lesson_ids'] for p in points), '知识目录缺少命题、版本或讲次，不能分析关系')
+
+
+def candidate_baseline(jobs, source_id, raw, context, lesson_id):
+    source = jobs.get(source_id) or {}
+    require(source.get('type') == 'course_knowledge_tree_generation' and source.get('status') == 'completed'
+        and source.get('knowledge_pipeline') == 'inventory_atomic_v1' and source.get('actor') == raw.get('owner_id')
+        and source.get('knowledge_lesson_id') == lesson_id, '原知识候选未完成、无权访问或不属于本讲')
+    require(source.get('source_document_revision') == raw.get('course_document_revision')
+        and source.get('source_knowledge_revision') == (raw.get('course_knowledge_base') or {}).get('revision_id','')
+        and source.get('source_context_revision') == context['revision_id'], '知识候选来源已变化，请先核对')
+    tree = (source.get('checkpoint') or {}).get('candidate')
+    require(bool(tree), '原知识候选不存在')
+    return deepcopy(tree)
 
 
 def batch_size():
@@ -151,6 +164,43 @@ def compile_batch(raw, pipeline, batch, response, lesson_id):
     return {'relations':list(edges.values()),'decisions':deepcopy(decisions),'gaps':gaps}
 
 
+def review_batch(raw, pipeline, batch, response, lesson_id):
+    """Keep safe suggestions and diagnostics, without a model rewrite or knowledge mutation."""
+    issues = []; edges = []; decisions = []
+    def issue(message, *, focus='', link=None, blocking=False):
+        issues.append({'code':'relation_review_required','severity':'blocking' if blocking else 'review',
+            'batch_id':batch['id'],'focus_key':focus,'message':message,
+            **({'excluded_link':deepcopy(link)} if link is not None else {})})
+    if not isinstance(response,dict) or set(response)-{'decisions','gaps'} or not isinstance(response.get('decisions'),list):
+        issue('关系响应结构不完整，知识候选保留；该批关系待核对',blocking=True)
+        return {'relations':[],'decisions':[],'gaps':[],'issues':issues}
+    prior = [edge for b in pipeline['batches'] if b['status']=='completed' for edge in b.get('result',{}).get('relations',[])]
+    for focus in batch['focus_keys']:
+        rows = [d for d in response['decisions'] if isinstance(d,dict) and d.get('focus_key')==focus]
+        if len(rows)!=1:
+            issue('关系比较记录缺失或重复',focus=focus,blocking=True);continue
+        row=rows[0];scope={**batch,'focus_keys':[focus]}
+        try:
+            require(isinstance(row.get('links'),list) and len(row['links'])<=100,'关系建议格式或数量无效')
+            compile_batch(raw,pipeline,scope,{'decisions':[{**row,'links':[]}],'gaps':[]},lesson_id)
+        except CourseDocumentConflict as error:
+            issue(str(error),focus=focus,blocking=True);continue
+        decisions.append(deepcopy(row))
+        for link in row['links']:
+            try:
+                compiled=compile_batch(raw,pipeline,scope,{'decisions':[{**row,'links':[link]}],'gaps':[]},lesson_id)
+                validate_graph(pipeline['catalog'],[*pipeline['baseline_relations'],*prior,*edges,*compiled['relations']])
+                edges.extend(compiled['relations'])
+            except (CourseDocumentConflict,KeyError,TypeError,ValueError) as error:
+                issue(str(error),focus=focus,link=link)
+    if any(not isinstance(d,dict) or d.get('focus_key') not in batch['focus_keys'] for d in response['decisions']):
+        issue('包含范围外关系比较记录，未纳入候选',blocking=True)
+    gaps=response.get('gaps',[])
+    if not isinstance(gaps,list) or not all(isinstance(g,str) and len(g)<=2000 for g in gaps):
+        issue('关系缺口说明格式无效');gaps=[]
+    return {'relations':edges,'decisions':decisions,'gaps':gaps[:50],'issues':issues}
+
+
 def assemble(tree, pipeline, lesson_id):
     # Additive suggestions: existing IDs and facts are immutable, even when a model disagrees.
     result = deepcopy(tree); edges = list(deepcopy(tree.get('relations',[])))
@@ -163,8 +213,12 @@ def assemble(tree, pipeline, lesson_id):
     validate_graph(pipeline['catalog'],edges)
     result.update(status='candidate',relations=edges,scope_lesson_id=lesson_id,base_knowledge_revision=tree['revision_id'])
     result['relation_index'] = relation_index(result)
-    for key in ('atomic_assessment','identity_changes'): result.pop(key,None)
-    result['relation_assessment'] = {'schema_version':PIPELINE,'ready_for_adoption':True,'semantics_verified':False,
+    source_id = pipeline.get('source_job_id','')
+    if not source_id:
+        for key in ('atomic_assessment','identity_changes'): result.pop(key,None)
+    issues = [deepcopy(issue) for batch in pipeline['batches'] for issue in batch['result'].get('issues',[])]
+    result['relation_assessment'] = {'schema_version':PIPELINE,'ready_for_adoption':not any(i.get('severity')=='blocking' for i in issues),'semantics_verified':False,
+        'source_job_id':source_id,'issues':issues,
         'source_knowledge_revision':pipeline['base_revision'],'proposed_ids':added,'proposed_count':len(added),
         'checked_points':sum(len(b['focus_keys']) for b in pipeline['batches']),
         'gaps':list(dict.fromkeys(g for b in pipeline['batches'] for g in b['result']['gaps']))}
@@ -174,9 +228,14 @@ def assemble(tree, pipeline, lesson_id):
 
 def validate_source(svc, raw, job):
     frozen = job['request_snapshot']['relation_baseline']
+    adopted = job['request_snapshot'].get('relation_adopted_baseline',frozen)
     require(raw.get('owner_id') == job.get('actor') and raw.get('course_document_revision') == job['source_document_revision']
-        and stable_hash(raw.get('course_knowledge_base') or {},prefix='relations_') == stable_hash(frozen,prefix='relations_'), '课程权限、知识点或跨讲关系版本已变化，请重新分析关系')
+        and stable_hash(raw.get('course_knowledge_base') or {},prefix='relations_') == stable_hash(adopted,prefix='relations_'), '课程权限、知识点或跨讲关系版本已变化，请重新分析关系')
     require(svc._context(raw,'handouts',job['knowledge_lesson_id'])['revision_id'] == job['source_context_revision'], '本讲讲义或课程依据已变化，请重新分析关系')
+    if job.get('relation_source_job_id'):
+        current = candidate_baseline(svc.authoring.load(raw['course_id'])['jobs'],job['relation_source_job_id'],raw,
+            job['request_snapshot']['knowledge_generation_context'],job['knowledge_lesson_id'])
+        require(stable_hash(current,prefix='relations_')==stable_hash(frozen,prefix='relations_'),'原知识候选已变化')
 
 
 async def run(svc, course_id, job_id):
@@ -185,12 +244,13 @@ async def run(svc, course_id, job_id):
     provider = None
     try:
         job = svc._active(course_id,job_id); raw = svc.repository.load_raw(course_id); validate_source(svc,raw,job)
-        tree = job['request_snapshot']['relation_baseline']; validate_baseline(tree,job['knowledge_lesson_id'])
+        tree = job['request_snapshot']['relation_baseline']; validate_baseline(tree,job['knowledge_lesson_id'],allow_candidate=bool(job.get('relation_source_job_id')))
         pipeline = deepcopy((job.get('checkpoint') or {}).get('relation_pipeline'))
         if not pipeline:
             points = catalog(tree); local = [p['key'] for p in points if job['knowledge_lesson_id'] in p['lesson_ids']]; width = batch_size()
             keys = {p['knowledge_id']:p['key'] for p in points}
             pipeline = {'schema_version':PIPELINE,'revision':0,'base_revision':tree['revision_id'],'catalog':points,
+                'source_job_id':job.get('relation_source_job_id',''),
                 'baseline_relations':deepcopy(tree.get('relations',[])),
                 'existing_relations':[{'source_key':keys[e['source_id']],'target_key':keys[e['target_id']],
                     **{k:deepcopy(e.get(k)) for k in ('type','context','reason','conditions')}} for e in tree.get('relations',[])],
@@ -213,7 +273,11 @@ async def run(svc, course_id, job_id):
             validate_source(svc,svc.repository.load_raw(course_id),job); save(batch_index=i)
             response = await call_stage(svc,course_id,job_id,provider,prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),'relations')
             validate_source(svc,svc.repository.load_raw(course_id),job)
-            compiled = compile_batch(raw,pipeline,batch,parse_response(response),job['knowledge_lesson_id'])
+            if pipeline.get('source_job_id'):
+                try: parsed = parse_response(response)
+                except (ValueError,CourseDocumentConflict): parsed = {}
+                compiled = review_batch(raw,pipeline,batch,parsed,job['knowledge_lesson_id'])
+            else: compiled = compile_batch(raw,pipeline,batch,parse_response(response),job['knowledge_lesson_id'])
             batch.update(status='completed',result=compiled,raw_response=response); save()
         candidate = assemble(tree,pipeline,job['knowledge_lesson_id'])
         candidate.update(generation_job_id=job_id,model=provider.model_smart,source_context_revision=job['source_context_revision'])
