@@ -16,6 +16,28 @@ class KnowledgeCorrectionNotApplicable(CourseDocumentConflict):
     """The compiler error has no invalid point that this transaction can edit."""
 
 
+def specialize_schema(schema, value):
+    """Select declared action/form branches so diagnostics name the bad field."""
+    schema = deepcopy(schema)
+    if 'anyOf' in schema and isinstance(value, dict):
+        candidates = schema['anyOf']; selected = []
+        for field in ('handling', 'form'):
+            if field not in value: continue
+            selected = [choice for choice in candidates if value[field] in
+                choice.get('properties', {}).get(field, {}).get('enum', [choice.get('properties', {}).get(field, {}).get('const')])]
+            if selected: break
+        if not selected:
+            selected = [choice for choice in candidates if set(value) <= set(choice.get('properties', {}))]
+        if selected: return specialize_schema(selected[0], value)
+    if isinstance(value, dict):
+        for key, child in schema.get('properties', {}).items():
+            if key in value: schema['properties'][key] = specialize_schema(child, value[key])
+    elif isinstance(value, list) and isinstance(schema.get('items'), dict) and 'anyOf' in schema['items']:
+        schema['prefixItems'] = [specialize_schema(schema['items'], item) for item in value]
+        schema['items'] = False
+    return schema
+
+
 def repair_schema(targets, passages):
     repairs = {}
     for key, target in targets.items():
@@ -155,6 +177,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
     schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()})
+    schema = specialize_schema(schema, clean)
     for key, decision in parsed['repairs'].items():
         shape = schema['properties']['repairs']['properties'][key]
         for choice in shape.get('anyOf', [shape]):
