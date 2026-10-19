@@ -75,7 +75,7 @@
           </div>
         </section>
         <section v-if="relationJob" class="notice" role="status" aria-live="polite" data-testid="knowledge-relation-progress">
-          <strong>{{ t(`knowledgeFirst.relationState_${relationJob.status}`) }} · {{ relationJob.completed_batches || 0 }}/{{ relationJob.batch_total || 0 }} · {{ relationJob.relation_count || 0 }} {{ t('knowledgeFirst.relationCountUnit') }}</strong>
+          <strong>{{ t(`knowledgeFirst.relationState_${relationJob.status}`) }} · {{ relationJob.completed_batches || 0 }}/{{ relationJob.batch_total || 0 }} · {{ relationJob.status === 'completed' && selectedCandidateRecord?.job_id === relationJob.id ? displayTree?.relation_assessment?.proposed_count ?? relationJob.relation_count ?? 0 : relationJob.relation_count || 0 }} {{ t('knowledgeFirst.relationCountUnit') }}</strong>
           <span v-if="relationJob.phase === 'relation_retry_wait'"> · {{ t('knowledgeFirst.relationRetrying') }}</span>
           <details v-if="relationJob.error"><summary>{{ t('knowledgeFirst.relationDetails') }}</summary>{{ generationFailureMessage(relationJob) }}</details>
           <button v-if="data.can_edit && ['pending','running'].includes(relationJob.status)" type="button" :disabled="busy" @click="mutate(`cancel/${relationJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>

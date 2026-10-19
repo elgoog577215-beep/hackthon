@@ -292,6 +292,7 @@ async def run(svc, course_id, job_id):
             validate_source(svc,svc.repository.load_raw(course_id),job); svc._active(course_id,job_id)
             cp = deepcopy(svc.authoring.get_job(course_id,job_id)['checkpoint']); cp['candidate'] = candidate
             svc.authoring.update_job(course_id,job_id,status='completed',phase='completed',progress=100,checkpoint=cp,
+                relation_count=candidate['relation_assessment']['proposed_count'],
                 raw_response='',partial_text='',stream_complete=True,message='关系候选已保存，方向、推导和适用条件待审阅')
     except asyncio.CancelledError:
         raise
