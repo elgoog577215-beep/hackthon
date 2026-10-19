@@ -7925,6 +7925,7 @@
     "noProposedRelations":"No new direct relation was proposed. This does not establish that the knowledge is unrelated.",
     "relationComparisonRecord":"Per-point cross-lecture comparison and decisions",
     "relationReviewHint":"Relations cite frozen knowledge statements. Program checks cover references, direction structure and prerequisite cycles, not subject accuracy. Review reasons, derivations and conditions. Existing relations and knowledge text are preserved.",
+    "adoptionReviewTitle":"Review before adoption",
     "relationCandidateCount":"New relations: {count}",
     "relationDetails":"Details",
     "relationReason":"Reason",
