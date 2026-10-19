@@ -256,6 +256,21 @@ def test_complexity_notation_is_not_an_execution_trace():
     assert compiled['claim'] == '入栈的O(1)成立前提为容量充足。'
 
 
+def test_single_relation_accepts_spacing_before_notation_without_splitting():
+    from knowledge_semantic_contract import quality_point
+    candidate=dict(form='comparison',left_subject='栈',right_subject='队列',property='操作顺序与访问顺序关系',
+        left_value='压入顺序与访问顺序相反 (LIFO)',right_value='入队顺序与访问顺序一致 (FIFO)',conditions=[],attachments=[])
+    compiled,audit=quality_point(candidate,'栈与队列分别采用LIFO与FIFO访问顺序。')
+    assert audit['property_kind']=='single_relation'
+    assert '(LIFO)' in compiled['claim'] and '(FIFO)' in compiled['claim']
+
+
+def test_compound_comparison_plan_allows_preserving_facts_by_splitting():
+    from knowledge_correction_plan import correction_plan
+    plan=correction_plan({'form':'comparison'},[{'code':'compound_property','message':'复合属性'}])
+    assert plan['allowed_forms']==['fact','comparison']
+
+
 @pytest.mark.parametrize('subject,valid', [('合并两个长度为 a 和 b 的数组', True), ('合并两个长度为 a 和 c 的数组', False)])
 def test_subject_binding_accepts_only_lossless_math_format_differences(subject, valid):
     from knowledge_semantic_contract import quality_point
