@@ -63,10 +63,13 @@ def prepare(args):
     sha=git('rev-parse','HEAD').decode().strip();identity=uuid.uuid4().hex
     run=Path(args.state_dir).resolve()/'releases'/identity;run.mkdir(parents=True)
     source=run/'source';source.mkdir()
-    with zipfile.ZipFile(io.BytesIO(git('archive','--format=zip',sha))) as archive:
+    checkout=git('rev-parse','--show-toplevel').decode().strip()
+    archive_bytes=subprocess.check_output(['git','-C',checkout,'archive','--format=zip',sha])
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         for item in archive.infolist():
             if not (source/item.filename).resolve().is_relative_to(source.resolve()):raise RuntimeError('Invalid archive member')
         archive.extractall(source)
+    if not (source/'apps/lingzhi/backend/main.py').is_file():raise RuntimeError('Incomplete backend source archive')
     config={'run_dir':str(run),'runtime_id':identity,'release_sha':sha,'data':str(data),'formal_data':str(formal.resolve()),
         'data_id':hashlib.sha256(os.path.normcase(os.path.abspath(data)).encode()).hexdigest()[:16],
         'source_app':str(source/'apps/lingzhi'),'bundle':str(run/'frontend'),'env_file':str(Path(args.env_file).resolve())}
