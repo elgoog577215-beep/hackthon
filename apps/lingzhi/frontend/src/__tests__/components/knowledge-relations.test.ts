@@ -22,6 +22,30 @@ it.each(['zh','en'] as const)('analyzes an unadopted candidate independently wit
   w.unmount()
 })
 beforeEach(async()=>{vi.restoreAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh');vi.spyOn(http,'post').mockResolvedValue({data:{}})})
+it.each(['zh','en'] as const)('keeps completed knowledge separate from failed relations in %s',async locale=>{
+  const messages=locale==='zh'?zh:en
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>messages})));await setLocale(locale)
+  const v:any=view();v.jobs=[
+    {id:'source',knowledge_lesson_id:'cpu',knowledge_pipeline:'inventory_atomic_v1',status:'completed',progress:100},
+    {id:'relations',knowledge_lesson_id:'cpu',knowledge_pipeline:'knowledge_relations_v1',relation_source_job_id:'source',status:'failed',error:{message:'network failed'}}]
+  v.candidates=[{lesson_id:'cpu',job_id:'source',tree:{...tree,status:'candidate',revision_id:'candidate'}}]
+  v.relation_runs=[{job_id:'relations',lesson_id:'cpu',status:'failed',pipeline:{source_job_id:'source',batches:[]}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('100%')
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).not.toContain(messages.knowledgeFirst.phase_failed)
+  expect(w.get('[data-testid="knowledge-relation-progress"]').text()).toContain('network failed')
+  expect(w.text()).not.toContain(messages.knowledgeFirst.lastGenerationFailed)
+  await w.get('[data-testid="continue-knowledge-relations"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'knowledge_relations_v1',resume_job_id:'relations'}))
+  w.unmount()
+})
+it('requests backend followup once when generating the lecture',async()=>{
+  vi.spyOn(http,'get').mockResolvedValue({data:view()});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.findAll('button').find(b=>b.text()==='生成本讲知识树')!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledTimes(1)
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'inventory_atomic_v1',auto_relations:true}))
+  w.unmount()
+})
 it('starts relation analysis separately without regenerating knowledge points',async()=>{
   vi.spyOn(http,'get').mockResolvedValue({data:view()});const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   await w.get('[data-testid="generate-knowledge-relations"]').trigger('click');await flushPromises()
