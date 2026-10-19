@@ -153,3 +153,30 @@ async def test_cancellation_during_backoff_prevents_the_next_request(svc, monkey
     with pytest.raises(CourseDocumentConflict):
         await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'输入','content_review')
     assert calls==[1] and svc.authoring.get_job('c-pilot',job['id'])['status']=='cancelled'
+
+
+@pytest.mark.asyncio
+async def test_authentication_cause_is_not_mislabeled_as_a_retryable_connection(svc, monkeypatch):
+    setup_course(svc,monkeypatch);calls=[]
+    async def model(*args,**kwargs):
+        calls.append(1);cause=RuntimeError('unauthorized');cause.status_code=401
+        raise AIProviderRequestError('Connection error.') from cause
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test-qwen',client=None)
+    job=start(svc);await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert calls==[1] and saved['error']['code']!='ModelConnectionUnavailable'
+
+
+@pytest.mark.asyncio
+async def test_relation_validation_failure_keeps_its_stage_when_hierarchy_finishes_later(svc, monkeypatch):
+    import asyncio
+    from course_repository import CourseDocumentConflict
+    setup_course(svc,monkeypatch);fake_provider(svc);base=svc.provider_factory()
+    async def model(prompt,**kwargs):
+        if json.loads(prompt.split('\nINPUT_JSON:\n')[1])['stage'].startswith('hierarchy'):await asyncio.sleep(.05)
+        return await base._call_llm(prompt,**kwargs)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test-qwen',client=None)
+    def reject(*args,**kwargs):raise CourseDocumentConflict('关系语义未通过')
+    monkeypatch.setattr('knowledge_tree_relations.compile_relations',reject)
+    job=start(svc,extraction_mode='single_pass_v1',organize_hierarchy=True,include_relations=True)
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='failed' and saved['error']['stage']==saved['pipeline_stage']=='tree_relations'
