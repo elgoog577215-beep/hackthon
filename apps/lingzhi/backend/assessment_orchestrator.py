@@ -81,7 +81,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v32"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v33"
 
 
 def _out_tokens(limit: int) -> int:
@@ -124,6 +124,10 @@ def _stage_output_budget(stage: str, mode: str, *, atomic: bool = False) -> int:
     if complex_mode:
         return _out_tokens(16384 if stage == "solve" else 8192)
     if stage == "repair":
+        return _out_tokens(6144)
+    if stage == "solve" and mode == "choice":
+        # A complete blind solution includes derivation, every option, checks
+        # and a final answer. The compact authoring budget is insufficient.
         return _out_tokens(6144)
     return _out_tokens(2048 if mode == "choice" else 6144 if stage == "solve" else 4096)
 
@@ -475,6 +479,7 @@ class UniversalAssessmentModel(AIBase):
                 "解析保持简短：给运算前的类型、实际运算、最终值即可；不额外引入前缀后缀等无关术语。"
                 "追踪if/else时保持原始花括号和分号，不能为解释而改变语法结构。"
                 "只输出一份最终结论，不写讨论、犹豫、纠错或备选推理过程。选择题work最多3步，每步解释不超过80字。"
+                "选择题的calculation和result只写本步必要信息，不重复题面；summary不超过120字，checks最多2条。"
                 "每个错误选项只用一句话说明与本题计算结果的差别，不扩展到其他语言、余数、未给出的转换等题外情境。"
                 "非终止小数或截断显示的有限小数必须标明约等于，不把干扰项的小数写法说成原算式的精确结果。"
                 "checks只写本题可核对的事实；common_errors最多一条。先写已核对的推导，最后填写answer。"
@@ -2367,6 +2372,7 @@ class AssessmentGenerationOrchestrator:
                     generation_policy.max_model_solve_calls_per_question
                 ),
             }
+            solution_cache: dict[str, dict[str, Any]] = {}
             artifact_history: list[dict[str, Any]] = []
             grading_repairs = 0
             # The first authoring pass assigns these; grading-only retries
@@ -2517,6 +2523,7 @@ class AssessmentGenerationOrchestrator:
                             generation_policy=generation_policy,
                             solution_batcher=solution_batcher,
                             solve_budget=solve_budget,
+                            solution_cache=solution_cache,
                             solver_feedback=(
                                 [str(i.get("code") or "") for i in (last_quality or {}).get("issues") or []]
                                 if next_action == "solve" else None
@@ -2914,6 +2921,7 @@ class AssessmentGenerationOrchestrator:
         solution_batcher: _IndependentSolutionBatcher | None,
         solve_budget: dict[str, int] | None = None,
         solver_feedback: list[str] | None = None,
+        solution_cache: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[
         dict[str, Any],
         dict[str, Any],
@@ -2966,6 +2974,12 @@ class AssessmentGenerationOrchestrator:
                 audit["local_independent_solution_count"] = int(
                     audit.get("local_independent_solution_count") or 0
                 ) + 1
+        solve_inputs = _model_public_question(public_spec)
+        solve_inputs.pop("explanation_revision_issues", None)
+        public_key = stable_hash(solve_inputs, prefix="blind_solve_")
+        if independent is None and not solver_feedback and solution_cache is not None and public_key in solution_cache:
+            independent = deepcopy(solution_cache[public_key])
+            audit["independent_solution_reuse_count"] = int(audit.get("independent_solution_reuse_count") or 0) + 1
         if independent is None:
             # 首次求解在这里计量；直连的格式重试在实际调用前另外扣除。
             # 生产策略每次求解一题，跨候选修正共享同一预算。
@@ -3021,6 +3035,10 @@ class AssessmentGenerationOrchestrator:
             raise AIProviderRequestError(
                 "invalid_independent_solution_json"
             )
+        if solution_cache is not None:
+            # This cache belongs to one question in one run. Only the public
+            # inputs key it; private answer repairs are validated again below.
+            solution_cache[public_key] = deepcopy(independent)
         if validation_mode == "code_validator":
             validation = await _validate_code_with_runner(
                 contract,
@@ -3092,6 +3110,18 @@ class AssessmentGenerationOrchestrator:
                 )
                 or {},
             )
+            if _is_choice_contract(contract):
+                options = (contract.get("question_spec") or {}).get("options") or []
+                option_ids = {str(option.get("id") or "") for option in options}
+                analyses = independent.get("option_analysis") or []
+                if (option_ids and not set(solved).intersection(option_ids) and len(analyses) == len(option_ids)
+                        and {row.get("option_id") for row in analyses if isinstance(row, dict)} == option_ids
+                        and all(isinstance(row, dict) and row.get("is_correct") is False for row in analyses)):
+                    validation.update(passed=False, issue_code="choice_options_no_correct_answer", details={
+                        "independent_answer": deepcopy(independent.get("answer")),
+                        "independent_summary": str(independent.get("summary") or ""),
+                        "option_analysis": deepcopy(analyses),
+                    })
         _apply_independent_validation(
             contract,
             validation,
@@ -3605,6 +3635,10 @@ def _repair_action_for_issues(
 
 
 _TARGETED_REPAIR_PATHS: dict[str, tuple[str, ...]] = {
+    "CHOICE_OPTIONS_INVALID": (
+        "question_spec.options", "solution.canonical_answer", "solution.acceptable_answers",
+        "solution.rubric", "solution.solution_graph", "solution.worked_solution",
+    ),
     "RUBRIC_ANSWER_MISMATCH": (
         "solution.rubric", "solution.acceptable_answers", "solution.validator_config",
     ),
@@ -5690,6 +5724,12 @@ def _targeted_repair_directive(context: dict[str, Any], validation: dict[str, An
             "solved using only the public stimulus. "
         )
     semantic_repair_directives = {
+        "CHOICE_OPTIONS_INVALID": (
+            "The blind solver found that none of the options matches the computed result. "
+            "Keep the public stimulus, task and conditions unchanged. Correct the options so exactly "
+            "one option answers that same question, then align the author answer and explanation. "
+            "Use validation_feedback to check the calculation; do not force an incorrect option to be correct. "
+        ),
         "QUESTION_TYPE_SEMANTIC_MISMATCH": (
             "Regenerate the task and canonical answer within the immutable "
             "design brief so the learner action satisfies the registered "
@@ -5945,6 +5985,8 @@ def _batch_solution_prompt(items: list[dict[str, Any]]) -> str:
         "选择题的option_analysis必须逐项填写所有选项的option_id、is_correct、explanation，"
         "不能返回空数组；非选择题option_analysis使用空数组。单选answer是option id，"
         "selection.multiple=true时answer是正确option id组成的JSON数组；"
+        "选择题每题work最多3步、每步解释不超过80字；calculation和result只写必要信息，"
+        "不重复题面或代码。每个选项用一句话说明，summary不超过120字，checks最多2条、common_errors最多1条。"
         "代码题answer使用{\"code\":\"完整程序\"}。只输出JSON。\n"
         "<REQUIRED_OUTPUT_SCHEMA>\n"
         f"{json.dumps(schema, ensure_ascii=False)}\n"

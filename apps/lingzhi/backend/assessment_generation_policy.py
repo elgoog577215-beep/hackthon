@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v20"
+    "assessment_generation_policy_v21"
 )
 
 _COMPLEX_INPUT_MODES = {

@@ -21,7 +21,7 @@ from solution_contracts import worked_solution_is_complete
 from assessment_solution_protocol import final_solution_review_valid
 from assessment_fact_evidence import fact_publication_state
 
-QUESTION_QUALITY_SCHEMA = "question_quality_report_v5"
+QUESTION_QUALITY_SCHEMA = "question_quality_report_v6"
 QUALITY_WEIGHTS = {
     "correctness_and_verifiability": 25,
     "curriculum_targeting": 20,
@@ -53,6 +53,7 @@ _REPAIRABLE_HARD_CODES = {
     "SOURCE_DUMP",
     "REFERENCE_SIMILARITY_HIGH",
     "VALIDATION_FAILED",
+    "CHOICE_OPTIONS_INVALID",
     "SEMANTIC_PREFLIGHT_FAILED",
     "QUESTION_TYPE_SEMANTIC_MISMATCH",
     "MATERIAL_NOT_REQUIRED",
@@ -239,7 +240,11 @@ def evaluate_question_contract_quality(
             "WORKED_SOLUTION_INCOMPLETE",
             "缺少面向学生的完整解析、推导步骤、最终答案或结果检查",
         ),
-        "validation": ("VALIDATION_FAILED", "独立求解或验证未通过"),
+        "validation": (
+            ("CHOICE_OPTIONS_INVALID", "独立求解表明没有正确选项，需要修复选项后重新求解")
+            if (validation.get("validator_result") or {}).get("issue_code") == "choice_options_no_correct_answer"
+            else ("VALIDATION_FAILED", "独立求解或验证未通过")
+        ),
         "final_solution_review": ("FINAL_SOLUTION_REVIEW_MISSING", "最终题面与答案尚未通过同版本的完整评审"),
         "factual_evidence": ("TASK_PREMISE_FALSE", "题面前提或答案与独立程序核验结果冲突"),
         "markdown": ("MARKDOWN_INVALID", "Markdown或代码围栏不完整"),
