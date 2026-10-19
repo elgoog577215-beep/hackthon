@@ -8072,7 +8072,9 @@
       "truncated_output": "model output reached its limit; the fragment is saved",
       "empty_response": "the model returned no usable content",
       "timeout": "the model request timed out",
-      "request_failed": "check the model connection settings or service logs"
+      "request_failed": "check the model connection settings or service logs",
+      "not_configured": "the model connection is not fully configured",
+      "service_unavailable": "the model service is unavailable; check its status"
     },
     "modelReconnecting": "Reconnecting to the model",
     "modelDisconnected": "The model connection is temporarily unavailable. Completed work is saved; continue only unfinished batches.",

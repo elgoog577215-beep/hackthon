@@ -8072,7 +8072,9 @@
       "truncated_output": "模型输出达到容量上限，片段已保留",
       "empty_response": "模型未返回有效内容",
       "timeout": "模型请求超时",
-      "request_failed": "模型请求失败，请检查连接配置或服务日志"
+      "request_failed": "模型请求失败，请检查连接配置或服务日志",
+      "not_configured": "模型连接尚未配置完整",
+      "service_unavailable": "模型服务暂不可用，请检查服务状态"
     },
     "modelReconnecting": "正在恢复模型连接",
     "modelDisconnected": "模型连接暂不可用，完成内容已保留；可继续未完成批次。",

@@ -97,7 +97,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(passages), '片段结构错误不可按知识点修正')
-    targets = {}; questions = {}; duplicate_groups = []
+    targets = {}; questions = {}; duplicate_groups = []; duplicate_resolutions = []
     for key, entry in response['passages'].items():
         require(isinstance(entry, dict) and isinstance(entry.get('points'), list), '片段结构错误不可按知识点修正')
         for ordinal, point in enumerate(entry['points']):
@@ -112,10 +112,14 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         if len({entry[3] for entry in group}) <= 1: continue
         group_keys = [f'{key}:{ordinal}' for key, ordinal, _, _ in group]
         duplicate_groups.append(group_keys)
+        duplicate_resolutions.append({'target_keys': group_keys,
+            'question': quality_point(group[0][2], passages[group[0][0]]['text'])[0]['question'],
+            'answers': [quality_point(point, passages[key]['text'])[0]['claim'] for key, _, point, _ in group],
+            'allowed_resolutions': ['merge_equivalent', 'different_questions']})
         for key, ordinal, point, _ in group:
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
                 'duplicate_group': group_keys,
-                'error': '元问题重复且答案不同，必须用实际结构名作为subject，并在property中明确操作或检查角度；不改原答案含义。'}
+                'error': '同一元问题存在不同答案措辞。必须先对照整组来源判断：语义等价则保留一个规范点，其余显式merge；含义不同则明确不同检查角度或成立前提。不能只批量重命名同一个property而留下不同答案，也不能丢弃知识。'}
     if not targets: raise KnowledgeCorrectionNotApplicable('没有可精确定位的知识点')
     require(len(targets) <= 16, '超出单次修正容量的知识点')
     for target in targets.values():
@@ -139,7 +143,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             nearest = get_close_matches(target['point'][field], options, n=16, cutoff=0)
             target['literal_subjects'][field] = nearest
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
-    payload.update(stage='extract_repair', targets=targets, duplicate_question_groups=duplicate_groups)
+    payload.update(stage='extract_repair', targets=targets, duplicate_question_groups=duplicate_groups,
+                   duplicate_resolution_required=duplicate_resolutions)
     if feedback: payload['correction_feedback'] = deepcopy(feedback)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
         '\n只修正targets，修正合同knowledge_correction_plan_v2，一轮请求。每个目标恰好回应一次。'
@@ -165,6 +170,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         'handling="merge",merge_into="该规范目标键",reason="两条原文为何等价"；规范点仍返回replace。'
         '合并不得形成链或环，不能合并组外知识。程序将保留各自来源、附件及等价判断记录。'
         '若含义不同必须明确不同的检查属性或成立前提，使元问题可区分，不能把同一个property给两条不同答案。'
+        'duplicate_resolution_required逐组列出实际元问题和答案，必须解决整组，不是只润色属性名。'
+        '例如“某排序稳定性为稳定”与“某排序稳定性为是”若来源同义，应一个规范点replace，其余merge到该点；'
+        '不要把全组property都改为“排序稳定性”后仍留下“稳定/是”两种答案。不能用context删除这类有效知识。'
         '不删除有效知识以避开问题，不把实质问题归背景；仅来源不足、具体轨迹、教学目标或疑点可归context并说明。'
         '只输出{"repairs":{"目标键":{"handling":"patch","patch":{"subject":"原文主体"},"reason":"具体修改"}},"source_issues":[]}。'
         '\nINPUT_JSON:\n'
@@ -258,6 +266,17 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         if not points and any(target.startswith(key + ':') for target in targets):
             entry['note'] = {'handling': 'context', 'reason': '；'.join(d['reason'] for d in decisions if d['target_key'].startswith(key + ':'))}
     require(not point_errors, '；'.join(v['target_key'] + '：' + v['message'] for v in point_errors))
+    for group in duplicate_groups:
+        remaining = {}
+        for target in group:
+            require(bool(resolved[target]['points']), '重复元问题不能通过丢弃有效知识规避：' + target)
+            for point in resolved[target]['points']:
+                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'])
+                remaining.setdefault(normalized(compiled['question']), []).append((target, compiled['claim']))
+        for question, entries in remaining.items():
+            require(len({normalized(claim) for _, claim in entries}) <= 1,
+                '重复元问题尚未解决：' + '；'.join(f'{target}={claim}' for target, claim in entries)
+                + '。须明确等价merge或不同检查角度，不能仅批量重命名属性。')
     issues = parsed['source_issues']
     require(isinstance(issues, list) and all(isinstance(i, dict) and i.get('passage_key') in
             {v['passage_key'] for v in targets.values()} for i in issues), '修正来源疑点越界')

@@ -263,7 +263,7 @@ function generationFailureMessage(job: any) {
   if (job.error?.code === 'ModelConnectionUnavailable') return t('knowledgeFirst.modelDisconnected')
   if (job.error?.code === 'ModelProviderFailure') {
     const reasons = ['invalid_request','authentication','permission_denied','endpoint_unavailable','request_rejected',
-      'rate_limited','service_error','isolated_scope_rejected','truncated_output','empty_response','timeout']
+      'rate_limited','service_error','isolated_scope_rejected','truncated_output','empty_response','timeout','not_configured','service_unavailable']
     const reason = t(`knowledgeFirst.providerErrors.${reasons.includes(job.error.provider_reason) ? job.error.provider_reason : 'request_failed'}`)
     const status = job.error.provider_http_status
     return Number.isInteger(status) && status >= 400 && status <= 599
