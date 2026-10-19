@@ -137,10 +137,13 @@
               <div v-for="link in relatedLinks" :key="link.edge.id" class="relation">
                 <span v-if="link.crossLesson" class="relation-scope">{{ t('knowledgeFirst.crossLessonLinks') }}</span>
                 <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })">{{ link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : '' }}{{ link.point?.name || link.id }}</button>
-                <p class="relation-direction">{{ t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming') }} · {{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }} · {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</p>
+                <span class="relation-direction"> {{ link.edge.source_id === selectedId ? '→' : '←' }} {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</span>
+                <details class="related-point-details"><summary>{{ t('knowledgeFirst.relationDetails') }}</summary>
+                <p class="relation-direction">{{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }}</p>
                 <p v-if="link.edge.reason">{{ link.edge.reason }}</p><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition">{{ condition }}</li></ul>
                 <KnowledgeRelationEvidence :edge="link.edge" />
                 <MarkdownRenderer v-if="link.point?.statement" class="related-statement" :content="link.point.statement" />
+                </details>
               </div>
               <template v-if="!treeOnly || diagnoses.length"><h3>{{ t('knowledgeFirst.diagnosis') }}</h3><div v-for="d in diagnoses" :key="d.key"><p>A · {{ d.hypothesis_a }}</p><p>B · {{ d.hypothesis_b }}</p><p>{{ d.repair_a }}</p><p>{{ d.repair_b }}</p></div>
               <p v-if="!diagnoses.length" class="muted">{{ t(generic ? 'knowledgeFirst.genericNoDiagnosis' : 'knowledgeFirst.noDiagnosis') }}</p></template>

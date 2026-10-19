@@ -7915,6 +7915,7 @@
     "candidatePreparingBaseline":"候选准备中 · 正在显示已采用基线",
     "generateRelations":"分析本讲知识关系",
     "relationRequiresBaseline":"针对当前完整候选或已采用知识树独立分析关系，不重新生成知识。",
+    "relationDetails": "详情",
     "independentRelationSummary": "关联建议 {count} 条 · 待核对 {issues} 项",
     "relationCandidates":"知识关系候选（未采用）",
     "adoptedRelationRecord":"已采用版本的关系分析记录",

@@ -7915,6 +7915,7 @@
     "candidatePreparingBaseline":"Candidate pending · Showing adopted baseline",
     "generateRelations":"Analyze this lecture’s relations",
     "relationRequiresBaseline":"Analyze relations for the current completed candidate or adopted tree without regenerating knowledge.",
+    "relationDetails": "Details",
     "independentRelationSummary": "Relation suggestions: {count} · Review items: {issues}",
     "relationCandidates":"Knowledge relation candidates (not adopted)",
     "adoptedRelationRecord":"Relation analysis for the adopted version",

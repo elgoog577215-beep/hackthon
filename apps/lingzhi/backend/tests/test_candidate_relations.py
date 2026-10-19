@@ -87,3 +87,28 @@ async def test_candidate_relations_adoption_requires_original_quality_confirmati
     adopted=svc.repository.load_raw('c-pilot')['course_knowledge_base']
     assert adopted['knowledge_points']==tree['knowledge_points']
     assert adopted['status']=='accepted'
+
+
+@pytest.mark.asyncio
+async def test_missing_relation_review_saves_a_blocked_candidate_instead_of_losing_knowledge(svc,monkeypatch):
+    source,tree=candidate(svc,monkeypatch)
+    provider(svc,mutate=lambda data,result:result.update(decisions=[]))
+    job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
+    saved=svc.authoring.get_job('c-pilot',job['id']);assert saved['status']=='completed'
+    result=saved['checkpoint']['candidate']
+    assert result['knowledge_points']==tree['knowledge_points']
+    assert result['relation_assessment']['ready_for_adoption'] is False
+    assert all(i['severity']=='blocking' for i in result['relation_assessment']['issues'])
+
+
+@pytest.mark.asyncio
+async def test_cycle_suggestion_is_quarantined_without_dropping_unrelated_links(svc,monkeypatch):
+    source,tree=candidate(svc,monkeypatch)
+    a,b=tree['knowledge_points'][:2]
+    edge={'id':'existing-edge','source_id':a['knowledge_id'],'target_id':b['knowledge_id'],'type':'prerequisite','context':'original','conditions':[]}
+    state=svc.authoring.load('c-pilot');state['jobs'][source['id']]['checkpoint']['candidate']['relations']=[edge];svc.authoring._save(state)
+    provider(svc);job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
+    saved=svc.authoring.get_job('c-pilot',job['id']);assert saved['status']=='completed'
+    result=saved['checkpoint']['candidate']
+    assert edge in result['relations'] and any(e['type']=='applies_to' for e in result['relations'])
+    assert any('环' in i['message'] for i in result['relation_assessment']['issues'])
