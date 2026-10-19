@@ -17,6 +17,40 @@ def value(points):
     return {'response_contract': 'knowledge_extract_v9', 'passages': {'S1.1': {'points': points, 'note': None}}, 'source_issues': []}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('merge',[False,True])
+async def test_same_question_different_wording_requires_resolved_group_not_bulk_renaming(svc,monkeypatch,merge):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc,monkeypatch)
+    raw=svc.repository.load_raw('c-pilot');context=svc._context(raw,'handouts','cpu')
+    source='归并排序是稳定排序，快速排序不稳定。'
+    passages=[dict(key='S1.1',source_key='S1',text=source,start=0,end=len(source))]
+    for module in ('knowledge_extraction_repair','knowledge_semantic_contract'):
+        monkeypatch.setattr(module+'.passage_catalog',lambda *a,**k:deepcopy(passages))
+    first=point('归并排序',property='稳定性',value='稳定')
+    other=point('快速排序',property='稳定性',value='不稳定')
+    original=value([first,{**first,'value':'是'},other]);before=deepcopy(original)
+    async def call(*args):
+        payload=json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        group=payload['duplicate_resolution_required'][0]
+        assert group['target_keys']==['S1.1:0','S1.1:1'] and group['answers']==['归并排序的稳定性为稳定。','归并排序的稳定性为是。']
+        repairs={'S1.1:0':{'handling':'replace','points':[first],'reason':'保留规范点'},
+            'S1.1:1':({'handling':'merge','merge_into':'S1.1:0','reason':'两处都陈述归并排序稳定'} if merge else
+                {'handling':'patch','patch':{'property':'排序稳定性'},'reason':'批量重命名属性'})}
+        if not merge:repairs['S1.1:0']={'handling':'patch','patch':{'property':'排序稳定性'},'reason':'同一重命名'}
+        return json.dumps({'repairs':repairs,'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    if merge:
+        record={};out=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,record)
+        assert out['passages']['S1.1']['points'][:2]==[first,first]
+        assert out['passages']['S1.1']['points'][2]==other
+        assert record['decisions'][1]['action']=='model_declared_equivalence'
+    else:
+        with pytest.raises(CourseDocumentConflict,match='S1.1:0.*S1.1:1'):
+            await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+    assert original==before
+
+
 def keep_review(payload):
     return {'point_reviews': {key: {'decision': 'keep', 'points': [], 'reason': '隔离夹具保留原点'} for key in payload['points']},
             'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}

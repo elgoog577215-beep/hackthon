@@ -42,6 +42,16 @@ def test_non_provider_failures_keep_their_domain_handler():
     assert provider_failure(PermissionError('local disk'))=={}
 
 
+@pytest.mark.parametrize('source,expected',[('authentication_failed','authentication'),('not_configured','not_configured'),
+    ('PRIVATE UNKNOWN SECRET','service_unavailable')])
+def test_provider_disabled_failures_have_safe_actionable_reasons(source,expected):
+    from ai_base import AIProviderUnavailable
+    from knowledge_provider_errors import provider_failure
+    result=provider_failure(AIProviderUnavailable(source))
+    assert result['provider_reason']==expected and result['retryable'] is False
+    assert 'PRIVATE' not in str(result) and 'SECRET' not in str(result)
+
+
 @pytest.mark.asyncio
 async def test_rejected_request_retains_actual_failure_stage_in_saved_job(svc,monkeypatch):
     setup_course(svc,monkeypatch)
