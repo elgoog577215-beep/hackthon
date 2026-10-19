@@ -3,7 +3,6 @@
     <header><strong>{{ c('discussing') }}</strong><span>{{ context.section_title }}</span></header>
     <div ref="thread" class="assistant-thread" tabindex="0" aria-live="polite" @scroll="handleMessageScroll">
       <div ref="threadContent">
-      <p v-if="!historyLoading && !conversation?.messages.length" class="assistant-intro">{{ c('aiIntro') }}</p>
       <p v-if="historyLoading" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
       <article v-for="message in conversation?.messages || []" :key="message.message_id" :class="['assistant-message', message.role]">
         <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
@@ -82,7 +81,6 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .assistant-thread { flex:1; min-height:100px; overflow:auto; padding:20px; }
 .assistant-thread:focus-visible { outline:2px solid #8b6cc3; outline-offset:-2px; }
 .assistant-empty { color:#8b95a4; }
-.assistant-intro { margin:0; line-height:1.9; }
 .assistant-message { margin:0 0 24px; overflow-wrap:anywhere; }
 .assistant-message.user { background:#eef2ff; padding:12px 14px; border-radius:10px; }
 .assistant-message small { display:block; font-size:15px; color:#9298a8; margin-bottom:7px; }

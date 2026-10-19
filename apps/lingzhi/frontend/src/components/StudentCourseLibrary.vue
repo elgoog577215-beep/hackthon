@@ -1,30 +1,6 @@
 <template>
   <section class="student-courses" :class="{ 'is-compact': compact }">
-    <header class="course-library-heading">
-      <div>
-        <h1>
-          {{
-            unified
-              ? t("workspaceUi.myCourses")
-              : copy("教师授权课程", "Authorized courses")
-          }}
-        </h1>
-        <p>{{ t("workspaceUi.courseHelp") }}</p>
-      </div>
-      <div class="library-heading-actions">
-        <ElButton native-type="button" :disabled="loading" @click="load">
-          {{ copy("刷新", "Refresh") }}</ElButton
-        ><ElButton
-          v-if="unified"
-          native-type="button"
-          type="primary"
-          data-testid="student-create-handout"
-          @click="emit('create', 'systematic')"
-        >
-          <Plus :size="16" />{{ t("workspaceUi.newCourse") }}
-        </ElButton>
-      </div>
-    </header>
+    <header v-if="!unified" class="course-library-heading"><h1>{{ copy('教师授权课程', 'Authorized courses') }}</h1></header>
     <div class="library-filters">
       <ElInput
         v-model="query"
@@ -43,6 +19,19 @@
         :accessibility-label="t('workspaceUi.myCourses')"
         @update:model-value="selectFilter"
       />
+      <div class="library-heading-actions">
+        <ElButton native-type="button" :disabled="loading" @click="load">
+          {{ copy("刷新", "Refresh") }}</ElButton
+        ><ElButton
+          v-if="unified"
+          native-type="button"
+          type="primary"
+          data-testid="student-create-handout"
+          @click="emit('create', 'systematic')"
+        >
+          <Plus :size="16" />{{ t("workspaceUi.newCourse") }}
+        </ElButton>
+      </div>
     </div>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">
@@ -57,7 +46,6 @@
         :key="`teacher:${course.course_id}`"
         :course-id="course.course_id"
         :title="course.title"
-        :origin="t('workspaceUi.teacherOrigin')"
       >
         <template #title
           ><RouterLink
@@ -65,12 +53,6 @@
             :to="studentCourseLink(course.course_id)"
             >{{ course.title }}</RouterLink
           ><span v-else>{{ course.title }}</span></template
-        >
-        <template #summary
-          ><span v-if="course.question_count !== undefined"
-            >{{ course.question_count }}
-            {{ copy("道课程练习", "course exercises") }}</span
-          ></template
         >
         <p v-if="course.update_available" class="update-hint">
           {{ copy("教师发布了新版本", "Your teacher published an update") }}
@@ -218,18 +200,13 @@
         :key="`personal:${item.id}`"
         :course-id="item.id"
         :title="item.title"
-        :origin="t('workspaceUi.ownedOrigin')"
       >
         <template #title
           ><RouterLink :to="`/study/${encodeURIComponent(item.id)}`">{{
             item.title
           }}</RouterLink></template
         >
-        <template #summary
-          ><span
-            >{{ c(item.purpose) }} · {{ statusLabel(item.status) }}</span
-          ></template
-        >
+        <p v-if="item.status !== 'completed'" role="status">{{ statusLabel(item.status) }}</p>
         <template #actions
           ><RouterLink
             class="course-start"
@@ -517,8 +494,9 @@ p {
   color: var(--lz-text-secondary);
   line-height: 1.7;
 }
+.library-heading-actions { margin-left: auto; }
 .library-filters {
-  margin: 26px 0 22px;
+  margin: 0 0 22px;
   flex-wrap: wrap;
 }
 .course-grid {

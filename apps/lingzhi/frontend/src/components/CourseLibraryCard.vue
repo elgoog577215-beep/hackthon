@@ -1,49 +1,34 @@
 <template>
-  <article class="course-library-card">
+  <ElCard class="course-library-card" shadow="hover" :body-style="{ padding: '22px', display: 'flex', flexDirection: 'column' }">
     <div class="course-library-card__heading">
       <span class="course-library-card__mark" aria-hidden="true"><BookOpenText :size="22" /></span>
       <div class="course-library-card__identity">
         <h2>
           <slot name="title">{{ title }}</slot>
         </h2>
-        <p v-if="origin" class="course-library-card__origin">{{ origin }}</p>
       </div>
     </div>
-    <div v-if="$slots.default" class="course-library-card__body"><slot /></div>
+    <slot />
     <footer v-if="$slots.actions" class="course-library-card__actions">
-      <span v-if="$slots.summary" class="course-library-card__summary"><slot name="summary" /></span>
       <slot name="actions" />
     </footer>
     <slot name="details" />
-  </article>
+  </ElCard>
 </template>
 
 <script setup lang="ts">
+import { ElCard } from "element-plus";
 import { BookOpenText } from "lucide-vue-next";
-defineProps<{ courseId: string; title: string; origin?: string }>();
+defineProps<{ courseId: string; title: string }>();
 </script>
 
 <style scoped>
-.course-library-card {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 22px;
-  border: 1px solid var(--lz-border);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(30, 41, 59, .025);
-  transition: border-color .15s, box-shadow .15s;
-}
-.course-library-card:hover {
-  border-color: #c7d2fe;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, .06);
-}
+.course-library-card { min-width: 0; }
 .course-library-card__heading {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  min-height: 60px;
+  min-height: 40px;
 }
 .course-library-card__mark {
   flex: none; width: 40px; height: 40px; display: grid; place-items: center;
@@ -52,11 +37,6 @@ defineProps<{ courseId: string; title: string; origin?: string }>();
 .course-library-card__identity {
   min-width: 0;
   flex: 1;
-}
-.course-library-card__origin {
-  margin: 4px 0 0;
-  font-size: 15px;
-  color: var(--lz-text-secondary);
 }
 h2 {
   margin: 0;
@@ -81,16 +61,6 @@ h2 :deep(a:hover),
 h2 :deep(button:hover) {
   color: var(--lz-brand-strong);
 }
-.course-library-card__summary {
-  flex: 1;
-  color: var(--lz-text-secondary);
-}
-.course-library-card__body {
-  margin-top: 18px;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--lz-text-secondary);
-}
 .course-library-card__actions {
   display: flex;
   align-items: center;
@@ -109,9 +79,5 @@ h2 :deep(button:hover) {
   outline-offset: 4px;
   border-radius: 4px;
 }
-@media (max-width: 1100px) {
-  .course-library-card {
-    padding: 20px;
-  }
-}
+
 </style>

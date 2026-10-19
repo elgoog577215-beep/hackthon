@@ -1,28 +1,35 @@
 <template>
   <div class="study-space">
-    <header class="study-header">
-      <div v-if="materialId" class="study-course-context"><button type="button" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /></button><button v-if="!directoryOpen" type="button" :aria-label="c('showDirectory')" @click="directoryOpen = true"><PanelLeftOpen :size="18" /></button><BookOpen :size="19" /><h1>{{ material?.title }}</h1></div>
-      <StudentBrand v-else />
-      <nav v-if="user && !materialId" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
-        <button type="button" :aria-current="!materialId && !creating ? 'page' : undefined" :class="{ active: !materialId && !creating }" @click="openStudySection('home')"><BookOpen :size="16" />{{ t('workspaceUi.myCourses') }}</button>
-      </nav>
-      <div class="study-header-actions">
-        <template v-if="materialId">
-          <button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button>
-          <details class="study-reading-settings" @keydown.esc="closeReadingSettings">
-            <summary><Settings2 :size="17" />{{ c('readingSettings') }}</summary>
-            <div class="study-reading-settings-panel">
-              <label>{{ c('fontSize') }} · {{ readingFontSize }}<input v-model.number="readingFontSize" type="range" min="16" max="22" :aria-label="c('fontSize')" /></label>
-              <div role="group" :aria-label="c('readingSettings')"><button v-for="font in (['serif', 'sans'] as const)" :key="font" type="button" :aria-pressed="readingFont === font" @click="readingFont = font">{{ c(font === 'serif' ? 'serifFont' : 'sansFont') }}</button></div>
-            </div>
-          </details>
-        </template>
-        <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
-        <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
-        <span v-if="user && !developmentMode" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
-        <button v-if="user && !developmentMode" @click="logout">{{ c('logout') }}</button>
-      </div>
-    </header>
+    <ApplicationHeader surface="student" :show-brand="!materialId" :centered="!materialId" :library="!materialId">
+      <template v-if="materialId" #context>
+        <div class="study-course-context">
+          <CourseWorkspaceHeaderAction :label="t('workspaceUi.backToCourses')" icon-only @click="goLibrary"><ArrowLeft :size="18" /></CourseWorkspaceHeaderAction>
+          <CourseWorkspaceHeaderAction v-if="!directoryOpen" :label="c('showDirectory')" icon-only @click="directoryOpen = true"><PanelLeftOpen :size="18" /></CourseWorkspaceHeaderAction>
+          <h1>{{ material?.title }}</h1>
+        </div>
+      </template>
+      <template v-if="user && !materialId" #center>
+        <UiSegmentedControl class="study-home-navigation" model-value="courses" :options="[{ value: 'courses', label: t('workspaceUi.myCourses'), icon: BookOpen }]" :accessibility-label="t('studentWorkspace.space')" @update:model-value="openStudySection('home')" />
+      </template>
+      <template #actions>
+        <div class="study-header-actions">
+          <template v-if="materialId">
+            <CourseWorkspaceHeaderAction v-if="material?.revisions[0]?.sections.length" :label="c('export')" @click="exportHandout"><Download :size="17" /></CourseWorkspaceHeaderAction>
+            <details class="study-reading-settings" @keydown.esc="closeReadingSettings">
+              <summary><Settings2 :size="17" />{{ c('readingSettings') }}</summary>
+              <div class="study-reading-settings-panel">
+                <label>{{ c('fontSize') }} · {{ readingFontSize }}<input v-model.number="readingFontSize" type="range" min="16" max="22" :aria-label="c('fontSize')" /></label>
+                <UiSegmentedControl :model-value="readingFont" :options="[{ value: 'serif', label: c('serifFont') }, { value: 'sans', label: c('sansFont') }]" :accessibility-label="c('readingSettings')" @update:model-value="setReadingFont" />
+              </div>
+            </details>
+          </template>
+          <CourseWorkspaceHeaderAction :label="activeLocale === 'zh' ? 'English' : '中文'" @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')" />
+          <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
+          <span v-if="user && !developmentMode" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
+          <CourseWorkspaceHeaderAction v-if="user && !developmentMode" :label="c('logout')" @click="logout" />
+        </div>
+      </template>
+    </ApplicationHeader>
     <div v-if="error" class="study-error" role="alert">{{ error }}<button @click="reconnect">{{ c('retry') }}</button></div>
 
     <main v-if="!user" class="study-login-page">
@@ -58,18 +65,18 @@
       <section v-if="!materialId" class="study-main-scroll">
         <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
-          <div class="study-page-heading"><div><span class="study-eyebrow">CREATE YOUR HANDOUT</span><h1>{{ c('create') }}</h1><p>{{ c('intro') }}</p></div></div>
-          <section id="study-create-sources" class="study-form-section"><h2>{{ c('sourceHeading') }}</h2><p>{{ c('sourceHint') }}</p>
+          <div class="study-page-heading"><div><h1>{{ c('create') }}</h1></div></div>
+          <section id="study-create-sources" class="study-form-section"><h2>{{ c('sourceHeading') }}</h2>
             <div class="study-source-actions"><input ref="sourceFileInput" class="study-upload-input" type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy || busy" multiple @change="uploadFiles" /><button type="button" class="study-upload" :disabled="sourceBusy || busy" @click="sourceFileInput?.click()"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}</button><button type="button" class="study-paste-toggle" :disabled="sourceBusy || busy" :aria-expanded="pasting" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
             <div v-if="pasting" class="study-paste"><label>{{ c('sourceTitle') }}<ElInput v-model="sourceTitle" maxlength="160" /></label><label>{{ c('sourceContent') }}<ElInput v-model="sourceText" type="textarea" :rows="8" maxlength="120000" /></label><button type="button" :disabled="sourceBusy || !sourceTitle.trim() || !sourceText.trim()" @click="addText">{{ sourceBusy ? c('busy') : c('addSource') }}</button></div>
             <p v-if="!sources.length && !pasting" class="study-source-empty">{{ c('emptySources') }}</p>
             <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('sourceRanges') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters || (selectedRanges.length >= 6 && !selectedRanges.includes(`${source.id}:${section.id}`))" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
-            <p class="study-range-hint">{{ c('rangeLimit') }}</p>
+
             <div v-if="hasInvalidRanges && !busy" class="study-range-recovery" role="status"><span>{{ c('invalidRanges') }}</span><button type="button" @click="removeInvalidRanges">{{ c('removeInvalidRanges') }}</button></div>
           </section>
           <section id="study-create-purpose" class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
           <section id="study-create-settings" class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<ElInput v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<ElInput v-model="form.requirements" type="textarea" :rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label></section>
-          <div class="study-generate-bar"><div><strong>{{ selectedRanges.length }} / 6 · {{ c('scope') }}</strong><p>{{ c('personalCourseHint') }}</p><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
+          <div class="study-generate-bar"><div><strong>{{ selectedRanges.length }} / 6 · {{ c('scope') }}</strong><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
         </form>
       </section>
 
@@ -80,10 +87,10 @@
               <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout" :style="readingStyle">
-                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
+                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
 
                   <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
-                  <p v-if="materialStatus === 'completed'" class="study-end"><Check :size="17" />{{ c('finishReading') }}</p>
+
                 </article>
               </div>
             </div>
@@ -91,7 +98,7 @@
             <aside v-if="material" v-show="toolsOpen" class="study-reading-tools">
               <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></ElButton></header>
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
-              <div v-else-if="toolTab === 'note'" class="study-note"><p>{{ c('noteHint') }}</p><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
+              <div v-else-if="toolTab === 'note'" class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
               <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
               <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
               <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
@@ -120,7 +127,9 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
-import StudentBrand from '../components/StudentBrand.vue'
+import ApplicationHeader from '../components/ApplicationHeader.vue'
+import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
+import UiSegmentedControl from '../components/UiSegmentedControl.vue'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
 import StudentLearningHome from '../components/StudentLearningHome.vue'
 import { setStudyIdentity } from '../utils/study-identity'
@@ -219,6 +228,7 @@ const readingStyle = computed(() => ({
   '--study-reading-size': `${readingFontSize.value}px`,
   '--study-reading-font': readingFont.value === 'serif' ? 'var(--handout-serif)' : 'var(--handout-sans)',
 }))
+function setReadingFont(value: string) { if (value === 'serif' || value === 'sans') readingFont.value = value }
 function closeReadingSettings(event: KeyboardEvent) {
   const details = event.currentTarget as HTMLDetailsElement
   details.open = false
@@ -364,31 +374,19 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 }
 .study-space button, .study-space input, .study-space textarea, .study-space select { font: inherit; }
 .study-space button, .study-space a { transition: background .15s, color .15s; }
-.study-space button:where(:not(.el-button)) {
+.study-space button:where(:not(.el-button, .workspace-header-action)) {
   cursor: pointer; min-height: 36px; border: 1px solid var(--lz-action-border);
   border-radius: 8px; background: #fff; color: var(--lz-text-secondary);
   padding: 8px 12px; display: inline-flex; justify-content: center; align-items: center; gap: 8px;
 }
-.study-space button:where(:not(.el-button)):hover:not(:disabled) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
-.study-space button:where(:not(.el-button)):disabled { cursor: default; opacity: .55; }
-.study-space :is(button:where(:not(.el-button)), a, select, summary, input[type=range]):focus-visible { outline: 2px solid var(--lz-action-focus); outline-offset: 3px; }
+.study-space button:where(:not(.el-button, .workspace-header-action)):hover:not(:disabled) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-space button:where(:not(.el-button, .workspace-header-action)):disabled { cursor: default; opacity: .55; }
+.study-space :is(button:where(:not(.el-button, .workspace-header-action)), a, select, summary, input[type=range]):focus-visible { outline: 2px solid var(--lz-action-focus); outline-offset: 3px; }
 .study-space a { text-decoration: none; color: inherit; }
 .study-space .study-primary { background: var(--lz-action-primary-bg); color: var(--lz-action-primary-text); font-weight: 600; border-color: var(--lz-action-primary-border); }
 .study-space .study-primary:hover:not(:disabled) { background: var(--lz-action-primary-hover); color: var(--lz-action-primary-text); }
-.study-header {
-  min-height: 60px; flex: none; box-sizing: border-box; display: flex; align-items: center;
-  justify-content: space-between; padding: 8px 20px; gap: 20px;
-  border: 1px solid rgba(255, 255, 255, .88); border-radius: 18px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(250, 250, 255, .91));
-  box-shadow: 0 8px 26px rgba(79, 70, 229, .08), inset 0 1px 0 rgba(255, 255, 255, .96);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-}
 .study-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
-.study-header-actions button, .study-course-context > button { border: 0; background: transparent; padding: 6px 8px; white-space: nowrap; }
 .study-user { display: flex; align-items: center; gap: 7px; color: #7c8496; }
-.study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; }
-.study-surface-navigation button { border: 1px solid #dbe2ee; background: #f8fafc; padding: 6px 14px; font-weight: 600; }
-.study-surface-navigation button.active { background: white; color: var(--lz-brand-strong); box-shadow: 0 2px 7px rgba(51, 65, 85, .09); }
 .study-course-context { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .study-course-context h1 { margin: 0; font-size: 18px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .study-course-context > svg { flex: none; color: var(--lz-brand); }
@@ -398,8 +396,6 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-settings-panel { position: absolute; right: 0; top: calc(100% + 14px); z-index: 30; width: 240px; padding: 20px; background: white; border: 1px solid #dbe2ee; border-radius: 12px; box-shadow: 0 8px 26px rgba(79, 70, 229, .08); }
 .study-reading-settings-panel label { display: grid; gap: 12px; margin-bottom: 12px; }
 .study-reading-settings-panel input { width: 100%; accent-color: var(--lz-brand); }
-.study-reading-settings-panel [role=group] { display: flex; gap: 8px; }
-.study-reading-settings-panel button[aria-pressed=true] { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
 .study-eyebrow { font-size: 15px; color: #7b6ca4; font-weight: 650; letter-spacing: .09em; }
 .study-error { flex: none; padding: 10px 28px; background: #fff1f1; color: #a14253; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .study-error button { padding: 5px 12px; color: inherit; }
@@ -439,7 +435,6 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-progress button { align-self: flex-start; }
 .study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
 .study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
-.study-end { display: flex; gap: 9px; justify-content: center; align-items: center; color: #8698a0; font: 15px/1.8 var(--handout-sans); padding-top: 30px; border-top: 1px solid #e3e8ee; margin-top: 35px; }
 .study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #e3e8f2; }
 .study-reading-tools:has(.personal-assistant) { overflow: hidden; }
 .study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #e3e8f2; flex: none; }
@@ -461,7 +456,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-workspace .learning-dock { font-family: var(--study-ui-font); }
 .study-reading-workspace .learning-dock :deep(button) { font-family: inherit; font-weight: 600; border-color: transparent; background: transparent; padding: 7px 10px; }
 .study-reading-workspace .learning-dock :deep(button.is-active), .study-reading-workspace .learning-dock :deep(button:hover) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
-@media (max-width: 1200px) { .study-handout { padding: 32px 34px 60px; } .study-header { padding: 8px 14px; gap: 12px; } .study-header-actions { gap: 4px; } }
+@media (max-width: 1200px) { .study-handout { padding: 32px 34px 60px; } .study-header-actions { gap: 4px; } }
 @media (max-width: 1100px) { .study-header-actions .study-user { display: none; } }
 
 .study-login-page { flex: 1; overflow: auto; display: grid; grid-template-columns: minmax(0,570px) 410px; justify-content: center; align-items: center; gap: 90px; padding: 45px; }
@@ -519,4 +514,6 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-create-steps a:hover { color: var(--lz-brand-strong); }
 @media(max-width:1200px) { .study-login-page { gap:40px; } }
 @media(max-width:980px) { .study-login-page { grid-template-columns:minmax(0,1fr) 350px; gap:30px; padding:30px; } .login-story h1 { font-size:31px; } .study-purpose-options { gap:12px; } }
+
+.study-home-navigation { --ui-segment-font-size: 15px; width: max-content; margin: 0 auto; }
 </style>

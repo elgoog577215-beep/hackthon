@@ -9,101 +9,104 @@
       'is-course-library-route': route.name === 'course-library',
     }"
   >
-    <header
+    <ApplicationHeader
       v-if="!isFullscreenConceptRoute && !isStudyRoute"
-      class="app-header glass-panel-elevated"
+      :surface="brandingSurface"
+      :contextual="isCourseWorkspaceRoute"
+      :library="route.name === 'course-library'"
+      :learning="isLearningRoute"
+      :show-brand="!isCourseWorkspaceRoute"
+      context-id="app-header-route-context"
+      center-id="app-header-route-center"
+      actions-id="app-header-route-actions"
     >
-      <div class="app-header-start">
+      <template #before-brand>
         <a v-if="qizhiHomeEnabled && brandingSurface === 'teacher'" href="/" class="header-icon-button qizhi-home-link">
           <ArrowLeft :size="17" aria-hidden="true" />
           <span>{{ t('app.backToQizhi') }}</span>
         </a>
-        <ProductBrand v-if="!isCourseWorkspaceRoute" :surface="brandingSurface" />
-        <div v-if="!isLearningRoute" id="app-header-route-context" class="route-header-context" />
-      </div>
-
-      <div v-if="!isLearningRoute" id="app-header-route-center" class="app-header-center" />
-
-      <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions">
-        <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-text-link" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
-        <RouterLink v-else-if="route.name === 'course-library'" class="header-text-link" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
-      </div>
-
-      <div v-if="isLearningRoute" class="header-actions">
-        <label class="header-search">
-          <Search :size="15" />
-          <input
-            v-model="searchQuery"
-            type="search"
-            :placeholder="t('app.searchCourse', '搜索课程内容')"
-            :aria-label="t('app.searchCourse', '搜索课程内容')"
-          />
-          <button v-if="searchQuery" type="button" :title="t('app.clearSearch', '清除搜索')" :aria-label="t('app.clearSearch', '清除搜索')" @click="searchQuery = ''">
-            <X :size="14" />
-          </button>
-        </label>
-
-        <el-popover placement="bottom-end" :width="224" trigger="click">
-          <template #reference>
-            <button type="button" class="header-icon-button" :title="t('app.readingSettings', '阅读设置')" :aria-label="t('app.readingSettings', '阅读设置')">
-              <Settings2 :size="17" />
+      </template>
+      <template #actions>
+        <template v-if="!isLearningRoute">
+          <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-text-link" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
+          <RouterLink v-else-if="route.name === 'course-library'" class="header-text-link" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
+        </template>
+        <template v-else>
+          <label class="header-search">
+            <Search :size="15" />
+            <input
+              v-model="searchQuery"
+              type="search"
+              :placeholder="t('app.searchCourse', '搜索课程内容')"
+              :aria-label="t('app.searchCourse', '搜索课程内容')"
+            />
+            <button v-if="searchQuery" type="button" :title="t('app.clearSearch', '清除搜索')" :aria-label="t('app.clearSearch', '清除搜索')" @click="searchQuery = ''">
+              <X :size="14" />
             </button>
-          </template>
-          <div class="reading-settings">
-            <label>
-              <span>{{ t('app.fontSize', '字号') }}</span>
-              <input
-                :value="courseStore.uiSettings.fontSize"
-                type="range"
-                min="13"
-                max="24"
-                step="1"
-                @input="updateFontSize"
-              />
-              <strong>{{ courseStore.uiSettings.fontSize }}</strong>
-            </label>
-            <div>
-              <span>{{ t('app.fontFamily', '字体') }}</span>
-              <UiSegmentedControl
-                class="reading-setting-control"
-                size="compact"
-                :model-value="courseStore.uiSettings.fontFamily"
-                :options="fontOptions"
-                :accessibility-label="t('app.fontFamily', '字体')"
-                @update:model-value="setFontFamily"
-              />
-            </div>
-            <div>
-              <span>{{ t('app.language', '语言') }}</span>
-              <UiSegmentedControl
-                class="reading-setting-control"
-                size="compact"
-                :model-value="activeLocale"
-                :options="localeOptions"
-                :accessibility-label="t('app.language', '语言')"
-                @update:model-value="changeLocale"
-              />
-            </div>
-          </div>
-        </el-popover>
+          </label>
 
-        <button type="button" class="header-icon-button" :class="{ active: courseStore.isFocusMode }" :title="t('app.focusMode', '专注模式')" :aria-label="t('app.focusMode', '专注模式')" @click="courseStore.toggleFocusMode()">
-          <Scan :size="17" />
-        </button>
+          <el-popover placement="bottom-end" :width="224" trigger="click">
+            <template #reference>
+              <button type="button" class="header-icon-button" :title="t('app.readingSettings', '阅读设置')" :aria-label="t('app.readingSettings', '阅读设置')">
+                <Settings2 :size="17" />
+              </button>
+            </template>
+            <div class="reading-settings">
+              <label>
+                <span>{{ t('app.fontSize', '字号') }}</span>
+                <input
+                  :value="courseStore.uiSettings.fontSize"
+                  type="range"
+                  min="13"
+                  max="24"
+                  step="1"
+                  @input="updateFontSize"
+                />
+                <strong>{{ courseStore.uiSettings.fontSize }}</strong>
+              </label>
+              <div>
+                <span>{{ t('app.fontFamily', '字体') }}</span>
+                <UiSegmentedControl
+                  class="reading-setting-control"
+                  size="compact"
+                  :model-value="courseStore.uiSettings.fontFamily"
+                  :options="fontOptions"
+                  :accessibility-label="t('app.fontFamily', '字体')"
+                  @update:model-value="setFontFamily"
+                />
+              </div>
+              <div>
+                <span>{{ t('app.language', '语言') }}</span>
+                <UiSegmentedControl
+                  class="reading-setting-control"
+                  size="compact"
+                  :model-value="activeLocale"
+                  :options="localeOptions"
+                  :accessibility-label="t('app.language', '语言')"
+                  @update:model-value="changeLocale"
+                />
+              </div>
+            </div>
+          </el-popover>
 
-        <el-dropdown trigger="click" @command="handleExport">
-          <button type="button" class="header-icon-button" :title="t('app.export', '导出课程')" :aria-label="t('app.export', '导出课程')">
-            <Download :size="17" />
+          <button type="button" class="header-icon-button" :class="{ active: courseStore.isFocusMode }" :title="t('app.focusMode', '专注模式')" :aria-label="t('app.focusMode', '专注模式')" @click="courseStore.toggleFocusMode()">
+            <Scan :size="17" />
           </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="markdown">{{ t('app.exportMarkdown', '导出 Markdown') }}</el-dropdown-item>
-              <el-dropdown-item command="json">{{ t('app.exportJson', '导出 JSON') }}</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-    </header>
+
+          <el-dropdown trigger="click" @command="handleExport">
+            <button type="button" class="header-icon-button" :title="t('app.export', '导出课程')" :aria-label="t('app.export', '导出课程')">
+              <Download :size="17" />
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="markdown">{{ t('app.exportMarkdown', '导出 Markdown') }}</el-dropdown-item>
+                <el-dropdown-item command="json">{{ t('app.exportJson', '导出 JSON') }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </template>
+    </ApplicationHeader>
 
     <main class="app-main">
       <RouterView v-slot="{ Component, route: currentRoute }">
@@ -126,7 +129,7 @@ import { computed, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
-import ProductBrand from './components/ProductBrand.vue'
+import ApplicationHeader from './components/ApplicationHeader.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import UiSegmentedControl from './components/UiSegmentedControl.vue'
 import { useCourseStore } from './stores/course'
@@ -241,47 +244,11 @@ function changeLocale(locale: string) {
 .app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
 .app-shell.is-public-concept .app-main { border-radius:0; }
 
-.app-header {
-  position: relative;
-  z-index: 80;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(480px, 660px) minmax(150px, 1fr);
-  align-items: center;
-  gap: 16px;
-  padding: 0 17px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(250,250,255,.91));
-  box-shadow: 0 8px 26px rgba(79,70,229,.08), inset 0 1px 0 rgba(255,255,255,.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.app-shell.is-course-workspace-route .app-header {
-  grid-template-columns: minmax(180px, 1fr) auto auto;
-  gap: 12px;
-}
-
-.app-shell.is-course-workspace-route .app-header-start { gap:12px; }
-
 .brand-button,
 .header-icon-button,
 .header-search button {
   border: 0;
   cursor: pointer;
-}
-
-.app-header-start {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.route-header-context {
-  min-width: 0;
-  flex: 1;
 }
 
 .brand-button {
@@ -311,11 +278,6 @@ function changeLocale(locale: string) {
   transition: transform .2s ease, filter .2s ease;
 }
 .brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
-
-.app-header-center { min-width:0; width:100%; justify-self:center; }
-.route-header-actions { min-width:0; grid-column:3; justify-self:end; }
-.app-shell.is-course-library-route .app-header { grid-template-columns:minmax(0,1fr) auto minmax(max-content,1fr); }
-.app-shell.is-course-library-route .route-header-actions { display:flex; align-items:center; gap:10px; }
 .header-text-link { flex:none; min-height:38px; display:inline-flex; align-items:center; justify-content:center; padding:0 12px; border:1px solid transparent; border-radius:10px; color:var(--lz-text-secondary); background:transparent; font-size:15px; font-weight:600; line-height:1.4; text-decoration:none; white-space:nowrap; }
 .header-text-link:hover { border-color:var(--lz-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .header-text-link:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
@@ -324,9 +286,6 @@ function changeLocale(locale: string) {
   display: flex;
   flex-direction: column;
 }
-
-.header-actions { position:relative; grid-column:3; justify-self:end; display:flex; align-items:center; justify-content:flex-end; gap:5px; padding-left:13px; }
-.header-actions::before { content:""; position:absolute; left:0; width:1px; height:26px; background:linear-gradient(180deg,transparent,#dbe3ef,transparent); }
 .header-icon-button { width:36px; height:36px; display:grid; place-items:center; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .header-icon-button:hover, .header-icon-button.active { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; }
 .qizhi-home-link { width:auto; flex:none; display:inline-flex; gap:6px; padding:0 10px; border-color:var(--lz-border); font-size:15px; font-weight:600; text-decoration:none; white-space:nowrap; }
@@ -367,64 +326,22 @@ function changeLocale(locale: string) {
 .reading-setting-control { margin-top:6px; }
 
 @media (max-width: 900px) {
-  .app-header { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 8px; padding: 0 10px; }
-  .app-shell.is-course-workspace-route .app-header { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); }
   .brand-name { display:none; }
   .header-search { display: none; }
 }
 
 @media (max-width: 1280px) {
   .app-shell.is-course-workspace-route:lang(en) { grid-template-rows:102px minmax(0,1fr); }
-  .app-shell.is-course-workspace-route:lang(en) .app-header {
-    grid-template-columns:minmax(0,1fr) auto;
-    grid-template-rows:58px 44px;
-    gap:0 8px;
-    padding:0 10px;
-  }
-  .app-shell.is-course-workspace-route:lang(en) .app-header-start { grid-column:1; grid-row:1; }
-  .app-shell.is-course-workspace-route:lang(en) .app-header-center {
-    grid-column:1/-1;
-    grid-row:2;
-    align-self:stretch;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    border-top:1px solid var(--lz-border);
-  }
-  .app-shell.is-course-workspace-route:lang(en) .route-header-actions { grid-column:2; grid-row:1; }
 }
 
 @media (max-width: 1100px) {
   .app-shell.is-course-workspace-route { grid-template-rows:102px minmax(0,1fr); }
-  .app-shell.is-course-workspace-route .app-header {
-    grid-template-columns:minmax(0,1fr) auto;
-    grid-template-rows:58px 44px;
-    gap:0 8px;
-    padding:0 10px;
-  }
-  .app-shell.is-course-workspace-route .app-header-start { grid-column:1; grid-row:1; }
-  .app-shell.is-course-workspace-route .app-header-center {
-    grid-column:1/-1;
-    grid-row:2;
-    align-self:stretch;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    border-top:1px solid var(--lz-border);
-  }
-  .app-shell.is-course-workspace-route .route-header-actions { grid-column:2; grid-row:1; }
 }
 
 @media (max-width: 600px) {
   .app-shell { grid-template-rows:auto minmax(0,1fr); gap: 0; padding: 0; }
-  .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
-  .app-header { grid-template-columns: auto minmax(70px, 1fr) auto; min-height:60px; }
-  .route-header-actions,.header-actions { grid-column:3; grid-row:1; }
   .brand-mark { width:32px; height:32px; }
-  .header-actions .header-icon-button:nth-of-type(1),
-  .header-actions :deep(.el-popover__reference-wrapper),
-  .header-actions :deep(.el-dropdown) { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
