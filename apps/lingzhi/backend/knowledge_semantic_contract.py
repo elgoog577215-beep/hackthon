@@ -301,7 +301,7 @@ def quality_point(point, source_text):
     prop = str(point.get('property', ''))
     value = str(point.get('value', '')); conditions = '；'.join(str(c) for c in point.get('conditions', [])) if isinstance(point.get('conditions', []), list) else ''
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:
-        check(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实')
+        check(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实', code='joint_definition')
     if point.get('form') in {'fact', 'comparison'}:
         values = [value] if point['form'] == 'fact' else [str(point.get('left_value', '')), str(point.get('right_value', ''))]
         symbols = set()
@@ -309,8 +309,10 @@ def quality_point(point, source_text):
             is_unit = bool(re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*m', scalar.strip()) and '米' in source_text
                 or re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*d', scalar.strip()) and '天' in source_text)
             if not is_unit and not re.search(r'符号|标记|名称|字母', prop): symbols.update(re.findall(r'\b[nmd]\b', scalar))
-        missing_symbols = sorted(symbol for symbol in symbols if not re.search(
-            r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop))
+        missing_symbols = sorted(symbol for symbol in symbols if not any(
+            re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', condition)
+            and bool(re.search(r'表示|指|为|是|输入|数量|个数|元素|长度|规模|深度|整数|正数|[<>≥≤]', condition))
+            for condition in point.get('conditions', []) if isinstance(condition, str)))
         check(not missing_symbols, '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号',
               code='undefined_quantity', symbols=missing_symbols)
     if point.get('form') == 'fact':
@@ -328,7 +330,7 @@ def quality_point(point, source_text):
     body = str(point.get('value', '')) + str(point.get('left_value', '')) + str(point.get('right_value', ''))
     if point.get('form') in {'fact', 'comparison'} and re.search(r'O\s*\(', body) and re.search(r'算法|栈|队列|数组|递归|复杂度', source_text):
         check(bool(re.search(r'时间|空间|复杂度|代价|成本|开销|次数|数量|帧数|深度|长度|大小|规模|上界|下界|误差|精度', prop)),
-              '复杂度不能藏在访问方式或权限等非成本属性中；将方式和成本拆为不同检查目标，不删除有效成本结论')
+              '复杂度不能藏在访问方式或权限等非成本属性中；将方式和成本拆为不同检查目标，不删除有效成本结论', code='cost_property')
     scoped_model = bool(re.search(r'本讲|本课|本节|本例|此处|这里|普通|常规|当前|所示|该实现|典型|未优化|(?:基于|使用|用|采用).*(?:栈|队列)|显式.*实现', conditions))
     if any('递归' in str(subject) for subject in options) and re.search(r'栈帧|调用栈', prop + body):
         check(scoped_model, '递归栈帧结论必须明确普通调用栈实现的计量范围，不能作所有实现的普遍保证')
@@ -353,7 +355,7 @@ def quality_point(point, source_text):
         steps = '；'.join(str(s) for s in point.get('steps', [])) if isinstance(point.get('steps', []), list) else ''
         check(bool(re.search(r'def\s+\w+|初始化|初始状态|(?:stack|queue)\s*=', source_text))
                 or bool(re.search(r'初始化|初始|(?:起点|根节点).*(?:入栈|入队|加入|放入)|(?:stack|queue)\s*=', steps)),
-                '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块')
+                '当前块仅说明机制，缺少完整方法的初始状态；改为definition或单一规则，完整算法保留在代码块', code='incomplete_method')
     if point.get('form') == 'procedure' and re.search(r'括号.*匹配|匹配.*括号', str(point.get('goal', ''))):
         steps = '；'.join(str(s) for s in point.get('steps', [])) if isinstance(point.get('steps', []), list) else ''
         check(bool(re.search(r'初始.*(?:空栈|栈.*空)|(?:建立|创建|准备|设置|置|清空).*空栈|stack\s*=\s*\[\]', steps)),

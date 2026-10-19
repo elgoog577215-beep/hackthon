@@ -697,6 +697,11 @@ async def run_atomic(svc, course_id, job_id):
             tree, report = compile_batch(raw, context, items, parse_complete_json(response))
             batch.update(status='completed', tree=tree, report=report, raw_response=response); save()
         await run_batches(pipeline['batches'], atomize_batch, width=concurrency)
+        if fast and pipeline['prompt_contract'] == 'knowledge_extract_v9':
+            from knowledge_reconciliation import reconcile
+            await reconcile(svc, course_id, job_id, provider, raw, context, pipeline, save, validate_source)
+            require(not any(i['code'] == 'duplicate_meta_question' for i in assemble(raw, context, pipeline)['atomic_assessment']['issues']),
+                    '全讲核对后元问题仍有不同答案，保留诊断与全部批次')
         hierarchy = None; relation_result = None
         local_points = [point for batch in pipeline['batches'] for point in batch['tree']['knowledge_points']]
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
