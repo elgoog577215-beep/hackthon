@@ -182,6 +182,21 @@ def test_complexity_notation_is_not_an_execution_trace():
     assert compiled['claim'] == '入栈的O(1)成立前提为容量充足。'
 
 
+@pytest.mark.parametrize('subject,valid', [('合并两个长度为 a 和 b 的数组', True), ('合并两个长度为 a 和 c 的数组', False)])
+def test_subject_binding_accepts_only_lossless_math_format_differences(subject, valid):
+    from knowledge_semantic_contract import quality_point
+    source = '合并两个长度为 $a$ 和 $b$ 的数组最多比较a+b-1次。'
+    candidate = point(subject=subject, property='最大比较次数', value='a+b-1', conditions=['a和b表示两个数组长度'])
+    if not valid:
+        with pytest.raises(CourseDocumentConflict, match='主体'):
+            quality_point(candidate, source)
+    else:
+        _, audit = quality_point(candidate, source)
+        binding = audit['source_subject_bindings'][0]
+        assert source[binding['start']:binding['end']] == '合并两个长度为 $a$ 和 $b$ 的数组'
+        assert binding['normalization'] == 'inline_math_and_whitespace_v1'
+
+
 def test_explicit_numeric_instance_is_retained_as_context_not_general_knowledge():
     from knowledge_source_rules import contextualize_component_explanations
     example = point(subject='有序数组', property='n=8时总比较次数', value='28')
