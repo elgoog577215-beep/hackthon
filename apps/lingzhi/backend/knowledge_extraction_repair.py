@@ -21,7 +21,9 @@ def repair_schema(targets, passages):
     for key, target in targets.items():
         choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'), contract='knowledge_extract_v9')['anyOf']
         plan = target.get('correction_plan', {})
-        form = plan.get('allowed_forms', [None])[0] or ('definition' if any(term in target.get('error', '') for term in ('联合定义', '仅说明机制')) else target['point']['form'])
+        allowed = plan.get('allowed_forms', [])
+        form = (target['point']['form'] if target['point']['form'] in allowed else allowed[0]) if allowed else (
+            'definition' if any(term in target.get('error', '') for term in ('联合定义', '仅说明机制')) else target['point']['form'])
         require(form in {'fact', 'definition', 'comparison', 'procedure'}, '无法精确限定修正形态')
         shape = next(choice for choice in choices if choice['properties']['form']['const'] == form)
         properties = shape['properties']
