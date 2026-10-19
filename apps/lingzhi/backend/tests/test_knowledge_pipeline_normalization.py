@@ -70,3 +70,55 @@ async def test_data_errors_finish_independent_batches_once_but_never_claim_succe
     assert sorted(started) == [1, 2, 3, 4, 5]
     assert [e['batch_id'] for e in failed.value.failures] == ['inventory-1', 'inventory-3']
     assert [r['status'] for r in rows] == ['pending', 'completed', 'pending', 'completed', 'completed']
+
+
+@pytest.mark.asyncio
+async def test_field_patch_never_reserializes_or_changes_frozen_math(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(subject='入栈方法', value='a+b-1', conditions=['a表示长度', 'b表示长度'])])
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'patch', 'patch': {'subject': '入栈'}, 'reason': '只选择来源主体'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    actual = result['passages']['S1.1']['points'][0]
+    assert actual == {**original['passages']['S1.1']['points'][0], 'subject': '入栈'}
+
+
+@pytest.mark.asyncio
+async def test_explicit_equivalence_merges_wording_variants_without_losing_attachments(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    from knowledge_extract import compile_extraction
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(value='插入栈顶'), point(value='将元素插入栈顶',
+        attachments=[{'name': '示例', 'kind': 'example', 'claim': '将元素放入栈顶'}])])
+    async def call(*args):
+        payload = json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        assert payload['duplicate_question_groups'] == [['S1.1:0', 'S1.1:1']]
+        return json.dumps({'repairs': {
+            'S1.1:0': {'handling': 'replace', 'points': [deepcopy(original['passages']['S1.1']['points'][0])], 'reason': '规范命题'},
+            'S1.1:1': {'handling': 'merge', 'merge_into': 'S1.1:0', 'reason': '两者均表示元素插入栈顶，来源支持等价'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    record = {}
+    corrected = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, record)
+    result = compile_extraction(raw, context, ['S1'], 1, corrected)
+    assert result['report']['ready_for_adoption']
+    assert len(result['tree']['knowledge_points']) == 1
+    assert len(result['tree']['knowledge_points'][0]['inventory_attachments']) == 1
+
+
+@pytest.mark.asyncio
+async def test_equivalence_cannot_merge_unrelated_questions(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(subject='入栈方法'), point(subject='出栈方法')])
+    async def call(*args):
+        return json.dumps({'repairs': {
+            'S1.1:0': {'handling': 'merge', 'merge_into': 'S1.1:1', 'reason': '越界合并'},
+            'S1.1:1': {'handling': 'patch', 'patch': {'subject': '出栈'}, 'reason': '修正主体'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    with pytest.raises(CourseDocumentConflict):
+        await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
