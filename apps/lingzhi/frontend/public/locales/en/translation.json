@@ -8058,7 +8058,8 @@
       "generalizes": "Generalization"
     },
     "readSourceText": "Read source paragraph",
-    "modelDisconnected": "The model service is disconnected. Existing handouts and knowledge versions are preserved. Restore the connection and start again manually.",
+    "modelReconnecting": "Reconnecting to the model",
+    "modelDisconnected": "The model connection is temporarily unavailable. Completed work is saved; continue only unfinished batches.",
     "extractionNotes": "Extraction notes and gaps",
     "derivedReview": "Knowledge is extracted from handouts with matched quotations. Adoption does not certify subject accuracy.",
     "locateHandout": "Locate in handout",

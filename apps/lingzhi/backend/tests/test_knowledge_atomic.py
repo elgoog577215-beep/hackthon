@@ -315,7 +315,10 @@ async def test_provider_gateway_failure_is_reported_as_model_unavailable(svc, mo
     saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
     assert saved['status'] == 'failed'
     assert saved['error']['code'] == 'ModelConnectionUnavailable'
-    assert '模型服务' in saved['error']['message']
+    assert '已保留完成内容' in saved['error']['message']
+    assert saved['error']['retryable'] is True
+    assert saved['error']['recovery_action'] == 'continue_missing_batches'
+    assert saved['error']['transport_attempts'] == 3
     assert not saved['checkpoint']['atomic_pipeline']['items']
 
 

@@ -190,7 +190,10 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
         save(pipeline_stage='hierarchy')
     root = state['tasks'][0]
     save(pipeline_stage='hierarchy')
-    if root['status'] != 'completed': await process(root)
+    if root['status'] != 'completed':
+        from knowledge_transport import model_scope
+        with model_scope(batch_id=root['key'], batch_index=0, last_stage='hierarchy_partition'):
+            await process(root)
     from course_generation_budget import _env_int
     width = concurrency or _env_int('COURSE_KNOWLEDGE_HIERARCHY_CONCURRENCY', 2, minimum=1, maximum=4)
     pending = [t for t in state['tasks'][1:] if t['status'] != 'completed']
@@ -198,7 +201,7 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
         await process(task)
     # A short branch immediately frees its lane; failure retains other in-flight
     # successes and stops dispatching further branches, as in extraction.
-    await run_batches(pending, branch, width=width)
+    await run_batches(pending, branch, width=width, stage='hierarchy_subtree')
     value = {'response_contract': CONTRACT, 'categories': state['categories'],
         'point_categories': {a['point_key']: a['category_key'] for a in state['assignments']}}
     result = compile_hierarchy(value, points, raw['course_id'], context['scope_lesson_id'])

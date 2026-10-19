@@ -22,4 +22,15 @@ describe('knowledge generation failures', () => {
     expect(mock.post).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+
+  it.each(['zh','en'] as const)('shows compact reconnection without changing the task in %s',async locale=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
+    const job={id:'same-job',status:'running',pipeline_stage:'hierarchy',phase:'model_streaming',progress:93,
+      transport_retry_active_count:1,transport_retry_stage:'tree_relations'}
+    mock.get.mockResolvedValue({data:{title:'课程',enabled:true,can_edit:true,history:[],handouts:[],jobs:[job],active_jobs:[job]}})
+    mock.post.mockClear()
+    const wrapper=mount(View,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+    expect(wrapper.get('[data-testid="knowledge-generation-progress"]').text()).toContain(locale==='zh'?'正在恢复模型连接':'Reconnecting to the model')
+    expect(mock.post).not.toHaveBeenCalled();wrapper.unmount()
+  })
 })

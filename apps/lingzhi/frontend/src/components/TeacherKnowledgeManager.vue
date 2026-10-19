@@ -281,9 +281,11 @@ const selectedCandidateRecord = computed(() => {
 })
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
 const atomicRun = computed(() => {
-  if (treeChoice.value === 'candidate' && selectedCandidate.value?.relation_assessment) return null
+  const run = (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
+  if (treeChoice.value === 'candidate' && selectedCandidate.value?.relation_assessment
+    && run?.job_id === selectedCandidateRecord.value?.job_id && run?.status === 'completed') return null
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
-  return (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
+  return run
 })
 const progressJob = computed(() => {
   if (activeJob.value) return activeJob.value
@@ -376,8 +378,14 @@ const displayTree = computed(() => {
 function jobPhase(job: any) {
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
-  const label = t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
-  return job.pipeline_stage ? `${t(['relations','tree_relations'].includes(job.pipeline_stage) ? 'knowledgeFirst.relationCandidates' : job.pipeline_stage === 'hierarchy' ? 'knowledgeFirst.organizeHierarchy' : job.pipeline_stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  const recovering = job.status === 'running' && job.transport_retry_active_count > 0
+  const label = recovering ? t('knowledgeFirst.modelReconnecting') : t(`knowledgeFirst.phase_${known.includes(phase) ? phase : 'model'}`)
+  const observations = job.stage_observations || []
+  const failedObservation = job.status === 'failed' && [...observations].reverse().find((o: any) => o.status === 'failed'
+    && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
+  const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
+    : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
+  return stage ? `${t(['relations','tree_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null

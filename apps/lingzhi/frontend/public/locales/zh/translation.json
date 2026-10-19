@@ -8058,7 +8058,8 @@
       "generalizes": "推广"
     },
     "readSourceText": "查看来源原文",
-    "modelDisconnected": "模型服务暂未连接，原讲义和知识树已保留。连接恢复后请手动重新发起。",
+    "modelReconnecting": "正在恢复模型连接",
+    "modelDisconnected": "模型连接暂不可用，完成内容已保留；可继续未完成批次。",
     "extractionNotes": "提取说明与待补充范围",
     "derivedReview": "知识由讲义提取，逐字引文已对账；采用不代表讲义内容通过学科核验。",
     "locateHandout": "在讲义中查看",

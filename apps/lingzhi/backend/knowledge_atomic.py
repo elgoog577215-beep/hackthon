@@ -9,6 +9,7 @@ from copy import deepcopy
 from course_document import stable_hash
 from course_repository import CourseDocumentConflict
 from generic_knowledge import compile_tree, normalized, records, require, sources, text
+from knowledge_transport import REQUEST_SCOPE, model_scope, recover_connection, transient_connection
 
 PIPELINE = 'inventory_atomic_v1'
 KNOWLEDGE_KINDS = {'definition', 'rule', 'method', 'comparison'}
@@ -49,7 +50,7 @@ def batch_size():
     return max(1, min(12, value))
 
 
-async def run_batches(rows, process, *, width):
+async def run_batches(rows, process, *, width, stage=None):
     """Bound requests, stop dispatch on failure, retain in-flight successes."""
     pending = iter((i, b) for i, b in enumerate(rows, 1) if b['status'] != 'completed')
     failures = []; data_failures = []
@@ -58,7 +59,10 @@ async def run_batches(rows, process, *, width):
             entry = next(pending, None)
             if entry is None: return
             try:
-                await process(*entry)
+                index, batch = entry
+                with model_scope(batch_id=batch.get('id') or batch.get('key'), batch_index=index,
+                                 last_stage=stage or REQUEST_SCOPE.get().get('last_stage')):
+                    await process(index, batch)
             except KnowledgeBatchValidationError as exc:
                 data_failures.extend(exc.failures)
             except Exception as exc:
@@ -423,6 +427,13 @@ def assemble(raw, context, pipeline, hierarchy=None):
 
 
 async def call_stage(svc, course_id, job_id, provider, prompt, stage):
+    scope = REQUEST_SCOPE.get()
+    if scope: scope['last_stage'] = stage
+    return await recover_connection(svc, course_id, job_id, stage,
+        lambda: _call_stage_once(svc, course_id, job_id, provider, prompt, stage))
+
+
+async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
     from knowledge_first import now
     from knowledge_generation_budget import KnowledgeTreeBudget
     from course_generation_budget import _env_int
@@ -468,9 +479,9 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         # not teaching bodies. Keep headroom proportional to the actual set.
         options['max_tokens'] = min(options['max_tokens'], max(2048, len(payload['points']) * 240 + 1024))
         request_budget['max_output_tokens'] = options['max_tokens']
-    quality_job, observed_batch_index = svc.authoring.read_projection(course_id, lambda state: (
-        ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9',
-        state['jobs'][job_id].get('batch_index')))
+    quality_job = svc.authoring.read_projection(course_id, lambda state:
+        ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9')
+    request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
     if quality_job:
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
@@ -533,7 +544,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         saved = svc.authoring.get_job(course_id,job_id);previous = saved.get('model_telemetry',[])
         safe_telemetry = [{k:event[k] for k in ('model_id','provider_route','status','duration_ms','input_tokens','output_tokens','tokens_source','physical_request_count','queue_wait_ms') if k in event} for event in telemetry if isinstance(event,dict)]
         event = safe_telemetry[-1] if safe_telemetry else {}
-        observation = {'stage':stage,'batch_index':observed_batch_index,
+        observation = {'stage':stage,'batch_index':observed_batch_index,'batch_id':request_scope.get('batch_id'),
+            'transport_attempt':request_scope.get('transport_attempt', 1),
             'request_fingerprint': stable_hash({'stage': stage, 'prompt': prompt}, prefix='kreq_'), 'seconds':round(time.perf_counter()-started,3),
             'first_content_seconds':round(first_content,3) if first_content is not None else None,'last_content_seconds':round(last_content-started,3),
             'input_chars':request_budget['input_chars'],'output_chars':activity['received_chars'],
@@ -551,7 +563,7 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
 async def run_atomic(svc, course_id, job_id):
     from knowledge_first import now, knowledge_revision
     from knowledge_compact import parse_complete_json
-    provider = None
+    provider = None; scope_token = None
     try:
         job = svc._active(course_id, job_id); raw = svc.repository.load_raw(course_id)
         context = job['request_snapshot']['knowledge_generation_context']
@@ -560,6 +572,8 @@ async def run_atomic(svc, course_id, job_id):
             require(fresh.get('owner_id') == job.get('actor') and knowledge_revision(fresh) == job['source_knowledge_revision']
                 and fresh.get('course_document_revision') == job['source_document_revision']
                 and svc._context(fresh, 'handouts', job['knowledge_lesson_id'])['revision_id'] == context['revision_id'], '课程、知识或讲义来源已变化，保留原批次')
+        scope_token = REQUEST_SCOPE.set({'validate_source': validate_source,
+            'retry_budget': {'used': int(job.get('transport_retry_count') or 0), 'active': {}}})
         validate_source()
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
@@ -579,7 +593,8 @@ async def run_atomic(svc, course_id, job_id):
             svc.authoring.update_job(course_id, job_id, checkpoint=cp, inventory_count=len(pipeline['items']),
                 completed_batches=sum(b['status'] == 'completed' for b in pipeline['batches']), batch_total=len(pipeline['batches']),
                 progress=pipeline_progress(pipeline), **extra)
-        svc.authoring.update_job_live(course_id, job_id, status='running', generation_started_at=now(), phase='preparing')
+        svc.authoring.update_job_live(course_id, job_id, status='running', generation_started_at=now(), phase='preparing',
+            transport_retry_active_count=0, transport_retry_stage='')
         if svc.provider_factory is None:
             from ai_base import AIBase
             provider = AIBase()
@@ -677,7 +692,7 @@ async def run_atomic(svc, course_id, job_id):
             pipeline['items'] = [item for b in pipeline['inventory_batches'] if b['status'] == 'completed' for item in b['items']]
             require(len(pipeline['items']) <= 320, '知识清单超出本讲容量')
             save()
-        await run_batches(pipeline['inventory_batches'], inventory_batch, width=concurrency)
+        await run_batches(pipeline['inventory_batches'], inventory_batch, width=concurrency, stage='extract' if fast else 'inventory')
         if not pipeline['batches']:
             require(any(i['kind'] in KNOWLEDGE_KINDS for i in pipeline['items']), '清单没有可细化的知识命题')
             unique = {}; aliases = {}
@@ -708,7 +723,7 @@ async def run_atomic(svc, course_id, job_id):
             validate_source()
             tree, report = compile_batch(raw, context, items, parse_complete_json(response))
             batch.update(status='completed', tree=tree, report=report, raw_response=response); save()
-        await run_batches(pipeline['batches'], atomize_batch, width=concurrency)
+        await run_batches(pipeline['batches'], atomize_batch, width=concurrency, stage='atomize')
         if fast and pipeline['prompt_contract'] == 'knowledge_extract_v9':
             from knowledge_reconciliation import reconcile
             await reconcile(svc, course_id, job_id, provider, raw, context, pipeline, save, validate_source)
@@ -753,7 +768,7 @@ async def run_atomic(svc, course_id, job_id):
         raise
     except Exception as exc:
         if svc.authoring.load(course_id)['jobs'][job_id]['status'] in {'pending', 'running'}:
-            from ai_base import AIProviderRequestError, AIRequestBudgetExceeded
+            from ai_base import AIRequestBudgetExceeded
             error = {
                 'code': type(exc).__name__,
                 'message': str(exc) if isinstance(exc, (CourseDocumentConflict, KnowledgeModelIdleTimeout, KnowledgeModelDegenerateOutput))
@@ -762,17 +777,14 @@ async def run_atomic(svc, course_id, job_id):
             if isinstance(exc, KnowledgeBatchValidationError):
                 error.update(category='candidate_quality', failures=deepcopy(exc.failures),
                     recovery_action='review_failed_batches', retryable=False)
-            provider_message = str(exc).casefold()
-            if isinstance(exc, AIProviderRequestError) and (
-                'connect' in provider_message
-                or 'bad gateway' in provider_message
-                or any(f' {status}' in f' {provider_message}' for status in ('502', '503', '504'))
-            ):
+            failure_context = getattr(exc, 'knowledge_failure', {})
+            error.update(failure_context)
+            if transient_connection(exc):
                 error.update(
                     code='ModelConnectionUnavailable',
-                    message='模型服务暂时不可用，原讲义和知识树已保留。恢复模型服务后请手动重新生成。',
-                    retryable=False,
-                    recovery_action='restore_model_connection',
+                    message='模型连接中断，已保留完成内容；可继续未完成批次。',
+                    retryable=True,
+                    recovery_action='continue_missing_batches',
                 )
             elif isinstance(exc, AIRequestBudgetExceeded):
                 error.update(
@@ -782,8 +794,12 @@ async def run_atomic(svc, course_id, job_id):
                     model_request_sent=False,
                 )
             svc.authoring.update_job(course_id, job_id, status='failed', phase='failed', stream_complete=True,
-                error=error)
+                error=error, **({'failed_stage':failure_context['stage'],
+                    'failed_batch_id':failure_context.get('batch_id'),
+                    'pipeline_stage':'hierarchy' if failure_context['stage'].startswith('hierarchy') else failure_context['stage']}
+                    if failure_context.get('stage') else {}))
     finally:
+        if scope_token is not None: REQUEST_SCOPE.reset(scope_token)
         if provider and getattr(provider, 'client', None): await provider.client.close()
 
 

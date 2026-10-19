@@ -345,7 +345,7 @@ async def generate(svc, course_id, job_id, provider, raw, context, pipeline, tre
         batch.update(status='completed', result=result, raw_response=response)
         save()
     concurrency = _env_int('COURSE_KNOWLEDGE_TREE_RELATION_CONCURRENCY', 4, minimum=1, maximum=4)
-    await run_batches(state['batches'], process, width=concurrency)
+    await run_batches(state['batches'], process, width=concurrency, stage='tree_relations')
     edges = {}; decisions = []; gaps = []; normalizations = []; semantic_rejections = []
     for batch in state['batches']:
         result = batch['result']
