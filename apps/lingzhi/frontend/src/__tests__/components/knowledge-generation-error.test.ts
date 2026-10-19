@@ -9,6 +9,19 @@ const mock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../../utils/http', () => ({ default: mock }))
 
 describe('knowledge generation failures', () => {
+  it.each(['zh','en'] as const)('shows the provider rejection cause and status safely in %s',async locale=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
+    mock.get.mockResolvedValue({data:{title:'课程',enabled:true,can_edit:true,history:[],handouts:[],jobs:[{
+      id:'rejected-job',status:'failed',pipeline_stage:'extract',error:{code:'ModelProviderFailure',
+        provider_http_status:409,provider_reason:'isolated_scope_rejected',message:'<html>PRIVATE SECRET</html>'},
+    }]}})
+    mock.post.mockClear()
+    const w=mount(View,{props:{courseId:'c'}});await flushPromises()
+    expect(w.text()).toContain('HTTP 409')
+    expect(w.text()).toContain(locale==='zh'?'隔离测试限制':'isolated test restriction')
+    expect(w.text()).not.toContain('PRIVATE');expect(w.text()).not.toContain('SECRET')
+    expect(mock.post).not.toHaveBeenCalled();w.unmount()
+  })
   it.each(['zh', 'en'] as const)('explains persisted budget failures in %s without starting a retry', async locale => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zh : en })))
     await setLocale(locale)
