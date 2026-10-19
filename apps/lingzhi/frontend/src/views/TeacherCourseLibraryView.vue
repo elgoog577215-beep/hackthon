@@ -23,10 +23,30 @@
       </template>
 
       <template v-else>
-        <TeacherCourseFilters
-          v-model:query="query" v-model:status="statusFilter" v-model:term="termFilter"
-          :status-options="statusMenuOptions" :term-options="termMenuOptions"
-          :view="homeView" :show-views="embedded" @view="switchHomeTab"
+        <label class="library-search">
+          <Search :size="16" aria-hidden="true" />
+          <input
+            v-model="query"
+            type="search"
+            :aria-label="t('teacherCourseLibrary.searchPlaceholder')"
+            :placeholder="t('teacherCourseLibrary.searchPlaceholder')"
+          />
+        </label>
+        <UiSelectMenu
+          data-testid="course-status-filter"
+          :model-value="statusFilter"
+          :options="statusMenuOptions"
+          :label="t('teacherCourseLibrary.statusLabel')"
+          :accessibility-label="t('teacherCourseLibrary.statusFilter')"
+          @update:model-value="setStatusFilter"
+        />
+        <UiSelectMenu
+          data-testid="course-term-filter"
+          :model-value="termFilter"
+          :options="termMenuOptions"
+          :label="t('teacherCourseLibrary.termLabel')"
+          :accessibility-label="t('teacherCourseLibrary.termFilter')"
+          @update:model-value="setTermFilter"
         />
         <span v-if="courseStore.loading && courseStore.courseList.length" class="toolbar-loading" role="status">
           <LoaderCircle class="spin" :size="15" />{{ t('courseLibrary.loading', '正在读取课程') }}
@@ -179,9 +199,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, LoaderCircle, Trash2 } from 'lucide-vue-next'
-import TeacherCourseFilters from '../components/TeacherCourseFilters.vue'
-import { useTeacherCourseFilters, courseTermLabel } from '../features/teacher-course/useTeacherCourseFilters'
+import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, LoaderCircle, Search, Trash2 } from 'lucide-vue-next'
+import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
 import {
@@ -202,6 +221,7 @@ const route = useRoute()
 const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
+type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
 type CourseSortMode = 'name' | 'status' | 'nextSession' | 'term' | 'updated'
 type CourseSortDirection = 'ascending' | 'descending'
 type CourseProductionView = {
@@ -212,7 +232,9 @@ type CourseProductionView = {
   query: Record<string, string>
 }
 
-const { query, statusFilter, termFilter, filteredCourses: matchingCourses, statusMenuOptions, termMenuOptions, courseFilterKey, homeView, switchHomeTab } = useTeacherCourseFilters()
+const query = ref(String(route.query.q || ''))
+const statusFilter = ref<CourseStatusFilter>(['preparing', 'prepared'].includes(String(route.query.status)) ? route.query.status as CourseStatusFilter : 'all')
+const termFilter = ref(String(route.query.term || 'all'))
 const sortMode = ref<CourseSortMode>(['name', 'status', 'nextSession', 'term', 'updated'].includes(String(route.query.sort)) ? route.query.sort as CourseSortMode : 'updated')
 const sortDirection = ref<CourseSortDirection>(route.query.dir === 'ascending' ? 'ascending' : 'descending')
 const currentPage = ref(1)
@@ -224,7 +246,32 @@ let progressRefreshTimer: number | null = null
 let progressRefreshPending = false
 let lastCourseProgressRefreshAt = 0
 
-const filteredCourses = computed(() => sortCourses(matchingCourses.value))
+const termFilterOptions = computed(() => {
+  const options = new Map<string, string>()
+  courseStore.courseList.forEach(course => {
+    const value = courseTermKey(course)
+    if (value) options.set(value, courseTermLabel(course))
+  })
+  return Array.from(options, ([value, label]) => ({ value, label })).sort((left, right) => right.label.localeCompare(left.label, localeTag()))
+})
+const searchedCourses = computed(() => {
+  const keyword = query.value.trim().toLocaleLowerCase()
+  if (!keyword) return courseStore.courseList
+  return courseStore.courseList.filter(course => [course.course_name, course.course_code, course.academic_year, course.term].some(value => String(value || '').toLocaleLowerCase().includes(keyword)))
+})
+const termFilteredCourses = computed(() => termFilter.value === 'all' ? searchedCourses.value : searchedCourses.value.filter(course => courseTermKey(course) === termFilter.value))
+const filteredCourses = computed(() => sortCourses(statusFilter.value === 'all' ? termFilteredCourses.value : termFilteredCourses.value.filter(course => courseFilterKey(course) === statusFilter.value)))
+const statusFilterOptions = computed<Array<{ value: CourseStatusFilter; label: string; count: number }>>(() => {
+  const counts: Record<CourseStatusFilter, number> = { all: termFilteredCourses.value.length, preparing: 0, prepared: 0 }
+  termFilteredCourses.value.forEach(course => { counts[courseFilterKey(course)] += 1 })
+  return [
+    { value: 'all', label: t('teacherCourseLibrary.allCourses'), count: counts.all },
+    { value: 'preparing', label: t('teacherCourseLibrary.preparingCourses'), count: counts.preparing },
+    { value: 'prepared', label: t('teacherCourseLibrary.preparedCourses'), count: counts.prepared },
+  ]
+})
+const statusMenuOptions = computed(() => statusFilterOptions.value.map(option => ({ value: option.value, label: option.label, count: option.count })))
+const termMenuOptions = computed(() => [{ value: 'all', label: t('teacherCourseLibrary.allTerms') }, ...termFilterOptions.value])
 const hasActiveFilters = computed(() => Boolean(query.value.trim()) || statusFilter.value !== 'all' || termFilter.value !== 'all')
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredCourses.value.length / COURSES_PER_PAGE)))
 const paginatedCourses = computed(() => {
@@ -247,8 +294,8 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
 watch([query, statusFilter, termFilter, sortMode, sortDirection], () => {
   currentPage.value = 1
   clearSelection()
+  if (!embedded) void router.replace({ query: libraryQuery() })
 })
-watch([sortMode, sortDirection], () => { void router.replace({ query: { ...route.query, sort: sortMode.value, dir: sortDirection.value } }) })
 watch(totalPages, pages => { if (currentPage.value > pages) currentPage.value = pages })
 
 onMounted(async () => {
@@ -265,6 +312,8 @@ onBeforeUnmount(() => {
   progressRefreshTimer = null
 })
 
+function setStatusFilter(value: string) { statusFilter.value = value as CourseStatusFilter }
+function setTermFilter(value: string) { termFilter.value = value }
 function clearSelection() { selectedCourseIds.value = new Set() }
 function toggleCourseSelection(courseId: string, event: Event) {
   const checked = (event.target as HTMLInputElement).checked
@@ -284,6 +333,12 @@ async function selectPage(page: number) {
   document.querySelector('.course-table-region')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
 }
 function localeTag() { return activeLocale.value === 'zh' ? 'zh-CN' : 'en-US' }
+function courseTermKey(course: Course) {
+  const academicYear = String(course.academic_year || '').trim()
+  const term = String(course.term || '').trim()
+  return academicYear || term ? `${academicYear}\u0000${term}` : ''
+}
+function courseTermLabel(course: Course) { return [course.academic_year, course.term].map(value => String(value || '').trim()).filter(Boolean).join(' ') || t('teacherCourseLibrary.termUnset') }
 function parseCourseDate(value?: string) {
   if (!value) return null
   const parsed = new Date(value.includes('T') ? value : `${value}T12:00:00`)
@@ -353,6 +408,9 @@ function courseProduction(course: Course): CourseProductionView {
     query: issue ? issueNavigationQuery(issue) : { stage: workbenchStageForProduction(stageKey) },
   }
 }
+function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> {
+  return readCourseProductionStateWithLegacy(course, generationStore.getTask(course.course_id)).preparation_state
+}
 function libraryQuery() {
   return { view: 'courses', ...(query.value ? { q: query.value } : {}), ...(statusFilter.value !== 'all' ? { status: statusFilter.value } : {}), ...(termFilter.value !== 'all' ? { term: termFilter.value } : {}), sort: sortMode.value, dir: sortDirection.value }
 }
@@ -420,7 +478,7 @@ async function deleteSelectedCourses() {
 <style scoped>
 .course-library,.course-library *{box-sizing:border-box}
 .course-library{width:100%;height:100%;overflow:auto;padding:24px clamp(20px,3.2vw,44px) 40px;color:var(--lz-text);background:#f5f6f8}.course-library--embedded{border:0;border-radius:0;box-shadow:none}
-.library-toolbar{width:100%;max-width:1320px;min-height:42px;margin:0 auto 18px;display:flex;align-items:center;gap:10px}.toolbar-spacer{flex:1}.toolbar-loading{display:inline-flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}
+.library-toolbar{width:100%;max-width:1320px;min-height:42px;margin:0 auto 18px;display:flex;align-items:center;gap:10px}.library-search{height:42px;min-width:320px;flex:1 1 520px;display:flex;align-items:center;gap:9px;padding:0 13px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-muted);background:var(--lz-surface)}.library-search:focus-within{border-color:var(--lz-brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--lz-brand) 12%,transparent)}.library-search input{min-width:0;flex:1;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.library-search input::placeholder{color:var(--lz-text-muted)}.library-toolbar :deep(.ui-select-menu){width:164px;flex:0 0 164px}.toolbar-spacer{flex:1}.toolbar-loading{display:inline-flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}
 .library-toolbar--selecting{padding:0 2px}.selection-summary{margin:0;color:var(--lz-text-strong);font-size:14px;font-weight:750}.toolbar-button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.toolbar-button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.toolbar-button--danger{border-color:color-mix(in srgb,var(--lz-danger) 32%,var(--lz-border));color:var(--lz-danger)}.toolbar-button--danger:hover:not(:disabled){border-color:var(--lz-danger);color:var(--lz-danger);background:var(--lz-danger-soft)}.toolbar-button:disabled{opacity:.55;cursor:not-allowed}
 .library-inline-error{max-width:1320px;min-height:38px;margin:-8px auto 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-danger) 22%,var(--lz-border));color:var(--lz-danger);font-size:12px}.library-inline-error button,.library-state button{height:32px;padding:0 11px;border:1px solid currentColor;border-radius:7px;color:inherit;background:transparent;font-size:12px;font-weight:700;cursor:pointer}
 .course-table-region{width:100%;max-width:1320px;margin:0 auto;scroll-margin-top:18px;overflow-x:auto;border:1px solid var(--lz-border);border-radius:12px;background:var(--lz-surface);box-shadow:0 1px 2px rgba(30,41,59,.025)}.course-table{width:100%;min-width:1060px;border-collapse:collapse;table-layout:fixed;text-align:left}.course-table th{height:42px;padding:0 12px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:#f8f9fa;font-size:12px;font-weight:700}.course-table th:nth-child(2){width:29%}.course-table th:nth-child(3){width:20%}.course-table th:nth-child(4){width:18%}.course-table th:nth-child(5){width:12%}.course-table th:nth-child(6){width:11%}.course-table th.actions-column{width:154px;text-align:center}.course-table th.selection-column{width:46px}.column-sort{height:100%;display:flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.column-sort:hover,.column-sort:focus-visible{color:var(--lz-brand-strong);outline:none}.column-sort:focus-visible{text-decoration:underline;text-underline-offset:4px}
@@ -430,5 +488,5 @@ async function deleteSelectedCourses() {
 .actions-column{text-align:center}.course-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px}.course-action{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer}.course-action svg{opacity:0;transform:translateX(-2px);transition:opacity .15s ease,transform .15s ease}.course-action:hover,.course-action:focus-visible{border-color:var(--lz-brand);background:var(--lz-brand-soft);outline:none}.course-action:hover svg,.course-action:focus-visible svg{opacity:1;transform:translateX(0)}.course-action:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-brand) 24%,transparent)}.delete-course-button{width:32px;height:32px;display:inline-grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.delete-course-button:hover:not(:disabled),.delete-course-button:focus-visible{color:var(--lz-danger);background:var(--lz-danger-soft);outline:none}.delete-course-button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-danger) 28%,transparent)}.delete-course-button:disabled{opacity:.45;cursor:not-allowed}
 .library-pagination{min-height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-top:1px solid var(--lz-border)}.library-pagination button{height:32px;min-width:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.library-pagination button:hover:not(:disabled),.library-pagination button:focus-visible{color:var(--lz-brand-strong);background:var(--lz-brand-soft);outline:none}.library-pagination button.active{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.library-pagination button:disabled{color:var(--lz-text-muted);cursor:not-allowed;opacity:.52}.pagination-pages{display:flex;align-items:center;gap:2px}.pagination-ellipsis{width:24px;color:var(--lz-text-muted);text-align:center}.pagination-direction{min-width:78px!important}
 .library-state{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center}.library-state strong{color:var(--lz-text-strong);font-size:15px}.library-state span{max-width:420px;font-size:12px;line-height:1.55}.library-state--error{color:var(--lz-danger)}.library-state--error strong{color:var(--lz-danger)}.library-state--error button{margin-top:4px}.spin{animation:spin .85s linear infinite}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1100px){.course-library{padding-inline:20px}.library-toolbar{align-items:stretch;flex-wrap:wrap}.course-table-region{max-width:100%}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.course-main,.course-action,.delete-course-button,.toolbar-button,.library-pagination button{scroll-behavior:auto;transition:none}}
+@media(max-width:1100px){.course-library{padding-inline:20px}.library-toolbar{align-items:stretch;flex-wrap:wrap}.library-search{min-width:100%;flex-basis:100%}.course-table-region{max-width:100%}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.course-main,.course-action,.delete-course-button,.toolbar-button,.library-pagination button{scroll-behavior:auto;transition:none}}
 </style>

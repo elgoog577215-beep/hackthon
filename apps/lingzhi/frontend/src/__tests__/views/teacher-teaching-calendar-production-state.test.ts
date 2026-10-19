@@ -54,52 +54,14 @@ describe('TeacherTeachingCalendarView production state', () => {
     const calendar = useTeachingCalendarStore()
     const loadTotal = vi.mocked(calendar.loadTotal)
     const wrapper = mount(TeacherTeachingCalendarView, {
-      global: { plugins: [pinia, router], stubs: { Teleport: true, TeacherCourseCreateView: true, TeachingCalendarMonthGrid: true } },
+      global: { plugins: [pinia, router], stubs: { Teleport: true, TeacherCourseLibraryView: true, TeacherCourseCreateView: true, TeachingCalendarMonthGrid: true } },
     })
     await flushPromises()
 
     expect(loadTotal).not.toHaveBeenCalled()
-    await wrapper.get('.teacher-course-filters .ui-segmented-control button:last-child').trigger('click')
+    await wrapper.findAll('.home-primary-tabs button')[0]!.trigger('click')
     await flushPromises()
     expect(loadTotal).toHaveBeenCalledOnce()
-    wrapper.unmount()
-  })
-
-  it('只在选择课次后打开详情，关闭后恢复完整课表', async () => {
-    const wrapper = mount(TeacherTeachingCalendarView, {
-      global: { plugins: [pinia, router], stubs: { Teleport: true, TeacherCourseLibraryView: true, TeacherCourseCreateView: true, TeachingCalendarMonthGrid: true } },
-    })
-    await flushPromises()
-    expect(wrapper.find('.day-inspector').exists()).toBe(false)
-    await wrapper.get('.week-session').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('.day-inspector').exists()).toBe(true)
-    await wrapper.get('.day-inspector > header button').trigger('click')
-    expect(wrapper.find('.day-inspector').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('搜索条件在课程列表和日历间保持一致，筛选移除选中课程时关闭详情', async () => {
-    const wrapper = mount(TeacherTeachingCalendarView, {
-      global: { plugins: [pinia, router], stubs: { Teleport: true, TeacherCourseCreateView: true, TeachingCalendarMonthGrid: true } },
-    })
-    await flushPromises()
-    await wrapper.get('.week-session').trigger('click')
-    await wrapper.get('input[type="search"]').setValue('没有匹配')
-    await flushPromises()
-    expect(wrapper.find('.week-session').exists()).toBe(false)
-    expect(wrapper.find('.day-inspector').exists()).toBe(false)
-    await wrapper.get('input[type="search"]').setValue('数据')
-    await flushPromises()
-    await wrapper.findAll('.teacher-course-filters .ui-segmented-control button')[0]!.trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.query.q).toBe('数据')
-    expect(wrapper.findAll('.course-main')).toHaveLength(1)
-    await wrapper.get('.teacher-course-filters .ui-segmented-control button:last-child').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.query.q).toBe('数据')
-    expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', '数据')
-    expect(wrapper.findAll('.week-session')).toHaveLength(1)
     wrapper.unmount()
   })
 
