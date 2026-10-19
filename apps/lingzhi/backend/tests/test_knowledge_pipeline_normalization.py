@@ -1,12 +1,13 @@
 """Regression for the L4 duplicate and correction-boundary failures."""
 from copy import deepcopy
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from backend.tests.test_knowledge_first import svc
-from backend.tests.test_knowledge_atomic import setup_course
-from backend.tests.test_knowledge_extraction_repair import point, value
+from backend.tests.test_knowledge_atomic import setup_course, start
+from backend.tests.test_knowledge_extraction_repair import point, value, keep_review
 from course_repository import CourseDocumentConflict
 
 
@@ -122,3 +123,35 @@ async def test_equivalence_cannot_merge_unrelated_questions(svc, monkeypatch):
     monkeypatch.setattr('knowledge_atomic.call_stage', call)
     with pytest.raises(CourseDocumentConflict):
         await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+
+
+@pytest.mark.asyncio
+async def test_cross_batch_wording_collision_is_reconciled_before_classification(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    state = svc.authoring.load('c-pilot')
+    blocks = state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks']
+    blocks.append({**deepcopy(blocks[0]), 'block_id': 'another-source'})
+    svc.authoring._save(state)
+    monkeypatch.setattr('knowledge_extract.extraction_groups', lambda context: [['S1'], ['S2']])
+    calls = []
+    async def model(prompt, **kwargs):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
+        if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
+        if payload['stage'] == 'extract':
+            k = payload['source_passages'][0]['key']
+            return json.dumps({'response_contract': 'knowledge_extract_v9', 'passages': {k: {'points': [
+                point(value='插入栈顶' if k == 'S1.1' else '将元素插入栈顶')], 'note': None}}, 'source_issues': []})
+        assert payload['stage'] == 'extract_repair'
+        return json.dumps({'repairs': {
+            'S1.1:0': {'handling': 'replace', 'points': [point(value='插入栈顶')], 'reason': '规范命题'},
+            'S2.1:0': {'handling': 'merge', 'merge_into': 'S1.1:0', 'reason': '同一插入操作的同义总结'}}, 'source_issues': []})
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test', client=None)
+    job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'completed'
+    assert calls.count('extract_repair') == 1
+    candidate = saved['checkpoint']['candidate']
+    assert candidate['atomic_assessment']['ready_for_adoption']
+    assert len(candidate['knowledge_points']) == 1
+    assert len(candidate['knowledge_points'][0]['source_quotes']) == 2
+    assert saved['checkpoint']['atomic_pipeline']['reconciliation']['status'] == 'completed'
