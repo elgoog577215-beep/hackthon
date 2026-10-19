@@ -8252,5 +8252,31 @@
     "courseHelp": "Reading, practice, mistakes, knowledge and overview use the same course and learning records.",
     "backReading": "Return to handout",
     "space": "Learning space"
+  },
+  "workspaceUi": {
+    "myCourses": "My courses",
+    "teacherCourses": "Teacher courses",
+    "ownedCourses": "My own courses",
+    "allCourses": "All courses",
+    "searchCourses": "Search courses",
+    "newCourse": "Create / import",
+    "courseCards": "Course cards",
+    "manageCourses": "Manage courses",
+    "courseHelp": "Choose a course and continue learning.",
+    "courseDetails": "Course resources & communication",
+    "noMatch": "No matching courses",
+    "emptyCourses": "No courses yet. Create or import your first course.",
+    "ownedOrigin": "Your own course",
+    "teacherOrigin": "Provided by your teacher",
+    "readCourse": "Start learning",
+    "openCourse": "Open preparation",
+    "directory": "Reading contents",
+    "backToCourses": "Back to my courses",
+    "courseMaterials": "Personal learning materials",
+    "insights": "Learning analysis",
+    "insightsEmpty": "No formal learning evidence to summarize yet",
+    "insightsHelp": "Review received attempt receipts and course questions. Knowledge mastery requires explicit bindings and sufficient evidence; no inferred scores are shown.",
+    "noContents": "Contents will appear here after generation.",
+    "invalidCourseList": "Courses could not be read. Please retry."
   }
 }

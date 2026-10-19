@@ -1,6 +1,6 @@
 <template>
   <main class="course-workspace-page">
-    <Teleport to="#app-header-route-context">
+    <Teleport to="#app-header-route-context" defer>
       <div class="workspace-route-context">
         <button class="back-button" type="button" :aria-label="t('courseFiles.backToCourses')" @click="backToSource">
           <ArrowLeft :size="17" />
@@ -11,7 +11,7 @@
       </div>
     </Teleport>
 
-    <Teleport to="#app-header-route-center">
+    <Teleport to="#app-header-route-center" defer>
       <nav class="workspace-view-switch" :aria-label="t('courseFiles.views.label')">
         <button type="button" :class="{ active: workspaceView === 'categories' }" @click="changeWorkspaceView('categories')">
           <LayoutGrid :size="15" />{{ t('courseFiles.views.categories') }}
@@ -19,10 +19,11 @@
         <button type="button" :class="{ active: workspaceView === 'files' }" @click="changeWorkspaceView('files')">
           <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
         </button>
+        <button type="button" :class="{ active: workspaceView === 'insights' }" @click="changeWorkspaceView('insights')"><ChartNoAxesCombined :size="15" />{{ t('workspaceUi.insights') }}</button>
       </nav>
     </Teleport>
 
-    <Teleport to="#app-header-route-actions">
+    <Teleport to="#app-header-route-actions" defer>
       <div class="workspace-route-actions">
         <el-popover v-if="workspaceView === 'files'" placement="bottom-end" :width="280" trigger="click">
           <template #reference>
@@ -43,7 +44,7 @@
         >
           <ScanSearch :size="16" />
         </CourseWorkspaceHeaderAction>
-        <CoursePublicationPanel :course-id="courseId" />
+        <CoursePublicationPanel ref="publicationPanel" :course-id="courseId" />
         <CourseWorkspaceHeaderAction class="preview-action" :label="t('courseFiles.previewCourse')" :display-label="t('courseFiles.headerActions.preview')" primary @click="openCoursePreview"><Eye :size="16" /></CourseWorkspaceHeaderAction>
       </div>
     </Teleport>
@@ -87,7 +88,7 @@
             @location-change="handleWorkbenchLocation"
           />
           <TeacherCourseSpaceView
-            v-else
+            v-else-if="workspaceView === 'files'"
             key="files"
             embedded
             :course-id="courseId"
@@ -107,6 +108,7 @@
             @readiness-change="readiness = $event"
             @edit-baseline="courseInformationOpen = true"
           />
+          <TeacherLearningAnalysis v-else key="insights" :course-id="courseId" @feedback="publicationPanel?.showFeedback()" />
         </Transition>
       </section>
     </Transition>
@@ -161,13 +163,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
+import { ChartNoAxesCombined, ArrowLeft, ArrowRight, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseDialogShell from '../components/CourseDialogShell.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
+import TeacherLearningAnalysis from '../components/TeacherLearningAnalysis.vue'
 import CoursePublicationPanel from '../components/CoursePublicationPanel.vue'
 import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
@@ -188,7 +191,8 @@ const route = useRoute()
 const router = useRouter()
 const workbench = ref<{ finishEditing: () => Promise<boolean> } | null>(null)
 const finishWorkbenchEditing = async () => await workbench.value?.finishEditing() ?? true
-async function changeWorkspaceView(view: 'files' | 'categories') {
+const publicationPanel = ref<InstanceType<typeof CoursePublicationPanel> | null>(null)
+async function changeWorkspaceView(view: 'files' | 'categories' | 'insights') {
   if (view !== workspaceView.value && !await finishWorkbenchEditing()) return
   workspaceView.value = view
 }
@@ -213,9 +217,7 @@ const generationStarting = ref(false)
 const materialRefreshToken = ref(0)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
-const workspaceView = ref<'files' | 'categories'>(
-  route.query.view === 'files' ? 'files' : 'categories',
-)
+const workspaceView = ref<WorkspaceLocation['view']>(readWorkspaceLocation(route.query).view)
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const requestedLessonId = ref('')
 const requestedKnowledge = ref(false)

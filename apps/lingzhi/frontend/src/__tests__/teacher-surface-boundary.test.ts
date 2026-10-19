@@ -11,7 +11,7 @@ describe('calendar and course file-space boundary', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const loadWorkspace = workspace.match(/async function loadWorkspace\(\) \{[\s\S]*?\n\}/)?.[0] || ''
     const blueprintRead = loadWorkspace.indexOf('courseWorkspace.loadBlueprint(requestedCourseId)')
-    const lessonRead = loadWorkspace.indexOf('const lessonLoad = lessonStore.load(requestedCourseId)')
+    const lessonRead = loadWorkspace.indexOf('const lessonLoad = lessonStore.loadSummary(requestedCourseId)')
     const criticalRead = loadWorkspace.indexOf('const [courseInformation, primaryContent] = await Promise.all([')
 
     expect(criticalRead).toBeGreaterThan(0)
@@ -138,9 +138,9 @@ describe('calendar and course file-space boundary', () => {
     expect(workbench).toContain('<CourseOutlineReview')
     expect(workspace).not.toContain('<GenerationLessonPlan')
     expect(workbench).toContain('<TeacherLessonPlanDocument')
-    expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
-    expect(workspace).toContain('<Teleport to="#app-header-route-context">')
-    expect(workspace).toContain('<Teleport to="#app-header-route-center">')
+    expect(workspace).toContain('<Teleport to="#app-header-route-actions" defer>')
+    expect(workspace).toContain('<Teleport to="#app-header-route-context" defer>')
+    expect(workspace).toContain('<Teleport to="#app-header-route-center" defer>')
     expect(app).toContain('id="app-header-route-context"')
     expect(app).toContain('id="app-header-route-center"')
     expect(workspace).toContain('class="workspace-search workspace-search--popover"')
@@ -184,7 +184,7 @@ describe('calendar and course file-space boundary', () => {
     expect(workbench).toContain('initialLessonId?: string')
   })
 
-  it('uses one compact course management table with direct and batch deletion', () => {
+  it('keeps explicit course management beside the default course cards', () => {
     const library = source('views/TeacherCourseLibraryView.vue')
 
     expect(library).toContain('class="course-table"')
@@ -199,7 +199,8 @@ describe('calendar and course file-space boundary', () => {
     expect(library).toContain('courseStore.deleteCourses(ids, { surface: \'teacher\' })')
     expect(library).not.toContain('UiSegmentedControl')
     expect(library).not.toContain('aria-haspopup="menu"')
-    expect(library).not.toContain('course-grid')
+    expect(library).toContain('teacher-course-grid')
+    expect(library).toContain('library-layout-switch')
   })
 
   it('opens both teaching calendars on the Zhejiang University weekly timetable', () => {

@@ -76,6 +76,7 @@ const bootstrap = async () => {
     app.use(pinia)
     app.use(router)
 
+    await router.isReady()
     app.mount('#app')
   } catch (e) {
     trackClientError('router_error')

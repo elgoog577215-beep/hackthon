@@ -5,7 +5,7 @@ vi.mock('highlight.js/styles/atom-one-dark.css', () => ({}));
 import { renderMarkdown } from '@/utils/markdown';
 import { renderFailures, resetRenderFailures } from '@/utils/render-diagnostics';
 
-const broken = String.raw`\mathbf{u} + \mathbf{v} = (u_1 + v_1, \u_2 + v_2)`;
+const broken = String.raw`\mathbf{u} + \mathbf{v} = (u_1 + v_1, ${String.fromCharCode(92)}u_2 + v_2)`;
 const correct = String.raw`\mathbf{u} + \mathbf{v} = (u_1 + v_1, u_2 + v_2)`;
 const dom = (source: string) => {
   const box = document.createElement('div');
@@ -29,14 +29,14 @@ describe('indexed variable escape compatibility with real KaTeX', () => {
   });
 
   it('handles more than one damaged component without changing operands or operators', () => {
-    const box = dom(String.raw`$$\mathbf{u}+\mathbf{v}=(u_1+v_1,\u_2+\v_2,\u_3-\v_3,\u_4+\v_4)$$`);
+    const box = dom(String.raw`$$\mathbf{u}+\mathbf{v}=(u_1+v_1,${String.fromCharCode(92)}u_2+\v_2,${String.fromCharCode(92)}u_3-\v_3,${String.fromCharCode(92)}u_4+\v_4)$$`);
     const expected = dom(String.raw`$$\mathbf{u}+\mathbf{v}=(u_1+v_1,u_2+v_2,u_3-v_3,u_4+v_4)$$`);
     expect(box.querySelectorAll('.math-fallback')).toHaveLength(0);
     expect(box.querySelector('.katex')?.outerHTML).toBe(expected.querySelector('.katex')?.outerHTML);
   });
 
   it('accepts an already established indexed variable without requiring bold notation', () => {
-    const box = dom(String.raw`$$x_1+\x_2=x_3$$`);
+    const box = dom(String.raw`$$x_1+${String.fromCharCode(92)}x_2=x_3$$`);
     expect(box.querySelectorAll('.math-fallback')).toHaveLength(0);
     expect(box.querySelector('.katex')?.outerHTML).toBe(dom(String.raw`$$x_1+x_2=x_3$$`).querySelector('.katex')?.outerHTML);
   });
@@ -44,7 +44,7 @@ describe('indexed variable escape compatibility with real KaTeX', () => {
   it('leaves valid accents, commands and matrix row breaks intact', () => {
     const box = dom(String.raw`$\text{\u{a}, \v{c}}$ and $\hat{u}_2+\partial_1 f$.
 
-$$\begin{bmatrix}u_1 \\u_2\end{bmatrix}$$`);
+$$\begin{bmatrix}u_1 \${String.fromCharCode(92)}u_2\end{bmatrix}$$`);
     expect(box.querySelectorAll('.katex')).toHaveLength(3);
     expect(box.querySelectorAll('.math-fallback,.katex-error')).toHaveLength(0);
     expect(box.querySelectorAll('.mord.accent').length).toBeGreaterThan(0);
@@ -53,8 +53,8 @@ $$\begin{bmatrix}u_1 \\u_2\end{bmatrix}$$`);
   });
 
   it.each([
-    String.raw`\u_2`,
-    String.raw`\text{u_1}+\u_2`,
+    String.raw`${String.fromCharCode(92)}u_2`,
+    String.raw`\text{u_1}+${String.fromCharCode(92)}u_2`,
     String.raw`\mathbf{u}+\unknown_2`,
     String.raw`\mathbf{u}+\u{`,
   ])('preserves source and reports errors when a repair is ambiguous or unrelated: %s', formula => {
@@ -65,7 +65,7 @@ $$\begin{bmatrix}u_1 \\u_2\end{bmatrix}$$`);
   });
 
   it('preserves a text accent next to an established vector variable', () => {
-    const box = dom(String.raw`$$\mathbf{u}+\text{\u_2}$$`);
+    const box = dom(String.raw`$$\mathbf{u}+\text{${String.fromCharCode(92)}u_2}$$`);
     const expected = dom(String.raw`$$\mathbf{u}+\text{\u{\_}2}$$`);
     expect(box.querySelectorAll('.math-fallback')).toHaveLength(0);
     expect(box.querySelector('.katex')?.textContent).toBe(expected.querySelector('.katex')?.textContent);

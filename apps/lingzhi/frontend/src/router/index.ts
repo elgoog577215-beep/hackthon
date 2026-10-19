@@ -27,7 +27,7 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/',
-    redirect: '/courses'
+    redirect: import.meta.env.VITE_APP_SURFACE === 'student' ? '/study' : '/courses'
   },
   {
     path: '/courses',
@@ -99,7 +99,7 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/:pathMatch(.*)*',
-    redirect: '/courses'
+    redirect: import.meta.env.VITE_APP_SURFACE === 'student' ? '/study' : '/courses'
   }
 ]
 
@@ -109,8 +109,12 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (import.meta.env.VITE_APP_SURFACE === 'student' && (to.meta.identityScope === 'teacher' || to.query.teacherPreview === '1')) return { name: 'study' }
   if (to.name === 'learning' && to.query.teacherPreview !== '1') {
-    if (!getStudyToken() && !getQizhiAccessToken()) return { name: 'study', query: { returnTo: to.fullPath } }
+    if (!getStudyToken() && !getQizhiAccessToken()) {
+      const development = await studyApi.config().catch(() => null)
+      if (!development?.development_identity) return { name: 'study', query: { returnTo: to.fullPath } }
+    }
     try { setStudyIdentity(await studyApi.me()) }
     catch { setStudyIdentity(null); return { name: 'study', query: { returnTo: to.fullPath } } }
   }

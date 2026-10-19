@@ -8252,5 +8252,31 @@
     "courseHelp": "进入课程后，阅读、练习、错题、知识树和学习概况使用同一份课程与学习记录。",
     "backReading": "返回讲义",
     "space": "学习空间"
+  },
+  "workspaceUi": {
+    "myCourses": "我的课程",
+    "teacherCourses": "教师课程",
+    "ownedCourses": "自建课程",
+    "allCourses": "全部课程",
+    "searchCourses": "搜索课程",
+    "newCourse": "新建／导入",
+    "courseCards": "课程卡片",
+    "manageCourses": "管理课程",
+    "courseHelp": "选择一门课程，继续上次的学习。",
+    "courseDetails": "课程资料与沟通",
+    "noMatch": "没有匹配的课程",
+    "emptyCourses": "还没有课程，先新建或导入一门课程。",
+    "ownedOrigin": "自己的课程",
+    "teacherOrigin": "教师提供",
+    "readCourse": "进入学习",
+    "openCourse": "进入备课",
+    "directory": "阅读目录",
+    "backToCourses": "返回我的课程",
+    "courseMaterials": "个人学习材料",
+    "insights": "学情分析",
+    "insightsEmpty": "尚无可汇总的正式学习证据",
+    "insightsHelp": "这里展示本课程已收到的作答回执与课程提问。班级掌握分布需要知识绑定和充分证据，暂不生成推断分数。",
+    "noContents": "内容生成后，目录会显示在这里。",
+    "invalidCourseList": "课程暂时无法读取，请稍后重试。"
   }
 }

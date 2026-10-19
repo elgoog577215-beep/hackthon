@@ -2,17 +2,14 @@
   <div class="study-space">
     <header class="study-header glass-panel-elevated">
       <StudentBrand />
-      <nav v-if="user && !materialId && !creating" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
-        <button :class="{ active: !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')">{{ t('studentWorkspace.home') }}</button>
-        <button :class="{ active: route.query.view === 'courses' }" @click="openStudySection('courses')">{{ c('authorizedCourses') }}</button>
-        <button :class="{ active: route.query.view === 'materials' }" @click="goLibrary">{{ c('library') }}</button>
-        <button data-testid="student-create-handout" @click="startNew()"><Plus :size="16" />{{ c('create') }}</button>
+      <nav v-if="user" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
+        <button type="button" :aria-current="!materialId && !creating ? 'page' : undefined" :class="{ active: !materialId && !creating }" @click="openStudySection('home')">{{ t('workspaceUi.myCourses') }}</button>
       </nav>
       <div class="study-header-actions">
         <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
         <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
         <span v-if="user" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
-        <button v-if="user" @click="logout">{{ c('logout') }}</button>
+        <button v-if="user && !developmentMode" @click="logout">{{ c('logout') }}</button>
       </div>
     </header>
     <div v-if="error" class="study-error" role="alert">{{ error }}<button @click="reconnect">{{ c('retry') }}</button></div>
@@ -31,27 +28,27 @@
 
     <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId, 'is-library': !materialId && !creating }" :style="columnLayoutStyle">
       <aside v-if="materialId || creating" class="study-navigation">
-        <span class="study-eyebrow">{{ t('studentWorkspace.space') }}</span>
-        <button :class="{ active: !materialId && !creating && !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')"><BookOpen :size="19" />{{ t('studentWorkspace.home') }}</button>
-        <button :class="{ active: !materialId && !creating && route.query.view === 'materials' }" @click="goLibrary"><LibraryBig :size="19" />{{ c('library') }}</button>
-        <button data-testid="student-create-handout" :class="{ active: creating }" @click="startNew()"><Plus :size="19" />{{ c('create') }}</button>
-        <button :class="{ active: !materialId && !creating && route.query.view === 'courses' }" @click="openStudySection('courses')"><GraduationCap :size="19" />{{ c('authorizedCourses') }}</button>
-        <div class="recent-materials"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" :class="{ active: materialId === item.id }"><span class="material-dot" :class="item.purpose" /><span>{{ item.title }}<small>{{ c(item.purpose) }}</small></span></RouterLink></div>
-        <p class="study-nav-hint"><LockKeyhole :size="16" />{{ c('savedHint') }}</p>
+        <button type="button" class="study-back" @click="goLibrary"><ArrowLeft :size="17" />{{ t('workspaceUi.backToCourses') }}</button>
+        <template v-if="materialId">
+          <header class="study-directory-heading"><BookOpen :size="18" /><strong>{{ t('workspaceUi.directory') }}</strong></header>
+          <h2 class="study-directory-title">{{ material?.title }}</h2>
+          <nav class="study-chapter-list" :aria-label="t('workspaceUi.directory')">
+            <button v-for="(section, index) in readingSections" :key="section.id" type="button" :class="{ active: activeChapter === section.id }" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="navigateChapter(section.id)"><span class="study-chapter-number">{{ String(index + 1).padStart(2, '0') }}</span><span>{{ section.title }}</span></button>
+          </nav>
+          <p v-if="!readingSections.length" class="study-nav-hint">{{ t('workspaceUi.noContents') }}</p>
+        </template>
+        <template v-else>
+          <header class="study-directory-heading"><Plus :size="18" /><strong>{{ c('create') }}</strong></header>
+          <nav class="study-create-steps" :aria-label="c('create')"><a href="#study-create-sources">{{ c('sourceHeading') }}</a><a href="#study-create-purpose">{{ c('purposeHeading') }}</a><a href="#study-create-settings">{{ c('settingsHeading') }}</a></nav>
+        </template>
       </aside>
 
       <ColumnResizeHandle v-if="materialId || creating" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
-        <StudentCourseLibrary v-if="!creating && route.query.view === 'courses'" ref="authorizedCourses" :key="user.id" :user-id="user.id" @source="createFromCourse" />
-        <StudentLearningHome v-else-if="!creating && route.query.view !== 'materials'" :user-id="user.id" :materials="library" @create="startNew" @source="createFromCourse" />
-        <div v-else-if="!creating" class="study-library">
-          <div class="study-page-heading"><div><span class="study-eyebrow">MY MATERIALS</span><h1>{{ c('library') }}</h1><p>{{ c('intro') }}</p></div><button class="study-primary" @click="startNew()"><Plus :size="18" />{{ c('create') }}</button></div>
-          <div v-if="library.length" class="study-material-grid"><RouterLink v-for="item in library" :key="item.id" :to="`/study/${item.id}`" class="study-material-card"><span class="material-mode" :class="item.purpose"><Target v-if="item.purpose === 'exam_prep'" :size="18" /><BookOpen v-else :size="18" />{{ c(item.purpose) }}</span><h2>{{ item.title }}</h2><p>{{ c(item.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><footer><span class="study-status" :class="item.status">{{ statusLabel(item.status) }}</span><ArrowUpRight :size="22" /></footer></RouterLink></div>
-          <div v-else class="study-empty"><div class="empty-books"><BookOpen :size="46" /></div><h2>{{ c('emptyLibrary') }}</h2><p>{{ c('emptyHint') }}</p><button class="study-primary" @click="startNew()">{{ c('create') }}<ArrowRight :size="18" /></button></div>
-        </div>
+        <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
           <div class="study-page-heading"><div><span class="study-eyebrow">CREATE YOUR HANDOUT</span><h1>{{ c('create') }}</h1><p>{{ c('intro') }}</p></div></div>
-          <section class="study-form-section"><h2>{{ c('sourceHeading') }}</h2><p>{{ c('sourceHint') }}</p>
+          <section id="study-create-sources" class="study-form-section"><h2>{{ c('sourceHeading') }}</h2><p>{{ c('sourceHint') }}</p>
             <div class="study-source-actions"><input ref="sourceFileInput" class="study-upload-input" type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy || busy" multiple @change="uploadFiles" /><button type="button" class="study-upload" :disabled="sourceBusy || busy" @click="sourceFileInput?.click()"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}</button><button type="button" class="study-paste-toggle" :disabled="sourceBusy || busy" :aria-expanded="pasting" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
             <div v-if="pasting" class="study-paste"><label>{{ c('sourceTitle') }}<input v-model="sourceTitle" maxlength="160" /></label><label>{{ c('sourceContent') }}<textarea v-model="sourceText" rows="8" maxlength="120000" /></label><button type="button" :disabled="sourceBusy || !sourceTitle.trim() || !sourceText.trim()" @click="addText">{{ sourceBusy ? c('busy') : c('addSource') }}</button></div>
             <p v-if="!sources.length && !pasting" class="study-source-empty">{{ c('emptySources') }}</p>
@@ -59,21 +56,21 @@
             <p class="study-range-hint">{{ c('rangeLimit') }}</p>
             <div v-if="hasInvalidRanges && !busy" class="study-range-recovery" role="status"><span>{{ c('invalidRanges') }}</span><button type="button" @click="removeInvalidRanges">{{ c('removeInvalidRanges') }}</button></div>
           </section>
-          <section class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
-          <section class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<input v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<textarea v-model="form.requirements" rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label></section>
+          <section id="study-create-purpose" class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
+          <section id="study-create-settings" class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<input v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<textarea v-model="form.requirements" rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label></section>
           <div class="study-generate-bar"><div><strong>{{ selectedRanges.length }} / 6 · {{ c('scope') }}</strong><p>{{ c('personalCourseHint') }}</p><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
         </form>
       </section>
 
       <template v-else>
         <div class="study-reading-pane">
-          <div class="study-reading-toolbar"><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
+          <div class="study-reading-toolbar"><strong class="study-reading-title">{{ material?.title }}</strong><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
           <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="toolTab = 'assistant'">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
           <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
             <article class="study-handout">
               <header class="study-handout-cover"><span class="study-eyebrow">{{ c(material.purpose) }}</span><h1>{{ material.title }}</h1><p>{{ c(material.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><div class="handout-rule" /></header>
               <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
-              <HandoutTableOfContents v-if="readingSections.length" :entries="readingSections.map(section => ({ id: section.anchor, title: section.title }))" collapsible />
+
               <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
               <p v-if="materialStatus === 'completed'" class="study-end"><Check :size="17" />{{ c('finishReading') }}</p>
             </article>
@@ -94,11 +91,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Check, ClipboardPaste, Download, FileText, GraduationCap, LibraryBig, LockKeyhole, Plus, Target, Upload, UserRound } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Plus, Target, Upload, UserRound } from 'lucide-vue-next'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
-import HandoutTableOfContents from '../components/HandoutTableOfContents.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
@@ -106,7 +102,6 @@ import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPu
 import { activeLocale, setLocale, t } from '../shared/i18n'
 import StudentBrand from '../components/StudentBrand.vue'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
-import StudentCourseLibrary from '../components/StudentCourseLibrary.vue'
 import StudentLearningHome from '../components/StudentLearningHome.vue'
 import { setStudyIdentity } from '../utils/study-identity'
 import { buildHandoutConceptSections } from '../utils/handout-concepts'
@@ -115,6 +110,7 @@ import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
 
 const router = useRouter(), route = useRoute()
+const developmentMode = ref(false)
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
@@ -146,7 +142,17 @@ function followChapter() {
   const boundary = root.getBoundingClientRect().top + 100
   const chapters = Array.from(root.querySelectorAll<HTMLElement>('[data-section-id]'))
   const visible = chapters.filter(node => node.getBoundingClientRect().top <= boundary).at(-1) || chapters[0]
-  if (visible) activeChapter.value = visible.dataset.sectionId || ''
+  if (visible) {
+    activeChapter.value = visible.dataset.sectionId || ''
+    try { sessionStorage.setItem(readingPositionKey(), activeChapter.value) } catch { /* Reading remains available without browser storage. */ }
+  }
+}
+function readingPositionKey() { return `lingzhi-study-position:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}` }
+function navigateChapter(id: string) {
+  const target = document.getElementById(sectionAnchor(id))
+  if (!target || !readingTarget.value?.contains(target)) return
+  target.scrollIntoView({ block: 'start' }); activeChapter.value = id
+  try { sessionStorage.setItem(readingPositionKey(), id) } catch { /* Optional UI position. */ }
 }
 function selectPassage() {
   const selection = window.getSelection(), root = readingTarget.value
@@ -209,17 +215,18 @@ async function loadLibrary() {
   if (current() && failure?.status === 'rejected') showError(failure.reason)
 }
 async function connect() {
-  const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled
-  if (!studySession.get() && !qizhiAuth) return
+  const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled; developmentMode.value = config.development_identity === true
+  if (!studySession.get() && !qizhiAuth && !developmentMode.value) return
   try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]) }
   catch (cause) { showError(cause) }
 }
 async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else creating.value = !materialId.value && route.query.create === '1' }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
-const authorizedCourses = ref<InstanceType<typeof StudentCourseLibrary> | null>(null)
+const authorizedCourses = ref<InstanceType<typeof StudentLearningHome> | null>(null)
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]); await openMaterial() } }) }
 async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
-async function goLibrary() { await openStudySection('materials') }
+async function goLibrary() { await openStudySection('home') }
+async function setCourseFilter(value: 'all' | 'teacher' | 'owned') { await router.replace({ path: '/study', query: value === 'all' ? {} : { view: value === 'teacher' ? 'courses' : 'materials' } }) }
 async function startNew(purpose?: StudyPurpose) { if (!user.value) return; persistDraft(); await router.push('/study?create=1'); creating.value = true; if (purpose) form.purpose = purpose }
 async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
@@ -264,6 +271,14 @@ async function openMaterial() {
       const result = await studyApi.get(id)
       if (disposed || current !== epoch || materialId.value !== id || !user.value) return
       material.value = result
+      if (first && !retainedRevision) {
+        await nextTick()
+        if (disposed || current !== epoch || materialId.value !== id) return
+        let saved = ''
+        try { saved = sessionStorage.getItem(readingPositionKey()) || '' } catch { /* Optional UI position. */ }
+        if (saved && readingSections.value.some(section => section.id === saved)) navigateChapter(saved)
+        else activeChapter.value = readingSections.value[0]?.id || ''
+      }
       if (first && retainedRevision !== result.revisions[0]?.id) { savedNote.value = result.notes[result.revisions[0]!.id]?.content || ''; noteText.value = sessionStorage.getItem(noteKey()) ?? savedNote.value }
       const summary = library.value.find(item => item.id === id)
       if (summary) summary.status = materialStatus.value
@@ -336,4 +351,18 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-generate-bar p { margin:6px 0 0; font-size:15px; line-height:1.6; color:var(--lz-text-secondary); }
 .study-generate-bar button { flex:none; }
 @media (max-width:1280px) { .study-create { padding:24px 20px; } }
+.study-directory-heading { display: flex; align-items: center; gap: 9px; padding: 22px 14px 12px; color: var(--lz-text-strong); font-size: 15px; }
+.study-directory-heading svg { color: var(--lz-brand-strong); }
+.study-directory-title { margin: 0; padding: 0 14px 16px; font-size: 15px; line-height: 1.65; color: var(--lz-text-secondary); overflow-wrap: anywhere; font-weight: 500; }
+.study-chapter-list { display: grid; gap: 4px; }
+.study-chapter-list button { border: 0; border-left: 2px solid transparent; border-radius: 0 8px 8px 0; background: transparent; display: flex; align-items: start; gap: 10px; min-height: 44px; width: 100%; text-align: start; font-size: 15px; line-height: 1.65; }
+.study-chapter-list button.active { border-left: 2px solid var(--lz-brand); background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-chapter-number { flex: none; color: var(--lz-text-muted); font-size: 13px; padding-top: 2px; }
+.study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
+.study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); text-decoration: none; font-size: 15px; line-height: 1.6; }
+.study-create-steps a:hover { color: var(--lz-brand-strong); }
+.study-workspace.is-library .study-main-scroll { border: 0; background: transparent; box-shadow: none; }
+.study-handout-section { scroll-margin-top: 24px; }
+.study-reading-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; color: var(--lz-text-secondary); }
+.study-directory-title:empty { display: none; }
 </style>

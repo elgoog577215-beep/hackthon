@@ -301,6 +301,7 @@ export const useCourseStore = defineStore('course', {
                     { silentError: options.background === true },
                 ))
                 if (courseListContexts.get(this) !== context || courseListContext(surface) !== context) return
+                if (!Array.isArray(res.data)) throw new Error(t('workspaceUi.invalidCourseList'))
                 this.courseList = authorizedStudent ? res.data.map((course: { course_id: string; title: string; section_count: number }) => ({
                     course_id: course.course_id, course_name: course.title, node_count: course.section_count,
                     generation_status: 'completed', created_at: '', updated_at: '',

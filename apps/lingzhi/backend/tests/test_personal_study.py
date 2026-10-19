@@ -328,3 +328,22 @@ def test_qizhi_student_scope_verified_without_teacher_access(monkeypatch):
     headers = {'Authorization': 'Bearer verified', 'X-User-Id': 'spoofed'}
     assert client.get('/api/study/auth/me', headers=headers).json() == {'id': 'qizhi:real-student'}
     assert client.get('/api/teacher/courses/private', headers=headers).status_code == 403
+
+
+def test_material_summary_preserves_explicit_course_links_without_exposing_source_text():
+    material = {
+        "id": "own-material", "title": "个人复习", "purpose": "exam_prep",
+        "status": "completed", "task_id": "task", "updated_at": "now",
+        "request": {"source_sections": [
+            {"course_origin": {"course_id": "course-b"}, "text": "private"},
+            {"course_origin": {"course_id": "course-a", "release_id": "old-version"}},
+            {"course_origin": {"course_id": "course-b"}},
+            {"course_origin": None}, {"course_origin": {"course_id": 42}},
+        ]},
+    }
+    result = study.material_summary(material)
+    assert result["source_course_ids"] == ["course-a", "course-b"]
+    assert "request" not in result
+    assert "private" not in json.dumps(result)
+    material.pop("request")
+    assert study.material_summary(material)["source_course_ids"] == []

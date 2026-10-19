@@ -22,4 +22,13 @@ describe('course workspace locations', () => {
   it('normalizes unknown and array-valued navigation without changing course identity', () => {
     expect(readWorkspaceLocation({ stage: ['script'], lesson: ['wrong'], view: 'unknown' })).toEqual({ view: 'categories', stage: 'foundation', lessonId: '', knowledge: false, companionTemplateId: '' })
   })
+  it('keeps the lesson and production stage while entering and leaving analysis', () => {
+    const source = { stage: 'script', lesson: 'lecture-2', returnTo: '/courses' }
+    const analysis = workspaceLocationQuery(source, { ...readWorkspaceLocation(source), view: 'insights' })
+    expect(readWorkspaceLocation(analysis)).toMatchObject({ view: 'insights', stage: 'script', lessonId: 'lecture-2' })
+    const restored = workspaceLocationQuery(analysis, { ...readWorkspaceLocation(analysis), view: 'categories' })
+    expect(restored).toMatchObject(source)
+    expect(restored).not.toHaveProperty('view')
+  })
+
 })

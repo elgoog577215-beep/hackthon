@@ -1,6 +1,6 @@
 export type WorkspaceStage = 'foundation' | 'lesson' | 'script' | 'ppt' | 'question-bank' | 'companion'
 export interface WorkspaceLocation {
-  view: 'categories' | 'files'
+  view: 'categories' | 'files' | 'insights'
   stage: WorkspaceStage
   lessonId: string
   knowledge: boolean
@@ -12,7 +12,7 @@ const single = (value: unknown) => typeof value === 'string' ? value : ''
 export function readWorkspaceLocation(query: Record<string, unknown>): WorkspaceLocation {
   const stage = single(query.stage)
   return {
-    view: query.view === 'files' ? 'files' : 'categories',
+    view: query.view === 'files' || query.view === 'insights' ? query.view : 'categories',
     stage: stages.includes(stage as WorkspaceStage) ? stage as WorkspaceStage : stage === 'knowledge' ? 'script' : 'foundation',
     lessonId: single(query.lesson),
     knowledge: stage === 'knowledge',
@@ -27,7 +27,7 @@ export function workspaceLocationQuery(query: Record<string, unknown>, location:
   if (previous.stage !== location.stage || previous.knowledge !== location.knowledge || (previous.lessonId && previous.lessonId !== location.lessonId)) {
     for (const key of ['issue', 'block', 'task', 'expandIssue']) delete result[key]
   }
-  if (location.view === 'files') result.view = 'files'
+  if (location.view === 'files' || location.view === 'insights') result.view = location.view
   else delete result.view
   result.stage = location.knowledge ? 'knowledge' : location.stage
   if (location.lessonId && (location.knowledge || ['lesson', 'script', 'ppt', 'question-bank'].includes(location.stage))) result.lesson = location.lessonId

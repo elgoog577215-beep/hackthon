@@ -95,4 +95,42 @@ describe('authorized student course library', () => {
     await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     expect(view.text()).toContain('Continue unfinished practice')
   })
+  it('combines course sources without duplicating derived personal material cards', async () => {
+    const view = await page()
+    await view.setProps({ unified: true, materials: [
+      { id: 'own-a', title: '我的微积分', purpose: 'systematic', status: 'completed' },
+      { id: 'review-a', title: '线性代数复习', purpose: 'exam_prep', status: 'completed', source_course_ids: ['course-a'] },
+    ] })
+    expect(view.findAll('.course-library-card')).toHaveLength(2)
+    expect(view.find('.personal-course-materials').text()).toContain('线性代数复习')
+    await view.findAll('.library-filter-tabs button')[2]!.trigger('click')
+    expect(view.findAll('.course-library-card')).toHaveLength(2)
+    expect(view.text()).not.toContain('道课程练习')
+    await view.get('input[type="search"]').setValue('微积分')
+    expect(view.findAll('.course-library-card')).toHaveLength(1)
+    expect(view.text()).toContain('我的微积分')
+  })
+  it('rejects a previous account list response and clears private personal cards on owner changes', async () => {
+    let finish: (value: unknown) => void = () => {}
+    api.courses.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const view = await page()
+    await view.setProps({ unified: true, materials: [{ id: 'old-private', title: '原账号私人材料', purpose: 'systematic', status: 'completed' }] })
+    api.courses.mockResolvedValueOnce([{ ...course, course_id: 'course-b', title: '新账号课程' }])
+    await view.setProps({ userId: 'student-b' }); await flushPromises()
+    finish([{ ...course, title: '原账号教师课程' }]); await flushPromises()
+    expect(view.text()).toContain('新账号课程')
+    expect(view.text()).not.toContain('原账号私人材料')
+    expect(view.text()).not.toContain('原账号教师课程')
+    expect(api.courses.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal)
+  })
+  it('does not emit derived private sources after switching accounts', async () => {
+    let finish: (value: unknown) => void = () => {}
+    api.courseSource.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const view = await page()
+    await view.findAll('button').find(button => button.text() === '生成个人复习讲义')!.trigger('click')
+    await view.setProps({ userId: 'student-b' }); await flushPromises()
+    finish({ id: 'private-source', filename: '原账号资料' }); await flushPromises()
+    expect(view.emitted('source')).toBeUndefined()
+  })
+
 })

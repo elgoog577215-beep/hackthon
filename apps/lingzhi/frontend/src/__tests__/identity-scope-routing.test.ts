@@ -14,13 +14,14 @@ vi.mock('@/views/CourseWorkspaceView.vue', () => ({ default: { render: () => nul
 vi.mock('@/views/PptWorkspaceView.vue', () => ({ default: { render: () => null } }))
 vi.mock('@/views/LearningView.vue', () => ({ default: { render: () => null } }))
 vi.mock('@/views/StudyView.vue', () => ({ default: { render: () => null } }))
-const me = vi.hoisted(() => vi.fn())
-vi.mock('@/api/study', () => ({ studyApi: { me } }))
+const { me, config } = vi.hoisted(() => ({ me: vi.fn(), config: vi.fn() }))
+vi.mock('@/api/study', () => ({ studyApi: { me, config } }))
 
 describe('explicit route identity scope', () => {
   beforeEach(async () => {
     sessionStorage.clear()
     me.mockReset()
+    config.mockReset().mockResolvedValue({ development_identity: false })
     setActiveRequestIdentityScope('learner')
     await router.replace('/workspace-concept')
   })
@@ -57,6 +58,17 @@ describe('explicit route identity scope', () => {
     me.mockRejectedValueOnce(new Error('expired'))
     await router.push('/course/course-2/learn/node-2')
     expect(router.currentRoute.value.name).toBe('study')
+    setStudyIdentity(null)
+  })
+
+  it('opens formal learning without a password only after the local API confirms development identity', async () => {
+    config.mockResolvedValue({ development_identity: true })
+    me.mockResolvedValue({ id: 'local-student:development', username: '开发学习空间', role: 'student' })
+    await router.push('/course/development-course/learn/lecture-1')
+    expect(router.currentRoute.value.name).toBe('learning')
+    expect(config).toHaveBeenCalledTimes(1)
+    expect(me).toHaveBeenCalledTimes(1)
+    expect(getActiveRequestIdentityScope()).toBe('learner')
     setStudyIdentity(null)
   })
 })

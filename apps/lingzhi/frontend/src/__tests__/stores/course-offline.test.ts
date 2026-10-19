@@ -205,4 +205,14 @@ describe('course list offline continuity', () => {
     expect(refresh).toHaveBeenCalledOnce()
     expect(refresh).toHaveBeenCalledWith({ surface: 'teacher' })
   })
+  it('响应格式异常时不把对象写进课程列表，保留最后可用数据', async () => {
+    const store = useCourseStore()
+    store.courseList = [{ course_id: 'course-1', course_name: '线性代数', node_count: 4 }]
+    vi.spyOn(http, 'get').mockResolvedValue({ data: { error: 'unexpected envelope' } } as any)
+    await store.fetchCourseList()
+    expect(store.courseList.map(item => item.course_id)).toEqual(['course-1'])
+    expect(store.courseListError).not.toBeNull()
+    expect(store.loading).toBe(false)
+  })
+
 })

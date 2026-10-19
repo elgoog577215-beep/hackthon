@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import TextSelectionAiAction from '../../components/TextSelectionAiAction.vue'
-vi.mock('../../shared/i18n', () => ({
+vi.mock('../../shared/i18n', async importOriginal => ({
+  ...await importOriginal<typeof import('../../shared/i18n')>(),
   t: (key: string) => key.split('.').pop(),
 }))
 let wrapper: VueWrapper

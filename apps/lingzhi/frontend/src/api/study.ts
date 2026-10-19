@@ -8,7 +8,7 @@ export interface StudyUser { id: string; username: string; role: string }
 export interface StudySource { id: string; filename: string; sha256: string; status: string; warnings: string[]; error: string; sections: { id: string; title: string; characters: number }[] }
 export interface StudyBlock { block_id: string; content_type: string; type_label: string; title: string; content: string; knowledge_names: string[]; answer_to: string }
 export interface StudySection { id: string; title: string; blocks: StudyBlock[]; complete: boolean; fragment: string; source: { filename: string; asset_id: string; source_sha256: string } }
-export interface StudySummary { id: string; title: string; purpose: StudyPurpose; status: string; task_id: string; updated_at: string }
+export interface StudySummary { id: string; title: string; purpose: StudyPurpose; status: string; task_id: string; updated_at: string; source_course_ids?: string[] }
 export interface StudyMaterial extends StudySummary {
   sources: { node_id: string; title: string; filename: string; asset_id: string; source_sha256: string; characters: number }[]
   plans: unknown[]
@@ -75,7 +75,7 @@ export const studyApi = {
   courseFeedback: (id: string) => request<{ items: CourseFeedback[]; replies_available: boolean }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`),
   sendCourseFeedback: (id: string, body: { request_id: string; expected_release_id: string; text: string }) => request<{ feedback_id: string; status: string }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`, json(body)),
   retryCourseFeedback: (id: string, feedbackId: string) => request(`/courses/${encodeURIComponent(id)}/exchange/feedback/${encodeURIComponent(feedbackId)}/retry`, { method: 'POST' }),
-  config: () => request<{ local_login_enabled: boolean; identity_provider: string }>('/auth/config'),
+  config: () => request<{ local_login_enabled: boolean; identity_provider: string; development_identity?: boolean }>('/auth/config'),
   me: () => request<StudyUser>('/auth/me'),
   login: (username: string, password: string, register: boolean) => request<{ token: string; user: StudyUser }>(`/auth/${register ? 'register' : 'login'}`, json({ username, password })),
   logout: () => request('/auth/logout', { method: 'POST' }),

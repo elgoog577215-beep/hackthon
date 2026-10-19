@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 from course_learning_access import learner_api_allowed
 from qizhi_auth import _replace_header
 from study.auth import LocalStudyAuth
+from study.development import development_identity
 
 
 class LocalStudyIdentityMiddleware(BaseHTTPMiddleware):
@@ -29,6 +30,13 @@ class LocalStudyIdentityMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
         auth = LocalStudyAuth(self.storage)
+        development = development_identity(request)
+        if development:
+            if not learner_api_allowed(request.url.path, request.method):
+                return JSONResponse(status_code=403, content={"detail": "学生不能访问教师生产接口"})
+            _replace_header(request, "X-User-Id", development["id"])
+            request.state.local_study_identity = development
+            return await call_next(request)
         authorization = request.headers.get("Authorization", "")
         claimed_student = request.headers.get("X-User-Id", "").startswith("local-student:")
         if not authorization and not claimed_student:

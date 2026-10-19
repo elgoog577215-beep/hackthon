@@ -1,6 +1,6 @@
 <template>
   <main class="update-center-page">
-    <Teleport to="#app-header-route-context">
+    <Teleport to="#app-header-route-context" defer>
       <div class="update-route-context">
         <button type="button" :aria-label="returnLabel" @click="backToWorkbench"><ArrowLeft :size="17" /></button>
         <FolderOpen :size="18" />
@@ -9,7 +9,7 @@
       </div>
     </Teleport>
 
-    <Teleport to="#app-header-route-actions">
+    <Teleport to="#app-header-route-actions" defer>
       <div class="update-route-actions">
         <button type="button" @click="showHistory('version')"><History :size="15" />{{ t('courseAuditUpdates.historyRecords', '历史记录') }}</button>
         <button type="button" @click="backToWorkbench">{{ returnLabel }}<ArrowRight :size="15" /></button>

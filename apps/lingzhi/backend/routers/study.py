@@ -65,12 +65,30 @@ def repository() -> StudyRepository:
     return StudyRepository(storage)
 
 
+def material_summary(material: dict) -> dict:
+    """Project recorded course relationships without exposing private source text.
+
+    The relationship only groups owned materials in the UI. It grants no access;
+    reading the material continues to use StudyRepository.get and origin checks.
+    """
+    result = {key: material[key] for key in ("id", "title", "purpose", "status", "task_id", "updated_at")}
+    result["source_course_ids"] = sorted({
+        origin["course_id"]
+        for section in material.get("request", {}).get("source_sections", [])
+        if isinstance(section, dict)
+        and isinstance(origin := section.get("course_origin"), dict)
+        and isinstance(origin.get("course_id"), str) and origin["course_id"]
+    })
+    return result
+
+
 def public_material(material: dict) -> dict:
     # The private raw source snapshots remain server-side; source identity and
     # selected ranges are sufficient for the reading/source panel.
     result = {key: value for key, value in material.items() if key not in {"request", "fingerprint", "request_key", "planning_response"}}
     result["sources"] = [{key: section[key] for key in ("node_id", "title", "filename", "asset_id", "source_sha256", "characters")}
                          for section in material["request"]["source_sections"]]
+    result["source_course_ids"] = material_summary(material)["source_course_ids"]
     return result
 
 
@@ -89,10 +107,12 @@ def source_view(asset, document=None):
 
 
 @router.get("/auth/config")
-def auth_config():
+def auth_config(request: Request):
     auth = LocalStudyAuth(storage)
+    from study.development import development_identity
     import os
     return {"local_login_enabled": auth.enabled and not bool(os.getenv("QIZHI_AUTH_VERIFY_URL", "")),
+            "development_identity": development_identity(request) is not None,
             "identity_provider": "qizhi" if os.getenv("QIZHI_AUTH_VERIFY_URL", "") else "local"}
 
 
@@ -113,7 +133,8 @@ def me(user=Depends(study_identity)):
 
 @router.post("/auth/logout")
 def logout(request: Request, user=Depends(study_identity)):
-    if not getattr(request.state, "qizhi_identity", None):
+    from study.development import development_identity
+    if not getattr(request.state, "qizhi_identity", None) and not development_identity(request):
         LocalStudyAuth(storage).logout(request.headers.get("Authorization", ""))
     return {"status": "logged_out"}
 
@@ -173,8 +194,7 @@ def download_source(asset_id: str, user=Depends(study_identity), repo=Depends(re
 
 @router.get("/materials")
 def materials(user=Depends(study_identity), repo=Depends(repository)):
-    return [{key: material[key] for key in ("id", "title", "purpose", "status", "task_id", "updated_at")}
-            for material in repo.list(user["id"])]
+    return [material_summary(material) for material in repo.list(user["id"])]
 
 
 @router.post("/materials")

@@ -32,7 +32,7 @@ def learner_api_allowed(path: str, method: str = "GET") -> bool:
     if parts[:2] == ["api", "ai-teacher"] or path == "/api/ask_events":
         return True
     if parts[:2] != ["api", "courses"] or len(parts) < 3:
-        return path == "/api/usage-events" and method.upper() == "POST"
+        return path in {"/api/usage-events", "/api/usage-events/batch"} and method.upper() == "POST"
     if len(parts) == 3:
         return read
     if parts[3] in LEARNER_DOMAINS:

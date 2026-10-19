@@ -1,6 +1,6 @@
 <template>
   <section class="teacher-home">
-    <Teleport to="#app-header-route-center">
+    <Teleport to="#app-header-route-center" defer>
       <nav class="home-primary-tabs" :aria-label="t('teacherHome.primaryNavigation')">
         <button type="button" :class="{ active: activeHomeTab === 'calendar' }" :aria-current="activeHomeTab === 'calendar' ? 'page' : undefined" @click="switchHomeTab('calendar')">
           <CalendarDays :size="17" />{{ t('teacherHome.myCalendar') }}
@@ -11,7 +11,7 @@
       </nav>
     </Teleport>
 
-    <Teleport to="#app-header-route-actions">
+    <Teleport to="#app-header-route-actions" defer>
       <div class="home-header-actions">
         <button type="button" class="header-primary" @click="openCourseCreate">
           <Plus :size="16" />{{ t('teacherHome.newCourse') }}

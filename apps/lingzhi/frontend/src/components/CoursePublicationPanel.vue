@@ -64,6 +64,7 @@ function withdraw() { const url = endpoint(); return mutate(() => http.delete(ur
 function reply(item: Feedback) { const url = endpoint(); const message = drafts.value[item.feedback_id]?.trim(); if (!message) return; return mutate(async () => { await http.post(`${url}/feedback/${encodeURIComponent(item.feedback_id)}/reply`, { expected_revision: item.revision, text: message }, teacherRequestConfig()) }, copy('回复已保存，学生刷新反馈后可查看。', 'Reply saved. The student can refresh feedback to read it.')) }
 watch([open, () => props.courseId], () => { generation++; status.value = null; feedback.value = []; drafts.value = {}; selectedPpts.value = []; readingAvailable.value = null; notice.value = ''; error.value = ''; if (open.value) void load() })
 onBeforeUnmount(() => { generation++ })
+defineExpose({ showFeedback: () => { deliveryTab.value = 'feedback'; open.value = true } })
 </script>
 <style scoped>
 button, textarea { font: inherit; font-size: 15px; }
