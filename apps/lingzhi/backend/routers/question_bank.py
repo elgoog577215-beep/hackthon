@@ -124,7 +124,7 @@ class KnowledgeBindingRequest(BaseModel):
 
 
 async def _owned_binding_course(course_id: str, actor: str) -> dict:
-    course = await get_course_or_404(course_id)
+    course = await _question_bank_course(course_id)
     if course.get("owner_id") != actor:
         raise HTTPException(404, detail={"code": "question_bank_unavailable"})
     return course
@@ -239,6 +239,7 @@ async def _question_bank_course(course_id: str) -> dict[str, Any]:
 
 def _question_source_revision(course: dict[str, Any]) -> str:
     """Bind a question run to teaching inputs, excluding derived bank state."""
+    baseline = course.get("course_knowledge_base") or {}
     course_keys = (
         "course_name", "course_purpose", "difficulty", "course_outline",
         "subject_pedagogy_profile", "difficulty_profile", "material_bindings",
@@ -252,7 +253,9 @@ def _question_source_revision(course: dict[str, Any]) -> str:
     )
     return stable_hash({
         **{key: course.get(key) for key in course_keys},
-        "knowledge_baseline": atomic_baseline(course),
+        "knowledge_baseline": atomic_baseline(course) or (baseline if (
+            baseline.get("tree_schema") == "knowledge_first_generic_v1" and baseline.get("status") == "accepted"
+        ) else None),
         "nodes": [{key: node.get(key) for key in node_keys} for node in course.get("nodes") or []],
     })
 
@@ -587,6 +590,12 @@ async def get_question_bank(
         objective_id=objective_id,
         generation_status=generation_status,
     )
+    from question_bank_knowledge import question_binding_projection
+    binding_projection = question_binding_projection(course, bundle, items)
+    items = [
+        {**item, **binding_projection.get(str(item.get("revision_id") or ""), {})}
+        for item in items
+    ]
     return {
         "schema_version": "question_bank_api_v1",
         "course_id": course_id,
@@ -2124,6 +2133,12 @@ async def _execute_question_bank_rebuild(
         merged_bundle = refresh_question_bank_bundle(
             merged_bundle
         )
+        from question_bank_knowledge import auto_bind_new_questions
+        merged_bundle = await auto_bind_new_questions(
+            course_for_bank,
+            merged_bundle,
+            revision_ids=[item["revision_id"] for item in chapter_bundle.get("items") or []],
+        )
         compiled_assets = compile_learning_assets(
             course_for_bank,
             question_bank_bundle=merged_bundle,
@@ -2517,6 +2532,12 @@ async def _execute_question_bank_rebuild(
             bundle,
             preserve_reviewed=payload.mode == "incremental",
         )
+    from question_bank_knowledge import auto_bind_new_questions
+    previous_revisions = {item["revision_id"] for item in (previous or {}).get("items") or []}
+    bundle = await auto_bind_new_questions(course_for_bank, bundle, revision_ids=[
+        item["revision_id"] for item in bundle.get("items") or []
+        if item["revision_id"] not in previous_revisions
+    ])
     bundle = recalculate_question_bank_coverage(
         course_for_bank,
         bundle,
