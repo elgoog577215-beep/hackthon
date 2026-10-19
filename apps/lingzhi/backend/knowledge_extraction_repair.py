@@ -36,8 +36,6 @@ def repair_schema(targets, passages):
         alternatives = [replacement]
         if plan:
             patch_fields = {k: deepcopy(properties[k]) for k in plan['editable_fields'] if k in properties}
-            for field, options in target.get('literal_subjects', {}).items():
-                if field in patch_fields: patch_fields[field] = {'type': 'string', 'enum': options}
             patch = obj(patch_fields)
             patch['required'] = []
             patch['minProperties'] = 1
@@ -58,6 +56,8 @@ def repair_schema(targets, passages):
                 'handling': {'const': 'merge'}, 'reason': string(600)}))
         if plan.get('context_allowed'):
             alternatives.append(obj({'points': array({}, 0), 'handling': {'const': 'context'}, 'reason': string(600)}))
+        if plan.get('source_issue_allowed'):
+            alternatives.append(obj({'points': array({}, 0), 'handling': {'const': 'source_issue'}, 'reason': string(600)}))
         allowed_forms = plan.get('allowed_forms', [form])
         if len(allowed_forms) > 1:
             # A cost present on only one side must become a fact, rather than a
@@ -123,7 +123,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '\n只修正targets，修正合同knowledge_correction_plan_v2，一轮请求。每个目标恰好回应一次。'
         'correction_plan.single_point=true时只返回handling="patch",patch={仅需修改的字段},reason；'
         '绝不重新输出完整点、公式或正确字段。程序将patch应用到冻结原点，fixed_fields由程序保留。'
-        '主体从literal_subjects对应字段的列表逐字选择。主体中原有的最好/最坏等实际范围若不在新主体中，补到conditions，避免丢失含义。'
+        '主体从当前source_passages逐字选择，literal_subjects只是候选提示而非封闭名录。主体中原有的最好/最坏等实际范围若不在新主体中，补到conditions，避免丢失含义。'
+        'source_issue_allowed=true且原块实际没有该命题时，必须返回handling="source_issue",points=[],reason="具体缺少何种证据"，并在source_issues登记该passage_key。'
+        '不能为满足冻结答案改成另一结构，不能把不同算法的结论移植过来；来源不足有明确出口，不强迫凑出一个知识点。理由简短，最多120字。'
         '补充前提使用patch.append_conditions=[新增前提]，程序原样保留原conditions并追加；不要抄写已有前提。'
         '主体已正确时不要重新输出subject。无需增加前提时省略append_conditions。'
         'required_symbols每个符号在conditions定义输入或计量对象，例如n表示待排序元素数；只写O(n)不算定义。'
@@ -166,6 +168,11 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     resolved = {}
     for key, repair in parsed['repairs'].items():
         if repair['handling'] == 'merge': continue
+        if repair['handling'] == 'source_issue':
+            require(any(i.get('passage_key') == targets[key]['passage_key'] for i in parsed['source_issues']),
+                    '来源不足的修正必须登记对应块的具体疑点')
+            resolved[key] = {**deepcopy(repair), 'handling': 'context', 'action': 'source_issue'}
+            continue
         if repair['handling'] == 'patch':
             patch = deepcopy(repair['patch']); additions = patch.pop('append_conditions', [])
             additions.extend(patch.pop('conditions', []))
@@ -201,7 +208,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
                     and isinstance(repair['reason'], str) and repair['reason'].strip(), '修正结构无效')
             require(repair['handling'] == ('replace' if repair['points'] else 'context'), '修正去向不明确')
-            if targets[target].get('fixed_fields') and not (targets[target].get('correction_plan', {}).get('context_allowed') and not repair['points']):
+            if targets[target].get('fixed_fields') and repair.get('action') != 'source_issue' and not (targets[target].get('correction_plan', {}).get('context_allowed') and not repair['points']):
                 fixed = targets[target]['fixed_fields']
                 require(len(repair['points']) == 1 and all(repair['points'][0].get(k) == v for k,v in fixed.items()),
                         '定点修正违反冻结字段：主体或前提以外的正确内容不得改变或拆分')
@@ -242,9 +249,12 @@ async def correct_points(svc, course_id, job_id, provider, raw, context, keys, i
             attempt['status'] = 'completed'
             attempts.append(deepcopy(attempt)); record.update(**attempt, attempts=attempts)
             return corrected, compiled
-        except (CourseDocumentConflict, ValueError, TypeError, KeyError) as error:
-            validate_source()  # ownership/source changes always stop immediately
+        except Exception as error:
+            if hasattr(error, 'partial_response'):
+                attempt.update(raw_response=error.partial_response, response_complete=False)
             attempt.update(status='failed', validation_error={'code': type(error).__name__, 'message': str(error)})
             attempts.append(deepcopy(attempt)); record.update(**attempt, attempts=attempts)
+            validate_source()  # ownership/source changes always stop immediately
+            if not isinstance(error, (CourseDocumentConflict, ValueError, TypeError, KeyError)): raise
             if ordinal == max_attempts or not attempt.get('target_keys'): raise
             feedback = {'diagnostic': str(error), 'failed_correction_response': attempt.get('raw_response', '')}

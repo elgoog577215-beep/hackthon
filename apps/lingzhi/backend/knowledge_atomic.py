@@ -515,12 +515,17 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
         enable_thinking=False, reject_truncated=True, require_stop=True, raise_on_failure=True,
         inactivity_timeout_seconds=idle_limit,
         json_mode=quality_job or structure is not None or stage == 'extract', **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
+    failure = None
     try:
         done, _ = await asyncio.wait({checkpoint, call}, return_when=asyncio.FIRST_COMPLETED)
         if checkpoint in done: await checkpoint
         response = await call
         if formatting['invalid']:
             raise KnowledgeModelDegenerateOutput('千问输出包含大量无意义JSON空白，已保留原始响应；不会作为生成成功结果。')
+    except BaseException as error:
+        failure = error
+        if isinstance(error, Exception): error.partial_response = ''.join(partial)
+        raise
     finally:
         for task in (checkpoint, call):
             if not task.done(): task.cancel()
@@ -533,6 +538,8 @@ async def call_stage(svc, course_id, job_id, provider, prompt, stage):
             'first_content_seconds':round(first_content,3) if first_content is not None else None,'last_content_seconds':round(last_content-started,3),
             'input_chars':request_budget['input_chars'],'output_chars':activity['received_chars'],
             'requested_output_tokens':options['max_tokens'],**{k:event[k] for k in ('input_tokens','output_tokens','tokens_source','physical_request_count','status','queue_wait_ms') if k in event}}
+        observation['status'] = 'failed' if failure else observation.get('status', 'completed')
+        if failure: observation['error_code'] = type(failure).__name__
         observations = [*saved.get('stage_observations',[]),observation]
         svc.authoring.update_job_live(course_id, job_id, partial_text=''.join(partial), model_telemetry=[*previous,*safe_telemetry],
             stage_observations=observations,model_call_count=len(observations),total_model_seconds=round(sum(o['seconds'] for o in observations),3),**activity)
@@ -632,7 +639,6 @@ async def run_atomic(svc, course_id, job_id):
                             batch['repair']['status'] = 'completed'
                         except Exception:
                             batch['repair']['status'] = 'failed'
-                            if not batch['repair'].get('target_keys'): raise validation_error
                             raise
                 except Exception as error:
                     batch.update(raw_response=response, validation_error={'code': type(error).__name__,
