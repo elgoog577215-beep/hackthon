@@ -12,43 +12,37 @@
         <p>{{ t("workspaceUi.courseHelp") }}</p>
       </div>
       <div class="library-heading-actions">
-        <button type="button" :disabled="loading" @click="load">
-          {{ copy("刷新", "Refresh") }}</button
-        ><button
+        <ElButton native-type="button" :disabled="loading" @click="load">
+          {{ copy("刷新", "Refresh") }}</ElButton
+        ><ElButton
           v-if="unified"
-          type="button"
-          class="primary"
+          native-type="button"
+          type="primary"
           data-testid="student-create-handout"
           @click="emit('create', 'systematic')"
         >
           <Plus :size="16" />{{ t("workspaceUi.newCourse") }}
-        </button>
+        </ElButton>
       </div>
     </header>
     <div class="library-filters">
-      <label class="library-search"
-        ><Search :size="17" /><input
-          v-model="query"
-          type="search"
-          :placeholder="t('workspaceUi.searchCourses')"
-          :aria-label="t('workspaceUi.searchCourses')"
-      /></label>
-      <div
+      <ElInput
+        v-model="query"
+        class="library-search"
+        size="large"
+        type="search"
+        clearable
+        :placeholder="t('workspaceUi.searchCourses')"
+        :aria-label="t('workspaceUi.searchCourses')"
+      ><template #prefix><Search :size="17" /></template></ElInput>
+      <UiSegmentedControl
         v-if="unified"
         class="library-filter-tabs"
-        role="group"
-        :aria-label="t('workspaceUi.myCourses')"
-      >
-        <button
-          v-for="item in filters"
-          :key="item.id"
-          type="button"
-          :aria-pressed="filter === item.id"
-          @click="selectFilter(item.id)"
-        >
-          {{ item.label }}
-        </button>
-      </div>
+        :model-value="filter"
+        :options="filters"
+        :accessibility-label="t('workspaceUi.myCourses')"
+        @update:model-value="selectFilter"
+      />
     </div>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">
@@ -117,8 +111,8 @@
             <summary>{{ t("workspaceUi.courseDetails") }}</summary>
             <template v-if="course.reading_available">
               <div class="course-card-actions">
-                <button
-                  type="button"
+                <ElButton
+                  native-type="button"
                   :disabled="loading"
                   @click="derive(course)"
                 >
@@ -128,7 +122,7 @@
                       "Create a personal revision handout",
                     )
                   }}
-                </button>
+                </ElButton>
               </div>
               <nav
                 class="course-tools"
@@ -141,8 +135,8 @@
                   >{{ t(`studentWorkspace.${tool}`) }}</RouterLink
                 >
               </nav>
-              <button
-                type="button"
+              <ElButton
+                native-type="button"
                 class="course-detail-toggle"
                 :aria-expanded="detailCourseId === course.course_id"
                 @click="
@@ -151,7 +145,7 @@
                 "
               >
                 {{ t("studentWorkspace.coursePath") }}
-              </button>
+              </ElButton>
               <StudentLearningPath
                 compact
                 v-if="detailCourseId === course.course_id"
@@ -180,25 +174,25 @@
                   )
                 }}
               </p>
-              <button :disabled="loading" @click="update(course)">
+              <ElButton :disabled="loading" @click="update(course)">
                 {{ copy("使用新版本", "Use new version") }}
-              </button>
+              </ElButton>
             </div>
             <section
               v-if="course.published_ppts?.length"
               class="published-ppts"
             >
               <h3>{{ copy("教师发布的 PPT", "Published PPTs") }}</h3>
-              <button
+              <ElButton
                 v-for="ppt in course.published_ppts"
                 :key="ppt.asset_id"
                 :disabled="loading"
                 @click="downloadPpt(course, ppt.asset_id, ppt.filename)"
               >
                 {{ copy("下载", "Download") }} {{ ppt.filename }}
-              </button>
+              </ElButton>
             </section>
-            <button
+            <ElButton
               v-if="course.exchange_origin"
               class="feedback-button"
               :aria-expanded="feedbackCourse === course.course_id"
@@ -209,7 +203,7 @@
             >
               {{
                 copy("课程提问与教师回复", "Questions & teacher replies")
-              }}</button
+              }}</ElButton
             ><StudentCourseFeedback
               v-if="
                 course.exchange_origin && feedbackCourse === course.course_id
@@ -264,6 +258,8 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { ElButton, ElInput } from "element-plus";
+import UiSegmentedControl from "./UiSegmentedControl.vue";
 import { ArrowRight, Plus, Search } from "lucide-vue-next";
 import {
   studyApi,
@@ -317,9 +313,9 @@ const filter = ref(props.initialFilter),
   materialsOwner = ref("");
 const loading = computed(() => reading.value || acting.value);
 const filters = computed(() => [
-  { id: "all" as const, label: t("workspaceUi.allCourses") },
-  { id: "teacher" as const, label: t("workspaceUi.teacherCourses") },
-  { id: "owned" as const, label: t("workspaceUi.ownedCourses") },
+  { value: "all" as const, label: t("workspaceUi.allCourses") },
+  { value: "teacher" as const, label: t("workspaceUi.teacherCourses") },
+  { value: "owned" as const, label: t("workspaceUi.ownedCourses") },
 ]);
 const matches = (title: string) =>
   title.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase());
@@ -372,7 +368,8 @@ watch(
   },
   { immediate: true, flush: "sync" },
 );
-function selectFilter(value: "all" | "teacher" | "owned") {
+function selectFilter(value: string) {
+  if (value !== "all" && value !== "teacher" && value !== "owned") return;
   filter.value = value;
   emit("filter", value);
 }
@@ -500,8 +497,7 @@ onBeforeUnmount(() => {
 }
 .course-library-heading,
 .library-heading-actions,
-.library-filters,
-.library-search {
+.library-filters {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -521,74 +517,9 @@ p {
   color: var(--lz-text-secondary);
   line-height: 1.7;
 }
-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 1px solid var(--lz-border);
-  border-radius: 8px;
-  background: white;
-  color: var(--lz-text);
-  font: inherit;
-  cursor: pointer;
-}
-button.primary {
-  background: var(--lz-action-primary-bg);
-  color: var(--lz-action-primary-text);
-  border-color: var(--lz-action-primary-border);
-  box-shadow: none;
-}
 .library-filters {
   margin: 26px 0 22px;
   flex-wrap: wrap;
-}
-.library-search {
-  flex: 0 1 330px;
-  box-sizing: border-box;
-  gap: 9px;
-  min-width: 240px;
-  color: var(--lz-text-muted);
-  padding: 8px 12px;
-  border: 1px solid var(--lz-border);
-  border-radius: 8px;
-  background: white;
-}
-.library-search input {
-  padding: 0;
-  line-height: 24px;
-  min-width: 0;
-  width: 100%;
-  border: 0;
-  outline: none;
-  font: inherit;
-  color: var(--lz-text);
-  background: transparent;
-}
-.library-search:focus-within {
-  outline: 2px solid var(--lz-brand);
-  outline-offset: 2px;
-}
-.library-filter-tabs {
-  display: flex;
-  padding: 3px;
-  gap: 2px;
-  border: 1px solid #dbe2ee;
-  border-radius: 9px;
-  background: #f8fafc;
-}
-.library-filter-tabs button {
-  border: 0;
-  background: transparent;
-  color: var(--lz-text-secondary);
-  font-weight: 600;
-}
-.library-filter-tabs button[aria-pressed="true"] {
-  background: #fff;
-  color: var(--lz-brand-strong);
-  box-shadow: 0 2px 7px rgba(51, 65, 85, .09);
 }
 .course-grid {
   display: grid;
@@ -660,14 +591,9 @@ button.primary {
   color: var(--lz-danger);
 }
 a:focus-visible,
-button:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--lz-brand);
   outline-offset: 3px;
-}
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 @media (max-width: 1150px) {
   .course-grid {
@@ -686,4 +612,7 @@ button:disabled {
     padding: 24px;
   }
 }
+.library-search { flex: 0 1 330px; min-width: 240px; }
+.library-filter-tabs { --ui-segment-font-size: 15px; }
+.student-courses :deep(.el-button + .el-button) { margin-left: 0; }
 </style>

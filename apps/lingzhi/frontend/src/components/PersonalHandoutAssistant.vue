@@ -10,22 +10,23 @@
         <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
         <MarkdownRenderer :content="message.content" :enable-code-run="false" />
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
-        <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><button :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</button></template>
+        <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><ElButton :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</ElButton></template>
       </article>
       </div>
     </div>
     <form class="assistant-compose" @submit.prevent="send()">
-      <button v-if="!followingLatest && conversation?.messages.length" type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
-      <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><button type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</button></div><p>{{ context.quote }}</p></div>
-      <p v-if="error" role="alert">{{ error }}<button type="button" @click="load">{{ c('retry') }}</button></p>
-      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button></div>
-      <textarea v-model="input" rows="2" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
-      <footer><span>{{ active ? c('running') : historyReady && conversation?.messages.length ? c('aiSaved') : '' }}</span><button type="submit" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id">{{ busy ? c('busy') : c('aiSend') }}</button></footer>
+      <ElButton v-if="!followingLatest && conversation?.messages.length" native-type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</ElButton>
+      <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><p>{{ context.quote }}</p></div>
+      <p v-if="error" role="alert">{{ error }}<ElButton native-type="button" @click="load">{{ c('retry') }}</ElButton></p>
+      <div class="assistant-prompts"><ElButton v-for="key in prompts" :key="key" native-type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</ElButton></div>
+      <ElInput v-model="input" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" resize="none" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
+      <footer><span>{{ active ? c('running') : historyReady && conversation?.messages.length ? c('aiSaved') : '' }}</span><ElButton type="primary" native-type="submit" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id">{{ busy ? c('busy') : c('aiSend') }}</ElButton></footer>
     </form>
   </section>
 </template>
 
 <script setup lang="ts">
+import { ElButton, ElInput } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { studyApi, StudyApiError, type AssistantContext, type AssistantConversation, type AssistantMessage } from '../api/study'
@@ -87,14 +88,10 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .assistant-message small { display:block; font-size:15px; color:#9298a8; margin-bottom:7px; }
 .assistant-message blockquote { margin:0 0 12px; padding-left:10px; border-left:3px solid #b8a8dc; color:#788197; }
 .assistant-compose { padding:16px 18px; border-top:1px solid #ededf2; background:white; }
-.assistant-compose textarea { box-sizing:border-box; width:100%; min-height:76px; max-height:160px; font:15px/1.7 var(--study-ui-font, var(--handout-sans)); padding:12px; border:1px solid #dbe2ee; border-radius:10px; background:#fff; resize:vertical; }
-.personal-assistant button { font:15px/1.5 var(--study-ui-font, var(--handout-sans)); border:1px solid #dbe2ee; border-radius:8px; background:white; color:var(--lz-text-secondary); padding:7px 10px; cursor:pointer; }
-.personal-assistant button:disabled { opacity:.5; cursor:default; }
-.personal-assistant button:focus-visible, .assistant-compose textarea:focus-visible { outline:3px solid #9280df; outline-offset:2px; }
+.assistant-prompts :deep(.el-button + .el-button) { margin-left: 0; }
 .assistant-prompts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
 .assistant-compose footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:9px; }
 .assistant-compose footer span { color:#8595a0; }
-.assistant-compose footer button { background:var(--lz-action-primary-bg); color:var(--lz-action-primary-text); padding:9px 20px; border-color:var(--lz-action-primary-border); }
 .assistant-quote { margin-bottom:12px; background:#eef2ff; padding:12px; border-radius:9px; }
 .assistant-quote p { margin:4px 0 0; max-height:52px; overflow:auto; color:#7a8396; }
 .assistant-quote-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }

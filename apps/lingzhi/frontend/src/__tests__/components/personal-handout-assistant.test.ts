@@ -69,7 +69,11 @@ describe('personal handout assistant', () => {
   })
   it('follows a diagram laid out after its text without pulling a reader away from earlier content', async () => {
     let resized!: () => void
-    vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resized = callback } observe() {} disconnect() {} })
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: () => void) {}
+      observe(target: Element) { if (target.parentElement?.classList.contains('assistant-thread')) resized = this.callback }
+      disconnect() {}
+    })
     api.assistant.mockResolvedValue(conversation('complete', 'A diagram will be laid out here'))
     const view = page(), thread = view.get('.assistant-thread').element as HTMLElement
     let height = 400, top = 0
