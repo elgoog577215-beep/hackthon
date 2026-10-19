@@ -28,6 +28,9 @@ def transient_connection(error):
     network_types = (httpx.NetworkError, httpx.RemoteProtocolError, httpx.ConnectTimeout, ConnectionError)
     if isinstance(error, (AIRequestBudgetExceeded, AIResponseTruncated)): return False
     if not isinstance(error, (AIProviderRequestError, *network_types)): return False
+    from knowledge_provider_errors import provider_http_status
+    status = provider_http_status(error)
+    if status is not None: return status in {502, 503, 504}
     chain = []; seen = set(); current = error
     while current is not None and id(current) not in seen:
         seen.add(id(current)); chain.append(current)

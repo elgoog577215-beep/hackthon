@@ -793,6 +793,9 @@ async def run_atomic(svc, course_id, job_id):
                     recovery_action='revise_inputs',
                     model_request_sent=False,
                 )
+            else:
+                from knowledge_provider_errors import provider_failure
+                error.update(provider_failure(exc))
             svc.authoring.update_job(course_id, job_id, status='failed', phase='failed', stream_complete=True,
                 error=error, **({'failed_stage':failure_context['stage'],
                     'failed_batch_id':failure_context.get('batch_id'),

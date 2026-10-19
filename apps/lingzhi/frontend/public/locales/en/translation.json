@@ -8058,6 +8058,22 @@
       "generalizes": "Generalization"
     },
     "readSourceText": "Read source paragraph",
+    "providerHttpFailure": "Model request failed (HTTP {status}): {reason}. Completed work is saved.",
+    "providerFailure": "Model request failed: {reason}. Completed work is saved.",
+    "providerErrors": {
+      "invalid_request": "request format or parameters were rejected",
+      "authentication": "model authentication failed",
+      "permission_denied": "model access was denied",
+      "endpoint_unavailable": "model endpoint or model was not found",
+      "request_rejected": "the model service rejected this request",
+      "rate_limited": "model rate or quota limit was reached",
+      "service_error": "the model service encountered an internal error",
+      "isolated_scope_rejected": "an isolated test restriction blocked this generation request",
+      "truncated_output": "model output reached its limit; the fragment is saved",
+      "empty_response": "the model returned no usable content",
+      "timeout": "the model request timed out",
+      "request_failed": "check the model connection settings or service logs"
+    },
     "modelReconnecting": "Reconnecting to the model",
     "modelDisconnected": "The model connection is temporarily unavailable. Completed work is saved; continue only unfinished batches.",
     "extractionNotes": "Extraction notes and gaps",
