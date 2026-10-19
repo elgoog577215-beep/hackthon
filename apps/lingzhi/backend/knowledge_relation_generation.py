@@ -271,14 +271,21 @@ async def run(svc, course_id, job_id):
         for i,batch in enumerate(pipeline['batches'],1):
             if batch['status'] == 'completed': continue
             validate_source(svc,svc.repository.load_raw(course_id),job); save(batch_index=i)
-            response = await call_stage(svc,course_id,job_id,provider,prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),'relations')
+            if job.get('relation_source_job_id'):
+                from knowledge_relation_recovery import call_with_recovery
+                response = await call_with_recovery(svc,course_id,job_id,provider,
+                    prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),batch,save,
+                    lambda: validate_source(svc,svc.repository.load_raw(course_id),job))
+            else:
+                response = await call_stage(svc,course_id,job_id,provider,prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),'relations')
             validate_source(svc,svc.repository.load_raw(course_id),job)
             if pipeline.get('source_job_id'):
                 try: parsed = parse_response(response)
                 except (ValueError,CourseDocumentConflict): parsed = {}
                 compiled = review_batch(raw,pipeline,batch,parsed,job['knowledge_lesson_id'])
             else: compiled = compile_batch(raw,pipeline,batch,parse_response(response),job['knowledge_lesson_id'])
-            batch.update(status='completed',result=compiled,raw_response=response); save()
+            batch.update(status='completed',result=compiled,raw_response=response)
+            save(progress=int(100*i/len(pipeline['batches'])), recovery_attempt=0)
         candidate = assemble(tree,pipeline,job['knowledge_lesson_id'])
         candidate.update(generation_job_id=job_id,model=provider.model_smart,source_context_revision=job['source_context_revision'])
         with svc.authoring._course_lock(course_id):
@@ -289,18 +296,25 @@ async def run(svc, course_id, job_id):
     except asyncio.CancelledError:
         raise
     except Exception as exc:
+        from knowledge_relation_recovery import transient_connection
         if svc.authoring.get_job(course_id,job_id)['status'] in {'pending','running'}:
             svc.authoring.update_job(course_id,job_id,status='failed',phase='failed',stream_complete=True,
-                error={'code':type(exc).__name__,'message':str(exc) if isinstance(exc,(CourseDocumentConflict,KnowledgeModelIdleTimeout)) else '本次关系分析未完成，已保存批次保留；请主动继续缺失批次。'})
+                error={'code':'RelationConnectionUnavailable' if transient_connection(exc) else type(exc).__name__,
+                    'message':'关联连接中断，有限重试已用完；知识树及已完成关系保留，请补充剩余关联。' if transient_connection(exc)
+                    else str(exc) if isinstance(exc,(CourseDocumentConflict,KnowledgeModelIdleTimeout)) else '本次关系分析未完成，已保存批次保留；请主动继续缺失批次。'})
     finally:
         if provider and getattr(provider,'client',None): await provider.client.close()
 
 
 def project_runs(state, raw):
     latest = {}
+    sources = {j.get('knowledge_lesson_id'):j['id'] for j in state.get('jobs',{}).values()
+        if j.get('knowledge_pipeline') == 'inventory_atomic_v1' and j.get('status') == 'completed'}
     for job in state.get('jobs',{}).values():
         pipeline = (job.get('checkpoint') or {}).get('relation_pipeline')
         if not pipeline: continue
+        if job.get('relation_source_job_id') and sources.get(job.get('knowledge_lesson_id')) != job['relation_source_job_id']:
+            continue
         projected = deepcopy(pipeline)
         for field in ('baseline_relations','existing_relations'): projected.pop(field,None)
         for batch in projected['batches']: batch.pop('raw_response',None)

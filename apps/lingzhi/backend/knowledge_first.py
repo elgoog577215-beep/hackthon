@@ -332,11 +332,12 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', relation_source_job_id=''):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', relation_source_job_id='', auto_relations=False):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
         require(not relation_source_job_id or pipeline == RELATIONS, '候选来源仅用于独立关系分析')
+        require(not auto_relations or pipeline == PIPELINE, '自动关联仅用于本讲知识生成完成后')
         require(extraction_mode in {'', 'single_pass_v1'}, '未知知识提取模式')
         require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
         require(not (resume_job_id or retry_batch_id) or pipeline in {PIPELINE, RELATIONS}, '继续批次需要原生成流程')
@@ -364,12 +365,18 @@ class KnowledgeFirstService:
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(bool(duplicate.get('auto_relations')) == bool(auto_relations), '请求标识对应不同关联接续选项')
                 require(duplicate.get('relation_source_job_id','') == relation_source_job_id, '请求标识对应不同候选来源')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(pipeline != PIPELINE or duplicate.get('extraction_mode', '') == extraction_mode, '请求标识对应不同提取模式')
                 require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
                 require(pipeline != PIPELINE or bool(duplicate.get('organize_hierarchy')) == bool(organize_hierarchy or retry_batch_id == 'hierarchy'), '请求标识对应不同分类整理选项')
                 return duplicate, False
+            if pipeline == RELATIONS and relation_source_job_id and not resume_job_id:
+                prior_relation = next((j for j in reversed(list(existing_jobs.values()))
+                    if j.get('knowledge_pipeline') == RELATIONS and j.get('relation_source_job_id') == relation_source_job_id), None)
+                if prior_relation:
+                    return prior_relation, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
             relation_baseline = raw.get('course_knowledge_base') or {}
@@ -430,6 +437,7 @@ class KnowledgeFirstService:
                 request_snapshot={"knowledge_generation_context": context, **({'relation_baseline':deepcopy(relation_baseline),
                     'relation_adopted_baseline':deepcopy(raw.get('course_knowledge_base') or {})} if pipeline == RELATIONS else {})},
                 relation_source_job_id=relation_source_job_id,
+                auto_relations=bool(auto_relations),
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
@@ -450,7 +458,10 @@ class KnowledgeFirstService:
             return await run(self,course_id,job_id)
         if pipeline:
             from knowledge_atomic import run_atomic
-            return await run_atomic(self, course_id, job_id)
+            if self.authoring.get_job(course_id, job_id)['status'] != 'completed':
+                await run_atomic(self, course_id, job_id)
+            from knowledge_relation_followup import run_followup
+            return await run_followup(self, course_id, job_id)
         provider = None
         request_budget = None
         try:
@@ -732,6 +743,8 @@ class KnowledgeFirstService:
         active_jobs = [job_status(j, server_time)
                        for j in state["jobs"].values() if j.get("status") in ACTIVE]
         for job in jobs:
+            if job['id'] in state.get('knowledge_relation_followups', {}):
+                job['relation_followup'] = deepcopy(state['knowledge_relation_followups'][job['id']])
             job["recheck_available"] = bool(not state["jobs"][job["id"]].get("knowledge_pipeline") and (state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
         candidate_job = next((j for j in reversed(list(state["jobs"].values())) if j.get("type") == TREE_JOB and (j.get("checkpoint") or {}).get("candidate")), None)
         candidates = {}

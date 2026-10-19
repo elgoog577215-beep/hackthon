@@ -49,12 +49,13 @@ async def test_bad_relation_is_kept_for_review_without_failing_completed_knowled
 
 
 @pytest.mark.asyncio
-async def test_model_disconnect_only_fails_relation_task_and_keeps_source_candidate(svc,monkeypatch):
-    source,tree=candidate(svc,monkeypatch);provider(svc,fail_at=1)
+async def test_model_disconnect_recovers_relation_task_and_keeps_source_candidate(svc,monkeypatch):
+    source,tree=candidate(svc,monkeypatch);calls=provider(svc,fail_at=1)
     job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
-    assert svc.authoring.get_job('c-pilot',job['id'])['status']=='failed'
+    assert svc.authoring.get_job('c-pilot',job['id'])['status']=='completed'
+    assert len(calls)==3
     assert svc.authoring.get_job('c-pilot',source['id'])==source
-    assert svc.view('c-pilot',source_mode='handouts')['candidate']['revision_id']==tree['revision_id']
+    assert svc.view('c-pilot',source_mode='handouts')['candidate']['knowledge_points']==tree['knowledge_points']
 
 
 @pytest.mark.parametrize('field,value',[('actor','foreign'),('status','failed'),('knowledge_lesson_id','memory'),('source_document_revision','stale')])

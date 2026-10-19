@@ -11,10 +11,16 @@ from backend.tests.test_candidate_relations import candidate
 from backend.tests.test_knowledge_relation_generation import provider, start, model_response
 
 
+def fixture_job(svc, jid, **values):
+    state = svc.authoring.load('c-pilot')
+    state['jobs'][jid].update(values)
+    svc.authoring._save(state)
+
+
 @pytest.mark.asyncio
 async def test_completed_tree_automatically_runs_one_independent_relation_job(svc, monkeypatch):
     source, tree = candidate(svc, monkeypatch)
-    svc.authoring.update_job('c-pilot', source['id'], auto_relations=True)
+    fixture_job(svc, source['id'], auto_relations=True)
     calls = provider(svc)
     async def forbidden(*args):
         pytest.fail('Completed knowledge must never be regenerated')
@@ -26,7 +32,7 @@ async def test_completed_tree_automatically_runs_one_independent_relation_job(sv
     assert len(related) == 1 and related[0]['status'] == 'completed'
     saved = svc.authoring.get_job('c-pilot', source['id'])
     assert saved['status'] == 'completed' and saved['checkpoint']['candidate'] == tree
-    assert saved['relation_followup']['job_id'] == related[0]['id']
+    assert svc.authoring.load('c-pilot')['knowledge_relation_followups'][source['id']]['job_id'] == related[0]['id']
     assert len(calls) == 2 and all(c['stage'] == 'relations' for c in calls)
     duplicate = start(svc, 'manual-double-click', relation_source_job_id=source['id'])
     assert duplicate['id'] == related[0]['id']
@@ -35,7 +41,7 @@ async def test_completed_tree_automatically_runs_one_independent_relation_job(sv
 @pytest.mark.asyncio
 async def test_tree_is_persisted_before_followup_and_failure_does_not_fail_tree(svc, monkeypatch):
     source, tree = candidate(svc, monkeypatch)
-    svc.authoring.update_job('c-pilot', source['id'], status='pending', checkpoint={}, auto_relations=True)
+    fixture_job(svc, source['id'], status='pending', checkpoint={}, auto_relations=True)
     async def extract(service, cid, jid):
         service.authoring.update_job(cid, jid, status='completed', progress=100, checkpoint={'candidate':tree})
     monkeypatch.setattr('knowledge_atomic.run_atomic', extract)
@@ -46,7 +52,7 @@ async def test_tree_is_persisted_before_followup_and_failure_does_not_fail_tree(
     await svc.run('c-pilot', source['id'])
     saved = svc.authoring.get_job('c-pilot', source['id'])
     assert saved['status'] == 'completed' and saved['progress'] == 100
-    child = svc.authoring.get_job('c-pilot', saved['relation_followup']['job_id'])
+    child = next(j for j in svc.authoring.load('c-pilot')['jobs'].values() if j.get('relation_source_job_id') == source['id'])
     assert child['status'] == 'failed'
     assert svc.view('c-pilot', source_mode='handouts')['candidate']['revision_id'] == tree['revision_id']
 
@@ -55,7 +61,7 @@ async def test_tree_is_persisted_before_followup_and_failure_does_not_fail_tree(
 @pytest.mark.parametrize('failure_status', ['failed', 'cancelled', 'paused'])
 async def test_incomplete_tree_never_starts_followup(svc, monkeypatch, failure_status):
     source, _ = candidate(svc, monkeypatch)
-    svc.authoring.update_job('c-pilot', source['id'], status='pending', checkpoint={}, auto_relations=True)
+    fixture_job(svc, source['id'], status='pending', checkpoint={}, auto_relations=True)
     async def extract(service, cid, jid):
         service.authoring.update_job(cid, jid, status=failure_status)
     monkeypatch.setattr('knowledge_atomic.run_atomic', extract)
@@ -103,3 +109,58 @@ async def test_new_candidate_does_not_display_previous_relation_run(svc, monkeyp
         if k not in {'id','course_id','request_id','created_at','updated_at'}})
     assert svc.view('c-pilot',source_mode='handouts')['relation_runs'] == []
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('interrupt', ['cancel', 'source_change'])
+async def test_retry_wait_respects_cancel_and_source_changes(svc, monkeypatch, interrupt):
+    source, tree = candidate(svc, monkeypatch)
+    entered = asyncio.Event()
+    calls = []
+    async def disconnect(*args, **kwargs):
+        calls.append(1); entered.set()
+        raise httpx.ConnectError('test disconnect')
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=disconnect,model_smart='test',client=None)
+    job=start(svc,relation_source_job_id=source['id'])
+    task=asyncio.create_task(svc.run('c-pilot',job['id']))
+    await entered.wait()
+    if interrupt=='cancel':svc.authoring.cancel_job('c-pilot',job['id'])
+    else:svc.storage.update_course_data('c-pilot',lambda r:{**r,'course_document_revision':'new-version'})
+    await task
+    saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert len(calls)==1
+    assert saved['status']==('cancelled' if interrupt=='cancel' else 'failed')
+    assert svc.authoring.get_job('c-pilot',source['id'])['checkpoint']['candidate']==tree
+
+
+def test_only_transport_failures_are_retried():
+    from knowledge_relation_recovery import transient_connection
+    from ai_base import AIProviderRequestError, AIProviderUnavailable, AIResponseTruncated
+    from openai import AuthenticationError
+    wrapper=AIProviderRequestError('upstream failure');wrapper.__cause__=httpx.ReadError('disconnected')
+    assert transient_connection(wrapper)
+    for error in [ValueError('quality issue'),AIProviderUnavailable('authentication_failed'),AIResponseTruncated('length'),
+        AuthenticationError('denied',response=httpx.Response(401,request=httpx.Request('GET','http://test')),body=None)]:
+        assert not transient_connection(error)
+
+
+@pytest.mark.asyncio
+async def test_start_persists_auto_followup_and_keeps_original_completed_job_frozen(svc,monkeypatch):
+    source,_=candidate(svc,monkeypatch)
+    view=svc.view('c-pilot',source_mode='handouts')
+    job,_=svc.start('c-pilot','tree','new-auto',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',auto_relations=True)
+    assert svc.authoring.get_job('c-pilot',job['id'])['auto_relations'] is True
+    assert svc.authoring.get_job('c-pilot',source['id'])==source
+
+
+@pytest.mark.asyncio
+async def test_enqueue_conflict_is_separate_from_completed_tree(svc,monkeypatch):
+    from course_repository import CourseDocumentConflict
+    source,tree=candidate(svc,monkeypatch);fixture_job(svc,source['id'],auto_relations=True)
+    before=svc.authoring.get_job('c-pilot',source['id'])
+    def refuse(*args,**kwargs):raise CourseDocumentConflict('source changed')
+    monkeypatch.setattr(svc,'start',refuse)
+    await svc.run('c-pilot',source['id'])
+    assert svc.authoring.get_job('c-pilot',source['id'])==before
+    projected=next(j for j in svc.view('c-pilot',source_mode='handouts')['jobs'] if j['id']==source['id'])
+    assert projected['status']=='completed' and projected['relation_followup']['status']=='failed'

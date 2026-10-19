@@ -29,6 +29,7 @@ class GenerateRequest(SourceRequest):
     resume_job_id: str = Field(default='', max_length=200)
     retry_batch_id: str = Field(default='', max_length=100)
     relation_source_job_id: str = Field(default='', max_length=200)
+    auto_relations: bool = False
     organize_hierarchy: bool = True
     extraction_mode: Literal['', 'single_pass_v1'] = 'single_pass_v1'
 
@@ -190,7 +191,7 @@ async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depend
     job, created = action(lambda: svc.start(course_id, topic, body.request_id, body.knowledge_revision, body.document_revision,
         source_mode=body.source_mode, lesson_id=body.lesson_id, pipeline=body.pipeline,
         resume_job_id=body.resume_job_id, retry_batch_id=body.retry_batch_id, organize_hierarchy=body.organize_hierarchy,
-        extraction_mode=body.extraction_mode, relation_source_job_id=body.relation_source_job_id))
+        extraction_mode=body.extraction_mode, relation_source_job_id=body.relation_source_job_id, auto_relations=body.auto_relations))
     if created:
         task = asyncio.create_task(svc.run(course_id, job["id"]), name=job["id"])
         svc.authoring.track_runtime_job(course_id, task)

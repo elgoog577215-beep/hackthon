@@ -68,13 +68,20 @@
             <span :style="{ width: `${progressPercent}%` }" />
           </div>
           <div class="generation-progress-actions">
-            <button v-if="data.can_edit && activeJob" type="button" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>
+            <button v-if="data.can_edit && activeJob && activeJob.knowledge_pipeline !== 'knowledge_relations_v1'" type="button" :disabled="busy" @click="mutate(`cancel/${activeJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>
             <button v-if="data.can_edit && atomicCanContinue" type="button" data-testid="continue-knowledge-batches" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic()">{{ t('knowledgeFirst.continueGeneration') }}</button>
             <button v-if="data.can_edit && atomicCanOrganize" type="button" data-testid="organize-knowledge-hierarchy" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('hierarchy')">{{ t('knowledgeFirst.organizeHierarchy') }}</button>
             <button v-if="data.can_edit && atomicCanRebuild" type="button" data-testid="rebuild-knowledge-leaves" :disabled="busy || blockingJobs.length > 0" @click="continueAtomic('all_atoms')">{{ t('knowledgeFirst.reviseCandidate') }}</button>
-            <button v-if="data.can_edit && relationCanContinue" type="button" :disabled="busy || blockingJobs.length > 0" @click="generateRelations(true)">{{ t('knowledgeFirst.continueGeneration') }}</button>
           </div>
         </section>
+        <section v-if="relationJob" class="notice" role="status" aria-live="polite" data-testid="knowledge-relation-progress">
+          <strong>{{ t(`knowledgeFirst.relationState_${relationJob.status}`) }} · {{ relationJob.completed_batches || 0 }}/{{ relationJob.batch_total || 0 }} · {{ relationJob.relation_count || 0 }} {{ t('knowledgeFirst.relationCountUnit') }}</strong>
+          <span v-if="relationJob.phase === 'relation_retry_wait'"> · {{ t('knowledgeFirst.relationRetrying') }}</span>
+          <details v-if="relationJob.error"><summary>{{ t('knowledgeFirst.relationDetails') }}</summary>{{ generationFailureMessage(relationJob) }}</details>
+          <button v-if="data.can_edit && ['pending','running'].includes(relationJob.status)" type="button" :disabled="busy" @click="mutate(`cancel/${relationJob.id}`)">{{ t('knowledgeFirst.cancel') }}</button>
+          <button v-if="data.can_edit && relationCanContinue" type="button" data-testid="continue-knowledge-relations" :disabled="busy || blockingJobs.length > 0" @click="generateRelations(true)">{{ t('knowledgeFirst.continueRelations') }}</button>
+        </section>
+        <p v-else-if="progressJob?.relation_followup?.status === 'failed'" class="notice">{{ t('knowledgeFirst.relationState_failed') }} · {{ progressJob.relation_followup.error.message }}</p>
         <p v-if="treeOnly && !activeJob && latestJob?.status === 'failed'" class="notice error" role="alert"><strong>{{ t('knowledgeFirst.lastGenerationFailed') }}：</strong>{{ generationFailureMessage(latestJob) }} <button v-if="data.can_edit && latestJob.recheck_available" :disabled="busy" @click="recheck(latestJob.id)">{{ t('knowledgeFirst.recheck') }}</button></p>
         <details v-if="!treeOnly && failedJobs.length" class="notice"><summary>{{ t('knowledgeFirst.jobHistory') }} · {{ failedJobs.length }}</summary>
           <details v-for="job in failedJobs" :key="job.id" class="notice error"><summary>{{ t('knowledgeFirst.interrupted') }} · {{ job.id }}</summary>
@@ -252,7 +259,7 @@ const blockingJobs = computed(() => {
 })
 const activeJob = computed(() => blockingJobs.value.find(j => (data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
-const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => !perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value).at(-1))
+const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => j.knowledge_pipeline !== 'knowledge_relations_v1' && (!perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value)).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
 function generationFailureMessage(job: any) {
   if (job.error?.code === 'AIRequestBudgetExceeded') return t('knowledgeFirst.inputBudgetExceeded')
@@ -288,9 +295,9 @@ const atomicRun = computed(() => {
   return (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
 })
 const progressJob = computed(() => {
-  if (activeJob.value) return activeJob.value
+  if (activeJob.value && activeJob.value.knowledge_pipeline !== 'knowledge_relations_v1') return activeJob.value
   if (latestJob.value) return latestJob.value
-  const run = relationRun.value || atomicRun.value
+  const run = atomicRun.value
   if (run) return { id: run.job_id, status: run.status, knowledge_lesson_id: run.lesson_id }
   return null
 })
@@ -329,6 +336,12 @@ const atomicCanRebuild = computed(() => !activeJob.value && atomicRun.value && !
 const relationRun = computed(() => {
   if (treeChoice.value && treeChoice.value !== 'candidate' && treeChoice.value !== data.value?.knowledge_revision) return null
   return (data.value?.relation_runs || []).find((run:any)=>run.lesson_id === knowledgeLessonId.value)
+})
+const relationJob = computed(() => {
+  const source = relationSourceCandidate.value
+  return (data.value?.jobs || []).filter((j:any) => j.knowledge_pipeline === 'knowledge_relations_v1'
+    && j.knowledge_lesson_id === knowledgeLessonId.value
+    && (source ? j.relation_source_job_id === source : !j.relation_source_job_id)).at(-1)
 })
 const relationCanContinue = computed(() => !activeJob.value && relationRun.value && !relationRun.value.adopted
   && ['failed', 'paused', 'cancelled'].includes(relationRun.value.status))
@@ -579,13 +592,13 @@ async function mutate(path: string, extra = {}) {
 async function generate(topic: string) {
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true, auto_relations: true } : {}) })
 }
 async function continueAtomic(batchId = '') {
   if (!atomicRun.value) return
   treeChoice.value = 'candidate'
   await mutate('generate/tree', { request_id: createUuid(), source_mode:'handouts', lesson_id:knowledgeLessonId.value,
-    pipeline:'inventory_atomic_v1', organize_hierarchy:true, resume_job_id:atomicRun.value.job_id, retry_batch_id:batchId })
+    pipeline:'inventory_atomic_v1', organize_hierarchy:true, auto_relations:true, resume_job_id:atomicRun.value.job_id, retry_batch_id:batchId })
 }
 async function generateRelations(resume = false, batchId = '') {
   if (resume && !relationRun.value) return
