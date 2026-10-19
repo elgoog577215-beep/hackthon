@@ -22,6 +22,34 @@ def keep_review(payload):
             'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('subject,tool', [('DFS', '栈'), ('BFS', '队列')])
+@pytest.mark.parametrize('preserve', [False, True])
+async def test_mechanism_to_definition_repair_must_keep_its_valid_implementation_scope(svc, monkeypatch, subject, tool, preserve):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw=svc.repository.load_raw('c-pilot');context=svc._context(raw,'handouts','cpu')
+    scope=f'本讲基于显式{tool}实现'
+    source=f'{subject}使用{tool}探索节点，只描述访问顺序与机制。'
+    passages=[dict(key='S1.1',source_key='S1',text=source,start=0,end=len(source))]
+    for module in ('knowledge_extraction_repair','knowledge_semantic_contract'):
+        monkeypatch.setattr(module+'.passage_catalog',lambda *a,**k:deepcopy(passages))
+    original=value([dict(form='procedure',subject=subject,goal='搜索节点',steps=['访问当前节点'],
+                        completion='处理完节点',conditions=[scope],attachments=[])])
+    async def call(*args):
+        payload=json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        if preserve:assert payload['targets']['S1.1:0']['required_conditions']==[scope]
+        corrected=dict(form='definition',subject=subject,meaning='一种节点访问策略',constraints=[],conditions=[scope] if preserve else [],attachments=[])
+        return json.dumps({'repairs':{'S1.1:0':{'points':[corrected],'handling':'replace','reason':'改为策略定义，保留实现范围'}},'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    if preserve:
+        corrected=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+        assert corrected['passages']['S1.1']['points'][0]['conditions']==[scope]
+    else:
+        with pytest.raises(CourseDocumentConflict,match='前提|conditions'):
+            await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+
+
 def test_small_repair_schema_enforces_the_exact_field_that_failed():
     from jsonschema import Draft202012Validator
     from knowledge_extraction_repair import repair_schema

@@ -52,3 +52,16 @@ def test_algorithm_itself_can_be_a_named_concept_when_the_source_defines_it():
 def test_explicit_local_implementation_scope_is_not_rejected_by_word_choice(scope):
     p = fact('BFS', '数据结构', '队列', [scope])
     quality_point(p, 'BFS使用队列实现。')
+
+
+@pytest.mark.parametrize('description', ['当前探索路径和待回溯的分支点', '当前节点'])
+def test_current_object_is_not_misread_as_a_conditional_sentence(description):
+    p = fact('DFS', '维护内容', description)
+    quality_point(p, 'DFS维护当前探索路径和待回溯的分支点，以及当前节点。')
+
+
+@pytest.mark.parametrize('description', ['当栈为空时返回False', '若栈为空则返回False', '如果栈为空则返回False'])
+def test_actual_conditional_claims_still_require_explicit_conditions(description):
+    p = fact('栈', '检查结果', description)
+    with pytest.raises(CourseDocumentConflict, match='前提'):
+        quality_point(p, '栈为空时返回False。')
