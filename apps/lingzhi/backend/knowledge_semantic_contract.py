@@ -106,6 +106,7 @@ def quality_prompt(raw, context, keys):
         '不同操作、时间代价和空间代价分别成点；property不包含与/和/及/顿号等多个属性，不把答案写进属性。'
         '一个属性的完整枚举允许保留；定义的共同限定和一个算法的必要步骤不能拆碎。'
         'conditions只保留原文明确的输入或成立前提，不把题目结论、算法成功条件或学习目的误放在前提里。'
+        '每个使用n/m/d等数量符号的点必须在自己的conditions定义输入或计量对象，例如n表示待排序元素数；不能依赖相邻点或只写O(n)。'
         '完整通用算法即使来自例题也应作为procedure保留：包含提前失败、空输入处理、循环更新和最终成功判据；'
         'subject用实际工具或算法名，不用“是否…”问句；特定输入的执行轨迹、状态表和数值答案仅为例题，不成为一般规则。'
         '不从代码或个例外推原文未给的一般公式，不添加原文没有的边界处理；原文代码缺陷应记录疑点。'
@@ -282,14 +283,15 @@ def expand_scalar(point):
 
 
 def quality_point(point, source_text):
+    from knowledge_correction_plan import KnowledgePointValidationError
     require(isinstance(point, dict), '知识点必须是对象')
     errors = []
-    def check(condition, message):
-        if not condition: errors.append(message)
+    def check(condition, message, code='invalid_point', **details):
+        if not condition: errors.append({'code': code, 'message': message, **details})
     fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
     options = [point.get(field) for field in fields]
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
-            '知识主体必须逐字来自当前原文块')
+            '知识主体必须逐字来自当前原文块', code='source_subject')
     check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
     if point.get('form') in {'fact', 'definition'}:
         check(not any(s in {'算法', '策略', '数据结构'} and not re.search(r'(?:^|[。！？；;\n])\s*(?:\*\*)?' + re.escape(s) + r'(?:[（(][^）)]+[）)])?\s*(?:是|指)', source_text) for s in options),
@@ -307,8 +309,10 @@ def quality_point(point, source_text):
             is_unit = bool(re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*m', scalar.strip()) and '米' in source_text
                 or re.fullmatch(r'[-+]?\d+(?:\.\d+)?\s*d', scalar.strip()) and '天' in source_text)
             if not is_unit and not re.search(r'符号|标记|名称|字母', prop): symbols.update(re.findall(r'\b[nmd]\b', scalar))
-        check(all(re.search(r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop) for symbol in symbols),
-                '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号')
+        missing_symbols = sorted(symbol for symbol in symbols if not re.search(
+            r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])', conditions + str(point.get('subject', '')) + prop))
+        check(not missing_symbols, '公式或数量符号必须在conditions中定义输入或计量对象，不能只写孤立符号',
+              code='undefined_quantity', symbols=missing_symbols)
     if point.get('form') == 'fact':
         if point.get('subject') == '栈' and '物理' in prop and '必须' in value + conditions:
             check(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
@@ -365,8 +369,8 @@ def quality_point(point, source_text):
     try:
         result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost)
     except CourseDocumentConflict as error:
-        errors.append(str(error))
-    require(not errors, '；'.join(dict.fromkeys(errors)))
+        errors.append({'code': 'invalid_point', 'message': str(error)})
+    if errors: raise KnowledgePointValidationError(errors)
     if named_cost: audit['operation_literal'] = call.group()
     return result, audit
 
@@ -374,7 +378,7 @@ def quality_point(point, source_text):
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
     if response['response_contract'] == QUALITY_CONTRACT:
-        context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
+        context = {**context, 'knowledge_passage_mode': 'source_blocks_v1', 'exact_claim_consolidation': 'v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(passages), '原文片段去向必须完整列出')
     value = deepcopy(response); value['response_contract'] = 'knowledge_extract_v1'; audits = []
@@ -395,10 +399,19 @@ def compile_extraction(raw, context, keys, index, response):
     if output['tree']:
         traces = response.get('_content_review_trace')
         if traces is not None:
-            require(len(traces) == len(output['tree']['knowledge_points']), '内容核对出处与知识数量不一致')
-            for point, trace in zip(output['tree']['knowledge_points'], traces): point['content_review'] = deepcopy(trace)
-        checks = [{**audit, 'point_key': p['key']} for p, audit in zip(output['tree']['knowledge_points'], audits)]
-        for point, audit in zip(output['tree']['knowledge_points'], audits): point['atomic_contract'] = audit
+            require(len(traces) == len(audits), '内容核对出处与知识数量不一致')
+        audit_by_item = {f'I{index}_P{i}': (audit, traces[i-1] if traces is not None else None)
+                         for i, audit in enumerate(audits, 1)}
+        checks = []
+        for point in output['tree']['knowledge_points']:
+            entries = [audit_by_item[k] for k in point['inventory_keys'] if k in audit_by_item]
+            require(bool(entries), '知识核对出处缺失')
+            point['atomic_contract'] = deepcopy(entries[0][0])
+            checks.extend({**deepcopy(audit), 'point_key': point['key']} for audit, _ in entries)
+            if traces is not None:
+                point['content_review'] = deepcopy(entries[0][1])
+                if len(entries) > 1:
+                    point['content_review']['equivalent_reviews'] = [deepcopy(trace) for _, trace in entries]
         report = output['report']
         report['atomicity_checks'] = checks
         report['resolved_review_issues'] = [i for i in report['issues'] if i['code'] == 'compound_review']

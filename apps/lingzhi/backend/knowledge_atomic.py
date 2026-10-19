@@ -23,6 +23,13 @@ class KnowledgeModelDegenerateOutput(RuntimeError):
     pass
 
 
+class KnowledgeBatchValidationError(CourseDocumentConflict):
+    """A local data failure; independent frozen batches can still finish once."""
+    def __init__(self, batch_id, message, *, failures=None):
+        self.failures = failures or [{'batch_id': batch_id, 'message': message}]
+        super().__init__('；'.join(f"{e['batch_id']}：{e['message']}" for e in self.failures))
+
+
 def source_groups(context):
     from course_generation_budget import _env_int
     target = _env_int('COURSE_KNOWLEDGE_INVENTORY_BATCH_CHARS', 4500, minimum=1000, maximum=9000)
@@ -45,13 +52,15 @@ def batch_size():
 async def run_batches(rows, process, *, width):
     """Bound requests, stop dispatch on failure, retain in-flight successes."""
     pending = iter((i, b) for i, b in enumerate(rows, 1) if b['status'] != 'completed')
-    failures = []
+    failures = []; data_failures = []
     async def worker():
         while not failures:
             entry = next(pending, None)
             if entry is None: return
             try:
                 await process(*entry)
+            except KnowledgeBatchValidationError as exc:
+                data_failures.extend(exc.failures)
             except Exception as exc:
                 failures.append(exc)
     tasks = [asyncio.create_task(worker()) for _ in range(width)]
@@ -62,6 +71,8 @@ async def run_batches(rows, process, *, width):
             if not task.done(): task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
     if failures: raise failures[0]
+    if data_failures:
+        raise KnowledgeBatchValidationError('', '', failures=sorted(data_failures, key=lambda e: e['batch_id']))
 
 
 def pipeline_progress(pipeline):
@@ -210,6 +221,10 @@ def compile_batch(raw, context, items, response):
     if leaves:response = assemble_leaf_claims(response,items)
     bound = leaves or response.get('response_contract') == BINDINGS
     if bound:response = bind_inventory_sources(response,items)
+    consolidations = []
+    if context.get('exact_claim_consolidation') == 'v1':
+        from knowledge_compact import consolidate_exact_claims
+        response, consolidations = consolidate_exact_claims(response)
     points = records(response.get('points'), '元知识候选', 160)
     item_by_key = {item['key']: item for item in items}
     point_by_key = {p.get('key'): p for p in points}
@@ -248,7 +263,10 @@ def compile_batch(raw, context, items, response):
         require(isinstance(refs, list) and refs and len(refs) == len(set(refs)) and all(k in item_by_key for k in refs), '知识点缺少有效清单来源')
         knowledge = [k for k in refs if item_by_key[k]['kind'] in KNOWLEDGE_KINDS]
         if not knowledge: issue('nonknowledge_leaf', point_key=key)
-        if len(knowledge) > 1: issue('multiple_independent_items', point_key=key)
+        equivalent = context.get('exact_claim_consolidation') == 'v1' and len({
+            (normalized(item_by_key[k]['claim']), tuple(sorted(normalized(c) for c in item_by_key[k]['conditions'])))
+            for k in knowledge}) == 1
+        if len(knowledge) > 1 and not equivalent: issue('multiple_independent_items', point_key=key)
         claims = point.get('independent_claims')
         if not isinstance(claims, list) or len(claims) != 1 or not isinstance(claims[0], str) or not claims[0].strip() or normalized(claims[0]) not in normalized(point.get('statement', '')):
             issue('multiple_or_unbound_claims', point_key=key)
@@ -283,7 +301,8 @@ def compile_batch(raw, context, items, response):
     if normalizations:issues.append({'code':'response_format_review','severity':'review'})
     return tree, {'ready_for_adoption': not any(i['severity'] == 'blocking' for i in issues),
         'semantics_verified': False, 'checked_items': len(items), 'issues': issues, 'coverage': deepcopy(rows),
-        'question_coverage':deepcopy(checks),'format_normalizations':normalizations,'mapping_origin':'program_validated_bindings' if compact else 'model_declared'}
+        'question_coverage':deepcopy(checks),'format_normalizations':normalizations,
+        'exact_duplicate_consolidations':consolidations,'mapping_origin':'program_validated_bindings' if compact else 'model_declared'}
 
 
 def assemble(raw, context, pipeline, hierarchy=None):
@@ -311,6 +330,11 @@ def assemble(raw, context, pipeline, hierarchy=None):
                 for field in ('inventory_keys', 'source_refs', 'source_quotes', 'section_refs', 'aliases', 'terms', 'term_candidates', 'inventory_attachments'):
                     for item in point.get(field, []):
                         if item not in previous.setdefault(field, []): previous[field].append(deepcopy(item))
+                if point.get('content_review') and previous.get('content_review'):
+                    review = previous['content_review']
+                    traces = deepcopy(review.get('equivalent_reviews', [review]))
+                    traces.extend(deepcopy(point['content_review'].get('equivalent_reviews', [point['content_review']])))
+                    review['equivalent_reviews'] = traces
                 consolidations.append({'batch_id': batch['id'], 'batch_point_key': original['key'],
                     'point_key': previous['key'], 'knowledge_id': previous['knowledge_id'], 'reason': 'identical_statement_and_conditions'})
                 continue
@@ -319,6 +343,9 @@ def assemble(raw, context, pipeline, hierarchy=None):
         issues.extend({**i, 'batch_id': batch['id'],**({'batch_point_key':i['point_key'],'point_key':global_keys[i['point_key']]} if i.get('point_key') in global_keys else {})} for i in batch['report']['issues']); gaps.extend(tree.get('gaps', []))
         resolved_reviews.extend({**i, 'batch_id': batch['id'], 'point_key': global_keys[i['point_key']]}
                                 for i in batch['report'].get('resolved_review_issues', []))
+        consolidations.extend({**deepcopy(record), 'batch_id': batch['id'],
+            'point_key': global_keys[record['point_key']], 'reason': 'identical_statement_and_conditions_within_batch'}
+            for record in batch['report'].get('exact_duplicate_consolidations', []))
     require(len(points) <= 160 and len({p['knowledge_id'] for p in points}) == len(points), '细化候选存在重复命题或超出本讲容量')
     existing = raw.get('course_knowledge_base') or {}; lesson_id = context['scope_lesson_id']
     old_points = [p for p in existing.get('knowledge_points', []) if lesson_id in (p.get('section_refs') or [p.get('topic')])]
@@ -530,7 +557,8 @@ async def run_atomic(svc, course_id, job_id):
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
-            'schema_version': PIPELINE, 'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
+            'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v2',
+            'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
@@ -607,6 +635,10 @@ async def run_atomic(svc, course_id, job_id):
                     batch.update(raw_response=response, validation_error={'code': type(error).__name__,
                         'message': str(error) if isinstance(error, CourseDocumentConflict) else '完整响应未通过结构或语义校验'})
                     save()
+                    if isinstance(error, CourseDocumentConflict):
+                        # Source/ownership changes are hard stops, never batch-local failures.
+                        validate_source()
+                        raise KnowledgeBatchValidationError(batch['id'], str(error)) from error
                     raise
                 batch.pop('validation_error', None)
                 if batch.get('content_review', {}).get('program_quarantines'):
@@ -710,6 +742,9 @@ async def run_atomic(svc, course_id, job_id):
                 'message': str(exc) if isinstance(exc, (CourseDocumentConflict, KnowledgeModelIdleTimeout, KnowledgeModelDegenerateOutput))
                 else '本次细化未完成，清单与已完成批次已保留；请主动继续缺失批次。',
             }
+            if isinstance(exc, KnowledgeBatchValidationError):
+                error.update(category='candidate_quality', failures=deepcopy(exc.failures),
+                    recovery_action='review_failed_batches', retryable=False)
             provider_message = str(exc).casefold()
             if isinstance(exc, AIProviderRequestError) and (
                 'connect' in provider_message

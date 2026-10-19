@@ -177,6 +177,28 @@ def bind_inventory_sources(response, items):
     return value
 
 
+def consolidate_exact_claims(response):
+    """Merge identical assertions before coverage/identity checks, retaining every binding.
+
+    Only the structured v9 compiler opts in. Different conditions or answers
+    remain separate; this is not semantic/fuzzy deduplication.
+    """
+    from generic_knowledge import normalized
+    value = deepcopy(response); unique = {}; points = []; merges = []
+    for point in value['points']:
+        identity = (normalized(point['statement']), tuple(sorted(normalized(c) for c in point['conditions'])))
+        prior = unique.get(identity)
+        if prior is None:
+            unique[identity] = point; points.append(point)
+            continue
+        require(normalized(prior['meta_answer']) == normalized(point['meta_answer']), '相同命题的答案冲突')
+        for field in ('inventory_keys', 'sources'):
+            prior[field].extend(v for v in point[field] if v not in prior[field])
+        merges.append({'point_key': prior['key'], 'duplicate_key': point['key'], 'inventory_keys': deepcopy(point['inventory_keys'])})
+    value['points'] = points
+    return value, merges
+
+
 def remap_coverage_keys(pipeline, aliases):
     for group in pipeline['inventory_batches']:
         for row in group['source_coverage']:
