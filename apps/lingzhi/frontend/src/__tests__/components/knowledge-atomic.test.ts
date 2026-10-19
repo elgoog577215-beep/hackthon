@@ -114,3 +114,31 @@ it('rebuilds only leaf batches from the frozen inventory after an explicit click
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({resume_job_id:'atomic-job',retry_batch_id:'all_atoms'}))
   expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
 })
+
+it('shows the actual failed relation stage and allows only missing relations despite an older candidate',async()=>{
+  const v:any=view();const p=v.atomic_runs[0].pipeline
+  p.batches[1].status='completed';p.inventory_batches=[{status:'completed'}];p.organize_hierarchy=true
+  p.hierarchy={status:'completed',result:{schema_version:'knowledge_hierarchy_v5'}}
+  p.include_relations=true;p.relations={status:'pending',batches:[{id:'tree-relations-7',status:'pending'}]}
+  v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',phase:'failed',pipeline_stage:'hierarchy',progress:93,
+    error:{code:'ModelConnectionUnavailable',stage:'tree_relations',batch_id:'tree-relations-7'}}]
+  v.candidates=[{job_id:'older-job',lesson_id:'cpu',tree:{revision_id:'old',categories:[],knowledge_points:[],relations:[],relation_assessment:{proposed_count:43}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  const text=w.get('[data-testid="knowledge-generation-progress"]').text()
+  expect(text).toContain(zh.knowledgeFirst.relationCandidates);expect(text).not.toContain(zh.knowledgeFirst.organizeHierarchy)
+  expect(http.post).not.toHaveBeenCalled()
+  await w.get('[data-testid="continue-knowledge-batches"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({resume_job_id:'atomic-job',retry_batch_id:'relations'}))
+  w.unmount()
+})
+
+it('shows compact connection recovery while other parallel work reports hierarchy',async()=>{
+  const v:any=view();v.atomic_runs[0].status='running'
+  v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'running',phase:'model_streaming',pipeline_stage:'hierarchy',progress:93,
+    transport_retry_active_count:1,transport_retry_stage:'tree_relations'}];v.active_jobs=v.jobs
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('正在恢复模型连接')
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
