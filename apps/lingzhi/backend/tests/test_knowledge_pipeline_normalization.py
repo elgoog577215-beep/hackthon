@@ -103,6 +103,36 @@ async def test_multi_form_repair_validates_patch_against_original_comparison(svc
 
 
 @pytest.mark.asyncio
+async def test_duplicate_question_plan_accepts_field_patch(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    state = svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content'] += '栈和队列均可判空。'
+    svc.authoring._save(state)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point('判空', property='检查对象', value='栈为空'), point('判空', property='检查对象', value='队列为空')])
+    async def call(*args):
+        return json.dumps({'repairs': {f'S1.1:{i}': {'handling': 'patch', 'patch': {'subject': subject, 'property': '判空检查对象'}, 'reason': '明确结构'}
+            for i,subject in enumerate(('栈','队列'))}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    assert [p['subject'] for p in result['passages']['S1.1']['points']] == ['栈', '队列']
+
+
+@pytest.mark.asyncio
+async def test_full_replacement_inherits_unmodified_scope_programmatically(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(property='效果和端点', conditions=['栈未满'])])
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'replace', 'points': [point()], 'reason': '只修属性'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    assert result['passages']['S1.1']['points'][0]['conditions'] == ['栈未满']
+
+
+@pytest.mark.asyncio
 async def test_append_conditions_preserves_frozen_scope_without_model_retyping(svc, monkeypatch):
     from knowledge_extraction_repair import repair_points
     setup_course(svc, monkeypatch)
