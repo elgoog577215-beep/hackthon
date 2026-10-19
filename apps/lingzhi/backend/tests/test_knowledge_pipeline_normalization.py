@@ -271,6 +271,17 @@ def test_compound_comparison_plan_allows_preserving_facts_by_splitting():
     assert plan['allowed_forms']==['fact','comparison']
 
 
+def test_union_diagnostic_names_the_actual_comparison_value_field():
+    from jsonschema import Draft202012Validator
+    from knowledge_extraction_repair import specialize_schema
+    from knowledge_semantic_contract import point_variants
+    shape={'type':'array','items':point_variants(['栈','队列'],contract='knowledge_extract_v9')}
+    candidate=[dict(form='comparison',left_subject='栈',right_subject='队列',property='操作方式',
+        left_value='移除元素',right_value='标记；重建',conditions=[],attachments=[])]
+    errors=list(Draft202012Validator(specialize_schema(shape,candidate)).iter_errors(candidate))
+    assert [list(e.absolute_path) for e in errors]==[[0,'right_value']]
+
+
 @pytest.mark.parametrize('subject,valid', [('合并两个长度为 a 和 b 的数组', True), ('合并两个长度为 a 和 c 的数组', False)])
 def test_subject_binding_accepts_only_lossless_math_format_differences(subject, valid):
     from knowledge_semantic_contract import quality_point
