@@ -34,23 +34,30 @@ def repair_schema(targets, passages):
         replacement = obj({'points': array(shape, 1 if plan.get('single_point') else 8,
             1 if plan.get('single_point') else 0), 'handling': {'enum': ['replace'] if plan.get('single_point') else ['replace', 'context']}, 'reason': string(600)})
         alternatives = [replacement]
-        if plan.get('single_point'):
+        if plan:
             patch_fields = {k: deepcopy(properties[k]) for k in plan['editable_fields'] if k in properties}
             for field, options in target.get('literal_subjects', {}).items():
                 if field in patch_fields: patch_fields[field] = {'type': 'string', 'enum': options}
             patch = obj(patch_fields)
+            patch['required'] = []
+            patch['minProperties'] = 1
+            if 'conditions' in patch_fields:
+                # In a field patch, conditions are additive. The model never
+                # needs to reproduce the original scope strings.
+                patch_fields['conditions'] = array(string(1000), 20, 1)
             # Conditions can be supplemented when repairing a subject qualifier;
             # omit them to preserve the original byte-for-byte.
             if not plan.get('required_symbols') and 'conditions' in patch['required']:
                 patch['required'].remove('conditions')
             append_fields = {k: deepcopy(v) for k, v in patch_fields.items() if k != 'conditions'}
             append_fields['append_conditions'] = array(string(1000), 20, 1)
-            append_patch = obj(append_fields)
-            if not plan.get('required_symbols'): append_patch['required'].remove('append_conditions')
+            append_patch = obj(append_fields); append_patch['required'] = []; append_patch['minProperties'] = 1
             alternatives.append(obj({'patch': {'anyOf': [patch, append_patch]}, 'handling': {'const': 'patch'}, 'reason': string(600)}))
         if target.get('duplicate_group'):
             alternatives.append(obj({'merge_into': {'enum': [k for k in target['duplicate_group'] if k != key]},
                 'handling': {'const': 'merge'}, 'reason': string(600)}))
+        if plan.get('context_allowed'):
+            alternatives.append(obj({'points': array({}, 0), 'handling': {'const': 'context'}, 'reason': string(600)}))
         allowed_forms = plan.get('allowed_forms', [form])
         if len(allowed_forms) > 1:
             # A cost present on only one side must become a fact, rather than a
@@ -67,7 +74,7 @@ def repair_schema(targets, passages):
     return obj({'repairs': obj(repairs), 'source_issues': array(issue, 16)})
 
 
-async def repair_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record):
+async def repair_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record, *, feedback=None):
     from knowledge_atomic import call_stage
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
@@ -111,6 +118,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             target['literal_subjects'][field] = nearest
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
     payload.update(stage='extract_repair', targets=targets, duplicate_question_groups=duplicate_groups)
+    if feedback: payload['correction_feedback'] = deepcopy(feedback)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
         '\n只修正targets，修正合同knowledge_correction_plan_v2，一轮请求。每个目标恰好回应一次。'
         'correction_plan.single_point=true时只返回handling="patch",patch={仅需修改的字段},reason；'
@@ -119,7 +127,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '补充前提使用patch.append_conditions=[新增前提]，程序原样保留原conditions并追加；不要抄写已有前提。'
         '主体已正确时不要重新输出subject。无需增加前提时省略append_conditions。'
         'required_symbols每个符号在conditions定义输入或计量对象，例如n表示待排序元素数；只写O(n)不算定义。'
-        '没有single_point限制时可返回handling="replace",points=[完整修正点],reason，或明确context且points=[]。'
+        '没有single_point限制时可使用patch修改需要的字段，或handling="replace",points=[完整修正点],reason；无一般知识时明确context且points=[]。'
+        'correction_feedback若存在，是本事务前一次修正未通过的完整诊断，必须修正该错误，不能照抄失败答案。'
+        'comparison的左右subject必须为不同的实际结构或算法，不能都写“递归深度”等属性再用前提区别。'
+        'context_allowed=true的目标是绑定n=8等具体输入的示例比较，可归context保留在记录，不冒充通用知识。'
         '复合属性必须拆为不同属性；每点自己定义符号；一个成本仅在一侧有来源时用fact，不编造对侧答案来凑comparison。'
         '每个fact.value及comparison左右value均不能有分号或多个句子；复杂度须用时间/空间/次数等成本属性。'
         '方法缺少初始状态且诊断仅说明机制时改definition；完整算法和联合定义保留共同约束与全部分支。'
@@ -138,14 +149,26 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == {'repairs', 'source_issues'}
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
-    error = next(Draft202012Validator(repair_schema(targets, {k: p['text'] for k, p in passages.items()})).iter_errors(clean), None)
+    schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()})
+    for key, decision in parsed['repairs'].items():
+        shape = schema['properties']['repairs']['properties'][key]
+        for choice in shape.get('anyOf', [shape]):
+            handling = choice['properties']['handling']
+            if decision.get('handling') in handling.get('enum', [handling.get('const')]):
+                schema['properties']['repairs']['properties'][key] = choice
+                patch = choice['properties'].get('patch')
+                if patch and 'anyOf' in patch:
+                    choice['properties']['patch'] = patch['anyOf'][1 if 'append_conditions' in decision.get('patch', {}) else 0]
+                break
+    error = next(Draft202012Validator(schema).iter_errors(clean), None)
     error_label = '修正响应字段或前提无效（主体等未授权字段不可改动）：'
-    require(error is None, error_label + ('/'.join(str(k) for k in error.absolute_path) if error else ''))
+    require(error is None, error_label + (('/'.join(str(k) for k in error.absolute_path) + '：' + error.message[:500]) if error else ''))
     resolved = {}
     for key, repair in parsed['repairs'].items():
         if repair['handling'] == 'merge': continue
         if repair['handling'] == 'patch':
             patch = deepcopy(repair['patch']); additions = patch.pop('append_conditions', [])
+            additions.extend(patch.pop('conditions', []))
             point = {**deepcopy(targets[key]['point']), **patch}
             if additions: point['conditions'] = list(dict.fromkeys([*point['conditions'], *additions]))
             resolved[key] = {'handling': 'replace', 'points': [point],
@@ -178,7 +201,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
                     and isinstance(repair['reason'], str) and repair['reason'].strip(), '修正结构无效')
             require(repair['handling'] == ('replace' if repair['points'] else 'context'), '修正去向不明确')
-            if targets[target].get('fixed_fields'):
+            if targets[target].get('fixed_fields') and not (targets[target].get('correction_plan', {}).get('context_allowed') and not repair['points']):
                 fixed = targets[target]['fixed_fields']
                 require(len(repair['points']) == 1 and all(repair['points'][0].get(k) == v for k,v in fixed.items()),
                         '定点修正违反冻结字段：主体或前提以外的正确内容不得改变或拆分')
@@ -201,3 +224,27 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     if original_traces is not None: output['_content_review_trace'] = repaired_traces
     record.update(status='validated', decisions=decisions)
     return output
+
+
+async def correct_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record,
+                         *, compile_result, validate_source, max_attempts=1):
+    """A finite correction transaction; never repeats extraction or retries transport."""
+    require(max_attempts in {1, 2}, '定点修正预算无效')
+    attempts = []; feedback = None
+    for ordinal in range(1, max_attempts + 1):
+        attempt = {'ordinal': ordinal, 'status': 'pending'}
+        try:
+            validate_source()
+            corrected = await repair_points(svc, course_id, job_id, provider, raw, context, keys, index,
+                                            response, attempt, feedback=feedback)
+            validate_source()
+            compiled = compile_result(corrected)
+            attempt['status'] = 'completed'
+            attempts.append(deepcopy(attempt)); record.update(**attempt, attempts=attempts)
+            return corrected, compiled
+        except (CourseDocumentConflict, ValueError, TypeError, KeyError) as error:
+            validate_source()  # ownership/source changes always stop immediately
+            attempt.update(status='failed', validation_error={'code': type(error).__name__, 'message': str(error)})
+            attempts.append(deepcopy(attempt)); record.update(**attempt, attempts=attempts)
+            if ordinal == max_attempts or not attempt.get('target_keys'): raise
+            feedback = {'diagnostic': str(error), 'failed_correction_response': attempt.get('raw_response', '')}

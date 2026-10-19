@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from generic_knowledge import normalized, require
-from knowledge_extraction_repair import repair_points
+from knowledge_extraction_repair import correct_points
 from knowledge_extract import compile_extraction
 from knowledge_semantic_contract import quality_point
 
@@ -41,7 +41,14 @@ async def reconcile(svc, course_id, job_id, provider, raw, context, pipeline, sa
         combined['source_issues'].extend(deepcopy(i) for i in response['source_issues'] if i['passage_key'] in selected)
     try:
         validate_source()
-        corrected = await repair_points(svc, course_id, job_id, provider, raw, context, list(dict.fromkeys(keys)), 0, combined, record)
+        def compile_corrected(response):
+            result = compile_extraction(raw, context, list(dict.fromkeys(keys)), 0, response)
+            require(not any(i['code'] == 'duplicate_meta_question' for i in (result.get('report') or {}).get('issues', [])),
+                    '全讲定点核对后元问题仍重复，须明确等价合并或不同检查角度')
+            return result
+        corrected, _ = await correct_points(svc, course_id, job_id, provider, raw, context, list(dict.fromkeys(keys)), 0,
+            combined, record, compile_result=compile_corrected, validate_source=validate_source,
+            max_attempts=context.get('knowledge_correction_attempts', 1))
         validate_source(); traces = {}; cursor = 0
         for key, entry in corrected['passages'].items():
             traces[key] = corrected['_content_review_trace'][cursor:cursor+len(entry['points'])]; cursor += len(entry['points'])

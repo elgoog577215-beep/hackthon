@@ -174,7 +174,7 @@ async def test_new_task_cannot_bypass_content_review_by_returning_an_old_contrac
 
 
 @pytest.mark.asyncio
-async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure(svc, monkeypatch):
+async def test_extraction_repair_is_bounded_to_two_requests_and_preserves_failure(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     calls = []; options = []; feedbacks = []
     async def model(prompt, **kwargs):
@@ -189,10 +189,11 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     job = start(svc, extraction_mode='single_pass_v1')
     await svc.run('c-pilot', job['id'])
     saved = svc.authoring.get_job('c-pilot', job['id'])
-    assert saved['status'] == 'failed' and calls == ['extract', 'content_review', 'extract_repair']
+    assert saved['status'] == 'failed' and calls == ['extract', 'content_review', 'extract_repair', 'extract_repair']
     batch = saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
+    assert len(batch['repair']['attempts']) == 2
     assert 'json_schema' not in options[-1]  # Validate the small contract locally too.
     original = deepcopy(saved)
     resumed = start(svc, 'new-isolated-attempt', resume_job_id=job['id'])
@@ -202,7 +203,7 @@ async def test_extraction_repair_is_bounded_to_one_request_and_preserves_failure
     assert copied['retry_feedback']['failed_correction_response']
     assert svc.authoring.get_job('c-pilot', job['id']) == original
     await svc.run('c-pilot', resumed['id'])
-    assert calls == ['extract', 'content_review', 'extract_repair', 'content_review', 'extract_repair']
+    assert calls == ['extract', 'content_review', 'extract_repair', 'extract_repair', 'content_review', 'extract_repair', 'extract_repair']
     assert feedbacks == [None, copied['retry_feedback']]
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 

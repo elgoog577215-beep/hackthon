@@ -1,5 +1,6 @@
 """Versioned point diagnostics shared by repair prompts, schemas and validation."""
 from copy import deepcopy
+import re
 
 from course_repository import CourseDocumentConflict
 
@@ -22,4 +23,5 @@ def correction_plan(point, diagnostics):
             'fixed_fields': {k: deepcopy(v) for k, v in point.items() if restricted and k not in editable},
             'required_symbols': sorted({s for d in diagnostics for s in d.get('symbols', [])}),
             'allowed_forms': forms,
+            'context_allowed': bool(re.search(r'\b[nmd]\s*=\s*\d+', str(point.get('property', '')))),
             'single_point': restricted}

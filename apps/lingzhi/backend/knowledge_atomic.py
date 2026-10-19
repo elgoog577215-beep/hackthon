@@ -557,12 +557,13 @@ async def run_atomic(svc, course_id, job_id):
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
-            'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v2',
+            'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v3',
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
             context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
+            context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v3' else 1
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))
         pipeline['include_relations'] = bool(job.get('include_relations', pipeline.get('include_relations', False)))
         def save(**extra):
@@ -615,16 +616,18 @@ async def run_atomic(svc, course_id, job_id):
                             raise CourseDocumentConflict('本批元问题对象或检查角度重复')
                     except CourseDocumentConflict as validation_error:
                         if pipeline['prompt_contract'] != 'knowledge_extract_v9' or parsed.get('response_contract') != 'knowledge_extract_v9': raise
-                        from knowledge_extraction_repair import repair_points
+                        from knowledge_extraction_repair import correct_points
                         batch['repair'] = {'status': 'pending'}
                         try:
                             svc.authoring.update_job_live(course_id, job_id, batch_index=i)
-                            corrected = await repair_points(svc, course_id, job_id, provider, raw, context,
-                                batch['source_keys'], i, parsed, batch['repair'])
-                            validate_source()
-                            result = compile_extraction(raw, context, batch['source_keys'], i, corrected)
-                            require(not result.get('report') or not any(issue['code'] == 'duplicate_meta_question'
-                                    for issue in result['report'].get('issues', [])), '修正后元问题仍重复，保留原输出与修正记录')
+                            def compile_corrected(corrected):
+                                result = compile_extraction(raw, context, batch['source_keys'], i, corrected)
+                                require(not result.get('report') or not any(issue['code'] == 'duplicate_meta_question'
+                                        for issue in result['report'].get('issues', [])), '修正后元问题仍重复，保留原输出与修正记录')
+                                return result
+                            corrected, result = await correct_points(svc, course_id, job_id, provider, raw, context,
+                                batch['source_keys'], i, parsed, batch['repair'], compile_result=compile_corrected,
+                                validate_source=validate_source, max_attempts=context['knowledge_correction_attempts'])
                             batch['repair']['corrected_response'] = corrected
                             batch['repair']['status'] = 'completed'
                         except Exception:
