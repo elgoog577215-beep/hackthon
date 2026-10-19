@@ -284,13 +284,15 @@ def expand_scalar(point):
 
 def quality_point(point, source_text):
     from knowledge_correction_plan import KnowledgePointValidationError
+    from knowledge_compact import source_literal
     require(isinstance(point, dict), '知识点必须是对象')
     errors = []
     def check(condition, message, code='invalid_point', **details):
         if not condition: errors.append({'code': code, 'message': message, **details})
     fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
     options = [point.get(field) for field in fields]
-    check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and s in source_text for s in options),
+    bindings = [source_literal(s, source_text) for s in options]
+    check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and binding for s, binding in zip(options, bindings)),
             '知识主体必须逐字来自当前原文块', code='source_subject')
     check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
     if point.get('form') in {'fact', 'definition'}:
@@ -373,6 +375,7 @@ def quality_point(point, source_text):
     except CourseDocumentConflict as error:
         errors.append({'code': 'invalid_point', 'message': str(error)})
     if errors: raise KnowledgePointValidationError(errors)
+    audit['source_subject_bindings'] = bindings
     if named_cost: audit['operation_literal'] = call.group()
     return result, audit
 

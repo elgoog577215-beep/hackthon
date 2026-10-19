@@ -53,6 +53,37 @@ def focus_matches(term, content):
     return bool(anchor) and anchor in visible(content)
 
 
+def source_literal(subject, content):
+    """Locate unchanged wording through inline math/code delimiters and layout.
+
+    Keep Latin word boundaries and every operator/letter; this is not alias or
+    semantic matching. Return raw offsets so normalization stays auditable.
+    """
+    if not isinstance(subject, str) or not subject.strip(): return None
+    start = content.find(subject)
+    if start >= 0: return {'start': start, 'end': start + len(subject), 'normalization': 'exact'}
+    def visible(value):
+        delimiters = {delimiter for delimiter in '$`' if value.count(delimiter) % 2 == 0}
+        tokens = [(c, i) for i, c in enumerate(value) if c not in delimiters]; out = []; positions = []
+        following = [''] * len(tokens); next_char = ''
+        for index in range(len(tokens)-1, -1, -1):
+            following[index] = next_char
+            if not tokens[index][0].isspace(): next_char = tokens[index][0]
+        for index, (char, position) in enumerate(tokens):
+            if char.isspace():
+                if out and re.fullmatch(r'[A-Za-z0-9_]', out[-1]) and re.fullmatch(r'[A-Za-z0-9_]', following[index]):
+                    out.append(' '); positions.append(position)
+                continue
+            out.append(char); positions.append(position)
+        return ''.join(out), positions
+    needle, _ = visible(subject); text, positions = visible(content)
+    if not needle: return None
+    start = text.find(needle)
+    if start < 0: return None
+    return {'start': positions[start], 'end': positions[start+len(needle)-1]+1,
+            'normalization': 'inline_math_and_whitespace_v1'}
+
+
 def passage_catalog(context, keys):
     """Lossless slices of every source, with stable code-point offsets."""
     available = sources(context); result = []
