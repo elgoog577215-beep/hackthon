@@ -65,6 +65,8 @@ describe('authorized student course library', () => {
     const view = await page()
     await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     expect(view.text()).toContain('线性代数')
+    expect(view.text()).not.toContain('local-student:a')
+    expect(view.text()).not.toContain('我的学生身份')
     expect(view.text()).toContain('继续未完成练习')
     const links = view.findAll('a').map(a => a.attributes('href'))
     expect(links.every(link => !link?.includes('teacherPreview'))).toBe(true)

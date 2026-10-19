@@ -4,7 +4,7 @@
       <div v-if="materialId" class="study-course-context"><button type="button" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /></button><button v-if="!directoryOpen" type="button" :aria-label="c('showDirectory')" @click="directoryOpen = true"><PanelLeftOpen :size="18" /></button><BookOpen :size="19" /><h1>{{ material?.title }}</h1></div>
       <StudentBrand v-else />
       <nav v-if="user && !materialId" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
-        <button type="button" :aria-current="!materialId && !creating ? 'page' : undefined" :class="{ active: !materialId && !creating }" @click="openStudySection('home')">{{ t('workspaceUi.myCourses') }}</button>
+        <button type="button" :aria-current="!materialId && !creating ? 'page' : undefined" :class="{ active: !materialId && !creating }" @click="openStudySection('home')"><BookOpen :size="16" />{{ t('workspaceUi.myCourses') }}</button>
       </nav>
       <div class="study-header-actions">
         <template v-if="materialId">
@@ -19,7 +19,7 @@
         </template>
         <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
         <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
-        <span v-if="user" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
+        <span v-if="user && !developmentMode" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
         <button v-if="user && !developmentMode" @click="logout">{{ c('logout') }}</button>
       </div>
     </header>
@@ -92,7 +92,7 @@
               <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><button type="button" :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></button></header>
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
               <div v-else-if="toolTab === 'note'" class="study-note"><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></footer></div>
-              <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><code>{{ source.source_sha256.slice(0, 12) }}</code><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
+              <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
               <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
               <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
             </aside>
@@ -357,14 +357,15 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-space {
   height: 100%; min-height: 0; display: flex; flex-direction: column;
   padding: 10px; gap: 10px; box-sizing: border-box;
-  color: #303440; background: #f8f9fc;
-  font: 15px/1.6 var(--lz-font-sans, Inter, "Microsoft YaHei", sans-serif);
+  --study-ui-font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--lz-text); background: transparent;
+  font: 15px/1.6 var(--study-ui-font);
 }
 .study-space button, .study-space input, .study-space textarea, .study-space select { font: inherit; }
 .study-space button, .study-space a { transition: background .15s, color .15s; }
 .study-space button {
   cursor: pointer; min-height: 36px; border: 1px solid var(--lz-action-border);
-  border-radius: var(--lz-action-radius); background: var(--lz-action-bg); color: var(--lz-action-text);
+  border-radius: 8px; background: #fff; color: var(--lz-text-secondary);
   padding: 8px 12px; display: inline-flex; justify-content: center; align-items: center; gap: 8px;
 }
 .study-space button:hover:not(:disabled) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
@@ -376,21 +377,24 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-header {
   min-height: 60px; flex: none; box-sizing: border-box; display: flex; align-items: center;
   justify-content: space-between; padding: 8px 20px; gap: 20px;
-  border: 1px solid #eeedf4; border-radius: 18px; background: #ffffffed;
+  border: 1px solid rgba(255, 255, 255, .88); border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(250, 250, 255, .91));
+  box-shadow: 0 8px 26px rgba(79, 70, 229, .08), inset 0 1px 0 rgba(255, 255, 255, .96);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
 .study-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 .study-header-actions button, .study-course-context > button { border: 0; background: transparent; padding: 6px 8px; white-space: nowrap; }
 .study-user { display: flex; align-items: center; gap: 7px; color: #7c8496; }
 .study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; }
-.study-surface-navigation button { border: 0; background: transparent; padding: 6px 16px; }
-.study-surface-navigation button.active { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-surface-navigation button { border: 1px solid #dbe2ee; background: #f8fafc; padding: 6px 14px; font-weight: 600; }
+.study-surface-navigation button.active { background: white; color: var(--lz-brand-strong); box-shadow: 0 2px 7px rgba(51, 65, 85, .09); }
 .study-course-context { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .study-course-context h1 { margin: 0; font-size: 18px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .study-course-context > svg { flex: none; color: var(--lz-brand); }
 .study-reading-settings { position: relative; }
 .study-reading-settings summary { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; list-style: none; white-space: nowrap; }
 .study-reading-settings summary::-webkit-details-marker { display: none; }
-.study-reading-settings-panel { position: absolute; right: 0; top: calc(100% + 14px); z-index: 30; width: 240px; padding: 20px; background: white; border: 1px solid #e6e3ee; border-radius: 12px; box-shadow: 0 10px 30px #30344015; }
+.study-reading-settings-panel { position: absolute; right: 0; top: calc(100% + 14px); z-index: 30; width: 240px; padding: 20px; background: white; border: 1px solid #dbe2ee; border-radius: 12px; box-shadow: 0 8px 26px rgba(79, 70, 229, .08); }
 .study-reading-settings-panel label { display: grid; gap: 12px; margin-bottom: 12px; }
 .study-reading-settings-panel input { width: 100%; accent-color: var(--lz-brand); }
 .study-reading-settings-panel [role=group] { display: flex; gap: 8px; }
@@ -398,18 +402,19 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-eyebrow { font-size: 15px; color: #7b6ca4; font-weight: 650; letter-spacing: .09em; }
 .study-error { flex: none; padding: 10px 28px; background: #fff1f1; color: #a14253; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .study-error button { padding: 5px 12px; color: inherit; }
-.study-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
-.study-navigation { box-sizing: border-box; width: var(--column-left-width); flex: none; min-width: 0; padding: 12px; display: flex; flex-direction: column; border-radius: 16px; background: #f2f3f8; overflow: auto; overflow-wrap: anywhere; }
-.study-directory-heading { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 4px 6px 12px; color: #404457; }
+.study-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; border-radius: 16px; }
+.study-workspace.is-library { background: #f5f6f8; }
+.study-navigation { box-sizing: border-box; width: var(--column-left-width); flex: none; min-width: 0; padding: 12px; display: flex; flex-direction: column; border: 1px solid #e3e8f2; border-radius: 16px; background: rgba(255, 255, 255, .94); overflow: auto; overflow-wrap: anywhere; }
+.study-directory-heading { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 4px 6px 12px; color: var(--lz-text-strong); }
 .study-directory-heading > svg { color: var(--lz-brand-strong); }
 .study-directory-heading button { margin-left: auto; padding: 4px; border: 0; background: transparent; }
-.study-chapter-search { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding: 8px 10px; border: 1px solid #e8e8f0; border-radius: 8px; background: #ffffffb3; color: #969baa; }
+.study-chapter-search { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding: 8px 10px; border: 1px solid #dbe2ee; border-radius: 8px; background: #fff; color: var(--lz-text-muted); }
 .study-chapter-search input { padding: 0; line-height: 24px; min-width: 0; width: 100%; background: transparent; border: 0; outline: none; color: #4c5266; }
 .study-chapter-search:focus-within { outline: 2px solid var(--lz-brand); }
 .study-chapter-list { display: grid; gap: 4px; }
 .study-chapter-list button { justify-content: flex-start; align-items: start; width: 100%; border: 0; border-radius: 8px; background: transparent; text-align: start; line-height: 1.65; padding: 10px; }
-.study-chapter-list button.active { background: #eae7f8; color: var(--lz-brand-strong); }
-.study-chapter-number { flex: none; color: #9896aa; font-size: 15px; }
+.study-chapter-list button.active { background: #eef2ff; color: var(--lz-brand-strong); }
+.study-chapter-number { flex: none; color: var(--lz-text-muted); font-size: 15px; }
 .study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }
 .study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
 .study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); }
@@ -418,7 +423,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-radius: 16px; overflow: hidden; background: white; }
 .study-reading-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .study-reading-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: white; }
-.study-selection-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 20px; background: #f4f1fb; color: #6b59a2; font: 15px/1.6 var(--handout-sans); }
+.study-selection-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 20px; background: #eef2ff; color: var(--lz-brand-strong); font: 15px/1.6 var(--handout-sans); }
 .study-selection-actions span { flex: 1; }
 .study-selection-actions button { padding: 4px 8px; }
 .study-document-scroll { min-height: 0; flex: 1; overflow: auto; scroll-behavior: smooth; }
@@ -427,7 +432,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-handout-section { scroll-margin-top: 24px; }
 .study-handout-section + .study-handout-section { padding-top: 32px; margin-top: 48px; border-top: 1px solid #ededf2; }
 .study-section-kicker { font: 15px/1.6 var(--handout-sans); color: #9096a5; }
-.study-handout-section h2 { font: 650 29px/1.5 var(--handout-sans); margin: 10px 0 28px; letter-spacing: -.02em; }
+.study-handout-section h2 { font: 650 27px/1.5 var(--study-ui-font); margin: 10px 0 28px; letter-spacing: -.02em; }
 .study-handout-section > div[id] { min-width: 0; scroll-margin-top: 24px; }
 .study-progress { border: 1px solid #dcd4ed; background: #faf7ff; padding: 17px 20px; font: 15px/1.8 var(--handout-sans); margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px; }
 .study-progress progress { width: 100%; height: 5px; accent-color: #8066c6; }
@@ -435,25 +440,25 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
 .study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
 .study-end { display: flex; gap: 9px; justify-content: center; align-items: center; color: #8698a0; font: 15px/1.8 var(--handout-sans); padding-top: 30px; border-top: 1px solid #e3e8ee; margin-top: 35px; }
-.study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #ededf2; }
+.study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #e3e8f2; }
 .study-reading-tools:has(.personal-assistant) { overflow: hidden; }
-.study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #ededf2; flex: none; }
+.study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #e3e8f2; flex: none; }
 .study-tool-heading button { border: 0; background: transparent; padding: 4px; }
 .study-note { padding: 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 16px; }
-.study-note > p { color: #8c94a4; font-size: 15px; margin: 0; }
-.study-note textarea { box-sizing: border-box; width: 100%; flex: 1; min-height: 100px; border: 0; resize: none; outline: none; padding: 0; background: transparent; color: #4c5265; line-height: 1.9; }
+.study-note > p { color: var(--lz-text-muted); font-size: 15px; margin: 0; }
+.study-note textarea { box-sizing: border-box; width: 100%; flex: 1; min-height: 100px; border: 0; resize: none; outline: none; padding: 0; background: transparent; color: var(--lz-text); line-height: 1.9; }
 .study-note textarea:focus-visible { outline-offset: 6px; }
 .study-note-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding-top: 12px; border-top: 1px solid #efedf4; }
-.study-note-status { color: #8a93a3; font-size: 15px; }
+.study-note-status { color: var(--lz-text-muted); font-size: 15px; }
 .study-note-footer button { flex: none; }
 .study-source-list { padding: 20px; }
-.study-source-list article { padding: 16px 0; border-bottom: 1px solid #ededf2; }
+.study-source-list article { padding: 16px 0; border-bottom: 1px solid #e3e8f2; }
 .study-source-list strong { font-size: 15px; display: block; margin: 8px 0; overflow-wrap: anywhere; }
 .study-source-list p { font-size: 15px; color: #7e899b; margin: 7px 0; }
-.study-source-list code { font-size: 15px; color: #9ba4b4; display: block; margin-bottom: 12px; }
 .study-reading-tools :deep(.handout-concept-map) { position: static; border: 0; max-height: none; overflow: visible; }
 .study-reading-tools :deep(.concept-eyebrow) { font-size: 15px; }
-.study-reading-workspace .learning-dock :deep(button) { border-color: transparent; background: transparent; padding: 7px 10px; }
+.study-reading-workspace .learning-dock { font-family: var(--study-ui-font); }
+.study-reading-workspace .learning-dock :deep(button) { font-family: inherit; font-weight: 600; border-color: transparent; background: transparent; padding: 7px 10px; }
 .study-reading-workspace .learning-dock :deep(button.is-active), .study-reading-workspace .learning-dock :deep(button:hover) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
 @media (max-width: 1200px) { .study-handout { padding: 32px 34px 60px; } .study-header { padding: 8px 14px; gap: 12px; } .study-header-actions { gap: 4px; } }
 @media (max-width: 1100px) { .study-header-actions .study-user { display: none; } }

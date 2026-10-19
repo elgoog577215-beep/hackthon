@@ -30,14 +30,14 @@ defineProps<{ courseId: string; title: string; origin?: string }>();
   flex-direction: column;
   padding: 22px;
   border: 1px solid var(--lz-border);
-  border-radius: var(--lz-radius-surface);
-  background: var(--lz-surface, #fff);
-  box-shadow: 0 2px 8px rgba(49, 46, 129, 0.02);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(30, 41, 59, .025);
   transition: border-color .15s, box-shadow .15s;
 }
 .course-library-card:hover {
-  border-color: #d5cdee;
-  box-shadow: 0 5px 16px rgba(49, 46, 129, 0.04);
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, .06);
 }
 .course-library-card__heading {
   display: flex;
@@ -47,7 +47,7 @@ defineProps<{ courseId: string; title: string; origin?: string }>();
 }
 .course-library-card__mark {
   flex: none; width: 40px; height: 40px; display: grid; place-items: center;
-  border-radius: 10px; background: #f1efff; color: #7161e8;
+  border-radius: 8px; background: #eef2ff; color: #4f46e5;
 }
 .course-library-card__identity {
   min-width: 0;
@@ -99,7 +99,7 @@ h2 :deep(button:hover) {
   gap: 12px;
   margin-top: 18px;
   padding-top: 10px;
-  border-top: 1px solid #eceef4;
+  border-top: 1px solid #e8edf4;
   font-size: 15px;
 }
 .course-library-card :deep(a:focus-visible),

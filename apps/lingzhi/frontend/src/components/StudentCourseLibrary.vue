@@ -255,15 +255,11 @@
           : unified
             ? t("workspaceUi.emptyCourses")
             : copy(
-                "还没有获授权课程。将你的学生身份提供给教师，教师授权后课程会显示在这里。",
-                "No authorized courses yet. Give your student identity to your teacher; granted courses will appear here.",
+                "还没有获授权课程，教师发布并授权后会显示在这里。",
+                "No authorized courses yet. Courses appear here after your teacher publishes and grants access.",
               )
       }}
     </p>
-    <details class="student-id">
-      <summary>{{ copy("我的学生身份", "My student identity") }}</summary>
-      <code>{{ userId }}</code>
-    </details>
   </section>
 </template>
 <script setup lang="ts">
@@ -515,7 +511,7 @@ onBeforeUnmount(() => {
 }
 h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 650;
   line-height: 1.4;
   color: var(--lz-text-strong);
@@ -533,7 +529,7 @@ button {
   min-height: 36px;
   padding: 7px 12px;
   border: 1px solid var(--lz-border);
-  border-radius: var(--lz-radius-control);
+  border-radius: 8px;
   background: white;
   color: var(--lz-text);
   font: inherit;
@@ -543,7 +539,7 @@ button.primary {
   background: var(--lz-action-primary-bg);
   color: var(--lz-action-primary-text);
   border-color: var(--lz-action-primary-border);
-  box-shadow: var(--lz-action-shadow);
+  box-shadow: none;
 }
 .library-filters {
   margin: 26px 0 22px;
@@ -557,7 +553,7 @@ button.primary {
   color: var(--lz-text-muted);
   padding: 8px 12px;
   border: 1px solid var(--lz-border);
-  border-radius: var(--lz-radius-control);
+  border-radius: 8px;
   background: white;
 }
 .library-search input {
@@ -578,18 +574,21 @@ button.primary {
 .library-filter-tabs {
   display: flex;
   padding: 3px;
-  border-radius: var(--lz-radius-control);
-  background: transparent;
+  gap: 2px;
+  border: 1px solid #dbe2ee;
+  border-radius: 9px;
+  background: #f8fafc;
 }
 .library-filter-tabs button {
   border: 0;
   background: transparent;
   color: var(--lz-text-secondary);
+  font-weight: 600;
 }
 .library-filter-tabs button[aria-pressed="true"] {
-  background: var(--lz-brand-soft);
+  background: #fff;
   color: var(--lz-brand-strong);
-  box-shadow: none;
+  box-shadow: 0 2px 7px rgba(51, 65, 85, .09);
 }
 .course-grid {
   display: grid;
@@ -656,18 +655,6 @@ button.primary {
 }
 .course-empty {
   padding: 32px 0;
-}
-.student-id {
-  margin-top: 24px;
-  color: var(--lz-text-secondary);
-}
-.student-id summary {
-  cursor: pointer;
-}
-.student-id code {
-  display: block;
-  margin-top: 10px;
-  overflow-wrap: anywhere;
 }
 [role="alert"] {
   color: var(--lz-danger);
