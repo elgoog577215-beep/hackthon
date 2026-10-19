@@ -164,3 +164,20 @@ async def test_enqueue_conflict_is_separate_from_completed_tree(svc,monkeypatch)
     assert svc.authoring.get_job('c-pilot',source['id'])==before
     projected=next(j for j in svc.view('c-pilot',source_mode='handouts')['jobs'] if j['id']==source['id'])
     assert projected['status']=='completed' and projected['relation_followup']['status']=='failed'
+
+
+@pytest.mark.asyncio
+async def test_completed_relation_count_matches_deduplicated_suggestions(svc,monkeypatch):
+    source,_=candidate(svc,monkeypatch)
+    def repeat(data,result):
+        points=[p for p in data['catalog'] if 'cpu' in p['lesson_ids']]
+        a,b=points
+        for row in result['decisions']:
+            row['links']=[{'source_key':a['key'],'target_key':b['key'],'type':'applies_to','context':'same application',
+                'reason':'same supported relation','conditions':[],'strength':'medium',
+                'evidence':[{'point_key':p['key'],'quote':p['statement']} for p in points]}]
+    provider(svc,mutate=repeat)
+    job=start(svc,relation_source_job_id=source['id']);await svc.run('c-pilot',job['id'])
+    saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['checkpoint']['candidate']['relation_assessment']['proposed_count']==1
+    assert saved['relation_count']==1
