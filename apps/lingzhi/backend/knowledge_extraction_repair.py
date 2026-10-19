@@ -29,13 +29,7 @@ def repair_schema(targets, passages):
         properties = shape['properties']
         for field, value in plan.get('fixed_fields', {}).items():
             if field in properties: properties[field] = {'const': deepcopy(value)}
-        if target.get('required_conditions'):
-            properties['conditions'] = {**properties['conditions'], 'allOf': [
-                {'contains': {'const': condition}} for condition in target['required_conditions']]}
         shape = obj({'form': properties['form'], **{k: v for k, v in properties.items() if k != 'form'}})
-        for symbol in plan.get('required_symbols', []):
-            properties['conditions'].setdefault('allOf', []).append({'contains': {'type': 'string',
-                'pattern': r'(?<![A-Za-z_])' + re.escape(symbol) + r'(?![A-Za-z_])'}})
         shape['properties'] = properties
         replacement = obj({'points': array(shape, 1 if plan.get('single_point') else 8,
             1 if plan.get('single_point') else 0), 'handling': {'enum': ['replace'] if plan.get('single_point') else ['replace', 'context']}, 'reason': string(600)})
@@ -69,10 +63,6 @@ def repair_schema(targets, passages):
             # A cost present on only one side must become a fact, rather than a
             # comparison with an invented "unknown" answer on the other side.
             shapes = [deepcopy(c) for c in choices if c['properties']['form']['const'] in allowed_forms]
-            for candidate in shapes:
-                props = candidate['properties']
-                if target.get('required_conditions'):
-                    props['conditions']['allOf'] = [{'contains': {'const': c}} for c in target['required_conditions']]
             replacement['properties']['points']['items'] = {'anyOf': shapes}
         repairs[key] = {'anyOf': alternatives} if len(alternatives)>1 else replacement
     issue = obj({'passage_key': {'enum': list(dict.fromkeys(v['passage_key'] for v in targets.values()))},
@@ -107,6 +97,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     if not targets: raise KnowledgeCorrectionNotApplicable('没有可精确定位的知识点')
     require(len(targets) <= 16, '超出单次修正容量的知识点')
     for target in targets.values():
+        if 'correction_plan' not in target:
+            target['correction_plan'] = correction_plan(target['point'], [{'code': 'duplicate_question', 'message': target['error']}])
         conditions = target['point'].get('conditions', [])
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
         target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
@@ -134,6 +126,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         'source_issue_allowed=true且原块实际没有该命题时，必须返回handling="source_issue",points=[],reason="具体缺少何种证据"，并在source_issues登记该passage_key。'
         '不能为满足冻结答案改成另一结构，不能把不同算法的结论移植过来；来源不足有明确出口，不强迫凑出一个知识点。理由简短，最多120字。'
         '补充前提使用patch.append_conditions=[新增前提]，程序原样保留原conditions并追加；不要抄写已有前提。'
+        '完整replace或拆分的新点也由程序继承required_conditions，不必重复抄写这些冻结前提；只填写新增前提，合成后仍统一校验。'
         '主体已正确时不要重新输出subject。无需增加前提时省略append_conditions。'
         'required_symbols每个符号在conditions定义输入或计量对象，例如n表示待排序元素数；只写O(n)不算定义。'
         '没有single_point限制时可使用patch修改需要的字段，或handling="replace",points=[完整修正点],reason；无一般知识时明确context且points=[]。'
@@ -220,13 +213,15 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 require(len(repair['points']) == 1 and all(repair['points'][0].get(k) == v for k,v in fixed.items()),
                         '定点修正违反冻结字段：主体或前提以外的正确内容不得改变或拆分')
             for point in repair['points']:
+                point['conditions'] = list(dict.fromkeys([*targets[target]['required_conditions'], *point.get('conditions', [])]))
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
                 quality_point(point, passages[key]['text'])
             points.extend(deepcopy(repair['points']))
             if trace is not None:
                 repaired_traces.extend({**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False} for _ in repair['points'])
-            decisions.append({'target_key': target, **deepcopy(repair)})
+            decisions.append({'target_key': target, **deepcopy(repair),
+                              'program_preserved_conditions': deepcopy(targets[target]['required_conditions'])})
         entry['points'] = points
         if not points and any(target.startswith(key + ':') for target in targets):
             entry['note'] = {'handling': 'context', 'reason': '；'.join(d['reason'] for d in decisions if d['target_key'].startswith(key + ':'))}

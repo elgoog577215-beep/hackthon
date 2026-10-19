@@ -46,8 +46,8 @@ async def test_mechanism_to_definition_repair_must_keep_its_valid_implementation
         corrected=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
         assert corrected['passages']['S1.1']['points'][0]['conditions']==[scope]
     else:
-        with pytest.raises(CourseDocumentConflict,match='前提|conditions'):
-            await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+        corrected=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+        assert corrected['passages']['S1.1']['points'][0]['conditions']==[scope]
 
 
 def test_small_repair_schema_enforces_the_exact_field_that_failed():
@@ -136,8 +136,8 @@ async def test_property_only_repair_preserves_valid_original_conditions(svc, mon
     if preserve:
         await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
     else:
-        with pytest.raises(CourseDocumentConflict, match='前提'):
-            await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+        corrected=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+        assert corrected['passages']['S1.1']['points'][0]['conditions']==['栈未满']
 
 
 @pytest.mark.asyncio
