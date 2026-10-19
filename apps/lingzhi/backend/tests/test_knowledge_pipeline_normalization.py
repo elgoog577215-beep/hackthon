@@ -133,6 +133,35 @@ async def test_full_replacement_inherits_unmodified_scope_programmatically(svc, 
 
 
 @pytest.mark.asyncio
+async def test_diagnosed_bad_scope_can_be_cleared_without_readding_it(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw=svc.repository.load_raw('c-pilot'); context=svc._context(raw,'handouts','cpu')
+    original=value([point(subject='栈',property='物理实现',value='数组或链表',conditions=['必须基于数组或链表'])])
+    async def call(*args):
+        payload=json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        assert payload['targets']['S1.1:0']['correction_plan']['conditions_mode']=='replace'
+        return json.dumps({'repairs':{'S1.1:0':{'handling':'patch','patch':{'conditions':[]},'reason':'删除过强前提'}},'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    result=await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+    assert result['passages']['S1.1']['points'][0]['conditions']==[]
+
+
+@pytest.mark.asyncio
+async def test_all_invalid_corrected_points_are_reported_with_target_keys(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw=svc.repository.load_raw('c-pilot');context=svc._context(raw,'handouts','cpu')
+    original=value([point(property='效果和端点'),point('出栈',property='效果和端点')])
+    async def call(*args):
+        return json.dumps({'repairs':{f'S1.1:{i}':{'handling':'patch','patch':{'property':'仍然和无效'},'reason':'错误修正'} for i in range(2)},'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    with pytest.raises(CourseDocumentConflict) as error:
+        await repair_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,{})
+    assert 'S1.1:0' in str(error.value) and 'S1.1:1' in str(error.value)
+
+
+@pytest.mark.asyncio
 async def test_append_conditions_preserves_frozen_scope_without_model_retyping(svc, monkeypatch):
     from knowledge_extraction_repair import repair_points
     setup_course(svc, monkeypatch)
