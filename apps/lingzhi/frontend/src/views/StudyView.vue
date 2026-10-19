@@ -1,12 +1,22 @@
 <template>
   <div class="study-space">
-    <header class="study-header glass-panel-elevated">
-      <div v-if="materialId" class="study-course-context"><button type="button" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /></button><BookOpen :size="19" /><h1>{{ material?.title }}</h1></div>
+    <header class="study-header">
+      <div v-if="materialId" class="study-course-context"><button type="button" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /></button><button v-if="!directoryOpen" type="button" :aria-label="c('showDirectory')" @click="directoryOpen = true"><PanelLeftOpen :size="18" /></button><BookOpen :size="19" /><h1>{{ material?.title }}</h1></div>
       <StudentBrand v-else />
       <nav v-if="user && !materialId" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
         <button type="button" :aria-current="!materialId && !creating ? 'page' : undefined" :class="{ active: !materialId && !creating }" @click="openStudySection('home')">{{ t('workspaceUi.myCourses') }}</button>
       </nav>
       <div class="study-header-actions">
+        <template v-if="materialId">
+          <button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button>
+          <details class="study-reading-settings" @keydown.esc="closeReadingSettings">
+            <summary><Settings2 :size="17" />{{ c('readingSettings') }}</summary>
+            <div class="study-reading-settings-panel">
+              <label>{{ c('fontSize') }} · {{ readingFontSize }}<input v-model.number="readingFontSize" type="range" min="16" max="22" :aria-label="c('fontSize')" /></label>
+              <div role="group" :aria-label="c('readingSettings')"><button v-for="font in (['serif', 'sans'] as const)" :key="font" type="button" :aria-pressed="readingFont === font" @click="readingFont = font">{{ c(font === 'serif' ? 'serifFont' : 'sansFont') }}</button></div>
+            </div>
+          </details>
+        </template>
         <button @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')">{{ activeLocale === 'zh' ? 'English' : '中文' }}</button>
         <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
         <span v-if="user" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
@@ -28,14 +38,15 @@
     </main>
 
     <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId, 'is-library': !materialId && !creating }" :style="columnLayoutStyle">
-      <aside v-if="materialId || creating" class="study-navigation">
+      <aside v-if="(materialId && directoryOpen) || creating" class="study-navigation">
         <button v-if="creating" type="button" class="study-back" @click="goLibrary"><ArrowLeft :size="17" />{{ t('workspaceUi.backToCourses') }}</button>
         <template v-if="materialId">
-          <header class="study-directory-heading"><BookOpen :size="18" /><strong>{{ t('workspaceUi.directory') }}</strong></header>
+          <header class="study-directory-heading"><BookOpen :size="18" /><strong>{{ t('workspaceUi.directory') }}</strong><button type="button" :aria-label="c('hideDirectory')" @click="directoryOpen = false"><PanelLeftClose :size="17" /></button></header>
+          <label class="study-chapter-search"><Search :size="16" /><input v-model="chapterQuery" type="search" :placeholder="c('searchChapters')" :aria-label="c('searchChapters')" /></label>
           <nav class="study-chapter-list" :aria-label="t('workspaceUi.directory')">
-            <button v-for="(section, index) in readingSections" :key="section.id" type="button" :class="{ active: activeChapter === section.id }" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="navigateChapter(section.id)"><span class="study-chapter-number">{{ String(index + 1).padStart(2, '0') }}</span><span>{{ section.title }}</span></button>
+            <button v-for="section in filteredReadingSections" :key="section.id" type="button" :class="{ active: activeChapter === section.id }" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="navigateChapter(section.id)"><span class="study-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><span>{{ section.title }}</span></button>
           </nav>
-          <p v-if="!readingSections.length" class="study-nav-hint">{{ t('workspaceUi.noContents') }}</p>
+          <p v-if="!filteredReadingSections.length" class="study-nav-hint">{{ readingSections.length ? c('noChapterMatches') : t('workspaceUi.noContents') }}</p>
         </template>
         <template v-else>
           <header class="study-directory-heading"><Plus :size="18" /><strong>{{ c('create') }}</strong></header>
@@ -43,7 +54,7 @@
         </template>
       </aside>
 
-      <ColumnResizeHandle v-if="materialId || creating" v-bind="leftColumnHandle" />
+      <ColumnResizeHandle v-if="(materialId && directoryOpen) || creating" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
         <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
@@ -66,11 +77,9 @@
         <div class="study-reading-workspace">
           <div class="study-reading-body">
             <div class="study-reading-pane">
-              <div class="study-reading-toolbar"><strong class="study-reading-title">{{ material?.title }}</strong><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
               <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
-                <article class="study-handout">
-                  <header class="study-handout-cover"><span class="study-eyebrow">{{ c(material.purpose) }}</span><h1>{{ material.title }}</h1><p>{{ c(material.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><div class="handout-rule" /></header>
+                <article class="study-handout" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
 
                   <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
@@ -82,7 +91,7 @@
             <aside v-if="material" v-show="toolsOpen" class="study-reading-tools">
               <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><button type="button" :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></button></header>
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
-              <div v-else-if="toolTab === 'note'" class="study-note"><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
+              <div v-else-if="toolTab === 'note'" class="study-note"><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></footer></div>
               <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><code>{{ source.source_sha256.slice(0, 12) }}</code><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
               <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
               <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
@@ -90,7 +99,7 @@
           </div>
           <LearningDock v-if="material" toolbar placement="bottom" :location="assistantContext.section_title || material.title">
             <template #tools>
-              <button v-for="tab in toolTabs" :key="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ c(tab) }}</button>
+              <button v-for="tab in toolTabs" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ c(tab) }}</button>
             </template>
           </LearningDock>
         </div>
@@ -102,7 +111,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Plus, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Plus, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
@@ -140,7 +149,7 @@ const generationIssue = computed<StudyCopyKey | ''>(() => {
 })
 const canGenerate = computed(() => !generationIssue.value)
 function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRanges.value.filter(range => availableRanges.value.has(range)))] }
-const toolTabs = ['assistant', 'note', 'concepts', 'sources'] as const
+const toolTabs = ['note', 'assistant', 'concepts', 'sources'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
 const toolIcons = { assistant: Sparkles, note: NotebookPen, concepts: Network, sources: FileText }
@@ -203,9 +212,21 @@ const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNo
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
 const studyLayoutRoot = ref<HTMLElement | null>(null)
+const directoryOpen = ref(true), chapterQuery = ref('')
+const readingFontSize = ref(18), readingFont = ref<'serif' | 'sans'>('serif')
+const readingStyle = computed(() => ({
+  '--study-reading-size': `${readingFontSize.value}px`,
+  '--study-reading-font': readingFont.value === 'serif' ? 'var(--handout-serif)' : 'var(--handout-sans)',
+}))
+function closeReadingSettings(event: KeyboardEvent) {
+  const details = event.currentTarget as HTMLDetailsElement
+  details.open = false
+  details.querySelector('summary')?.focus()
+}
+watch(materialId, () => { chapterQuery.value = ''; directoryOpen.value = true })
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
-  storageKey: 'lingzhi:personal-study:columns', left: 240, right: 360, leftMin: 170, rightMin: 280,
-  leftVisible: () => Boolean(materialId.value || creating.value),
+  storageKey: 'lingzhi:personal-study:columns', left: 244, right: 350, leftMin: 170, rightMin: 280,
+  leftVisible: () => Boolean((materialId.value && directoryOpen.value) || creating.value),
   rightVisible: () => Boolean(materialId.value && material.value && toolsOpen.value),
 })
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
@@ -213,9 +234,13 @@ const isGenerating = computed(() => ['pending', 'running'].includes(materialStat
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
 const blockAnchor = (id: string) => `study-${materialId.value}-${id}`
 const readingSections = computed(() => (material.value?.revisions[0]?.sections || []).map(section => ({ id: section.id, title: section.title, anchor: sectionAnchor(section.id), blocks: section.blocks.map(block => ({ id: block.block_id, title: block.title, anchor: blockAnchor(block.block_id), content: block.content, knowledge: block.knowledge_names })) })))
+const filteredReadingSections = computed(() => {
+  const query = chapterQuery.value.trim().toLocaleLowerCase()
+  return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
+    .filter(section => section.title.toLocaleLowerCase().includes(query))
+})
 const conceptSections = computed(() => buildHandoutConceptSections(material.value?.plans || [], readingSections.value))
 const selectedSourceScopes = computed(() => material.value?.sources || (material.value?.revisions[0]?.sections || []).map(section => ({ node_id: section.id, title: section.title, ...section.source })))
-const statusLabel = (status: string) => c((['pending', 'running', 'completed', 'failed', 'paused'].includes(status) ? status : 'draft') as StudyCopyKey)
 let timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
 const noteKey = () => `lingzhi-study-note:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}`
@@ -329,76 +354,163 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 </script>
 
 <style scoped>
-.study-selection-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 20px;background:#eeeafa;color:#6b59a2;font:15px/1.6 var(--handout-sans)}.study-selection-actions span{flex:1}.study-selection-actions button{padding:4px 8px}
-.study-reading-tools{display:flex;flex-direction:column;min-height:0}.study-reading-tools:has(.personal-assistant){overflow:hidden;width:360px}
-@media(max-width:1200px){.study-reading-tools:has(.personal-assistant){width:320px}}
-.study-space{height:100%;min-height:0;display:flex;flex-direction:column;color:#263449;background:#f5f6fc;font:15px/1.6 var(--lz-font-sans,Inter,"Microsoft YaHei",sans-serif)}
-.study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;min-height:var(--lz-control-height);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);background:var(--lz-action-bg);color:var(--lz-action-text);padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover:not(:disabled){background:var(--lz-brand-soft);color:var(--lz-brand-strong)}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid var(--lz-action-focus);outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:var(--lz-action-primary-bg);color:var(--lz-action-primary-text);font-weight:600;padding:10px 18px;box-shadow:none;border:1px solid var(--lz-action-primary-border);border-radius:var(--lz-action-radius)}.study-space .study-primary:hover:not(:disabled){background:var(--lz-action-primary-hover);border-color:var(--lz-action-primary-hover);color:var(--lz-action-primary-text)}
-.study-header{height:82px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 30px;background:#ffffffed;border-bottom:1px solid #e4e7f0;gap:20px}.study-brand{display:flex;align-items:center;gap:12px}.brand-symbol{width:46px;height:46px;display:grid;place-items:center;background:#eee9fb;color:#6551c7;border-radius:15px}.study-brand strong{font-size:20px;display:block}.study-brand small{font-size:15px;color:#8190a4}.study-header-actions{display:flex;align-items:center;gap:18px}.study-header-actions button{border:0;background:transparent;padding:7px}.study-user{display:flex;align-items:center;gap:7px;color:#647187}.study-eyebrow{font-size:15px;color:#7b6ca4;font-weight:650;letter-spacing:.09em}.study-error{flex:none;padding:10px 28px;background:#fff1f1;color:#a14253;display:flex;align-items:center;justify-content:space-between;gap:16px}.study-error button{padding:5px 12px;color:inherit}
-.study-login-page{flex:1;overflow:auto;display:grid;grid-template-columns:minmax(0,570px) 410px;justify-content:center;align-items:center;gap:90px;padding:45px}.login-story h1{font-size:40px;line-height:1.3;letter-spacing:-.02em;margin:15px 0 20px}.login-story>p{font-size:18px;color:#748399;margin-bottom:35px}.login-purpose{display:flex;gap:18px;margin-top:25px;padding:20px 0;border-top:1px solid #dfe3f0}.login-purpose svg{color:#7662bd;margin-top:7px;flex:none}.login-purpose h3{font-size:18px;margin:0 0 6px}.login-purpose p{margin:0;color:#718096}.study-login-card{padding:36px;background:white;border:1px solid #e2e5ef;border-radius:22px;box-shadow:0 16px 50px #58688910}.study-login-card h2{font-size:25px;margin:12px 0}.study-login-card>p{color:#7b889c;margin-bottom:25px}.study-login-card .study-primary{width:100%;margin-top:14px}.study-login-card .study-text-button{display:flex;margin:17px auto 0;border:0;color:#6551c7}
-.study-workspace{flex:1;min-height:0;display:flex}.study-navigation{width:240px;flex:none;padding:28px 18px;display:flex;flex-direction:column;border-right:1px solid #e2e5ef;background:#fbfcff;overflow:auto}.study-navigation>.study-eyebrow{padding:0 11px;margin-bottom:25px;font-size:15px;letter-spacing:.02em}.study-navigation>button{justify-content:flex-start;border:0;background:transparent;margin-bottom:8px;padding:12px;color:#69778b}.study-navigation>button.active{color:#6651bd;background:#eeeafb;font-weight:650}.recent-materials{display:flex;flex-direction:column;gap:5px;margin-top:27px;border-top:1px solid #e6e8f1;padding-top:19px}.recent-materials a{display:flex;gap:10px;padding:11px;border-radius:10px;overflow-wrap:anywhere}.recent-materials a:hover,.recent-materials a.active{background:#f0edf9}.recent-materials small{display:block;font-size:15px;color:#8390a2;margin-top:4px}.material-dot{margin-top:9px;width:7px;height:7px;flex:none;border-radius:50%;background:#7e6db8}.material-dot.exam_prep{background:#4682b2}.study-nav-hint{display:flex;align-items:flex-start;gap:9px;margin-top:auto;padding:35px 10px 0;color:#8a94a5;font-size:15px}.study-nav-hint svg{flex:none;margin-top:5px}
-.study-main-scroll{flex:1;min-width:0;overflow:auto}.study-library,.study-create{max-width:1080px;margin:auto;padding:42px 48px 60px}.study-page-heading{display:flex;align-items:center;justify-content:space-between;gap:25px;margin-bottom:34px}.study-page-heading h1{font-size:30px;margin:8px 0 10px}.study-page-heading p{color:#7a889c;margin:0}.study-material-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:22px}.study-material-card{background:white;border:1px solid #e0e5f0;border-radius:17px;padding:26px;box-shadow:0 5px 14px #4a597106;min-height:250px;display:flex;flex-direction:column}.study-material-card:hover{border-color:#baafe7;box-shadow:0 8px 25px #6551c711}.material-mode{display:flex;align-items:center;gap:8px;color:#7660b4;font-weight:600}.material-mode.exam_prep{color:#3e7f9d}.study-material-card h2{font-size:22px;margin:22px 0 10px}.study-material-card>p{color:#7a889c;margin:0 0 28px}.study-material-card footer{display:flex;justify-content:space-between;align-items:center;margin-top:auto;color:#8675b2}.study-status{color:#778299;display:inline-flex;align-items:center;gap:8px;font-size:15px}.study-status:before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}.study-status.completed{color:#278061}.study-status.running{color:#7057b7}.study-status.failed,.study-status.paused{color:#a87540}.study-empty{text-align:center;padding:70px 20px;border:1px dashed #d5d9eb;border-radius:20px;background:#fafbff}.empty-books{color:#8d7bbc;background:#eeeafb;width:95px;height:95px;border-radius:24px;display:grid;place-items:center;margin:auto}.study-empty h2{margin:24px 0 12px;font-size:25px}.study-empty p{color:#7a889c;max-width:500px;margin:0 auto 26px}
-.study-form-section{background:white;border:1px solid #e3e6ef;border-radius:16px;padding:26px 28px;margin:22px 0}.study-form-section h2{font-size:20px;margin:0 0 10px}.study-form-section>p{margin:0 0 22px;color:#7b879b}.study-space label:not(.source-selection):not(.study-upload){display:flex;flex-direction:column;gap:9px;margin-bottom:18px;font-weight:550}.study-space input:not([type=checkbox]):not([type=file]),.study-space textarea,.study-space select{width:100%;min-width:0;border:1px solid #d7deeb;border-radius:9px;background:#fcfdff;padding:11px 13px;color:#33455f;box-sizing:border-box}.study-space textarea{resize:vertical}.study-source-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:22px}.study-upload{position:relative;display:flex;align-items:center;gap:9px;border:1px solid #c9c0eb;background:#f7f4ff;color:#6952b5;padding:9px 14px;border-radius:10px;cursor:pointer}.study-upload input{position:absolute;width:1px;height:1px;opacity:0}.study-source-actions>span{font-size:15px;color:#8a94a6}.study-paste{padding:20px;background:#f7f8fc;border-radius:12px;margin-bottom:20px}.study-source{padding:16px 0;border-top:1px solid #e7e9f1}.source-name{display:flex;align-items:center;gap:9px;color:#576783;margin-bottom:13px;flex-wrap:wrap}.source-name>span{margin-left:auto;font-size:15px;color:#8591a2}.source-selection{display:flex;align-items:center;gap:12px;padding:9px 10px;margin:2px 0;border-radius:8px;background:#fafbfe;cursor:pointer}.source-selection input{width:17px;height:17px;accent-color:#755fc0}.source-selection small{margin-left:auto;color:#8a95a5;font-size:15px}.source-warning{color:#a47548;font-size:15px}.study-purpose-options{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}.study-purpose-options button{position:relative;display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:21px;border:1px solid #e1e5ef;background:#fcfcff;gap:12px}.study-purpose-options button.selected{border-color:#8d7ad0;background:#f5f1ff}.study-purpose-options strong{font-size:18px;color:#3c4260}.study-purpose-options span{color:#7d849c;font-size:15px;font-weight:400}.purpose-check{position:absolute;right:18px;top:23px;color:#7761bc}.study-settings-row{display:grid;grid-template-columns:1fr 1fr;gap:20px}.study-generate-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 0;color:#8190a3}
-.study-reading-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:linear-gradient(#f7f8ff,#fff)}.study-reading-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex:none;padding:13px 20px;background:white;border-bottom:1px solid #e4e7f0}.study-reading-toolbar button{border:0;font-size:15px;background:transparent;padding:5px 9px}.study-document-scroll{min-height:0;flex:1;overflow:auto;scroll-behavior:smooth;padding:28px 32px 60px}.study-handout{max-width:880px;margin:auto;min-width:0;background:white;border:1px solid #e0e5ef;box-shadow:0 6px 25px #49567105;padding:40px 45px;color:#272e3d;font:18px/1.95 var(--handout-serif)}.study-handout-cover h1{font:700 32px/1.45 var(--handout-serif);margin:12px 0 16px}.study-handout-cover p{font:15px/1.8 var(--handout-sans);color:#7a879a;margin:0}.handout-rule{height:1px;background:#dce2ec;margin:26px 0}.study-section-kicker{font:15px/1.6 var(--handout-sans);color:#8c96a7;margin-top:30px}.study-handout-section{scroll-margin-top:25px}.study-handout-section h2{font:700 25px/1.6 var(--handout-serif);margin:8px 0 20px}.study-handout-section>div[id]{min-width:0;scroll-margin-top:25px}.study-progress{border:1px solid #dcd4ed;background:#faf7ff;padding:17px 20px;font:15px/1.8 var(--handout-sans);margin-bottom:24px;display:flex;flex-direction:column;gap:12px}.study-progress progress{width:100%;height:5px;accent-color:#8066c6}.study-progress button{align-self:flex-start}.study-draft{border-top:1px dashed #d3d8e6;padding:15px 0}.study-draft>span{font:15px/1.6 var(--handout-sans);color:#8792a5}.study-end{display:flex;gap:9px;justify-content:center;align-items:center;color:#8698a0;font:15px/1.8 var(--handout-sans);padding-top:30px;border-top:1px solid #e3e8ee;margin-top:35px}.study-reading-tools{width:300px;flex:none;overflow:auto;background:#fcfdff;border-left:1px solid #dfe4ef}.study-note,.study-source-list{padding:23px}.study-note h3,.study-source-list h3{font-size:18px;margin:0 0 12px}.study-note>p{color:#8c97a8;font-size:15px;margin:0 0 22px}.study-note textarea{font-size:15px;line-height:1.9;min-height:290px}.study-note .study-primary{width:100%}.study-note-status{font-size:15px;color:#7d909b;min-height:27px;margin:10px 0}.study-source-list article{border:1px solid #dce2ed;border-radius:10px;background:white;padding:15px;margin-top:16px}.study-source-list strong{font-size:15px;display:block;margin:8px 0;overflow-wrap:anywhere}.study-source-list p{font-size:15px;color:#7e899b;margin:7px 0}.study-source-list code{font-size:15px;color:#9ba4b4}.study-reading-tools :deep(.handout-concept-map){position:static;border:0;max-height:none;overflow:visible}.study-reading-tools :deep(.concept-eyebrow){font-size:15px}
-@media(max-width:1200px){.study-navigation{width:190px;padding:25px 12px}.study-reading-tools{width:270px}.study-library,.study-create{padding:35px 30px}.study-document-scroll{padding:24px 18px 60px}.study-handout{padding:30px 25px}.study-login-page{gap:45px}.study-brand small{display:none}}
-@media(max-width:980px){.study-navigation{width:165px}.study-header{padding:0 20px}.study-header-actions{gap:10px}.study-reading-tools{width:235px}.study-user{max-width:180px;overflow:hidden}.study-login-page{grid-template-columns:minmax(0,1fr) 350px;gap:30px;padding:30px}.login-story h1{font-size:31px}.study-purpose-options{gap:12px}.study-reading-toolbar{flex-wrap:wrap}.study-handout{padding:25px 18px}}
-.study-workspace{min-width:0;overflow:hidden}
-.study-workspace>.study-navigation{box-sizing:border-box;width:var(--column-left-width);min-width:0;overflow-wrap:anywhere}
-.study-reading-body>.study-reading-tools{box-sizing:border-box;width:var(--column-right-width);min-width:0}
-.study-reading-workspace .learning-dock :deep(button) { border-color:transparent; background:transparent; padding:7px 10px; }
-.study-reading-workspace .learning-dock :deep(button.is-active), .study-reading-workspace .learning-dock :deep(button:hover) { background:var(--lz-brand-soft); color:var(--lz-brand-strong); }
-.study-reading-workspace { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
-.study-reading-body { display:flex; flex:1; min-width:0; min-height:0; }
-.study-tool-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; border-bottom:1px solid #e4e8f0; flex:none; }
-.study-tool-heading button { border:0; background:transparent; padding:6px; }
-.study-course-context { display:flex; align-items:center; gap:10px; min-width:0; }
-.study-course-context h1 { margin:0; font-size:20px; font-weight:650; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.study-course-context > button { border:0; background:transparent; padding:6px; }
-.study-course-context > svg { flex:none; color:var(--lz-brand); }
-</style>
-
-<style scoped>
-.study-space { padding: 10px; gap: 10px; box-sizing: border-box; background: transparent; }
-.study-header { min-height: 60px; height: auto; padding: 8px 20px; border: 1px solid rgba(255,255,255,.82); border-radius: 18px; background: linear-gradient(115deg,#fff,#ffffffbb); }
-.study-brand { flex: none; gap: 10px; }
-.study-brand > img { width: 34px; height: 34px; }
-.study-brand strong { color: #312e81; }
-.study-brand small { font-size: 15px; }
-.study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
-.study-surface-navigation button { padding: 7px 10px; border: 0; background: transparent; white-space: nowrap; }
-.study-surface-navigation button.active { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
-.study-header-actions { flex: none; gap: 10px; }
-.study-workspace { gap: 0; border-radius: 16px; }
-.study-workspace.is-library .study-main-scroll { border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.76); box-shadow: var(--lz-shadow-panel); }
-@media(max-width:1100px) { .study-header-actions .study-user { display: none; } }
-</style>
-
-<style scoped>
-.study-upload-input { display:none; }
-.study-create { width:100%; max-width:980px; margin:0 auto; padding:28px; box-sizing:border-box; }
-.study-create .study-page-heading p { max-width:740px; color:var(--lz-text-secondary); font-size:15px; line-height:1.7; margin:10px 0 0; }
-.study-form-section { border:1px solid var(--lz-border); border-radius:var(--lz-radius-surface); background:#fff; }
-.study-purpose-options button { align-content:start; text-align:left; border-radius:var(--lz-radius-control); }
-.study-purpose-options button > span { font-size:15px; line-height:1.7; color:var(--lz-text-secondary); }
-.study-purpose-options button.selected { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
-.study-range-recovery { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; color:var(--lz-text-secondary); font-size:15px; }
-.study-generation-issue { color:var(--lz-brand-strong) !important; }
-.study-range-hint { color:var(--lz-text-secondary); font-size:15px; margin-top:14px; }
-.study-generate-bar { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
-.study-generate-bar > div { flex:1; min-width:220px; color:var(--lz-text); font-size:15px; }
-.study-generate-bar p { margin:6px 0 0; font-size:15px; line-height:1.6; color:var(--lz-text-secondary); }
-.study-generate-bar button { flex:none; }
-@media (max-width:1280px) { .study-create { padding:24px 20px; } }
-.study-directory-heading { display: flex; align-items: center; gap: 9px; padding: 22px 14px 12px; color: var(--lz-text-strong); font-size: 15px; }
-.study-directory-heading svg { color: var(--lz-brand-strong); }
+.study-space {
+  height: 100%; min-height: 0; display: flex; flex-direction: column;
+  padding: 10px; gap: 10px; box-sizing: border-box;
+  color: #303440; background: #f8f9fc;
+  font: 15px/1.6 var(--lz-font-sans, Inter, "Microsoft YaHei", sans-serif);
+}
+.study-space button, .study-space input, .study-space textarea, .study-space select { font: inherit; }
+.study-space button, .study-space a { transition: background .15s, color .15s; }
+.study-space button {
+  cursor: pointer; min-height: 36px; border: 1px solid var(--lz-action-border);
+  border-radius: var(--lz-action-radius); background: var(--lz-action-bg); color: var(--lz-action-text);
+  padding: 8px 12px; display: inline-flex; justify-content: center; align-items: center; gap: 8px;
+}
+.study-space button:hover:not(:disabled) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-space button:disabled { cursor: default; opacity: .55; }
+.study-space :is(button, a, input, textarea, select, summary):focus-visible { outline: 3px solid var(--lz-action-focus); outline-offset: 3px; }
+.study-space a { text-decoration: none; color: inherit; }
+.study-space .study-primary { background: var(--lz-action-primary-bg); color: var(--lz-action-primary-text); font-weight: 600; border-color: var(--lz-action-primary-border); }
+.study-space .study-primary:hover:not(:disabled) { background: var(--lz-action-primary-hover); color: var(--lz-action-primary-text); }
+.study-header {
+  min-height: 60px; flex: none; box-sizing: border-box; display: flex; align-items: center;
+  justify-content: space-between; padding: 8px 20px; gap: 20px;
+  border: 1px solid #eeedf4; border-radius: 18px; background: #ffffffed;
+}
+.study-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
+.study-header-actions button, .study-course-context > button { border: 0; background: transparent; padding: 6px 8px; white-space: nowrap; }
+.study-user { display: flex; align-items: center; gap: 7px; color: #7c8496; }
+.study-surface-navigation { display: flex; flex: 1; align-items: center; justify-content: center; }
+.study-surface-navigation button { border: 0; background: transparent; padding: 6px 16px; }
+.study-surface-navigation button.active { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-course-context { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.study-course-context h1 { margin: 0; font-size: 18px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.study-course-context > svg { flex: none; color: var(--lz-brand); }
+.study-reading-settings { position: relative; }
+.study-reading-settings summary { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; list-style: none; white-space: nowrap; }
+.study-reading-settings summary::-webkit-details-marker { display: none; }
+.study-reading-settings-panel { position: absolute; right: 0; top: calc(100% + 14px); z-index: 30; width: 240px; padding: 20px; background: white; border: 1px solid #e6e3ee; border-radius: 12px; box-shadow: 0 10px 30px #30344015; }
+.study-reading-settings-panel label { display: grid; gap: 12px; margin-bottom: 12px; }
+.study-reading-settings-panel input { width: 100%; accent-color: var(--lz-brand); }
+.study-reading-settings-panel [role=group] { display: flex; gap: 8px; }
+.study-reading-settings-panel button[aria-pressed=true] { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+.study-eyebrow { font-size: 15px; color: #7b6ca4; font-weight: 650; letter-spacing: .09em; }
+.study-error { flex: none; padding: 10px 28px; background: #fff1f1; color: #a14253; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.study-error button { padding: 5px 12px; color: inherit; }
+.study-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
+.study-navigation { box-sizing: border-box; width: var(--column-left-width); flex: none; min-width: 0; padding: 12px; display: flex; flex-direction: column; border-radius: 16px; background: #f2f3f8; overflow: auto; overflow-wrap: anywhere; }
+.study-directory-heading { display: flex; align-items: center; gap: 9px; min-height: 40px; padding: 4px 6px 12px; color: #404457; }
+.study-directory-heading > svg { color: var(--lz-brand-strong); }
+.study-directory-heading button { margin-left: auto; padding: 4px; border: 0; background: transparent; }
+.study-chapter-search { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding: 8px 10px; border: 1px solid #e8e8f0; border-radius: 8px; background: #ffffffb3; color: #969baa; }
+.study-chapter-search input { padding: 0; line-height: 24px; min-width: 0; width: 100%; background: transparent; border: 0; outline: none; color: #4c5266; }
+.study-chapter-search:focus-within { outline: 2px solid var(--lz-brand); }
 .study-chapter-list { display: grid; gap: 4px; }
-.study-chapter-list button { border: 0; border-left: 2px solid transparent; border-radius: 0 8px 8px 0; background: transparent; display: flex; align-items: start; gap: 10px; min-height: 44px; width: 100%; text-align: start; font-size: 15px; line-height: 1.65; }
-.study-chapter-list button.active { border-left: 2px solid var(--lz-brand); background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
-.study-chapter-number { flex: none; color: var(--lz-text-muted); font-size: 13px; padding-top: 2px; }
+.study-chapter-list button { justify-content: flex-start; align-items: start; width: 100%; border: 0; border-radius: 8px; background: transparent; text-align: start; line-height: 1.65; padding: 10px; }
+.study-chapter-list button.active { background: #eae7f8; color: var(--lz-brand-strong); }
+.study-chapter-number { flex: none; color: #9896aa; font-size: 15px; }
+.study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }
+.study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
+.study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); }
+.study-create-steps a:hover { color: var(--lz-brand-strong); }
+.study-main-scroll { flex: 1; min-width: 0; overflow: auto; }
+.study-reading-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-radius: 16px; overflow: hidden; background: white; }
+.study-reading-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.study-reading-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: white; }
+.study-selection-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 20px; background: #f4f1fb; color: #6b59a2; font: 15px/1.6 var(--handout-sans); }
+.study-selection-actions span { flex: 1; }
+.study-selection-actions button { padding: 4px 8px; }
+.study-document-scroll { min-height: 0; flex: 1; overflow: auto; scroll-behavior: smooth; }
+.study-handout { box-sizing: border-box; max-width: 890px; margin: auto; min-width: 0; padding: 35px 54px 64px; color: #303440; font: var(--study-reading-size, 18px)/1.95 var(--study-reading-font, var(--handout-serif)); }
+.study-handout :deep(.handout-block) { font-size: var(--study-reading-size, 18px); font-family: var(--study-reading-font, var(--handout-serif)); }
+.study-handout-section { scroll-margin-top: 24px; }
+.study-handout-section + .study-handout-section { padding-top: 32px; margin-top: 48px; border-top: 1px solid #ededf2; }
+.study-section-kicker { font: 15px/1.6 var(--handout-sans); color: #9096a5; }
+.study-handout-section h2 { font: 650 29px/1.5 var(--handout-sans); margin: 10px 0 28px; letter-spacing: -.02em; }
+.study-handout-section > div[id] { min-width: 0; scroll-margin-top: 24px; }
+.study-progress { border: 1px solid #dcd4ed; background: #faf7ff; padding: 17px 20px; font: 15px/1.8 var(--handout-sans); margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px; }
+.study-progress progress { width: 100%; height: 5px; accent-color: #8066c6; }
+.study-progress button { align-self: flex-start; }
+.study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
+.study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
+.study-end { display: flex; gap: 9px; justify-content: center; align-items: center; color: #8698a0; font: 15px/1.8 var(--handout-sans); padding-top: 30px; border-top: 1px solid #e3e8ee; margin-top: 35px; }
+.study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #ededf2; }
+.study-reading-tools:has(.personal-assistant) { overflow: hidden; }
+.study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #ededf2; flex: none; }
+.study-tool-heading button { border: 0; background: transparent; padding: 4px; }
+.study-note { padding: 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 16px; }
+.study-note > p { color: #8c94a4; font-size: 15px; margin: 0; }
+.study-note textarea { box-sizing: border-box; width: 100%; flex: 1; min-height: 100px; border: 0; resize: none; outline: none; padding: 0; background: transparent; color: #4c5265; line-height: 1.9; }
+.study-note textarea:focus-visible { outline-offset: 6px; }
+.study-note-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding-top: 12px; border-top: 1px solid #efedf4; }
+.study-note-status { color: #8a93a3; font-size: 15px; }
+.study-note-footer button { flex: none; }
+.study-source-list { padding: 20px; }
+.study-source-list article { padding: 16px 0; border-bottom: 1px solid #ededf2; }
+.study-source-list strong { font-size: 15px; display: block; margin: 8px 0; overflow-wrap: anywhere; }
+.study-source-list p { font-size: 15px; color: #7e899b; margin: 7px 0; }
+.study-source-list code { font-size: 15px; color: #9ba4b4; display: block; margin-bottom: 12px; }
+.study-reading-tools :deep(.handout-concept-map) { position: static; border: 0; max-height: none; overflow: visible; }
+.study-reading-tools :deep(.concept-eyebrow) { font-size: 15px; }
+.study-reading-workspace .learning-dock :deep(button) { border-color: transparent; background: transparent; padding: 7px 10px; }
+.study-reading-workspace .learning-dock :deep(button.is-active), .study-reading-workspace .learning-dock :deep(button:hover) { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
+@media (max-width: 1200px) { .study-handout { padding: 32px 34px 60px; } .study-header { padding: 8px 14px; gap: 12px; } .study-header-actions { gap: 4px; } }
+@media (max-width: 1100px) { .study-header-actions .study-user { display: none; } }
+
+.study-login-page { flex: 1; overflow: auto; display: grid; grid-template-columns: minmax(0,570px) 410px; justify-content: center; align-items: center; gap: 90px; padding: 45px; }
+.login-story h1 { font-size: 40px; line-height: 1.3; letter-spacing: -.02em; margin: 15px 0 20px; }
+.login-story>p { font-size: 18px; color: #748399; margin-bottom: 35px; }
+.login-purpose { display: flex; gap: 18px; margin-top: 25px; padding: 20px 0; border-top: 1px solid #dfe3f0; }
+.login-purpose svg { color: #7662bd; margin-top: 7px; flex: none; }
+.login-purpose h3 { font-size: 18px; margin: 0 0 6px; }
+.login-purpose p { margin: 0; color: #718096; }
+.study-login-card { padding: 36px; background: white; border: 1px solid #e2e5ef; border-radius: 22px; box-shadow: 0 16px 50px #58688910; }
+.study-login-card h2 { font-size: 25px; margin: 12px 0; }
+.study-login-card>p { color: #7b889c; margin-bottom: 25px; }
+.study-login-card .study-primary { width: 100%; margin-top: 14px; }
+.study-login-card .study-text-button { display: flex; margin: 17px auto 0; border: 0; color: #6551c7; }
+.study-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 25px; margin-bottom: 34px; }
+.study-page-heading h1 { font-size: 30px; margin: 8px 0 10px; }
+.study-page-heading p { color: #7a889c; margin: 0; }
+.study-form-section { background: #fff; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); padding: 26px 28px; margin: 22px 0; }
+.study-form-section h2 { font-size: 20px; margin: 0 0 10px; }
+.study-form-section>p { margin: 0 0 22px; color: #7b879b; }
+.study-space :is(.study-create, .study-login-card) label:not(.source-selection):not(.study-upload) { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; font-weight: 550; }
+.study-space :is(.study-create, .study-login-card) input:not([type=checkbox]):not([type=file]),.study-space :is(.study-create, .study-login-card) textarea,.study-space :is(.study-create, .study-login-card) select { width: 100%; min-width: 0; border: 1px solid #d7deeb; border-radius: 9px; background: #fcfdff; padding: 11px 13px; color: #33455f; box-sizing: border-box; }
+.study-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 22px; }
+.study-upload { position: relative; display: flex; align-items: center; gap: 9px; border: 1px solid #c9c0eb; background: #f7f4ff; color: #6952b5; padding: 9px 14px; border-radius: 10px; cursor: pointer; }
+.study-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.study-source-actions>span { font-size: 15px; color: #8a94a6; }
+.study-paste { padding: 20px; background: #f7f8fc; border-radius: 12px; margin-bottom: 20px; }
+.study-source { padding: 16px 0; border-top: 1px solid #e7e9f1; }
+.source-name { display: flex; align-items: center; gap: 9px; color: #576783; margin-bottom: 13px; flex-wrap: wrap; }
+.source-name>span { margin-left: auto; font-size: 15px; color: #8591a2; }
+.source-selection { display: flex; align-items: center; gap: 12px; padding: 9px 10px; margin: 2px 0; border-radius: 8px; background: #fafbfe; cursor: pointer; }
+.source-selection input { width: 17px; height: 17px; accent-color: #755fc0; }
+.source-selection small { margin-left: auto; color: #8a95a5; font-size: 15px; }
+.source-warning { color: #a47548; font-size: 15px; }
+.study-purpose-options { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+.study-purpose-options button { position: relative; display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 21px; border: 1px solid #e1e5ef; background: #fcfcff; gap: 12px; align-content: start; border-radius: var(--lz-radius-control); }
+.study-purpose-options button.selected { border-color: var(--lz-brand); background: var(--lz-brand-soft); }
+.study-purpose-options strong { font-size: 18px; color: #3c4260; }
+.study-purpose-options span { color: #7d849c; font-size: 15px; font-weight: 400; }
+.purpose-check { position: absolute; right: 18px; top: 23px; color: #7761bc; }
+.study-settings-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.study-generate-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; color: #8190a3; flex-wrap: wrap; gap: 16px; }
+.study-upload-input { display: none; }
+.study-create { width: 100%; max-width: 980px; margin: 0 auto; padding: 28px; box-sizing: border-box; }
+.study-create .study-page-heading p { max-width: 740px; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.7; margin: 10px 0 0; }
+.study-purpose-options button > span { font-size: 15px; line-height: 1.7; color: var(--lz-text-secondary); }
+.study-range-recovery { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--lz-text-secondary); font-size: 15px; }
+.study-generation-issue { color: var(--lz-brand-strong) !important; }
+.study-range-hint { color: var(--lz-text-secondary); font-size: 15px; margin-top: 14px; }
+.study-generate-bar > div { flex: 1; min-width: 220px; color: var(--lz-text); font-size: 15px; }
+.study-generate-bar p { margin: 6px 0 0; font-size: 15px; line-height: 1.6; color: var(--lz-text-secondary); }
+.study-generate-bar button { flex: none; }
 .study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
 .study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); text-decoration: none; font-size: 15px; line-height: 1.6; }
 .study-create-steps a:hover { color: var(--lz-brand-strong); }
-.study-workspace.is-library .study-main-scroll { border: 0; border-radius: 16px; background: #f5f6f8; box-shadow: none; }
-.study-handout-section { scroll-margin-top: 24px; }
-.study-reading-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; color: var(--lz-text-secondary); }
+@media(max-width:1200px) { .study-login-page { gap:40px; } }
+@media(max-width:980px) { .study-login-page { grid-template-columns:minmax(0,1fr) 350px; gap:30px; padding:30px; } .login-story h1 { font-size:31px; } .study-purpose-options { gap:12px; } }
 </style>

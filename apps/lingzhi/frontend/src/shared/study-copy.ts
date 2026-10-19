@@ -1,6 +1,11 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  readingSettings: ['阅读设置', 'Reading settings'], fontSize: ['字号', 'Text size'],
+  serifFont: ['宋体', 'Serif'], sansFont: ['黑体', 'Sans serif'],
+  searchChapters: ['搜索章节', 'Search chapters'], noChapterMatches: ['没有匹配的章节', 'No matching chapters'],
+  hideDirectory: ['收起目录', 'Hide contents'], showDirectory: ['展开目录', 'Show contents'],
+  discussing: ['正在讨论', 'Discussing'],
   requestTimeout: ['连接超时。请重新连接并检查最新状态，已有内容和记录仍会保留。', 'The connection timed out. Reconnect and check the latest status; existing content and records are retained.'],
   authorizedCourses: ['教师授权课程', 'Authorized courses'],
   brand: ['我的学习空间', 'My study space'], subtitle: ['课程学习、练习与个人讲义', 'Courses, practice and personal handouts'],

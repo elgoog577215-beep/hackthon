@@ -495,9 +495,10 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .student-courses {
-  max-width: 1340px;
+  max-width: 1320px;
+  box-sizing: border-box;
   margin: auto;
-  padding: 30px 32px;
+  padding: 36px;
   color: var(--lz-text);
   font-size: 15px;
 }
@@ -549,7 +550,8 @@ button.primary {
   flex-wrap: wrap;
 }
 .library-search {
-  flex: 1;
+  flex: 0 1 330px;
+  box-sizing: border-box;
   gap: 9px;
   min-width: 240px;
   color: var(--lz-text-muted);
@@ -559,6 +561,8 @@ button.primary {
   background: white;
 }
 .library-search input {
+  padding: 0;
+  line-height: 24px;
   min-width: 0;
   width: 100%;
   border: 0;
@@ -575,7 +579,7 @@ button.primary {
   display: flex;
   padding: 3px;
   border-radius: var(--lz-radius-control);
-  background: var(--lz-surface-subtle);
+  background: transparent;
 }
 .library-filter-tabs button {
   border: 0;
@@ -583,14 +587,14 @@ button.primary {
   color: var(--lz-text-secondary);
 }
 .library-filter-tabs button[aria-pressed="true"] {
-  background: white;
+  background: var(--lz-brand-soft);
   color: var(--lz-brand-strong);
-  box-shadow: 0 1px 4px rgba(49, 46, 129, 0.08);
+  box-shadow: none;
 }
 .course-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 22px;
+  gap: 20px;
   align-items: start;
 }
 .course-start {

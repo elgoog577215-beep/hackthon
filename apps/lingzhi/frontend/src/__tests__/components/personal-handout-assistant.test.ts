@@ -149,7 +149,8 @@ describe('personal handout assistant', () => {
   })
   it('renders the English counterpart and keeps the exact selected context', async () => {
     activeLocale.value = 'en'; const view = page(); await flushPromises()
-    expect(view.text()).toContain('AI assistant')
+    expect(view.get('.personal-assistant').attributes('aria-label')).toBe('AI assistant')
+    expect(view.text()).toContain('Discussing')
     expect(view.text()).toContain('Explain with a diagram')
     expect(view.text()).toContain('u + 2v')
   })
