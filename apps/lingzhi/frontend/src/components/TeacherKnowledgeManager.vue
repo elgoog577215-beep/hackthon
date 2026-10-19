@@ -137,11 +137,17 @@
               <p v-if="!relations.length" class="muted">{{ t('knowledgeFirst.noRelation') }}</p>
               <div v-for="link in relatedLinks" :key="link.edge.id" class="relation">
                 <span v-if="link.crossLesson" class="relation-scope">{{ t('knowledgeFirst.crossLessonLinks') }}</span>
-                <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })">{{ link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : '' }}{{ link.point?.name || link.id }}</button>
-                <p class="relation-direction">{{ t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming') }} · {{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }} · {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</p>
-                <p v-if="link.edge.reason">{{ link.edge.reason }}</p><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition">{{ condition }}</li></ul>
-                <KnowledgeRelationEvidence :edge="link.edge" />
-                <MarkdownRenderer v-if="link.point?.statement" class="related-statement" :content="link.point.statement" />
+                <div class="related-point-row">
+                  <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })">{{ link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : '' }}{{ link.point?.name || link.id }}</button>
+                  <span class="related-point-type" :aria-label="t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming')">{{ link.edge.source_id === selectedId ? '→' : '←' }} {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</span>
+                </div>
+                <details class="related-point-details">
+                  <summary>{{ t('knowledgeFirst.relationDetails') }}</summary>
+                  <p class="relation-direction">{{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }}</p>
+                  <p v-if="link.edge.reason">{{ link.edge.reason }}</p><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition">{{ condition }}</li></ul>
+                  <KnowledgeRelationEvidence :edge="link.edge" />
+                  <MarkdownRenderer v-if="link.point?.statement" class="related-statement" :content="link.point.statement" />
+                </details>
               </div>
               <template v-if="!treeOnly || diagnoses.length"><h3>{{ t('knowledgeFirst.diagnosis') }}</h3><div v-for="d in diagnoses" :key="d.key"><p>A · {{ d.hypothesis_a }}</p><p>B · {{ d.hypothesis_b }}</p><p>{{ d.repair_a }}</p><p>{{ d.repair_b }}</p></div>
               <p v-if="!diagnoses.length" class="muted">{{ t(generic ? 'knowledgeFirst.genericNoDiagnosis' : 'knowledgeFirst.noDiagnosis') }}</p></template>
@@ -675,6 +681,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abor
 </style>
 
 <style scoped>
+.related-point-row{display:flex;align-items:baseline;gap:12px}.related-point-row button{flex:1;min-width:0;padding:0;border:0;border-radius:3px;background:transparent;overflow-wrap:anywhere;font-size:15px}.related-point-type{flex-shrink:0;color:#7866a9;font-size:15px;white-space:nowrap}.related-point-details{margin-top:8px;font-size:15px}.related-point-details>summary{width:max-content;cursor:pointer;color:#697496}.related-point-details>p{margin:10px 0}.related-point-row button:hover,.related-point-details>summary:hover{color:#5940b3}
 .knowledge-lesson-switch{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 20px}.knowledge-lesson-switch select{min-width:0;max-width:560px;flex:1}.knowledge-lesson-switch button{white-space:nowrap}
 </style>
 
