@@ -18,7 +18,7 @@ def lesson_export(monkeypatch, tmp_path):
     content={'schema_version':'slide_deck_v6','pages':[], 'ppt_manuscript':deepcopy(manuscript)}
     spec=NS(spec_id='sp1',source_bindings=[binding],payload={'content':content})
     registry=NS(representations=[representation],specs=[spec])
-    monkeypatch.setattr(teacher_content_projection,'authoring_repository',lambda storage:NS(load=lambda cid:{'lessons':{'lecture':lesson}}))
+    monkeypatch.setattr(teacher_content_projection,'authoring_repository',lambda storage:NS(read_projection=lambda cid,project:project({'lessons':{'lecture':lesson}})))
     monkeypatch.setattr(teacher_lesson_authoring,'teacher_lesson_v6_source',lambda *args,**kwargs:(NS(blocks=[NS(block_id='b',internal_revision='v1')]),{},'scope'))
     monkeypatch.setattr(course_revisions,'revision_vector_for_course',lambda *args:NS(revisions={'block:b':'v1'}))
     monkeypatch.setattr(teaching_representations,'teaching_representation_repository',NS(for_storage_scope=lambda *args:NS(load=lambda cid:registry)))

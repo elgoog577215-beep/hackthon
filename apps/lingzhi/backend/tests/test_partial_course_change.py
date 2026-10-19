@@ -195,7 +195,10 @@ async def test_long_inputs_are_scanned_in_small_complete_fragments(tmp_path):
     pieces = []
     async def analyze(overview, candidates, instruction):
         pieces.extend(item['content'] for item in candidates)
-        assert sum(len(item['content']) for item in candidates) <= 2400
+        from ai_base import AIBase
+        from course_evolution.scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
+        assert AIBase.estimate_request_tokens(build_scan_prompt(overview, candidates, instruction), SCAN_SYSTEM_PROMPT) <= SCAN_INPUT_TOKEN_LIMIT
+        assert len(candidates) <= 8
         return {'affected_units': [], 'signal_kind': 'semantic', 'structure': {'required': False}}
     result = await create_teacher_course_change_plan(context=ctx, user_id='teacher', request_id='small-fragments',
         instruction='检查全部内容', repository=repo, analyzer=analyze)

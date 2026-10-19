@@ -31,7 +31,13 @@ def project_teacher_content(raw, *, storage=None, authoring=None):
     if authoring is None:
         if storage is None:
             from storage import storage
-        authoring = authoring_repository(storage).load(str(raw["course_id"]))
+        # The owner keeps every plan, handout and PPT recovery snapshot. Reading
+        # the current body must not deepcopy that entire history on every GET.
+        # The projector only reads owner state and builds independent output.
+        return authoring_repository(storage).read_projection(
+            str(raw["course_id"]),
+            lambda state: project_teacher_content(raw, storage=storage, authoring=state),
+        )
     source = course_view_from_document(raw, raw["course_document"]) if raw.get("course_document") else raw
     if not source.get("nodes") and raw.get("generation_job_id") and isinstance(getattr(storage, "_courses_dir", None), (str, Path)):
         from generation_workspace import GenerationWorkspaceRepository, GenerationWorkspaceNotFound

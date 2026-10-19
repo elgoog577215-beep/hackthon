@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, type Pinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseEvolutionWorkspace from '@/components/CourseEvolutionWorkspace.vue'
@@ -95,19 +95,159 @@ function plan(overrides: Partial<CourseEvolutionPlan> = {}): CourseEvolutionPlan
   }
 }
 
-function mountWorkspace(pinia: Pinia) {
+function mountWorkspace(pinia: Pinia, initialMode?: 'replace' | 'structure') {
   const store = useCourseEvolutionStore(pinia)
   store.courseContext = store.courseContext || context()
   vi.spyOn(store, 'refreshProgress').mockResolvedValue({} as any)
   vi.spyOn(store, 'loadCourseContext').mockResolvedValue(store.courseContext)
   return mount(CourseEvolutionWorkspace, {
     attachTo: document.body,
-    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理' },
+    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理', ...(initialMode ? { initialMode } : {}) },
     global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
   })
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  it('shows validated live diffs without apply permission and keeps routing counts distinct', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 2, total_parts: 8, reused_parts: 0, failed_parts: 0,
+      routing: { mode: 'topics', indexed_units: 100, selected_units: 10, model_units: 8, alias_units: 2, outside_units: 90 },
+      finding_count: 1, findings: [{ unit_id: 'u1', title: '用户画像', asset_type: 'course_content', reason: '补充依据',
+        preview: { before: '需要证据', after: '需要记录证据来源', truncated: false, change_count: 1 } }],
+    } } } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="routing-summary"]').text()).toContain('AI 检查范围 8 项')
+    expect(wrapper.get('[data-testid="routing-summary"]').text()).toContain('同源合并 2 项')
+    expect(wrapper.get('[data-testid="scan-preview"]').text()).toContain('需要记录证据来源')
+    expect(wrapper.get('[data-testid="scan-preview"]').text()).toContain('完整方案形成后再确认应用')
+    expect(wrapper.find('[data-testid="apply-course-change"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('lets the teacher explicitly request a full-text check through the existing task', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'full-scan' } } as any)
+    const wrapper = mountWorkspace(pinia, 'replace')
+    await wrapper.get('.request-state textarea').setValue('只修改用户画像')
+    await wrapper.get('[data-testid="force-full-scan"]').setValue(true)
+    await wrapper.get('form').trigger('submit')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ forceFullScan: true, instruction: '只修改用户画像' }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    [null, '所有案例都补充完整推导，但保留原始资料。'],
+    ['   ', '所有案例都补充完整推导，但保留原始资料。'],
+    ['把六步骤流程放到第一讲开头，保留其余讲次。', '把六步骤流程放到第一讲开头，保留其余讲次。'],
+  ])('rechecks excessive historical questions with optional details (%s)', async (draft, instruction) => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    const questions = Array.from({ length: 137 }, (_, i) => ({ question_id: `q${i}`,
+      prompt: `历史问题 ${i}`, response_type: i < 107 ? 'single_choice' : 'free_text', required: true,
+      options: i < 107 ? [{ option_id: 'recommended', label: '推荐', recommended: true }] : [] }))
+    store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification',
+      intent: { ...planning().intent, clarifications: questions as any, clarification_set_id: 'old-set' } }),
+      impact_summary: { request_asset_types: ['outline', 'course_content', 'script'], force_full_scan: true } })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({ analysis_task: { id: 'new-intent' } } as any)
+    const wrapper = mountWorkspace(pinia)
+    await flushPromises()
+    expect(wrapper.text()).toContain('137 条问题')
+    expect(wrapper.findAll('.clarification-question')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
+    const proceed = wrapper.get('[data-testid="reanalyze-legacy-request"]')
+    expect(proceed.attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="expand-clarifications"]').trigger('click')
+    expect(wrapper.get('[data-testid="legacy-question-reference"]').findAll('strong')).toHaveLength(137)
+    expect(wrapper.findAll('input[type="radio"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="confirm-clarification-answers"]').exists()).toBe(false)
+    await wrapper.get('.request-context button').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="legacy-request"] textarea').element)
+    if (draft !== null) await wrapper.get('[data-testid="legacy-request"] textarea').setValue(draft)
+    expect(proceed.attributes('disabled')).toBeUndefined()
+    await proceed.trigger('click')
+    expect(create).toHaveBeenCalledWith({ courseId: 'course-1', requestId: expect.any(String),
+      instruction, supersedesPlanId: 'change-1',
+      assetTypes: ['outline', 'course_content', 'script'], forceFullScan: true })
+    wrapper.unmount()
+  })
+
+  it('explains remaining free-text answers after recommended choices and focuses the missing answer', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification', intent: {
+      ...planning().intent, clarification_set_id: 'mixed', clarifications: [
+        { question_id: 'placement', prompt: '放在哪里？', response_type: 'single_choice', required: true,
+          options: [{ option_id: 'opening', label: '课程开头', recommended: true }] },
+        { question_id: 'detail', prompt: '需要补充什么？', response_type: 'free_text', required: true, options: [] },
+      ],
+    } as any }), impact_summary: {
+      intent_preflight: { contract: 'teacher_change_intent_v2' },
+      coverage: { scanned_units: 0, unscanned_unit_ids: ['not-scanned-yet'], failed_batches: [] },
+      partial_review: { incomplete: true, can_preview: false },
+    } })]
+    const wrapper = mountWorkspace(pinia)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="partial-review-banner"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="partial-rescan"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('2 项必答问题')
+    await wrapper.findAll('.clarification-actions button').find(button => button.text() === '采用推荐项')!.trigger('click')
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('1 项必答问题')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('.clarification-answer-status button').trigger('click')
+    const input = wrapper.get('.clarification-free-text textarea')
+    expect(document.activeElement).toBe(input.element)
+    await input.setValue('   ')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeDefined()
+    await input.setValue('补充步骤之间的关系。')
+    expect(wrapper.get('[data-testid="clarification-answer-status"]').text()).toContain('已全部确认')
+    expect(wrapper.get('[data-testid="confirm-clarification-answers"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps a reopened running analysis attached to the completed review', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running' } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    // The embedded parent requests a new form when entering mode=semantic.
+    // That request must not hide the result of the analysis already running.
+    ;(wrapper.vm as any).startNewRequest()
+    store.plans = [plan()]
+    store.applyAnalysisTask({ id: 'scan-live', status: 'completed' } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.request-state').exists()).toBe(false)
+    expect(wrapper.find('.impact-list').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows preliminary impacts during scanning without exposing apply actions or rebuilding existing findings', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.selectCourse('course-1')
+    const first = { unit_id: 'script-1', title: '第一讲：概念边界', asset_type: 'script', reason: '需要与新的定义保持一致。' }
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 2, total_parts: 12, reused_parts: 0, failed_parts: 0,
+      finding_count: 1, findings: [first],
+    } } } as any)
+    const wrapper = mountWorkspace(pinia)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="scan-findings"]').text()).toContain('第一讲：概念边界')
+    expect(wrapper.get('[data-testid="scan-findings"]').text()).toContain('完整方案生成后可审阅和应用')
+    expect(wrapper.find('[data-testid="apply-course-change"]').exists()).toBe(false)
+    const originalFinding = wrapper.get('.scan-findings li').element
+    store.applyAnalysisTask({ id: 'scan-live', status: 'running', phase_detail: { scan: {
+      completed_parts: 4, total_parts: 12, reused_parts: 0, failed_parts: 0,
+      finding_count: 2, findings: [first, { ...first, unit_id: 'plan-1', title: '第一讲教案' }],
+    } } } as any)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.scan-findings li').element).toBe(originalFinding)
+    expect(wrapper.findAll('.scan-findings li')).toHaveLength(2)
+    expect(wrapper.find('.request-state').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('saves waiting selections without generating or applying them', async () => {
     const { store, wrapper } = retryFixture()
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)

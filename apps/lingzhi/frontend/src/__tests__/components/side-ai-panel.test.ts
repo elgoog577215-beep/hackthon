@@ -173,7 +173,7 @@ describe('SideAIPanel', () => {
   it('keeps a draft while switching presentation and binds the selected knowledge revision on send', async () => {
     const wrapper = mountPanel([], '', undefined, undefined, 'learner', [], false, true)
     const point = profileDemo.cases.at(-1)!.profile.nodes.find(node => node.knowledge_id === 'demo-k7') as KnowledgeProfileNode
-    await wrapper.setProps({ companionAvatar:'/images/learning-companion.png', knowledgeContext:{...point,block_refs:['knowledge-block']}, readingContext:{nodeId:'node-1',nodeName:'Reading',blockId:'intro',blockTitle:'Intro'} })
+    await wrapper.setProps({ learningAssistant:true, knowledgeContext:{...point,block_refs:['knowledge-block']}, readingContext:{nodeId:'node-1',nodeName:'Reading',blockId:'intro',blockTitle:'Intro'} })
     await flushPromises()
     const ai = useAITeacherStore()
     const send = vi.spyOn(ai, 'sendMessage').mockResolvedValue()

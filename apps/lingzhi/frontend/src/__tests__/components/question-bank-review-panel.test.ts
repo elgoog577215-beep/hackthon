@@ -212,6 +212,32 @@ describe('QuestionBankReviewPanel', () => {
     wrapper.unmount()
   })
 
+  it('does not show an empty bank while its first read is pending', async () => {
+    let resolveRead!: (response: any) => void
+    get.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve }))
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('正在读取题库')
+    expect(wrapper.find('.question-bank-empty-state').exists()).toBe(false)
+    resolveRead({ data: { items: [] } })
+    await flushPromises()
+    expect(wrapper.find('.question-bank-empty-state').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows read failure with retry without claiming the bank is empty', async () => {
+    get.mockRejectedValueOnce(new Error('网络连接失败'))
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
+    const error = wrapper.get('.question-bank-panel__state--error')
+    expect(wrapper.find('.question-bank-empty-state').exists()).toBe(false)
+    await error.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.question-bank-panel__state--error').exists()).toBe(false)
+    expect(wrapper.find('.question-browser').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('submits per-lecture additions while preserving existing questions and bounds the count', async () => {
     const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate'}})
     await flushPromises()

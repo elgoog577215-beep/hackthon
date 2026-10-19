@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable
-from copy import deepcopy
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -1592,7 +1591,9 @@ def compile_course_production_state(
     elif not isinstance(authoring_jobs, list):
         authoring_jobs = []
     task_snapshots = [
-        {**deepcopy(item), "__production_owner": owner}
+        # Only the owner label is added. All nested task input is read-only;
+        # copying frozen model/PPT snapshots here can take seconds per poll.
+        {**item, "__production_owner": owner}
         for source, owner in (
             (tasks or [], "task_manager"),
             (authoring_jobs, "teacher_asset"),
@@ -1604,7 +1605,7 @@ def compile_course_production_state(
         if not isinstance(checkpoint, dict):
             continue
         task_snapshots.append({
-            **deepcopy(checkpoint),
+            **checkpoint,
             "type": str(checkpoint.get("type") or "slide_deck_variant_build"),
             "__production_owner": "ppt_checkpoint",
         })

@@ -92,16 +92,17 @@
       @imported="handleFileImport"
     />
     <template v-else>
+    <div v-if="errorMessage && items.length" class="question-bank-panel__refresh-error" role="alert">
+      <TriangleAlert :size="15" />
+      <span>{{ errorMessage }}</span>
+      <button type="button" @click="load">{{ t('common.retry', '重试') }}</button>
+    </div>
     <div v-if="loading && !items.length" class="question-bank-panel__state">
       <LoaderCircle :size="18" class="spin" />
       {{ t('questionBank.loading', '正在读取题库') }}
     </div>
     <div v-else-if="errorMessage && !items.length" class="question-bank-panel__state question-bank-panel__state--error">
       <TriangleAlert :size="18" />
-      <span>{{ errorMessage }}</span>
-    </div>
-    <div v-if="errorMessage && items.length" class="question-bank-panel__refresh-error" role="alert">
-      <TriangleAlert :size="15" />
       <span>{{ errorMessage }}</span>
       <button type="button" @click="load">{{ t('common.retry', '重试') }}</button>
     </div>

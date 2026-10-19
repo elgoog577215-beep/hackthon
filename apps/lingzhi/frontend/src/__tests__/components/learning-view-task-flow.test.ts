@@ -222,7 +222,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it.each([false, true])('shows the first-use greeting only in a loaded learner course (teacher preview: %s)', async preview => {
+  it.each([false, true])('keeps the companion and greeting removed in a loaded course (teacher preview: %s)', async preview => {
     const router = (globalThis as any).__learningTestRouter
     if (preview) await router.replace('/course/c1/learn/n1?teacherPreview=1')
     useCourseStore().currentCourseProjection = 'published'
@@ -233,7 +233,7 @@ describe('LearningView 正文任务覆盖层', () => {
         SideAIPanel: true, Teleport: true },
     } })
     await flushPromises()
-    expect(wrapper.findComponent({ name:'LearningCompanion' }).props('welcome')).toBe(!preview)
+    expect(wrapper.findComponent({ name:'LearningCompanion' }).exists()).toBe(false)
     if (preview) expect(useCourseStore().fetchCourseList).not.toHaveBeenCalled()
     else expect(useCourseStore().fetchCourseList).toHaveBeenCalledWith({ surface: 'student', background: true })
     wrapper.unmount()
@@ -261,20 +261,13 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
     expect(wrapper.find('.reading-side-tabs').exists()).toBe(false)
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
-    const pet = new DOMWrapper(document.querySelector('.learning-companion') as HTMLElement)
-    expect(pet.isVisible()).toBe(true)
-    await pet.get('[data-testid="companion-dock"]').trigger('click')
-    expect(pet.find('[data-testid="companion-open"]').exists()).toBe(false)
-    await pet.get('[data-testid="companion-restore"]').trigger('click')
-    await pet.get('[data-testid="companion-open"]').trigger('click')
-    expect(pet.isVisible()).toBe(true)
-    expect(pet.get('[data-testid="companion-open"]').attributes('aria-expanded')).toBe('true')
+    expect(document.querySelector('.learning-companion')).toBeNull()
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
     await wrapper.get('.ai-panel-stub textarea').setValue('保留这段草稿')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
-    expect(pet.isVisible()).toBe(true)
-    expect(document.activeElement).toBe(pet.get('[data-testid="companion-open"]').element)
+    expect(document.activeElement).toBe(wrapper.get('[data-domain="assistant"]').element)
     expect(wrapper.get('.learning-side-panel').isVisible()).toBe(false)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
@@ -320,7 +313,7 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.find('.stats-overlay').exists()).toBe(false)
     useCourseStore().isFocusMode = true
     await flushPromises()
-    expect(pet.isVisible()).toBe(false)
+    expect(document.querySelector('.learning-companion')).toBeNull()
     wrapper.unmount()
   })
 

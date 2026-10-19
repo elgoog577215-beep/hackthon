@@ -47,7 +47,14 @@ export interface CourseChangeAnalysisTask {
   phase_detail?: {
     request_id?: string
     plan_id?: string
-    scan?: { completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number; deferred_parts?: number; retained_units?: number; pending_units?: number }
+    scan?: {
+      stage?: 'intent'
+      routing?: { mode: string; indexed_units: number; selected_units: number; model_units: number; alias_units: number; outside_units: number }
+      completed_parts: number; total_parts: number; reused_parts: number; failed_parts: number
+      deferred_parts?: number; retained_units?: number; pending_units?: number
+      finding_count?: number
+      findings?: Array<{ unit_id: string; title: string; asset_type: string; reason: string; preview?: { before: string; after: string; truncated: boolean; change_count: number } }>
+    }
   }
 }
 
@@ -314,6 +321,16 @@ export interface CourseEvolutionApplicationVisual extends CourseEvolutionApplica
   phase: CourseEvolutionApplicationPhase
 }
 
+interface WorkspaceRead {
+  courseId: string
+  epoch: number
+  sequence: number
+  promise: Promise<any>
+}
+// Parent and embedded workspace share pending reads, never a second state cache.
+const progressReads = new WeakMap<object, WorkspaceRead>()
+const contextReads = new WeakMap<object, WorkspaceRead>()
+
 export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
@@ -490,13 +507,21 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
       if (this.actingId || this.analysisSubmitting) return null
+      const pending = progressReads.get(this)
+      if (pending?.courseId === targetCourseId && pending.epoch === this.courseEpoch
+        && pending.sequence === this.payloadRequestSequence) return pending.promise
       const sequence = ++this.payloadRequestSequence
-      const response = await http.get(
+      const promise = http.get(
         `/api/courses/${targetCourseId}/evolution/progress`,
         { silentError: true },
-      )
-      if (this.courseId === targetCourseId && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
-      return response.data
+      ).then(response => {
+        if (this.courseId === targetCourseId && sequence === this.payloadRequestSequence) this.applyPayload(targetCourseId, response.data)
+        return response.data
+      })
+      const read = { courseId: targetCourseId, epoch: this.courseEpoch, sequence, promise }
+      progressReads.set(this, read)
+      try { return await promise }
+      finally { if (progressReads.get(this) === read) progressReads.delete(this) }
     },
     async evaluate(courseId: string) {
       this.selectCourse(courseId)
@@ -515,20 +540,27 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       const targetCourseId = courseId || this.courseId
       if (!targetCourseId) return null
       this.selectCourse(targetCourseId)
+      const pending = contextReads.get(this)
+      if (pending?.courseId === targetCourseId && pending.epoch === this.courseEpoch
+        && pending.sequence === this.contextRequestSequence) return pending.promise
       const sequence = ++this.contextRequestSequence
       this.contextLoading = true
-      try {
-        const response = await http.get(
-          `/api/courses/${targetCourseId}/evolution/course-context`,
-          { silentError: true },
-        )
+      const promise = http.get(
+        `/api/courses/${targetCourseId}/evolution/course-context`,
+        { silentError: true },
+      ).then(response => {
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.courseContext = response.data
         return response.data as TeacherCourseChangeContext
-      } finally {
+      })
+      const read = { courseId: targetCourseId, epoch: this.courseEpoch, sequence, promise }
+      contextReads.set(this, read)
+      try { return await promise }
+      finally {
+        if (contextReads.get(this) === read) contextReads.delete(this)
         if (this.courseId === targetCourseId && sequence === this.contextRequestSequence) this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[]; rescanIncompleteOnly?: boolean }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string; literalReplacement?: { before: string; after: string }; assetTypes?: string[]; confirmedInterpretation?: boolean; clarificationSetId?: string; clarificationAnswers?: CourseChangeClarificationAnswerInput[]; rescanIncompleteOnly?: boolean; forceFullScan?: boolean }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       this.selectCourse(targetCourseId)
@@ -546,6 +578,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
               || createUuid(),
             instruction: input.instruction,
             ...(input.rescanIncompleteOnly ? { rescan_incomplete_only: true } : {}),
+            ...(input.forceFullScan ? { force_full_scan: true } : {}),
             ...(input.literalReplacement ? { literal_replacement: input.literalReplacement } : {}),
             ...(input.assetTypes ? { asset_types: input.assetTypes } : {}),
             ...(input.confirmedInterpretation ? { confirmed_interpretation: true } : {}),

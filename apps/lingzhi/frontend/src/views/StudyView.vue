@@ -1,7 +1,7 @@
 <template>
   <div class="study-space">
     <header class="study-header glass-panel-elevated">
-      <RouterLink to="/study" class="study-brand"><img src="/qizhi-favicon.svg" alt="启智" /><span><strong>启智</strong><small>{{ c('brand') }}</small></span></RouterLink>
+      <StudentBrand />
       <nav v-if="user && !materialId && !creating" class="study-surface-navigation" :aria-label="t('studentWorkspace.space')">
         <button :class="{ active: !['courses','materials'].includes(String(route.query.view || '')) }" @click="openStudySection('home')">{{ t('studentWorkspace.home') }}</button>
         <button :class="{ active: route.query.view === 'courses' }" @click="openStudySection('courses')">{{ c('authorizedCourses') }}</button>
@@ -52,14 +52,16 @@
         <form v-else class="study-create" @submit.prevent="generate">
           <div class="study-page-heading"><div><span class="study-eyebrow">CREATE YOUR HANDOUT</span><h1>{{ c('create') }}</h1><p>{{ c('intro') }}</p></div></div>
           <section class="study-form-section"><h2>{{ c('sourceHeading') }}</h2><p>{{ c('sourceHint') }}</p>
-            <div class="study-source-actions"><label class="study-upload"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}<input type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy" multiple @change="uploadFiles" /></label><button type="button" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
+            <div class="study-source-actions"><input ref="sourceFileInput" class="study-upload-input" type="file" accept=".pdf,.pptx,.docx,.md,.txt" :disabled="sourceBusy || busy" multiple @change="uploadFiles" /><button type="button" class="study-upload" :disabled="sourceBusy || busy" @click="sourceFileInput?.click()"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}</button><button type="button" class="study-paste-toggle" :disabled="sourceBusy || busy" :aria-expanded="pasting" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
             <div v-if="pasting" class="study-paste"><label>{{ c('sourceTitle') }}<input v-model="sourceTitle" maxlength="160" /></label><label>{{ c('sourceContent') }}<textarea v-model="sourceText" rows="8" maxlength="120000" /></label><button type="button" :disabled="sourceBusy || !sourceTitle.trim() || !sourceText.trim()" @click="addText">{{ sourceBusy ? c('busy') : c('addSource') }}</button></div>
             <p v-if="!sources.length && !pasting" class="study-source-empty">{{ c('emptySources') }}</p>
-            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('scope') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
+            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('sourceRanges') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters || (selectedRanges.length >= 6 && !selectedRanges.includes(`${source.id}:${section.id}`))" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
+            <p class="study-range-hint">{{ c('rangeLimit') }}</p>
+            <div v-if="hasInvalidRanges && !busy" class="study-range-recovery" role="status"><span>{{ c('invalidRanges') }}</span><button type="button" @click="removeInvalidRanges">{{ c('removeInvalidRanges') }}</button></div>
           </section>
           <section class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
-          <section class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<input v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<textarea v-model="form.requirements" rows="3" maxlength="2000" :placeholder="c('requirementsPlaceholder')" /></label></section>
-          <div class="study-generate-bar"><span>{{ selectedRanges.length }} · {{ c('scope') }}</span><button class="study-primary" :disabled="busy || sourceBusy || !selectedRanges.length">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
+          <section class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<input v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<textarea v-model="form.requirements" rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label></section>
+          <div class="study-generate-bar"><div><strong>{{ selectedRanges.length }} / 6 · {{ c('scope') }}</strong><p>{{ c('personalCourseHint') }}</p><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
         </form>
       </section>
 
@@ -102,6 +104,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
+import StudentBrand from '../components/StudentBrand.vue'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
 import StudentCourseLibrary from '../components/StudentCourseLibrary.vue'
 import StudentLearningHome from '../components/StudentLearningHome.vue'
@@ -118,6 +121,19 @@ const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), mater
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
 const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
+const sourceFileInput = ref<HTMLInputElement | null>(null)
+const availableRanges = computed(() => new Set(sources.value.flatMap(source => source.sections.filter(section => section.characters > 0).map(section => `${source.id}:${section.id}`))))
+const hasInvalidRanges = computed(() => new Set(selectedRanges.value).size !== selectedRanges.value.length || selectedRanges.value.some(range => !availableRanges.value.has(range)))
+const generationIssue = computed<StudyCopyKey | ''>(() => {
+  if (hasInvalidRanges.value) return 'invalidRanges'
+  if (!selectedRanges.value.length) return 'rangeRequired'
+  if (selectedRanges.value.length > 6) return 'tooManyRanges'
+  if (!form.title.trim()) return 'titleRequired'
+  if (!Number.isInteger(form.time_minutes) || form.time_minutes < 10 || form.time_minutes > 600) return 'timeInvalid'
+  return ''
+})
+const canGenerate = computed(() => !generationIssue.value)
+function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRanges.value.filter(range => availableRanges.value.has(range)))] }
 const toolTabs = ['assistant', 'note', 'concepts', 'sources'] as const, toolTab = ref<typeof toolTabs[number]>('assistant')
 const activeChapter = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
 const assistantContext = computed(() => {
@@ -165,7 +181,7 @@ const readingSections = computed(() => (material.value?.revisions[0]?.sections |
 const conceptSections = computed(() => buildHandoutConceptSections(material.value?.plans || [], readingSections.value))
 const selectedSourceScopes = computed(() => material.value?.sources || (material.value?.revisions[0]?.sections || []).map(section => ({ node_id: section.id, title: section.title, ...section.source })))
 const statusLabel = (status: string) => c((['pending', 'running', 'completed', 'failed', 'paused'].includes(status) ? status : 'draft') as StudyCopyKey)
-let timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0
+let timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
 const noteKey = () => `lingzhi-study-note:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}`
 
@@ -173,7 +189,7 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
@@ -181,37 +197,49 @@ function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(
 watch([form, selectedRanges, sourceTitle, sourceText], persistDraft, { deep: true })
 watch(noteText, () => { if (material.value && user.value) sessionStorage.setItem(noteKey(), noteText.value) })
 
-async function loadLibrary() { const current = epoch; const result = await Promise.all([studyApi.list(), studyApi.sources()]); if (current !== epoch || !user.value) return; [library.value, sources.value] = result }
+async function loadLibrary() {
+  const owner = user.value?.id, sequence = ++librarySequence
+  const current = () => sameOwner(owner) && sequence === librarySequence
+  // One unavailable list must not hide the other list or an already saved handout.
+  const results = await Promise.allSettled([
+    studyApi.list().then(result => { if (current()) library.value = result }),
+    studyApi.sources().then(result => { if (current()) sources.value = result }),
+  ])
+  const failure = results.find(result => result.status === 'rejected')
+  if (current() && failure?.status === 'rejected') showError(failure.reason)
+}
 async function connect() {
   const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled
   if (!studySession.get() && !qizhiAuth) return
-  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); await loadLibrary(); await openMaterial() }
+  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]) }
   catch (cause) { showError(cause) }
 }
-async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); await loadLibrary(); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else await openMaterial() }) }
+async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else creating.value = !materialId.value && route.query.create === '1' }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
 const authorizedCourses = ref<InstanceType<typeof StudentCourseLibrary> | null>(null)
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]); await openMaterial() } }) }
 async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
 async function goLibrary() { await openStudySection('materials') }
-async function startNew(purpose?: StudyPurpose) { await router.push('/study'); creating.value = true; if (purpose) form.purpose = purpose; await action(loadLibrary) }
+async function startNew(purpose?: StudyPurpose) { if (!user.value) return; persistDraft(); await router.push('/study?create=1'); creating.value = true; if (purpose) form.purpose = purpose }
 async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
-  sources.value.unshift(source)
+  sources.value = [source, ...sources.value.filter(existing => existing.id !== source.id)]
   if (!source.sections.length) { error.value = source.error || c('sourceFailed'); return }
-  selectedRanges.value.push(...source.sections.slice(0, 3).filter(section => section.characters).map(section => `${source.id}:${section.id}`))
   if (!form.title) form.title = source.filename.replace(/\.[^.]+$/, '')
 }
-async function addText() { const owner = user.value?.id; sourceBusy.value = true; error.value = ''; try { const source = await studyApi.addText(sourceTitle.value.trim(), sourceText.value); if (!sameOwner(owner)) return; rememberSource(source); sourceText.value = ''; sourceTitle.value = ''; pasting.value = false } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false } }
+async function addText() { if (sourceBusy.value || busy.value || !user.value) return; const owner = user.value?.id; sourceBusy.value = true; error.value = ''; try { const source = await studyApi.addText(sourceTitle.value.trim(), sourceText.value); if (!sameOwner(owner)) return; rememberSource(source); sourceText.value = ''; sourceTitle.value = ''; pasting.value = false } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false } }
 async function uploadFiles(event: Event) {
   const input = event.target as HTMLInputElement, files = Array.from(input.files || [])
+  if (sourceBusy.value || busy.value || !user.value || !files.length) return
+  const oversized = files.find(file => file.size > 20 * 1024 * 1024)
+  if (oversized) { error.value = `${oversized.name}: ${c('sourceTooLarge')}`; input.value = ''; return }
   const owner = user.value?.id
   sourceBusy.value = true; error.value = ''
   try { for (const file of files) { const source = await studyApi.upload(file); if (!sameOwner(owner)) return; rememberSource(source) } } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false; input.value = '' }
 }
 async function generate() {
-  if (busy.value) return
-  if (!form.title.trim() || !selectedRanges.value.length || selectedRanges.value.length > 6) { error.value = c('scopeRequired'); return }
+  if (busy.value || sourceBusy.value) return
+  if (generationIssue.value) { error.value = c(generationIssue.value); return }
   await action(async () => {
     const owner = user.value?.id
     const payload = { ...form, title: form.title.trim(), language: activeLocale.value, selections: selectedRanges.value.map(range => { const [asset_id, section_id] = range.split(':'); return { asset_id: asset_id!, section_id: section_id! } }) }
@@ -225,15 +253,18 @@ async function generate() {
 }
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
-  material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
-  activeChapter.value = ''; selectedPassage.value = null; toolTab.value = 'assistant'
+  const retainedRevision = material.value?.id === id ? material.value.revisions[0]?.id : undefined
+  if (!retainedRevision) {
+    material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
+    activeChapter.value = ''; selectedPassage.value = null; toolTab.value = 'assistant'
+  }
   if (!id || !user.value) return
   async function refresh(first = false) {
     try {
       const result = await studyApi.get(id)
       if (disposed || current !== epoch || materialId.value !== id || !user.value) return
       material.value = result
-      if (first) { savedNote.value = result.notes[result.revisions[0]!.id]?.content || ''; noteText.value = sessionStorage.getItem(noteKey()) ?? savedNote.value }
+      if (first && retainedRevision !== result.revisions[0]?.id) { savedNote.value = result.notes[result.revisions[0]!.id]?.content || ''; noteText.value = sessionStorage.getItem(noteKey()) ?? savedNote.value }
       const summary = library.value.find(item => item.id === id)
       if (summary) summary.status = materialStatus.value
       if (isGenerating.value) timer = setTimeout(() => { void refresh() }, 1500)
@@ -241,7 +272,8 @@ async function openMaterial() {
   }
   await refresh(true)
 }
-watch(materialId, () => { creating.value = false; void openMaterial() })
+watch(materialId, () => { creating.value = route.query.create === '1' && !materialId.value; void openMaterial() })
+watch(() => route.query.create, value => { creating.value = value === '1' && !materialId.value && Boolean(user.value) })
 async function resume() { await action(async () => { const owner = user.value?.id, id = materialId.value; await studyApi.resume(id); if (sameOwner(owner) && materialId.value === id) await openMaterial() }) }
 async function saveNote() { await action(async () => { const owner = user.value?.id, id = materialId.value, revision = material.value!.revisions[0]!.id, content = noteText.value; await studyApi.note(id, revision, content); if (sameOwner(owner) && id === materialId.value) { savedNote.value = content; noteSaved.value = true } }) }
 function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
@@ -257,7 +289,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-reading-tools{display:flex;flex-direction:column;min-height:0}.study-tool-tabs{flex:none}.study-reading-tools:has(.personal-assistant){overflow:hidden;width:360px}.study-reading-tools:has(.personal-assistant) .study-tool-tabs{padding-inline:5px;gap:0}
 @media(max-width:1200px){.study-reading-tools:has(.personal-assistant){width:320px}}
 .study-space{height:100%;min-height:0;display:flex;flex-direction:column;color:#263449;background:#f5f6fc;font:15px/1.6 var(--lz-font-sans,Inter,"Microsoft YaHei",sans-serif)}
-.study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;border:1px solid #dbe0ed;border-radius:10px;background:white;color:#43536d;padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover{background:#eeedf9;color:#5145a4}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid #9385ed;outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:var(--lz-action-bg);border-color:var(--lz-action-border);color:var(--lz-action-text);font-weight:650;padding:12px 20px;box-shadow:var(--lz-action-shadow);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius)}.study-space .study-primary:hover{background:var(--lz-action-bg);color:var(--lz-action-text)}
+.study-space button,.study-space input,.study-space textarea,.study-space select{font:inherit}.study-space button,.study-space a{transition:background .15s,color .15s}.study-space button{cursor:pointer;min-height:var(--lz-control-height);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);background:var(--lz-action-bg);color:var(--lz-action-text);padding:9px 14px;display:inline-flex;justify-content:center;align-items:center;gap:8px}.study-space button:hover:not(:disabled){background:var(--lz-brand-soft);color:var(--lz-brand-strong)}.study-space button:disabled{cursor:default;opacity:.55}.study-space :is(button,a,input,textarea,select):focus-visible{outline:3px solid var(--lz-action-focus);outline-offset:3px}.study-space a{text-decoration:none;color:inherit}.study-space .study-primary{background:var(--lz-action-primary-bg);color:var(--lz-action-primary-text);font-weight:600;padding:10px 18px;box-shadow:none;border:1px solid var(--lz-action-primary-border);border-radius:var(--lz-action-radius)}.study-space .study-primary:hover:not(:disabled){background:var(--lz-action-primary-hover);border-color:var(--lz-action-primary-hover);color:var(--lz-action-primary-text)}
 .study-header{height:82px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 30px;background:#ffffffed;border-bottom:1px solid #e4e7f0;gap:20px}.study-brand{display:flex;align-items:center;gap:12px}.brand-symbol{width:46px;height:46px;display:grid;place-items:center;background:#eee9fb;color:#6551c7;border-radius:15px}.study-brand strong{font-size:20px;display:block}.study-brand small{font-size:15px;color:#8190a4}.study-header-actions{display:flex;align-items:center;gap:18px}.study-header-actions button{border:0;background:transparent;padding:7px}.study-user{display:flex;align-items:center;gap:7px;color:#647187}.study-eyebrow{font-size:15px;color:#7b6ca4;font-weight:650;letter-spacing:.09em}.study-error{flex:none;padding:10px 28px;background:#fff1f1;color:#a14253;display:flex;align-items:center;justify-content:space-between;gap:16px}.study-error button{padding:5px 12px;color:inherit}
 .study-login-page{flex:1;overflow:auto;display:grid;grid-template-columns:minmax(0,570px) 410px;justify-content:center;align-items:center;gap:90px;padding:45px}.login-story h1{font-size:40px;line-height:1.3;letter-spacing:-.02em;margin:15px 0 20px}.login-story>p{font-size:18px;color:#748399;margin-bottom:35px}.login-purpose{display:flex;gap:18px;margin-top:25px;padding:20px 0;border-top:1px solid #dfe3f0}.login-purpose svg{color:#7662bd;margin-top:7px;flex:none}.login-purpose h3{font-size:18px;margin:0 0 6px}.login-purpose p{margin:0;color:#718096}.study-login-card{padding:36px;background:white;border:1px solid #e2e5ef;border-radius:22px;box-shadow:0 16px 50px #58688910}.study-login-card h2{font-size:25px;margin:12px 0}.study-login-card>p{color:#7b889c;margin-bottom:25px}.study-login-card .study-primary{width:100%;margin-top:14px}.study-login-card .study-text-button{display:flex;margin:17px auto 0;border:0;color:#6551c7}
 .study-workspace{flex:1;min-height:0;display:flex}.study-navigation{width:240px;flex:none;padding:28px 18px;display:flex;flex-direction:column;border-right:1px solid #e2e5ef;background:#fbfcff;overflow:auto}.study-navigation>.study-eyebrow{padding:0 11px;margin-bottom:25px;font-size:15px;letter-spacing:.02em}.study-navigation>button{justify-content:flex-start;border:0;background:transparent;margin-bottom:8px;padding:12px;color:#69778b}.study-navigation>button.active{color:#6651bd;background:#eeeafb;font-weight:650}.recent-materials{display:flex;flex-direction:column;gap:5px;margin-top:27px;border-top:1px solid #e6e8f1;padding-top:19px}.recent-materials a{display:flex;gap:10px;padding:11px;border-radius:10px;overflow-wrap:anywhere}.recent-materials a:hover,.recent-materials a.active{background:#f0edf9}.recent-materials small{display:block;font-size:15px;color:#8390a2;margin-top:4px}.material-dot{margin-top:9px;width:7px;height:7px;flex:none;border-radius:50%;background:#7e6db8}.material-dot.exam_prep{background:#4682b2}.study-nav-hint{display:flex;align-items:flex-start;gap:9px;margin-top:auto;padding:35px 10px 0;color:#8a94a5;font-size:15px}.study-nav-hint svg{flex:none;margin-top:5px}
@@ -274,7 +306,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 
 <style scoped>
 .study-space { padding: 10px; gap: 10px; box-sizing: border-box; background: transparent; }
-.study-header { min-height: 60px; height: auto; padding: 8px 20px; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.82); }
+.study-header { min-height: 60px; height: auto; padding: 8px 20px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); background: var(--lz-surface); }
 .study-brand { flex: none; gap: 10px; }
 .study-brand > img { width: 34px; height: 34px; }
 .study-brand strong { color: #312e81; }
@@ -286,4 +318,22 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-workspace { gap: 8px; }
 .study-workspace.is-library .study-main-scroll { border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: rgba(255,255,255,.76); box-shadow: var(--lz-shadow-panel); }
 @media(max-width:1100px) { .study-header-actions .study-user { display: none; } }
+</style>
+
+<style scoped>
+.study-upload-input { display:none; }
+.study-create { width:100%; max-width:980px; margin:0 auto; padding:28px; box-sizing:border-box; }
+.study-create .study-page-heading p { max-width:740px; color:var(--lz-text-secondary); font-size:15px; line-height:1.7; margin:10px 0 0; }
+.study-form-section { border:1px solid var(--lz-border); border-radius:var(--lz-radius-surface); background:#fff; }
+.study-purpose-options button { align-content:start; text-align:left; border-radius:var(--lz-radius-control); }
+.study-purpose-options button > span { font-size:15px; line-height:1.7; color:var(--lz-text-secondary); }
+.study-purpose-options button.selected { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
+.study-range-recovery { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; color:var(--lz-text-secondary); font-size:15px; }
+.study-generation-issue { color:var(--lz-brand-strong) !important; }
+.study-range-hint { color:var(--lz-text-secondary); font-size:15px; margin-top:14px; }
+.study-generate-bar { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.study-generate-bar > div { flex:1; min-width:220px; color:var(--lz-text); font-size:15px; }
+.study-generate-bar p { margin:6px 0 0; font-size:15px; line-height:1.6; color:var(--lz-text-secondary); }
+.study-generate-bar button { flex:none; }
+@media (max-width:1280px) { .study-create { padding:24px 20px; } }
 </style>

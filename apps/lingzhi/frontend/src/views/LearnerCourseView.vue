@@ -5,6 +5,7 @@
 
     <Transition name="slide-left">
       <CourseNavigator
+        :student-owner-id="!isTeacherPreview && !isGenerationPreview && getStudyIdentity()?.role === 'student' ? getStudyIdentity()?.id : undefined"
         v-if="navigatorVisible"
         class="navigator-surface"
         data-companion-obstacle
@@ -139,9 +140,8 @@
           :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
           :docked="!isNarrow"
           :visible="aiVisible && !courseStore.isFocusMode"
-          :companion-avatar="companionAvatar"
+          learning-assistant
           :floating="aiFloating"
-          :live-pet="!isNarrow"
           :knowledge-context="selectedKnowledge"
           @toggle-mode="aiFloating = !aiFloating"
           @clear-knowledge="selectedKnowledge = null"
@@ -164,22 +164,6 @@
         </Teleport>
       </div>
     </Transition>
-
-    <LearningCompanion
-      v-if="!isNarrow && !isGenerationPreview"
-      ref="companionRef"
-      :expanded="aiVisible"
-      :modal="aiFloating && aiVisible"
-      :active="!courseStore.isFocusMode"
-      :reminder="companionReminder"
-      :reminders-enabled="remindersEnabled"
-      :welcome="companionWelcome"
-      @dismiss-welcome="dismissCompanionWelcome"
-      @open="toggleAi"
-      @reminder="openCompanionReminder"
-      @dismiss-reminder="dismissReminder"
-      @toggle-reminders="remindersEnabled = !remindersEnabled"
-    />
 
     <CourseEvolutionWorkspace
       v-model="courseAdjustmentOpen"
@@ -215,7 +199,6 @@ import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
 import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import { isPublishedExchangeCourse, studentWorkspaceTool, type StudentWorkspaceTool } from '../shared/student-workspace'
-import LearningCompanion from '../components/LearningCompanion.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
@@ -240,11 +223,7 @@ import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
 import { t, activeLocale } from '../shared/i18n'
 import type { StudyRequest } from '../types/study-dialogue'
-import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
-import { useCompanionReminders, type CompanionReminder } from '../composables/useCompanionReminders'
 import { useCompanionLayout } from '../composables/useCompanionLayout'
-import { useCompanionWelcome } from '../composables/useCompanionWelcome'
-import { getLearnerIdentity } from '../utils/http'
 import { getStudyIdentity } from '../utils/study-identity'
 
 const route = useRoute()
@@ -261,8 +240,6 @@ const changeProposalsStore = useChangeProposalsStore()
 const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
-const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
-const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
@@ -388,29 +365,6 @@ const isGenerationPreview = computed(() => (
 const isTeacherCurrentProjection = computed(() => (
   courseStore.currentCourseProjection === 'generation_preview' && isTeacherPreview.value
 ))
-const { visible: companionWelcome, dismiss: dismissCompanionWelcome } = useCompanionWelcome(
-  computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
-    && !courseStore.isFocusMode && Boolean(courseStore.currentCourseId)
-    && loadedLearningCourseId.value === courseStore.currentCourseId
-    && String(route.params.courseId || '') === courseStore.currentCourseId),
-  computed(() => isTeacherPreview.value ? '' : getLearnerIdentity()),
-)
-const { reminder:companionReminder, enabled:remindersEnabled, dismiss:dismissReminder } = useCompanionReminders(computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value))
-async function openCompanionReminder(reminder:CompanionReminder) {
-  const courseId = courseStore.currentCourseId
-  await contentAreaRef.value?.closeInlineRecord?.()
-  if (courseStore.currentCourseId !== courseId) return
-  const note = noteStore.notes.find(item => item.id === reminder.note.id)
-  if (!note) return
-  closeAi()
-  statsOpen.value = false
-  taskOpen.value = false
-  await closeKnowledgeLibrary(false)
-  locateRecord(note)
-  await nextTick()
-  contentAreaRef.value?.openInlineRecord({ note, x:Math.max(20, window.innerWidth / 2 - 150), y:140 })
-  dismissReminder()
-}
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
 const navigatorVisible = computed(() => (
@@ -999,7 +953,7 @@ function closeAi() {
   if (aiFloating.value && courseStore.showKnowledgeLibrary) knowledgeStudyRef.value?.closePoint()
   aiVisible.value = false
   if (!isNarrow.value && !courseStore.isFocusMode) {
-    nextTick(() => companionRef.value?.focus())
+    nextTick(() => learningLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-domain="assistant"]')?.focus())
   }
 }
 

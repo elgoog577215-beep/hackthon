@@ -13,14 +13,11 @@
       class="app-header glass-panel-elevated"
     >
       <div class="app-header-start">
-        <a v-if="qizhiHomeEnabled" href="/" class="header-icon-button qizhi-home-link">
+        <a v-if="qizhiHomeEnabled && brandingSurface === 'teacher'" href="/" class="header-icon-button qizhi-home-link">
           <ArrowLeft :size="17" aria-hidden="true" />
           <span>{{ t('app.backToQizhi') }}</span>
         </a>
-        <RouterLink v-else class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="isLearningRoute && route.query.teacherPreview !== '1' ? '/study' : { name: 'course-library' }" :aria-label="isLearningRoute && route.query.teacherPreview !== '1' ? t('studentWorkspace.home') : t('app.backToLibrary', '返回课程库')">
-          <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
-          <span class="brand-name">启智</span>
-        </RouterLink>
+        <ProductBrand :surface="brandingSurface" />
         <div v-if="!isLearningRoute" id="app-header-route-context" class="route-header-context" />
       </div>
 
@@ -126,11 +123,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
 import RuntimeGate from './components/RuntimeGate.vue'
+import ProductBrand from './components/ProductBrand.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import UiSegmentedControl from './components/UiSegmentedControl.vue'
 import { useCourseStore } from './stores/course'
@@ -138,8 +136,11 @@ import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
 import { isQizhiAuthRequired } from './utils/http'
 import { configuredStudyPortal } from './shared/study-portal'
+import { productSurface, syncProductDocument } from './shared/product-brand'
 
 const route = useRoute()
+const brandingSurface = computed(() => productSurface(import.meta.env.VITE_APP_SURFACE, route.path, route.query.teacherPreview))
+watchEffect(() => syncProductDocument(brandingSurface.value, activeLocale.value))
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const qizhiHomeEnabled = isQizhiAuthRequired()
@@ -251,12 +252,10 @@ function changeLocale(locale: string) {
   align-items: center;
   gap: 16px;
   padding: 0 17px;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(250,250,255,.91));
-  box-shadow: 0 8px 26px rgba(79,70,229,.08), inset 0 1px 0 rgba(255,255,255,.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--lz-border);
+  border-radius: var(--lz-radius-surface);
+  background: var(--lz-surface);
+  box-shadow: var(--lz-shadow-panel);
 }
 
 .app-shell.is-course-workspace-route .app-header {
@@ -265,7 +264,8 @@ function changeLocale(locale: string) {
   container: course-workspace-header / inline-size;
 }
 
-.app-shell.is-course-workspace-route .app-header-start { gap: 0; }
+.app-shell.is-course-workspace-route .app-header-start { gap:12px; }
+.app-shell.is-course-workspace-route :deep(.product-brand) { padding-right:12px; border-right:1px solid #e2e8f0; }
 
 .brand-button,
 .header-icon-button,

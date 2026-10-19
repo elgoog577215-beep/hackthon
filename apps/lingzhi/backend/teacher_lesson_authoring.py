@@ -2199,7 +2199,9 @@ class TeacherLessonAuthoringRepository:
         fd, temp_name = tempfile.mkstemp(prefix=f".{course_id}.", suffix=".tmp", dir=str(self.root))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+                # Use the C JSON encoder and one write for large revision
+                # histories. Atomic replacement, fsync and all data stay intact.
+                handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
                 handle.flush()
                 os.fsync(handle.fileno())
             # Windows readers/antivirus can briefly deny atomic replacement.

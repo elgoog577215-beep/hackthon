@@ -79,15 +79,15 @@ watch(() => props.visible, async visible => {
 </script>
 <style scoped>
 .companion-modal-layer { position:fixed; inset:0; z-index:1000; pointer-events:none; }
-.companion-modal-window { position:absolute; pointer-events:auto; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:40px minmax(0,1fr); min-height:0; background:#fff; border:1px solid #ded4ef; border-radius:18px; overflow:hidden; box-shadow:0 16px 56px #25143f30; outline:none; container-type:inline-size; }
-.window-titlebar { grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:0 10px; background:#f7f4fc; border-bottom:1px solid #e8e1f1; }
-.window-titlebar button { border:0; background:transparent; color:#665185; padding:5px 8px; cursor:pointer; font-size:13px; }
+.companion-modal-window { position:absolute; pointer-events:auto; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:48px minmax(0,1fr); min-height:0; background:#fff; border:1px solid var(--lz-border); border-radius:var(--lz-radius-surface); overflow:hidden; box-shadow:var(--lz-shadow-overlay); outline:none; container-type:inline-size; }
+.window-titlebar { grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:0 10px; background:var(--lz-fill); border-bottom:1px solid var(--lz-border); }
+.window-titlebar button { border:0; background:transparent; color:var(--lz-text); padding:5px 8px; cursor:pointer; font-size:15px; min-height:var(--lz-control-height); border-radius:var(--lz-radius-control); }
 .window-titlebar .window-move { flex:1; text-align:left; cursor:grab; touch-action:none; user-select:none; }
 .window-titlebar .window-move:active { cursor:grabbing; }
-.window-resize { position:absolute; bottom:0; right:0; width:24px; height:24px; border:0; border-radius:8px 0 0; background:#f3eefb; color:#7655b1; cursor:nwse-resize; touch-action:none; }
-button:focus-visible { outline:2px solid #8561cc; outline-offset:-2px; }
+.window-resize { position:absolute; bottom:0; right:0; width:24px; height:24px; border:0; border-radius:8px 0 0; background:var(--lz-brand-soft); color:var(--lz-brand-strong); cursor:nwse-resize; touch-action:none; }
+button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:-2px; }
 .companion-modal-window.with-detail { width:min(1180px,calc(100vw - 64px)); grid-template-columns:minmax(0,1fr) minmax(350px,1.15fr); }
-.companion-modal-detail { min-height:0; min-width:0; overflow:auto; border-right:1px solid #e8e1f1; background:#fdfcff; }
+.companion-modal-detail { min-height:0; min-width:0; overflow:auto; border-right:1px solid var(--lz-border); background:var(--lz-fill); }
 .companion-modal-chat { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
 .companion-modal-chat :deep(.ai-teacher-panel),.companion-modal-chat :deep(.demo-chat) { position:relative!important; inset:auto!important; transform:none!important; width:100%!important; height:100%!important; min-height:0!important; flex:1; border:0!important; border-radius:0!important; box-shadow:none!important; }
 .companion-modal-detail :deep(.learning-overview) { height:auto; overflow:visible; padding:0; }
@@ -101,6 +101,6 @@ button:focus-visible { outline:2px solid #8561cc; outline-offset:-2px; }
 .companion-modal-detail :deep(.point-evidence li) { padding:12px; }
 .companion-modal-detail :deep(.point-next) { padding:14px; margin-top:18px; }
 .companion-modal-detail :deep(.detail-actions) { margin-top:16px; }
-.companion-modal-window.with-detail.is-stacked { grid-template-columns:minmax(0,1fr); grid-template-rows:40px minmax(100px,.7fr) minmax(160px,1fr); }
-.is-stacked .companion-modal-detail { border-right:0; border-bottom:1px solid #e8e1f1; }
+.companion-modal-window.with-detail.is-stacked { grid-template-columns:minmax(0,1fr); grid-template-rows:48px minmax(100px,.7fr) minmax(160px,1fr); }
+.is-stacked .companion-modal-detail { border-right:0; border-bottom:1px solid var(--lz-border); }
 </style>

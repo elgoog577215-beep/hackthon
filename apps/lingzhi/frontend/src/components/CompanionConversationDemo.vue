@@ -1,6 +1,6 @@
 <template>
   <section class="demo-chat" :aria-label="t('companionWorkspace.title')" data-companion-obstacle>
-    <CompanionPanelHeader :floating="floating" :history="historyOpen" live-pet @new="newConversation" @history="historyOpen = !historyOpen" @mode="emit('mode')" @close="emit('close')" />
+    <CompanionPanelHeader :floating="floating" :history="historyOpen" @new="newConversation" @history="historyOpen = !historyOpen" @mode="emit('mode')" @close="emit('close')" />
     <div v-if="context" class="chat-context"><BookOpen :size="16" /><span>{{ t('companionWorkspace.current') }} · <b>{{ context.name }}</b></span><button :aria-label="t('companionWorkspace.clearContext')" @click="context = null"><X :size="14" /></button></div>
     <div v-if="reference" class="chat-reference"><ClipboardCheck :size="15" /><span>{{ reference }}</span><button :aria-label="t('companionWorkspace.removeReference')" @click="reference = ''"><X :size="13" /></button></div>
     <nav v-if="historyOpen" class="chat-history" :aria-label="t('companionWorkspace.history')"><button v-for="item in conversations" :key="item.id" :class="{ active:item.id === activeId }" @click="activeId = item.id; historyOpen = false"><MessageSquare :size="16" /><span>{{ item.title }}</span></button></nav>

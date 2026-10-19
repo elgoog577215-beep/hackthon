@@ -71,10 +71,10 @@
   --bg-elevated: #FFFFFF;
 
   /* Text Colors */
-  --text-primary: #312E81;
-  --text-secondary: #475569;
-  --text-tertiary: #64748B;
-  --text-muted: #94A3B8;
+  --text-primary: var(--lz-text-primary);
+  --text-secondary: var(--lz-text);
+  --text-tertiary: var(--lz-text-secondary);
+  --text-muted: var(--lz-text-muted);
   --text-inverse: #FFFFFF;
 
   /* Border Colors */
@@ -189,16 +189,16 @@
 
 /* Font Family Classes */
 .font-heading {
-  font-family: 'Baloo 2', system-ui, -apple-system, sans-serif;
+  font-family: var(--lz-font-sans);
 }
 
 .font-body {
-  font-family: 'Comic Neue', system-ui, -apple-system, sans-serif;
+  font-family: var(--lz-font-sans);
 }
 
 /* Apply to HTML */
 html {
-  font-family: 'Comic Neue', system-ui, -apple-system, sans-serif;
+  font-family: var(--lz-font-sans);
   color: var(--text-primary);
   line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
@@ -207,7 +207,7 @@ html {
 
 /* Heading Styles */
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Baloo 2', system-ui, -apple-system, sans-serif;
+  font-family: var(--lz-font-sans);
   font-weight: var(--font-bold);
   line-height: var(--leading-tight);
   color: var(--text-primary);
@@ -250,12 +250,13 @@ h6 { font-size: var(--text-base); }
   justify-content: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
-  font-family: 'Baloo 2', system-ui, sans-serif;
+  font-family: var(--lz-font-sans);
   font-weight: var(--font-semibold);
-  font-size: var(--text-base);
-  color: var(--lz-action-text);
-  background: var(--lz-action-bg);
-  border: 1px solid var(--lz-action-border);
+  min-height: 38px;
+  font-size: 15px;
+  color: var(--lz-action-primary-text);
+  background: var(--lz-action-primary-bg);
+  border: 1px solid var(--lz-action-primary-border);
   border-radius: var(--lz-action-radius);
   box-shadow:
     var(--lz-action-shadow);
@@ -264,14 +265,14 @@ h6 { font-size: var(--text-base); }
 }
 
 .clay-button:hover {
-  background: var(--lz-action-bg);
+  background: var(--lz-action-primary-hover);
   box-shadow:
     var(--lz-action-shadow-hover);
-  transform: translateY(-2px);
+  border-color: var(--lz-action-primary-hover);
 }
 
 .clay-button:active {
-  background: var(--lz-action-bg);
+  background: var(--lz-action-primary-hover);
   box-shadow:
     var(--lz-action-shadow-hover);
   transform: translateY(0);
@@ -328,7 +329,7 @@ h6 { font-size: var(--text-base); }
 .clay-input {
   width: 100%;
   padding: var(--space-3) var(--space-4);
-  font-family: 'Comic Neue', system-ui, sans-serif;
+  font-family: var(--lz-font-sans);
   font-size: var(--text-base);
   color: var(--text-primary);
   background: var(--bg-secondary);
@@ -357,7 +358,7 @@ h6 { font-size: var(--text-base); }
   display: inline-flex;
   align-items: center;
   padding: var(--space-1) var(--space-3);
-  font-family: 'Baloo 2', system-ui, sans-serif;
+  font-family: var(--lz-font-sans);
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
   color: var(--color-primary-700);

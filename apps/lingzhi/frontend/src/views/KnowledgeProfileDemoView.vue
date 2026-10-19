@@ -9,7 +9,6 @@
       <div class="demo-surface" data-companion-obstacle><Teleport to="#demo-companion-window-detail" :disabled="!floating || !chatOpen || !selected"><KnowledgeMasteryProfile ref="profileRef" can-read :learning-content="learningContent" :practice-ids="['demo-k7']" @practice="openPractice" :profile="profile" :course-title="activeLocale === 'en' ? demo.title_en : demo.title" @select="selectPoint" @ask="chatOpen = true" @evidence="discussEvidence" @lecture="openLecture" /></Teleport></div>
       <aside v-show="chatOpen" class="demo-chat-slot" :class="{ floating }"><Teleport to="#demo-companion-window-chat" :disabled="!floating || !chatOpen"><CompanionConversationDemo ref="chatRef" :point="selected" :floating="floating" @mode="floating = !floating" @close="closeChat" @lecture="openLecture" @practice="openPractice" @note="saveNote" /></Teleport></aside>
     </div>
-    <LearningCompanion :modal="floating && chatOpen" :expanded="chatOpen" @open="chatOpen = !chatOpen" />
     <dialog ref="sheetRef" class="demo-resource-sheet" @close="sheet = ''" @click="event => { if(event.target === sheetRef) closeSheet() }"><header><h2>{{ sheet === 'notes' ? t('companionWorkspace.notes') : sheet === 'practice' ? t('companionWorkspace.demoPractice') : t('companionWorkspace.demoLecture') }}</h2><button :aria-label="t('companionWorkspace.close')" @click="closeSheet"><X :size="20" /></button></header><template v-if="sheet === 'notes'"><article v-for="(note,index) in notes" :key="index"><h3>{{ note.point }}</h3><p>{{ note.text }}</p></article><p v-if="!notes.length">{{ t('companionWorkspace.noNotes') }}</p></template><template v-else-if="sheet === 'practice'"><p>{{ t('companionWorkspace.question') }}</p><button class="practice-choice" @click="feedback = 'correct'">{{ t('companionWorkspace.passOption') }}</button><button class="practice-choice" @click="feedback = 'incorrect'">{{ t('companionWorkspace.failOption') }}</button><p v-if="feedback" role="status">{{ t(`companionWorkspace.${feedback}`) }}</p></template><template v-else><h3>{{ resourcePoint?.name }}</h3><p>{{ resourcePoint?.statement }}</p><p v-if="resourcePoint?.knowledge_id === 'demo-k7'">{{ t('companionWorkspace.lectureBody') }}</p></template></dialog>
   </main>
 </template>
@@ -20,7 +19,6 @@ import KnowledgeMasteryTree from '../components/KnowledgeMasteryTree.vue'
 import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
 import KnowledgeMasteryProfile from '../components/KnowledgeMasteryProfile.vue'
 import CompanionConversationDemo from '../components/CompanionConversationDemo.vue'
-import LearningCompanion from '../components/LearningCompanion.vue'
 import demo from '../demo/knowledge-profile.json'
 import { demoLearningContent } from '../demo/knowledge-learning-content'
 import type { KnowledgeProfile, KnowledgeProfileNode } from '../types/knowledge-profile'

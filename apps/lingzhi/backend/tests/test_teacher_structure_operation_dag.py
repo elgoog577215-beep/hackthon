@@ -117,7 +117,7 @@ def test_partial_structure_review_rebuilds_dag_and_atomically_migrates_refs(tmp_
                 "disposition": "reuse_exact",
                 "reason": "第四讲内容并入第三讲",
                 "confidence": 1,
-            }],
+            }] if target_unit.unit_id in {item['unit_id'] for item in _candidates} else [],
             "structure": {
                 "required": True,
                 "reason": "按教师确认的跨讲结构调整执行",
@@ -161,6 +161,7 @@ def test_partial_structure_review_rebuilds_dag_and_atomically_migrates_refs(tmp_
         analyzer=analyzer,
     ))
     original_plan = created.change_sets[0]
+    assert not original_plan.teacher_change_planning.intent.system_blockers
     original_dag = original_plan.impact_summary["structure_operation_dag"]
     assert _dag_is_topological(original_dag)
     assert {

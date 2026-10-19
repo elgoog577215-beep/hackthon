@@ -21,6 +21,7 @@ describe('App home navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubEnv('VITE_STUDY_APP_URL', '')
+    vi.stubEnv('VITE_APP_SURFACE', '')
   })
 
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
@@ -67,7 +68,7 @@ describe('App home navigation', () => {
       },
     })
 
-    const homeLink = wrapper.get(schoolDeployment ? 'a.qizhi-home-link' : 'a.brand-button')
+    const homeLink = wrapper.get(schoolDeployment ? 'a.qizhi-home-link' : 'a.product-brand')
     expect(homeLink.attributes('href')).toBe(schoolDeployment ? '/' : '/courses')
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
     await router.push('/study')
@@ -91,7 +92,8 @@ describe('App home navigation', () => {
       expect(wrapper.get('a.qizhi-home-link').isVisible()).toBe(true)
       expect(wrapper.get('a.qizhi-home-link').attributes('href')).toBe('/')
     } else {
-      expect(wrapper.get('a.brand-button').classes()).toContain('is-route-hidden')
+      expect(wrapper.get('a.product-brand').isVisible()).toBe(true)
+      expect(wrapper.get('a.product-brand').attributes('data-product-surface')).toBe('teacher')
     }
     expect(wrapper.classes()).toContain('is-course-workspace-route')
 
@@ -100,6 +102,8 @@ describe('App home navigation', () => {
     expect(wrapper.findComponent({name:'KnowledgeLibrary'}).exists()).toBe(false)
     expect(wrapper.find('.header-search').exists()).toBe(true)
     expect(wrapper.find('a.qizhi-home-link').exists()).toBe(schoolDeployment)
+    expect(wrapper.get('a.product-brand').text()).toBe('启智教师端')
+    expect(document.title).toBe('启智 · 教师端')
     wrapper.unmount()
   })
 })

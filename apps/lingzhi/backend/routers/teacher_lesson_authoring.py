@@ -5426,7 +5426,7 @@ async def stream_lesson_job(
 
 
 @router.patch("/courses/{course_id}/lessons/{lesson_unit_id}/plan/draft")
-async def save_lesson_plan_draft(
+def save_lesson_plan_draft(
     course_id: str,
     lesson_unit_id: str,
     body: SaveLessonPlanDraftRequest,
@@ -5439,7 +5439,7 @@ async def save_lesson_plan_draft(
     try:
         source = _source_course(tm, course_id)
         canonical_outline_revision = _canonical_outline_revision(source)
-        if canonical_outline_revision:
+        if canonical_outline_revision and repository.outline_revision_id(course_id) != canonical_outline_revision:
             repository.set_outline(course_id, canonical_outline_revision)
         TeacherLessonAuthoringService(repository).save_plan_draft(
             course_id=course_id,
@@ -5450,9 +5450,9 @@ async def save_lesson_plan_draft(
             actor=resolve_user_id(request.headers.get("X-User-Id")),
             expected_current_revision_id=body.expected_current_revision_id,
         )
-        projected = next(
-            item for item in _lesson_projection(source, repository)
-            if item["lesson_unit_id"] == lesson_unit_id
+        projected = repository.read_projection(
+            course_id,
+            lambda state: _lesson_projection(source, repository, state, lesson_unit_ids={lesson_unit_id})[0],
         )
         return {"lesson": projected}
     except TeacherLessonAuthoringError as exc:
@@ -6060,7 +6060,7 @@ async def resolve_lesson_script_visual(
 
 
 @router.put("/courses/{course_id}/lessons/{lesson_unit_id}/script/draft")
-async def save_lesson_script_draft(
+def save_lesson_script_draft(
     course_id: str,
     lesson_unit_id: str,
     body: SaveLessonScriptDraftRequest,
@@ -6156,9 +6156,9 @@ async def save_lesson_script_draft(
             material_asset_ids=list(base_revision.get("material_asset_ids") or []),
             actor=resolve_user_id(request.headers.get("X-User-Id")),
         )
-        projected = next(
-            item for item in _lesson_projection(source, repository)
-            if item["lesson_unit_id"] == lesson_unit_id
+        projected = repository.read_projection(
+            course_id,
+            lambda state: _lesson_projection(source, repository, state, lesson_unit_ids={lesson_unit_id})[0],
         )
         return {"lesson": projected}
     except TeacherLessonAuthoringError as exc:

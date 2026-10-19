@@ -37,7 +37,8 @@
           <p v-if="store.progressDisconnected" class="workspace-status-error" role="status">{{ t('courseEvolution.workspace.progressDisconnected') }}</p>
           <p v-if="candidatesGenerating" class="workspace-status-progress" role="status"><LoaderCircle :size="16" class="spinning" />{{ t('courseEvolution.workspace.durableProgress') }}</p>
           <p v-if="focusedPlan?.impact_summary?.generation_error" class="workspace-status-error" role="alert">{{ focusedPlan.impact_summary.generation_error }}</p>
-          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning' && !detailItem" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.indexed_units || 0)) }}</p>
+          <p v-if="executionSummary" class="coverage-status" data-testid="routing-summary">{{ executionSummary }}</p>
+          <p v-if="coverage && workspaceState !== 'request' && workspaceState !== 'scanning' && !detailItem" class="coverage-status">{{ t('courseEvolution.workspace.scanCoverage').replace('{done}', String(coverage.scanned_units ?? coverage.ranked_candidates ?? 0)).replace('{total}', String(coverage.selected_units ?? coverage.indexed_units ?? 0)) }}</p>
           <div class="workspace-stage" :class="{ 'is-review': workspaceState === 'content' }">
             <section v-if="partialActive && workspaceState !== 'request' && !detailItem" class="partial-review-banner" data-testid="partial-review-banner">
               <div class="partial-status-copy">
@@ -88,6 +89,7 @@
                       <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
                     </details>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content', 'ppt'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" :disabled="asset.state === 'missing' || store.generating" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
+                    <label class="scan-depth-option"><input v-model="forceFullScan" type="checkbox" :disabled="store.generating" data-testid="force-full-scan" />{{ t('courseEvolution.workspace.forceFullScan') }}</label>
                   </div>
                   <textarea v-else ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_structure')" :placeholder="t('courseEvolution.workspace.structurePlaceholder', '例如：把导数应用放到第 2 讲，并重新安排后续讲次')" :disabled="store.generating || contextUnavailable" />
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
@@ -108,10 +110,28 @@
 
             <main v-else-if="workspaceState === 'scanning'" class="scanning-state" aria-live="polite">
               <section class="scan-main">
-                <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
+                <div class="scan-heading"><span><ScanSearch :size="21" /></span><div><small>{{ t('courseEvolution.workspace.scanningKicker', '正在分析全课') }}</small><h3>{{ scanProgress?.stage === 'intent' ? t('courseEvolution.workspace.intentPreflight') : t('courseEvolution.workspace.scanRequestTitle', '正在理解要求并定位所有受影响内容') }}</h3></div></div>
                 <div class="scan-line"><span /></div>
                 <p v-if="scanProgress?.retained_units" class="coverage-status">{{ scanResumeLabel }}</p>
-                <p v-if="scanProgress" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
+                <p v-if="scanProgress && scanProgress.stage !== 'intent'" class="coverage-status" data-testid="semantic-scan-progress">{{ t('courseEvolution.workspace.scanBatchProgress').replace('{done}', String(scanProgress.completed_parts)).replace('{total}', String(scanProgress.total_parts)).replace('{reused}', String(scanProgress.reused_parts)).replace('{failed}', String(scanProgress.failed_parts)).replace('{deferred}', String(scanProgress.deferred_parts || 0)) }}</p>
+                <section v-if="scanProgress?.findings" class="scan-findings" data-testid="scan-findings">
+                  <header><strong>{{ t('courseEvolution.workspace.liveFindings') }}</strong><span>{{ scanProgress.finding_count || 0 }}</span></header>
+                  <p>{{ t('courseEvolution.workspace.liveFindingsHint') }}</p>
+                  <ul v-if="scanProgress.findings.length">
+                    <li v-for="finding in scanProgress.findings" :key="finding.unit_id">
+                      <small>{{ assetLabel(finding.asset_type) }}</small><strong>{{ finding.title }}</strong>
+                      <p v-if="finding.reason">{{ finding.reason }}</p>
+                      <details v-if="finding.preview" class="scan-preview" data-testid="scan-preview">
+                        <summary>{{ t('courseEvolution.workspace.scanPreview') }}</summary>
+                        <p>{{ t('courseEvolution.workspace.scanPreviewHint') }}</p>
+                        <strong>{{ t('courseEvolution.workspace.scanBefore') }}</strong><pre>{{ finding.preview.before }}</pre>
+                        <strong>{{ t('courseEvolution.workspace.scanAfter') }}</strong><pre>{{ finding.preview.after }}</pre>
+                        <small v-if="finding.preview.truncated">{{ t('courseEvolution.workspace.scanPreviewPartial') }}</small>
+                      </details>
+                    </li>
+                  </ul>
+                  <p v-else>{{ t('courseEvolution.workspace.noLiveFindings') }}</p>
+                </section>
                 <dl><div><dt>{{ t('courseEvolution.workspace.scanIndex', '索引召回') }}</dt><dd>{{ context?.summary?.indexed_units || 0 }} {{ t('courseEvolution.workspace.units', '个单元') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanRelations', '关系扩展') }}</dt><dd>{{ t('courseEvolution.workspace.crossAssets', '跨大纲与教学资产') }}</dd></div><div><dt>{{ t('courseEvolution.workspace.scanJudgement', 'AI 判断') }}</dt><dd>{{ t('courseEvolution.workspace.keepRealImpact', '保留真实影响') }}</dd></div></dl>
                 <div class="scan-actions">
                   <p><ShieldCheck :size="15" />{{ t('courseEvolution.workspace.scanGuard', '此阶段只建立影响计划，不写入正式课程。') }}</p>
@@ -125,9 +145,18 @@
             <main v-else-if="workspaceState === 'interpreting'" class="clarification-state">
               <section>
                 <div class="clarification-heading"><BrainCircuit :size="22" /><div><small>{{ t('courseEvolution.workspace.interpretingKicker', 'AI 已完成初步理解') }}</small><h3>{{ interpretedGoal }}</h3></div></div>
-                <p>{{ systemClarificationBlockers.length ? t('courseEvolution.workspace.scanIncompleteHint', '本次没有完整检查课程内容，请先重新检查；无需填写或确认任何答案。') : t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p>
+                <p v-if="!manyClarifications || systemClarificationBlockers.length">{{ systemClarificationBlockers.length ? t('courseEvolution.workspace.scanIncompleteHint', '本次没有完整检查课程内容，请先重新检查；无需填写或确认任何答案。') : t('courseEvolution.workspace.clarificationHint', '结构变化会影响大量内容，下面的信息需要先确认。') }}</p>
                 <div v-if="structuredClarifications.length && !systemClarificationBlockers.length" class="clarification-question-list">
-                  <section v-for="(question, index) in structuredClarifications" :key="question.question_id" class="clarification-question">
+                  <p v-if="manyClarifications">{{ t('courseEvolution.workspace.manyClarifications').replace('{count}', String(structuredClarifications.length)) }}</p>
+                  <div v-if="manyClarifications" class="legacy-request" data-testid="legacy-request">
+                    <label><strong>{{ t('courseEvolution.workspace.legacyRequestLabel') }}</strong><textarea ref="legacyRequestInputRef" v-model="legacyRequestText" rows="4" :disabled="store.generating" :placeholder="t('courseEvolution.workspace.legacyRequestPlaceholder')" /></label>
+                    <p>{{ t('courseEvolution.workspace.legacyRequestHint') }}</p>
+                    <small v-if="!legacyRequestText.trim()">{{ t('courseEvolution.workspace.legacyOriginalRequestHint') }}</small>
+                  </div>
+                  <button v-if="manyClarifications" type="button" class="button-quiet" data-testid="expand-clarifications" @click="showAllClarifications = !showAllClarifications">{{ t('courseEvolution.workspace.toggleClarifications') }}</button>
+                  <ol v-if="manyClarifications && showAllClarifications" class="legacy-question-reference" data-testid="legacy-question-reference"><li v-for="question in structuredClarifications" :key="question.question_id"><strong>{{ question.prompt }}</strong><ul v-if="question.options.length"><li v-for="option in question.options" :key="option.option_id">{{ option.label }}<small v-if="option.impact">{{ option.impact }}</small></li></ul></li></ol>
+                  <template v-if="!manyClarifications">
+                  <section v-for="(question, index) in structuredClarifications" :key="question.question_id" class="clarification-question" :data-question-id="question.question_id">
                     <fieldset>
                       <legend><b>{{ index + 1 }}.</b>{{ question.prompt }}</legend>
                       <label v-for="option in question.options" :key="option.option_id" class="clarification-option">
@@ -151,6 +180,7 @@
                       </label>
                     </fieldset>
                   </section>
+                  </template>
                 </div>
                 <ol v-else-if="teacherBlockingQuestions.length && !systemClarificationBlockers.length"><li v-for="question in teacherBlockingQuestions" :key="question">{{ question }}</li></ol>
                 <div v-if="systemClarificationBlockers.length" class="clarification-system-blockers" role="alert" aria-live="polite">
@@ -159,7 +189,9 @@
                 <footer class="clarification-actions">
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-danger" data-testid="discard-blocked-plan" :disabled="Boolean(store.actingId)" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardBlockedPlan', '放弃本次全课修改') }}</button>
                   <button v-if="systemClarificationBlockers.length" type="button" class="button-primary" data-testid="retry-incomplete-scan" :disabled="store.generating" @click="retryIncompleteScan"><RefreshCw :size="15" />{{ t('courseEvolution.workspace.retryIncompleteScan', '重新检查未完成内容') }}</button>
+                  <button v-else-if="manyClarifications" type="button" class="button-primary" data-testid="reanalyze-legacy-request" :disabled="store.generating || !legacyRequestInstruction" @click="submitLegacyRequest"><Sparkles :size="15" />{{ t('courseEvolution.workspace.legacyReanalyze') }}</button>
                   <template v-else>
+                    <div v-if="structuredClarifications.length" class="clarification-answer-status" role="status" data-testid="clarification-answer-status"><span>{{ unansweredClarifications.length ? t('courseEvolution.workspace.pendingClarifications').replace('{count}', String(unansweredClarifications.length)) : t('courseEvolution.workspace.clarificationsComplete') }}</span><button v-if="unansweredClarifications.length" type="button" class="button-quiet" @click="focusUnansweredClarification">{{ t('courseEvolution.workspace.goToUnanswered') }}</button></div>
                     <button v-if="structuredClarifications.some(question => question.options.some(option => option.recommended))" type="button" class="button-quiet" @click="applyRecommendedClarifications">{{ t('courseEvolution.workspace.useRecommendedOptions', '采用推荐项') }}</button>
                     <button type="button" class="button-secondary" @click="openCorrection"><PencilLine :size="15" />{{ t('courseEvolution.workspace.answerAndReanalyze', '补充说明并重新分析') }}</button>
                     <button
@@ -286,6 +318,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean]; courseApplied:
 const store = useCourseEvolutionStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const requestInputRef = ref<HTMLTextAreaElement | null>(null)
+const legacyRequestInputRef = ref<HTMLTextAreaElement | null>(null)
+const legacyRequestText = ref('')
 const previousFocus = ref<HTMLElement | null>(null)
 const requestText = ref('')
 const requestMode = ref<'replace' | 'structure'>(props.initialMode)
@@ -298,6 +332,7 @@ const semanticPresets = computed(() => [
   { id: 'logic', label: t('courseEvolution.workspace.semanticLogic', '逻辑调整'), prompt: t('courseEvolution.workspace.semanticLogicPrompt', '调整内容顺序和衔接，让论述逻辑更清楚，不新增知识。') },
   { id: 'explain', label: t('courseEvolution.workspace.semanticExplain', '增强解释'), prompt: t('courseEvolution.workspace.semanticExplainPrompt', '补足必要解释，让学生更容易理解，保留原有知识范围。') },
 ])
+const forceFullScan = ref(false)
 const requestAssetTypes = ref(['outline', 'lesson_plan', 'script', 'course_content', 'ppt'])
 function appendPreset(prompt: string) {
   if (!requestText.value.includes(prompt)) requestText.value = [requestText.value.trim(), prompt].filter(Boolean).join('\n')
@@ -309,7 +344,10 @@ const requestCanSubmit = computed(() => requestMode.value === 'replace'
 const candidatesGenerating = computed(() => focusedPlan.value?.status === 'pending' && focusedPlan.value?.generation_status === 'generating')
 const coverage = computed(() => focusedPlan.value?.impact_summary?.coverage)
 const partialGate = computed(() => focusedPlan.value?.impact_summary?.partial_review)
-const partialActive = computed(() => Boolean(partialGate.value?.incomplete))
+const intentOnlyClarification = computed(() => Boolean(focusedPlan.value?.impact_summary?.intent_preflight)
+  && planning.value?.status === 'needs_clarification' && Number(coverage.value?.scanned_units || 0) === 0
+  && !planning.value.intent.system_blockers?.length && !coverage.value?.failed_batches?.length)
+const partialActive = computed(() => Boolean(partialGate.value?.incomplete) && !intentOnlyClarification.value)
 const partialPreview = computed(() => partialActive.value && Boolean(partialGate.value?.can_preview))
 const decisionRequired = computed(() => Boolean(planning.value?.intent.blocking_questions?.length))
 const decisionResolutionOpen = ref(false)
@@ -356,6 +394,7 @@ const scanFailureSummary = computed(() => {
 const historyRef = ref<HTMLElement | null>(null)
 const correctionText = ref('')
 const correctionOpen = ref(false)
+const showAllClarifications = ref(false)
 const clarificationAnswers = ref<Record<string, { option_id?: string; custom_text?: string }>>({})
 const actionError = ref('')
 const selectedAsset = ref('')
@@ -376,6 +415,16 @@ const context = computed(() => store.courseContext)
 const analysisFailureDetails = computed(() => store.analysisTask?.status === 'failed' ? store.analysisTask.error_detail || null : null)
 const analysisRetryAvailable = computed(() => store.analysisTask?.status === 'failed')
 const scanProgress = computed(() => store.analysisSubmitting ? undefined : store.analysisTask?.phase_detail?.scan)
+const executionSummary = computed(() => {
+  if (workspaceState.value === 'request') return ''
+  if (workspaceState.value === 'scanning') {
+    const r = scanProgress.value?.routing
+    return r ? t('courseEvolution.workspace.routingPlanned').replace('{indexed}', String(r.indexed_units)).replace('{selected}', String(r.selected_units)).replace('{model}', String(r.model_units)).replace('{aliases}', String(r.alias_units)) : ''
+  }
+  const c = coverage.value
+  if (!focusedPlan.value?.impact_summary.request_routing || !c) return ''
+  return t('courseEvolution.workspace.routingCompleted').replace('{indexed}', String(c.indexed_units || 0)).replace('{selected}', String(c.selected_units || 0)).replace('{model}', String(c.model_units || 0)).replace('{aliases}', String(c.alias_units || 0)).replace('{reused}', String(c.retained_units || 0))
+})
 const courseLabel = computed(() => props.courseTitle || context.value?.course_title || t('courseEvolution.workspace.currentCourse', '当前课程'))
 const focusedPlan = computed(() => {
   const preferredId = selectedPlanId.value || props.focusPlanId
@@ -394,6 +443,7 @@ const focusedPlan = computed(() => {
 })
 const planning = computed(() => focusedPlan.value?.teacher_change_planning || null)
 const structuredClarifications = computed(() => planning.value?.intent.clarifications || [])
+const manyClarifications = computed(() => structuredClarifications.value.length > 3)
 const clarificationPromptSet = computed(() => new Set(structuredClarifications.value.map(item => item.prompt)))
 const isLegacySystemBlocker = (value: string) => /未完成检查|incomplete\s+(course\s+)?scan/i.test(value)
 const systemClarificationBlockers = computed(() => Array.from(new Set([
@@ -401,13 +451,15 @@ const systemClarificationBlockers = computed(() => Array.from(new Set([
   ...(planning.value?.intent.blocking_questions || []).filter(isLegacySystemBlocker),
 ])))
 const teacherBlockingQuestions = computed(() => (planning.value?.intent.blocking_questions || []).filter(item => !clarificationPromptSet.value.has(item) && !isLegacySystemBlocker(item)))
-const clarificationAnswersReady = computed(() => structuredClarifications.value.every(question => {
-  if (!question.required) return true
+const unansweredClarifications = computed(() => structuredClarifications.value.filter(question => {
+  if (!question.required) return false
   const answer = clarificationAnswers.value[question.question_id]
   return question.response_type === 'single_choice'
-    ? Boolean(answer?.option_id)
-    : Boolean(answer?.custom_text?.trim())
+    ? !question.options.some(option => option.option_id === answer?.option_id)
+    : !answer?.custom_text?.trim()
 }))
+const clarificationAnswersReady = computed(() => !unansweredClarifications.value.length)
+const legacyRequestInstruction = computed(() => legacyRequestText.value.trim() || rawRequest.value.trim())
 const structuralPlan = computed(() => Boolean(
   planning.value?.structural_operations.length
   || planning.value?.execution_strategies.includes('structural_regeneration'),
@@ -555,6 +607,7 @@ const listSeparator = computed(() => activeLocale.value === 'en' ? '; ' : '；')
 watch(affectedAssets, items => { if (!items.some(item => item.key === selectedAsset.value)) selectedAsset.value = items[0]?.key || '' }, { immediate: true })
 watch(selectedAsset, () => { selectedSection.value = '' })
 watch(() => focusedPlan.value?.change_set_id, () => {
+  legacyRequestText.value = rawRequest.value
   detailMigrationId.value = ''
   decisionResolutionOpen.value = false
   const saved = selectionPreference.value?.excluded_migration_ids || scopeReview.value?.excluded_migration_ids
@@ -568,6 +621,7 @@ watch(() => focusedPlan.value?.change_set_id, () => {
   discardConfirm.value = false
 }, { immediate: true })
 watch(() => planning.value?.intent.clarification_set_id, () => {
+  showAllClarifications.value = false
   clarificationAnswers.value = {}
 }, { immediate: true })
 watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId], previous) => {
@@ -579,7 +633,9 @@ watch(() => [props.modelValue, props.courseId] as const, async ([open, courseId]
   if (!open || !courseId) return
   previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   forceRequest.value = false; selectedPlanId.value = props.focusPlanId
-  await reloadWorkspace()
+  // The update center reads this shared store before mounting its workspace.
+  // Standalone dialogs still own their initial read and explicit refreshes.
+  if (!props.embeddedInCenter) await reloadWorkspace()
   await nextTick()
   if (epoch !== workspaceEpoch) return
   workspaceRef.value?.focus()
@@ -766,7 +822,7 @@ async function submitRequest() {
     ? [requestText.value.trim(), findText.value ? t('courseEvolution.workspace.replaceInstruction').replace('{before}', findText.value).replace('{after}', replacementText.value) : ''].filter(Boolean).join('\n')
     : requestText.value.trim()
   try {
-    const result = await store.createCoursePlan({ courseId, requestId, instruction, assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction, ...(forceFullScan.value ? { forceFullScan: true } : {}), assetTypes: requestMode.value === 'replace' ? requestAssetTypes.value.filter(type => contextAssets.value.some(asset => asset.asset_type === type && asset.state !== 'missing')) : ['outline', 'lesson_plan', 'script', 'course_content', 'question_bank'], ...(requestMode.value === 'replace' && findText.value ? { literalReplacement: { before: findText.value, after: replacementText.value } } : {}) })
     if (epoch === workspaceEpoch && !result.analysis_task) selectCreatedPlan(result, requestId)
   } catch (error: any) { if (epoch === workspaceEpoch) { actionError.value = readableError(error, t('courseEvolution.workspace.analysisFailed')); forceRequest.value = true } }
 }
@@ -785,7 +841,31 @@ function selectCreatedPlan(payload: Record<string, any>, requestId = '') {
   const created = plans.find(item => requestId && item.impact_summary?.request_id === requestId) || [...plans].reverse().find(item => item.teacher_change_planning && item.status === 'pending')
   if (created) { selectedPlanId.value = created.change_set_id; emit('planSelected', created.change_set_id) }
 }
-function openCorrection() { correctionText.value = ''; correctionOpen.value = true }
+function openCorrection() {
+  if (manyClarifications.value && workspaceState.value === 'interpreting') {
+    void nextTick(() => legacyRequestInputRef.value?.focus())
+    return
+  }
+  correctionText.value = ''; correctionOpen.value = true
+}
+async function submitLegacyRequest() {
+  if (!manyClarifications.value || !legacyRequestInstruction.value || store.generating) return
+  const instruction = legacyRequestInstruction.value, requestId = createUuid(), courseId = props.courseId
+  await runPlanAction(async (plan, isCurrent) => {
+    const result = await store.createCoursePlan({ courseId, requestId, instruction,
+      supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan),
+      ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}) })
+    if (isCurrent() && !result.analysis_task) selectCreatedPlan(result, requestId)
+  }, t('courseEvolution.workspace.analysisFailed'))
+}
+function focusUnansweredClarification() {
+  const question = unansweredClarifications.value[0]
+  if (!question) return
+  const section = Array.from(workspaceRef.value?.querySelectorAll<HTMLElement>('[data-question-id]') || [])
+    .find(el => el.dataset.questionId === question.question_id)
+  section?.scrollIntoView?.({ block: 'nearest' })
+  section?.querySelector<HTMLElement>('input, textarea')?.focus({ preventScroll: true })
+}
 function openDecisionResolution() { decisionResolutionText.value = rawRequest.value; decisionResolutionOpen.value = true }
 async function submitDecisionResolution() {
   if (!decisionResolutionText.value.trim()) return
@@ -793,7 +873,7 @@ async function submitDecisionResolution() {
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
     const result = await store.createCoursePlan({ courseId: props.courseId, requestId,
-      instruction: decisionResolutionText.value.trim(), supersedesPlanId: plan.change_set_id,
+      instruction: decisionResolutionText.value.trim(), supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan), confirmedInterpretation: true })
     if (isCurrent()) { decisionResolutionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, t('courseEvolution.workspace.analysisFailed'))
@@ -814,11 +894,12 @@ async function submitCorrection() {
   const combined = `${rawRequest.value}\n补充修正：${correctionText.value.trim()}`.trim()
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
-    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, assetTypes: planAssetTypes(plan) })
+    const result = await store.createCoursePlan({ courseId, requestId, instruction: combined, supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}), assetTypes: planAssetTypes(plan) })
     if (isCurrent()) { correctionOpen.value = false; if (!result.analysis_task) selectCreatedPlan(result, requestId) }
   }, '重新分析失败，请重试。')
 }
 async function confirmUnderstanding() {
+  if (manyClarifications.value) return
   const requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
@@ -826,7 +907,7 @@ async function confirmUnderstanding() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan),
       confirmedInterpretation: true,
     })
@@ -841,7 +922,7 @@ async function retryIncompleteScan() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       rescanIncompleteOnly: true,
       assetTypes: planAssetTypes(plan),
     })
@@ -880,7 +961,7 @@ function clarificationAnswerPayload(): CourseChangeClarificationAnswerInput[] {
   })
 }
 async function confirmClarificationAnswers() {
-  if (!clarificationAnswersReady.value) return
+  if (manyClarifications.value || !clarificationAnswersReady.value) return
   const requestId = createUuid(), courseId = props.courseId
   await runPlanAction(async (plan, isCurrent) => {
     await persistSelection(plan)
@@ -888,7 +969,7 @@ async function confirmClarificationAnswers() {
       courseId,
       requestId,
       instruction: rawRequest.value,
-      supersedesPlanId: plan.change_set_id,
+      supersedesPlanId: plan.change_set_id, ...(plan.impact_summary.force_full_scan ? { forceFullScan: true } : {}),
       assetTypes: planAssetTypes(plan),
       clarificationSetId: plan.teacher_change_planning?.intent.clarification_set_id || '',
       clarificationAnswers: clarificationAnswerPayload(),
@@ -975,7 +1056,12 @@ async function discardPlan() {
     if (isCurrent()) { discardConfirm.value = false; startNewRequest() }
   }, '放弃方案失败，请重试。')
 }
-function startNewRequest() { forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus()) }
+function startNewRequest() {
+  // The parent also invokes this when reopening the semantic workspace.
+  // Keep an active analysis attached to its result instead of queuing a reset.
+  if (store.generating || store.analysisResultPending) return
+  forceRequest.value = true; selectedPlanId.value = ''; requestText.value = ''; correctionOpen.value = false; actionError.value = ''; store.generationError = ''; nextTick(() => requestInputRef.value?.focus())
+}
 function openPlan(id: string) { selectedPlanId.value = id; forceRequest.value = false }
 function close() { emit('update:modelValue', false); nextTick(() => previousFocus.value?.focus()) }
 function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); if (detailMigrationId.value) closeDetail(); else close(); return } if (standalone.value || event.key !== 'Tab' || !workspaceRef.value) return; const focusable = [...workspaceRef.value.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.hasAttribute('hidden')); if (!focusable.length) { event.preventDefault(); workspaceRef.value.focus(); return } const first = focusable[0]!; const last = focusable[focusable.length - 1]!; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
@@ -1072,7 +1158,14 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .partial-review-banner{padding:16px 24px;border-bottom:1px solid #e3e7ef;font-size:15px;line-height:1.6}
 .partial-review-banner p{margin:6px 0}.partial-review-banner button{margin-top:8px}.partial-review-banner details{margin-top:8px}
 .partial-item-status{grid-column:2;margin:4px 0;font-size:15px;color:#596579}
-.clarification-actions{display:flex;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
+.clarification-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:9px;padding-top:16px;border-top:1px solid #e2e6ed;background:#fff}
+.legacy-request label{display:grid;gap:8px;color:#253047;font-size:15px}
+.legacy-request textarea{box-sizing:border-box;width:100%;padding:12px;border:1px solid #abb3ce;border-radius:9px;color:#253047;background:#fff;font-family:inherit;font-size:15px;line-height:1.65;resize:vertical;min-height:112px}
+.legacy-request textarea:focus-visible{outline:2px solid #6550bd;outline-offset:2px}
+.legacy-request p,.legacy-request small{display:block;margin:8px 0;color:#596579;font-size:15px;line-height:1.65}
+.clarification-state .legacy-question-reference{overflow:visible;font-size:15px}
+.legacy-question-reference small{display:block;color:#596579;font-size:15px}
+.clarification-answer-status{flex-basis:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;color:#596579;font-size:15px}
 .clarification-actions button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .scan-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .scan-actions p{display:flex;align-items:center;gap:7px;margin:0;color:#087354;font-size:11px}
@@ -1107,4 +1200,14 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .detail-waiting{padding:10px 14px;background:#faf7ec;border-radius:8px;color:#7a5717;font-size:15px}
 .detail-field-changes{margin:18px 0;font-size:15px}.detail-field-changes summary{cursor:pointer}.detail-field-changes p{white-space:pre-wrap}
 @media(max-width:900px){.partial-review-banner{align-items:flex-start;gap:10px;flex-wrap:wrap}.partial-status-actions{flex-wrap:wrap}}
+
+.scan-findings{min-width:0;padding:16px 18px;border:1px solid #e2e3f1;border-radius:12px;background:#fafaff;text-align:left}
+.scan-findings>header{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px;color:#37305f}
+.scan-findings>header span{font-variant-numeric:tabular-nums;color:#6556d8}
+.scan-findings p{margin:6px 0;color:#596579;font-size:15px;line-height:1.6}
+.scan-findings ul{max-height:240px;overflow:auto;display:grid;gap:12px;margin:12px 0 0;padding:0;list-style:none}
+.scan-findings li{padding-top:10px;border-top:1px solid #e5e6ef;font-size:15px}
+.scan-findings li small{display:inline-block;margin-right:8px;color:#6556d8;font-size:13px}
+.scan-findings li strong{color:#30394c;font-weight:600}
+.literal-replacement .scan-depth-option{display:flex;align-items:center;gap:8px;font-size:15px;color:#52617b;margin:12px 0}.scan-preview{margin-top:10px;border-top:1px solid #e4def5;padding-top:10px}.scan-preview summary{cursor:pointer;color:#6550bd;font-size:15px}.scan-preview pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;max-height:180px;overflow:auto}.scan-preview>strong{display:block;margin-top:10px}.scan-findings:has(.scan-preview[open]){max-height:540px}
 </style>

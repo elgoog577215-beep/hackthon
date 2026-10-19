@@ -8,14 +8,21 @@ def lesson_ppt_projects(storage, course, public_document):
     # creates another project nor writes the teacher body into a student store.
     if course.get("authoring_surface") != "teacher" or not course.get("course_id"):
         return {}
+    from teacher_content_projection import authoring_repository
+
+    return authoring_repository(storage).read_projection(
+        course["course_id"],
+        lambda state: _lesson_ppt_projects(course, public_document, state),
+    )
+
+
+def _lesson_ppt_projects(course, public_document, state):
     from course_document import stable_hash
     from course_revisions import revision_vector_for_course
     from ppt_manuscript_quality import manuscript_quality_passed
-    from teacher_content_projection import authoring_repository
     from teacher_lesson_authoring import TeacherLessonAuthoringError, teacher_lesson_v6_source
     from teaching_representations import teaching_representation_repository
 
-    state = authoring_repository(storage).load(course["course_id"])
     public_blocks = {b["block_id"]: b["internal_revision"] for b in public_document["blocks"]}
     titles = {s["section_id"]: s["title"] for s in public_document["sections"]}
     projects = {}

@@ -46,6 +46,7 @@ from .partial_review import applied_units, incomplete, require_partial_selection
 from .patch_review import patch_error_detail, section_inventory
 from .scan_recovery import directly_failed_units, historical_scan_results, unit_fingerprint
 from .semantic_scan import SCAN_CONTRACT, ScanProgress, scan_batches
+from .scan_batching import LEGACY_BATCH_POLICY, TOKEN_BATCH_POLICY, pack_scan_batches
 from .text_fields import editable_text_fields
 
 COURSE_CHANGE_CONTEXT_SCHEMA = "teacher_course_change_context_v1"
@@ -90,6 +91,7 @@ class TeacherCourseAssetSummary(BaseModel):
 
 
 class TeacherCourseChangeContext(BaseModel):
+    canonical_authoring: bool = False
     schema_version: Literal["teacher_course_change_context_v1"] = (
         COURSE_CHANGE_CONTEXT_SCHEMA
     )
@@ -475,6 +477,7 @@ def build_teacher_course_change_context(
     authoring: dict[str, Any] | None,
     question_bank: dict[str, Any] | None,
     representation_registries: list[dict[str, Any]] | None = None,
+    canonical_authoring: bool = False,
 ) -> TeacherCourseChangeContext:
     formal_outline = _outline_from_document(document)
     preview_outline = _outline_from_preview(preview)
@@ -548,6 +551,7 @@ def build_teacher_course_change_context(
     )
     ready = bool(outline or units)
     return TeacherCourseChangeContext(
+        canonical_authoring=canonical_authoring,
         course_id=course_id,
         course_title=document.title or str((preview or {}).get("course_name") or "未命名课程"),
         source_mode=source_mode,
@@ -2121,6 +2125,7 @@ async def create_teacher_course_change_plan(
     instruction: str,
     repository: CourseEvolutionRepository,
     analyzer: AnalysisCallable | None = None,
+    intent_analyzer: AnalysisCallable | None = None,
     supersedes_plan_id: str = "",
     literal_replacement: dict[str, str] | None = None,
     asset_types: list[str] | None = None,
@@ -2131,6 +2136,7 @@ async def create_teacher_course_change_plan(
     on_scan_progress: ScanProgress | None = None,
     scan_model_identity: str = "",
     rescan_incomplete_only: bool = False,
+    force_full_scan: bool = False,
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -2172,6 +2178,8 @@ async def create_teacher_course_change_plan(
     if rescan_incomplete_only and (superseded is None or normalized_instruction != superseded.request_text):
         raise ValueError('补查必须绑定原方案并保留原要求')
     if rescan_incomplete_only:
+        if force_full_scan != bool(superseded.impact_summary.get('force_full_scan')):
+            raise ValueError('补查必须保留原检查方式；改变范围请新建修改要求')
         if superseded.generation_status == 'generating':
             raise ValueError('请等待当前修改建议生成完成后再补查')
         original_types = superseded.impact_summary.get('request_asset_types')
@@ -2210,6 +2218,56 @@ async def create_teacher_course_change_plan(
     )
     if raw_analysis is None:
         raw_analysis = _lecture_structure_analysis(context, normalized_instruction)
+    intent_gate = False
+    assessment = None
+    legacy_reclarification = bool(
+        superseded is not None
+        and len(superseded.teacher_change_planning.intent.clarifications) > 3
+        and not rescan_incomplete_only and not confirmed_interpretation and not answer_snapshot
+    )
+    if legacy_reclarification and (scan_checkpoint or {}).get('legacy_intent_recheck') != supersedes_plan_id:
+        # A new request may keep the original wording. Recheck intent instead of
+        # inheriting the scan that produced the excessive historical questions.
+        # The marker preserves this new task's own checkpoints on resume.
+        scan_checkpoint = {'legacy_intent_recheck': supersedes_plan_id}
+    if not scan_checkpoint and not legacy_reclarification:
+        previous = next((p for p in reversed(current.change_sets)
+            if p.status == 'pending' and p.request_text == normalized_instruction
+            and p.base_revision_vector == context.base_revision_vector
+            and p.impact_summary.get('scan_model_identity') == scan_model_identity
+            and set(p.impact_summary.get('request_asset_types') or []) == set(asset_types or [u.asset_type for u in context.units])
+            and p.impact_summary.get('intent_preflight')), None)
+        if previous is not None:
+            scan_checkpoint = {'intent_preflight': deepcopy(previous.impact_summary['intent_preflight'])}
+    if (raw_analysis is None and intent_analyzer is not None and analyzer is not None
+            and not confirmed_interpretation and not answer_snapshot and not rescan_incomplete_only):
+        from .intent_preflight import assess_intent
+        assessment, scan_checkpoint = await assess_intent(
+            overview=overview, instruction=normalized_instruction, model_identity=scan_model_identity,
+            analyzer=intent_analyzer, checkpoint=scan_checkpoint, on_progress=on_scan_progress,
+        )
+        if assessment is not None:
+            intent_gate = bool(assessment['clarifications'] or assessment['blocking_questions'])
+            if intent_gate:
+                raw_analysis = {**assessment, 'analysis_mode': 'intent_clarification',
+                                'affected_units': [], 'structure': {'required': False}}
+            else:
+                overview['intent_assessment'] = {'interpreted_goal': assessment['interpreted_goal']}
+    from .request_routing import resolve_scope, canonical_aliases, reusable_observation, ROUTED_SCAN_CONTRACT
+    legacy_scan = bool(scan_checkpoint and scan_checkpoint.get('results') and not scan_checkpoint.get('contract'))
+    proposal = (assessment or {}).get('scope')
+    if proposal is None and superseded is not None:
+        proposal = superseded.impact_summary.get('request_routing')
+    routing = resolve_scope(context, normalized_instruction, proposal,
+                            force_full=force_full_scan or legacy_scan or raw_analysis is not None)
+    active_ids = set(routing['selected_unit_ids'])
+    aliases = canonical_aliases(context, active_ids) if not legacy_scan and raw_analysis is None else {}
+    routing['aliases'] = aliases
+    effective_contract = ROUTED_SCAN_CONTRACT if aliases or routing['mode'] != 'full' else SCAN_CONTRACT
+    if effective_contract != SCAN_CONTRACT:
+        overview['request_scope'] = {k:routing[k] for k in ('contract','mode','topics','lecture_ids')}
+        overview['model_unit_count'] = len(active_ids - aliases.keys())
+    ranked = [r for r in ranked if r['unit_id'] in active_ids and r['unit_id'] not in aliases]
     scanned_ids: set[str] = set()
     unscanned_ids: set[str] = set()
     batch_failures: list[dict[str, Any]] = []
@@ -2222,15 +2280,23 @@ async def create_teacher_course_change_plan(
     retained = None
     historical_analyses: list[dict[str, Any]] = []
     historical_origins: list[dict[str, Any]] = []
+    if raw_analysis is None and not rescan_incomplete_only and not legacy_reclarification:
+        reusable = reusable_observation(plans=current.change_sets, context=context, user_id=user_id,
+            instruction=normalized_instruction, asset_types=asset_types, model_identity=scan_model_identity,
+            routing=routing, contract=effective_contract,
+            answer_digest=answer_snapshot.answer_digest if answer_snapshot else '', confirmed=confirmed_interpretation)
+        if reusable:
+            raw_analysis, retained_ids, origin = reusable
+            historical_origins.append(origin)
     if rescan_incomplete_only and superseded is not None:
-        completed_ids = applied_units(superseded).intersection(u.unit_id for u in context.units)
+        completed_ids = applied_units(superseded).intersection(active_ids)
         current_outline = [{k: v for k, v in item.items() if k != 'section_snapshot'} for item in context.outline]
         if (current_outline == superseded.impact_summary.get('current_outline')
                 and superseded.impact_summary.get('scan_model_identity', scan_model_identity) == scan_model_identity
-                and superseded.impact_summary.get('scan_contract', 'teacher_semantic_scan_v2') == SCAN_CONTRACT):
+                and superseded.impact_summary.get('scan_contract', 'teacher_semantic_scan_v2') == effective_contract):
             old = superseded.impact_summary.get('coverage') or {}
             revisions = old.get('source_revisions') or {}
-            retained_ids = {u.unit_id for u in context.units if u.unit_id in revisions
+            retained_ids = {u.unit_id for u in context.units if u.unit_id in active_ids and u.unit_id in revisions
                             and revisions[u.unit_id] == u.source_revision
                             and (old.get('source_fingerprints') is None
                                  or old['source_fingerprints'].get(u.unit_id) == unit_fingerprint(u))
@@ -2239,16 +2305,15 @@ async def create_teacher_course_change_plan(
             source_retained_ids = set(retained_ids)
         historical_ids, historical_analyses, historical_origins = historical_scan_results(
             plans=current.change_sets, source=superseded, context=context,
-            model_identity=scan_model_identity, excluded_ids=retained_ids | completed_ids,
+            model_identity=scan_model_identity,
+            excluded_ids=retained_ids | completed_ids | set(routing['outside_unit_ids']),
         )
         retained_ids.update(historical_ids)
         ranked = [item for item in ranked if item['unit_id'] not in retained_ids | completed_ids]
     if raw_analysis is None and analyzer is not None:
         # Split prose, never serialized JSON. Every indexed unit is considered.
         units_by_id = {unit.unit_id: unit for unit in context.units}
-        batches: list[list[dict[str, Any]]] = []
-        batch: list[dict[str, Any]] = []
-        size = 0
+        fragments: list[dict[str, Any]] = []
         for item in ranked:
             unit = units_by_id[item["unit_id"]]
             body = ((readable_body(unit.full_text_fields) if unit.asset_type == 'course_content'
@@ -2262,26 +2327,38 @@ async def create_teacher_course_change_plan(
                          'content_field': primary_path.lstrip('/'),
                          'block_title': str(block_payload.get('title') or ''),
                          'existing_sections': list(section_inventory(body))}
-                cost = len(json.dumps(entry, ensure_ascii=False))
-                if batch and (size + cost > 4500 or len(batch) >= 12
-                              or sum(len(entry['content']) for entry in batch) + len(chunk) > 2400):
-                    batches.append(batch)
-                    batch, size = [], 0
-                batch.append(entry)
-                size += cost
-        if batch:
-            batches.append(batch)
+                fragments.append(entry)
+        # Old private checkpoints retain their original envelopes so a reload
+        # cannot throw away successful work. New scans use the full prompt budget.
+        legacy_batches = bool(scan_checkpoint and scan_checkpoint.get('results')
+                              and scan_checkpoint.get('batch_policy') != TOKEN_BATCH_POLICY)
+        batches = pack_scan_batches(fragments, overview=overview,
+                                    instruction=normalized_instruction, legacy=legacy_batches)
         async def progress_with_retained(detail: dict[str, Any], checkpoint: dict[str, Any]) -> None:
             nonlocal last_scan_detail, last_scan_checkpoint
+            for key in ('intent_preflight', 'legacy_intent_recheck'):
+                if scan_checkpoint and scan_checkpoint.get(key):
+                    checkpoint = {**checkpoint, key: deepcopy(scan_checkpoint[key])}
+            complete_ids = set(detail.pop('_complete_unit_ids', []))
+            from .scan_previews import content_previews
+            previews = content_previews(context, checkpoint, complete_ids)
+            if previews:
+                detail['findings'] = [{**finding, **({'preview':previews[finding['unit_id']]} if finding['unit_id'] in previews else {})}
+                                      for finding in detail.get('findings') or []]
             last_scan_detail, last_scan_checkpoint = deepcopy(detail), deepcopy(checkpoint)
             if on_scan_progress:
                 await on_scan_progress({**detail, 'retained_units': len(retained_ids | completed_ids),
-                                        'pending_units': len(context.units) - len(retained_ids | completed_ids),
-                                        'total_units': len(context.units)}, checkpoint)
+                                        'pending_units': len(active_ids - aliases.keys()) - len((retained_ids | completed_ids) - aliases.keys()),
+                                        'total_units': len(active_ids),
+                                        'routing': {'mode':routing['mode'], 'indexed_units':len(context.units),
+                                            'selected_units':len(active_ids), 'model_units':len(active_ids - aliases.keys()),
+                                            'alias_units':len(aliases), 'outside_units':len(routing['outside_unit_ids'])}}, checkpoint)
         analyses, scanned_ids, unscanned_ids, batch_failures, retried_batch_count = await scan_batches(
             overview=overview, batches=batches, instruction=normalized_instruction,
             revisions={**context.base_revision_vector, "analysis_model": scan_model_identity}, analyzer=analyzer,
             checkpoint=scan_checkpoint, on_progress=progress_with_retained,
+            batch_policy=LEGACY_BATCH_POLICY if legacy_batches else TOKEN_BATCH_POLICY,
+            contract=effective_contract,
             deprioritized_unit_ids=directly_failed_units(superseded) if rescan_incomplete_only else set(),
             # A retry removes completed units from batches. Keep the complete
             # source identity stable so successful fragments of incomplete
@@ -2293,6 +2370,8 @@ async def create_teacher_course_change_plan(
             ], prefix="scan-sources-"),
         )
         scanned_ids.update(retained_ids | completed_ids)
+        scanned_ids.update(alias for alias,owner in aliases.items() if owner in scanned_ids and owner not in unscanned_ids)
+        unscanned_ids.update(alias for alias,owner in aliases.items() if owner in unscanned_ids)
         if retained is not None:
             analyses.insert(0, retained)
         analyses.extend(historical_analyses)
@@ -2331,17 +2410,20 @@ async def create_teacher_course_change_plan(
                 if any(v.get("proposed_outline") != structures[0].get("proposed_outline") for v in structures[1:]):
                     raw_analysis["blocking_questions"].append("各批次对课程结构的判断不一致，请直接编辑讲次结构后确认。")
     elif raw_analysis is not None:
-        scanned_ids = {unit.unit_id for unit in context.units}
+        if intent_gate:
+            unscanned_ids = {unit.unit_id for unit in context.units}
+        else:
+            scanned_ids = active_ids
     else:
-        unscanned_ids = {unit.unit_id for unit in context.units}
+        unscanned_ids = active_ids
     analysis = _normalize_analysis(raw_analysis, context, normalized_instruction, ranked)
     from .patch_reconciliation import reconcile_fragment_patches
     async def repair_progress(title: str) -> None:
         if on_scan_progress and last_scan_detail:
             await on_scan_progress({**last_scan_detail, 'reconciling_content': True, 'repair_title': title,
                                     'retained_units': len(retained_ids | completed_ids),
-                                    'pending_units': len(context.units) - len(retained_ids | completed_ids),
-                                    'total_units': len(context.units)}, last_scan_checkpoint)
+                                    'pending_units': len(active_ids) - len(retained_ids | completed_ids),
+                                    'total_units': len(active_ids)}, last_scan_checkpoint)
     await reconcile_fragment_patches(analysis, context, analyzer, normalized_instruction,
                                      eligible_ids=scanned_ids - retained_ids - completed_ids, on_progress=repair_progress)
     acknowledged_questions = list(analysis.get("blocking_questions") or [])
@@ -2357,7 +2439,7 @@ async def create_teacher_course_change_plan(
         message=f"有 {len(unscanned_ids)} 个内容单元未完成检查，请重新分析，避免遗漏修改。",
         retryable=True,
         affected_unit_count=len(unscanned_ids),
-    )] if unscanned_ids else [])
+    )] if unscanned_ids and not intent_gate else [])
 
     timestamp = _now()
     change_set_id = f"course-change-{uuid.uuid4().hex}"
@@ -2554,7 +2636,10 @@ async def create_teacher_course_change_plan(
         operations=executable_operations,
         impact_summary={
             'scan_model_identity': scan_model_identity,
-            'scan_contract': SCAN_CONTRACT,
+            'scan_contract': effective_contract,
+            'intent_preflight': deepcopy((scan_checkpoint or {}).get('intent_preflight')),
+            'request_routing': routing,
+            'force_full_scan': force_full_scan,
             'scan_analysis': deepcopy(analysis),
             'scan_unit_index': {u.unit_id: {'asset_type': u.asset_type, 'parent_id': u.parent_id,
                                           'section_ids': list(u.section_ids)} for u in context.units},
@@ -2573,6 +2658,11 @@ async def create_teacher_course_change_plan(
             "coverage": {
                 "indexed_units": len(context.units),
                 'retained_units': len(retained_ids | completed_ids),
+                'model_units': (0 if str(analysis.get('analysis_mode') or '').startswith('deterministic_') else
+                                len(scanned_ids - retained_ids - completed_ids - aliases.keys())),
+                'alias_units': len(aliases.keys() & scanned_ids),
+                'selected_units': len(active_ids),
+                'outside_unit_ids': routing['outside_unit_ids'],
                 'historical_reuse': historical_origins,
                 'completed_unit_ids': sorted(completed_ids),
                 "scanned_units": len(scanned_ids),
