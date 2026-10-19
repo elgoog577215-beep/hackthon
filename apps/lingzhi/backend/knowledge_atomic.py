@@ -623,7 +623,7 @@ async def run_atomic(svc, course_id, job_id):
                             raise CourseDocumentConflict('本批元问题对象或检查角度重复')
                     except CourseDocumentConflict as validation_error:
                         if pipeline['prompt_contract'] != 'knowledge_extract_v9' or parsed.get('response_contract') != 'knowledge_extract_v9': raise
-                        from knowledge_extraction_repair import correct_points
+                        from knowledge_extraction_repair import correct_points, KnowledgeCorrectionNotApplicable
                         batch['repair'] = {'status': 'pending'}
                         try:
                             svc.authoring.update_job_live(course_id, job_id, batch_index=i)
@@ -637,6 +637,9 @@ async def run_atomic(svc, course_id, job_id):
                                 validate_source=validate_source, max_attempts=context['knowledge_correction_attempts'])
                             batch['repair']['corrected_response'] = corrected
                             batch['repair']['status'] = 'completed'
+                        except KnowledgeCorrectionNotApplicable:
+                            batch['repair']['status'] = 'not_applicable'
+                            raise validation_error
                         except Exception:
                             batch['repair']['status'] = 'failed'
                             raise

@@ -62,12 +62,22 @@ def annotate_verified_issues(result, records):
 
 
 def contextualize_component_explanations(response, passages):
-    """An API's role in a full protocol is not an intrinsic system guarantee."""
+    """Retain protocol explanations and explicit input-instance answers as context."""
     output = deepcopy(response); records = []; traces = output.get('_content_review_trace'); cursor = 0; kept_traces = []
     for key, entry in output['passages'].items():
         source = passages[key]; kept = []
         for ordinal, point in enumerate(entry['points']):
             trace = traces[cursor] if traces is not None else None; cursor += 1
+            binding = re.search(r'(?<![A-Za-z_])([nmd])\s*=\s*(\d+)(?!\d)', str(point.get('property', '')))
+            concrete = (point.get('form') in {'fact', 'comparison'} and binding and re.search(
+                r'(?<![A-Za-z_])' + binding[1] + r'\s*=\s*' + binding[2] + r'(?!\d)', source['text']))
+            if concrete:
+                records.append({'rule_id': 'explicit_numeric_instance_context_v1', 'origin': 'model_instance_as_general_knowledge',
+                    'source_key': source.get('source_key', key.split('.')[0]), 'passage_key': key, 'point_ordinal': ordinal,
+                    'point': deepcopy(point), 'status': 'context_only',
+                    'detail': '目标及原文显式绑定同一具体输入值，属于该输入的数值示例；一般公式和完整方法另行保留。',
+                    'source_hash': hashlib.sha256(source['text'].encode()).hexdigest()})
+                continue
             component_guarantee = (point.get('form') == 'fact' and 'popleft' in str(point.get('subject', ''))
                 and 'deque' in source['text'] and re.search(r'FIFO|先[入进].{0,12}先(?:出|处理|离开)|按层|层序|层级扩散', str(point.get('value', '')), re.I))
             if not component_guarantee:
@@ -84,6 +94,6 @@ def contextualize_component_explanations(response, passages):
                 'source_hash': hashlib.sha256(source['text'].encode()).hexdigest()})
         entry['points'] = kept
         if not kept and any(record['passage_key'] == key for record in records):
-            entry['note'] = {'handling': 'context', 'reason': '本块解释属于完整协议或方法的作用说明，不作为单API全局保证；原解释保留于核对记录。'}
+            entry['note'] = {'handling': 'context', 'reason': '本块仅含具体输入示例或完整协议的作用说明，不作为独立一般知识；原解释保留于核对记录。'}
     if traces is not None: output['_content_review_trace'] = kept_traces
     return output, records

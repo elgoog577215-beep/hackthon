@@ -12,6 +12,10 @@ from knowledge_semantic_contract import quality_point, quality_prompt, point_var
 from knowledge_correction_plan import correction_plan
 
 
+class KnowledgeCorrectionNotApplicable(CourseDocumentConflict):
+    """The compiler error has no invalid point that this transaction can edit."""
+
+
 def repair_schema(targets, passages):
     repairs = {}
     for key, target in targets.items():
@@ -98,7 +102,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
                 'duplicate_group': group_keys,
                 'error': '元问题重复且答案不同，必须用实际结构名作为subject，并在property中明确操作或检查角度；不改原答案含义。'}
-    require(0 < len(targets) <= 16, '没有可精确定位或超出单次修正容量的知识点')
+    if not targets: raise KnowledgeCorrectionNotApplicable('没有可精确定位的知识点')
+    require(len(targets) <= 16, '超出单次修正容量的知识点')
     for target in targets.values():
         conditions = target['point'].get('conditions', [])
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
