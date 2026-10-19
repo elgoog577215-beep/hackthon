@@ -52,13 +52,32 @@
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
           <button type="button" :disabled="lessonOptions.at(-1)?.lesson_id === knowledgeLessonId" @click="stepLesson(1)">{{ t('knowledgeFirst.nextLesson') }}</button>
         </div>
-        <p v-if="staleTreeSource" class="notice error source-version-warning" role="alert">
-          {{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}
-        </p>
+        <details v-if="sourceComparison" class="notice" :class="{ 'needs-review': staleTreeSource }" data-testid="knowledge-source-version">
+          <summary>{{ t(staleTreeSource ? 'knowledgeFirst.sourceNeedsReview' : 'knowledgeFirst.sourceVersionTitle') }}</summary>
+          <p v-if="staleTreeSource" class="source-version-warning" role="alert">{{ t(treeChoice === 'candidate' ? 'knowledgeFirst.candidateSourceChanged' : 'knowledgeFirst.adoptedSourceChanged') }}</p>
+          <div v-for="source in sourceComparison.sources" :key="source.lessonId">
+            <strong>{{ source.title }}</strong>
+            <p>{{ t('knowledgeFirst.recordedHandoutVersion') }} · {{ source.recorded || t('knowledgeFirst.handoutVersionUnavailable') }}</p>
+            <p>{{ t('knowledgeFirst.currentHandoutVersion') }} · {{ source.current || t('knowledgeFirst.handoutVersionUnavailable') }}</p>
+          </div>
+        </details>
+        <details v-if="extractionReport" class="notice" data-testid="knowledge-extraction-gaps">
+          <summary>{{ t('knowledgeFirst.extractionNotes') }} · {{ extractionReport.gaps.length }}</summary>
+          <p v-if="!extractionReport.available">{{ t('knowledgeFirst.gapReportUnavailable') }}</p>
+          <template v-else>
+            <p v-for="(gap,index) in extractionReport.gaps" :key="index">{{ gap }}</p>
+            <p v-if="!extractionReport.gaps.length">{{ t('knowledgeFirst.noRecordedGaps') }}</p>
+            <p>{{ t('knowledgeFirst.unreferencedPassages').replace('{count}',String(extractionReport.unreferenced)) }}</p>
+          </template>
+        </details>
         <section v-for="job in sourceBlockingJobs" :key="job.id" class="notice job" role="status" data-testid="knowledge-source-blocker">
           <strong>{{ blockingJobLabel(job) }}</strong>
           <span>{{ job.progress || 0 }}% · {{ t('knowledgeFirst.waitForSourceTask') }}</span>
         </section>
+        <details v-if="otherKnowledgeJobs.length" class="notice" data-testid="knowledge-other-jobs">
+          <summary>{{ t('knowledgeFirst.otherLectureTasks').replace('{count}',String(otherKnowledgeJobs.length)) }}</summary>
+          <p v-for="job in otherKnowledgeJobs" :key="job.id">{{ blockingJobLabel(job) }} · {{ job.progress || 0 }}%</p>
+        </details>
         <section v-if="progressJob" class="notice job generation-progress" role="status" aria-live="polite" data-testid="knowledge-generation-progress">
           <div class="generation-progress-heading">
             <strong>{{ progressJob.knowledge_lesson_id ? `${lessonLabels[progressJob.knowledge_lesson_id] || ''} · ` : '' }}{{ progressJob.status === 'completed' ? t('knowledgeFirst.phase_completed') : jobPhase(progressJob) }}</strong>
@@ -258,6 +277,9 @@ const blockingJobs = computed(() => {
   return activeJobs.value.filter(j => !perLesson.value || !j.knowledge_lesson_id || j.knowledge_lesson_id === knowledgeLessonId.value)
 })
 const activeJob = computed(() => blockingJobs.value.find(j => (data.value?.jobs || []).some((known: any) => known.id === j.id)))
+const otherKnowledgeJobs = computed(() => perLesson.value ? activeJobs.value.filter(j =>
+  j.knowledge_lesson_id && j.knowledge_lesson_id !== knowledgeLessonId.value
+  && (data.value?.jobs || []).some((known:any) => known.id === j.id)) : [])
 const sourceBlockingJobs = computed(() => blockingJobs.value.filter(j => !(data.value?.jobs || []).some((known: any) => known.id === j.id)))
 const latestJob = computed(() => (data.value?.jobs || []).filter((j: any) => j.knowledge_pipeline !== 'knowledge_relations_v1' && (!perLesson.value || j.knowledge_lesson_id === knowledgeLessonId.value)).at(-1))
 const failedJobs = computed(() => (data.value?.jobs || []).filter((j: any) => j.status === 'failed').slice(-3))
@@ -403,6 +425,13 @@ const sourceComparison = computed(() => {
   return { sources, stale: sources.some(source => !source.recorded || !source.current || source.recorded !== source.current) }
 })
 const staleTreeSource = computed(() => Boolean(sourceComparison.value?.stale))
+const extractionReport = computed(() => {
+  const tree = displayTree.value
+  if (!derived.value || !tree) return null
+  const available = (!perLesson.value || !tree.scope_lesson_id || tree.scope_lesson_id === knowledgeLessonId.value)
+    && Array.isArray(tree.gaps)
+  return { available, gaps: available ? tree.gaps : [], unreferenced: available ? tree.uncovered_evidence_ids?.length || 0 : 0 }
+})
 const contentTree = computed(() => createContentKnowledgeTree(
   `${courseId.value}:${perLesson.value ? knowledgeLessonId.value : ''}`,
   perLesson.value ? lessonLabels.value[knowledgeLessonId.value] || data.value?.title : data.value?.title,

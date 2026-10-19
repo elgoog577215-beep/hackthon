@@ -30,13 +30,14 @@ beforeEach(async () => {
 })
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
-it('polls only lightweight status and shows actual output rather than a fixed percentage', async () => {
+it('polls only lightweight status and shows reported progress with compact phase text', async () => {
   const get = vi.spyOn(http, 'get').mockImplementation(async url => ({ data: String(url).endsWith('/status') ? status() : state() }))
   const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
   const progress = w.get('[data-testid="knowledge-generation-progress"]')
-  expect(progress.text()).toContain('120')
-  expect(progress.text()).toContain('23')
-  expect(progress.text()).not.toContain('10%')
+  expect(progress.text()).toContain(zh.knowledgeFirst.phase_model_streaming)
+  expect(progress.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('10')
+  expect(progress.text()).not.toContain('120')
+  expect(progress.text()).not.toContain('23')
   await vi.advanceTimersByTimeAsync(4000); await flushPromises()
   expect(get.mock.calls.filter(([url]) => String(url).endsWith('/status')).length).toBe(2)
   expect(get.mock.calls.filter(([url]) => !String(url).endsWith('/status')).length).toBe(1)
