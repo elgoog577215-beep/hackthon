@@ -42,7 +42,7 @@ def repair_schema(targets, passages):
             if 'conditions' in patch_fields:
                 # In a field patch, conditions are additive. The model never
                 # needs to reproduce the original scope strings.
-                patch_fields['conditions'] = array(string(1000), 20, 1)
+                patch_fields['conditions'] = array(string(1000), 20)
             # Conditions can be supplemented when repairing a subject qualifier;
             # omit them to preserve the original byte-for-byte.
             if not plan.get('required_symbols') and 'conditions' in patch['required']:
@@ -103,6 +103,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
         target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
             r'前提|范围|串用|条件|联合定义', target.get('error', '')) else []
+        target['correction_plan']['conditions_mode'] = 'replace' if conditions and not target['required_conditions'] else 'append'
         if target.get('error') == '知识主体必须逐字来自当前原文块':
             target['fixed_fields'] = {k:deepcopy(v) for k,v in target['point'].items()
                 if k not in {'subject','left_subject','right_subject'}}
@@ -127,6 +128,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '不能为满足冻结答案改成另一结构，不能把不同算法的结论移植过来；来源不足有明确出口，不强迫凑出一个知识点。理由简短，最多120字。'
         '补充前提使用patch.append_conditions=[新增前提]，程序原样保留原conditions并追加；不要抄写已有前提。'
         '完整replace或拆分的新点也由程序继承required_conditions，不必重复抄写这些冻结前提；只填写新增前提，合成后仍统一校验。'
+        'conditions_mode="replace"表示原前提本身被诊断为错误，此时patch.conditions整体替换，可为[]；append_conditions仍仅追加。'
         '主体已正确时不要重新输出subject。无需增加前提时省略append_conditions。'
         'required_symbols每个符号在conditions定义输入或计量对象，例如n表示待排序元素数；只写O(n)不算定义。'
         '没有single_point限制时可使用patch修改需要的字段，或handling="replace",points=[完整修正点],reason；无一般知识时明确context且points=[]。'
@@ -134,6 +136,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         'comparison的左右subject必须为不同的实际结构或算法，不能都写“递归深度”等属性再用前提区别。'
         'context_allowed=true的目标是绑定n=8等具体输入的示例比较，可归context保留在记录，不冒充通用知识。'
         '复合属性必须拆为不同属性；每点自己定义符号；一个成本仅在一侧有来源时用fact，不编造对侧答案来凑comparison。'
+        '诊断compound_property明确指property字段，不能只改conditions。property不使用与/和/及/顿号连接多个维度；单一对应规律可用“对应规律”命名并保留原关系结论。'
         '每个fact.value及comparison左右value均不能有分号或多个句子；复杂度须用时间/空间/次数等成本属性。'
         '方法缺少初始状态且诊断仅说明机制时改definition；完整算法和联合定义保留共同约束与全部分支。'
         'duplicate_question_groups必须作为一组对照来源：若仅同义措辞，选择一个目标为规范点，其他目标返回'
@@ -162,9 +165,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 if patch and 'anyOf' in patch:
                     choice['properties']['patch'] = patch['anyOf'][1 if 'append_conditions' in decision.get('patch', {}) else 0]
                 break
-    error = next(Draft202012Validator(schema).iter_errors(clean), None)
+    errors = list(Draft202012Validator(schema).iter_errors(clean))[:32]
     error_label = '修正响应字段或前提无效（主体等未授权字段不可改动）：'
-    require(error is None, error_label + (('/'.join(str(k) for k in error.absolute_path) + '：' + error.message[:500]) if error else ''))
+    require(not errors, error_label + '；'.join('/'.join(str(k) for k in error.absolute_path) + '：' + error.message[:300] for error in errors))
     resolved = {}
     for key, repair in parsed['repairs'].items():
         if repair['handling'] == 'merge': continue
@@ -175,8 +178,11 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             continue
         if repair['handling'] == 'patch':
             patch = deepcopy(repair['patch']); additions = patch.pop('append_conditions', [])
-            additions.extend(patch.pop('conditions', []))
+            conditions = patch.pop('conditions', None)
             point = {**deepcopy(targets[key]['point']), **patch}
+            if conditions is not None:
+                if targets[key]['correction_plan']['conditions_mode'] == 'replace': point['conditions'] = conditions
+                else: additions.extend(conditions)
             if additions: point['conditions'] = list(dict.fromkeys([*point['conditions'], *additions]))
             resolved[key] = {'handling': 'replace', 'points': [point],
                              'reason': repair['reason'], 'action': 'field_patch'}
@@ -191,7 +197,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         point['attachments'].extend(deepcopy(a) for a in targets[key]['point'].get('attachments', []) if a not in point['attachments'])
         resolved[key] = {'handling': 'replace', 'points': [point], 'reason': repair['reason'],
                          'action': 'model_declared_equivalence', 'merge_into': repair['merge_into']}
-    output = deepcopy(response); decisions = []
+    output = deepcopy(response); decisions = []; point_errors = []
     original_traces = response.get('_content_review_trace'); trace_cursor = 0; repaired_traces = []
     for key, entry in output['passages'].items():
         points = []
@@ -216,7 +222,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 point['conditions'] = list(dict.fromkeys([*targets[target]['required_conditions'], *point.get('conditions', [])]))
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
-                quality_point(point, passages[key]['text'])
+                try: quality_point(point, passages[key]['text'])
+                except CourseDocumentConflict as error:
+                    point_errors.append({'target_key': target, 'message': str(error),
+                        'diagnostics': deepcopy(getattr(error, 'diagnostics', []))})
             points.extend(deepcopy(repair['points']))
             if trace is not None:
                 repaired_traces.extend({**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False} for _ in repair['points'])
@@ -225,6 +234,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         entry['points'] = points
         if not points and any(target.startswith(key + ':') for target in targets):
             entry['note'] = {'handling': 'context', 'reason': '；'.join(d['reason'] for d in decisions if d['target_key'].startswith(key + ':'))}
+    require(not point_errors, '；'.join(v['target_key'] + '：' + v['message'] for v in point_errors))
     issues = parsed['source_issues']
     require(isinstance(issues, list) and all(isinstance(i, dict) and i.get('passage_key') in
             {v['passage_key'] for v in targets.values()} for i in issues), '修正来源疑点越界')

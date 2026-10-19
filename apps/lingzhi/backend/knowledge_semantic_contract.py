@@ -214,7 +214,10 @@ def build_point(point, options, *, allow_relation_property=False, allow_named_op
         single_relation = allow_relation_property and bool(re.fullmatch(
             r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and all(
                 re.fullmatch(relation_value, str(value)) if form == 'fact' else re.fullmatch(r'[^;；。]*' + relation_value, str(value)) for value in values)
-        require(single_relation or not re.search(r'[、;；，,]|以及|与|和|及', prop), '独立属性必须分别成为知识点')
+        if not single_relation and re.search(r'[、;；，,]|以及|与|和|及', prop):
+            from knowledge_correction_plan import KnowledgePointValidationError
+            raise KnowledgePointValidationError([{'code': 'compound_property', 'fields': ['property'],
+                'message': '独立属性必须分别成为知识点'}])
         if single_relation: audit['property_kind'] = 'single_relation'
         audit['property'] = prop
     if form == 'fact':
@@ -373,7 +376,7 @@ def quality_point(point, source_text):
     try:
         result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost)
     except CourseDocumentConflict as error:
-        errors.append({'code': 'invalid_point', 'message': str(error)})
+        errors.extend(getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}]))
     if errors: raise KnowledgePointValidationError(errors)
     audit['source_subject_bindings'] = bindings
     if named_cost: audit['operation_literal'] = call.group()
