@@ -314,7 +314,7 @@ def quality_point(point, source_text):
             check(False, '物理实现形式不是所有栈的绝对前置条件；保留可选实现知识，将过强原断言记为来源疑点')
         two_quantities = re.search(r'(?:内存|空间)(?:占用|开销|消耗|成本)?[和与及、](?:执行)?(?:时间|速度|效率)|(?:时间|速度|效率)(?:开销|成本)?[和与及、](?:内存|空间)', value)
         check(not two_quantities or bool(re.search(r'成正比|成反比|以.+换|权衡|折中|关系', value)), '时间与空间是独立量，分别使用不同property，不放入一个性能优势结论')
-        check(not re.match(r'^(?:若|当|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
+        check(not re.match(r'^(?:若|当(?!前)|如果)', value) or bool(point.get('conditions')), '条件结论的前提必须放入conditions并进入元问题，不能仅藏在value里')
         if point.get('subject') == '循环' and re.search(r'内存|空间', prop) and re.search(r'恒定|固定|常数|O\(1\)', value):
             check(bool(re.search(r'调用帧|栈帧|不分配|不新增.*(?:容器|数据结构)|固定数量.*(?:标量|变量)', conditions)),
                     '循环总空间不一定恒定；仅说明额外调用帧时必须明确计量范围，否则归来源疑点')

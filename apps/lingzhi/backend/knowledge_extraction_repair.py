@@ -18,6 +18,9 @@ def repair_schema(targets, passages):
         require(form in {'fact', 'definition', 'comparison', 'procedure'}, '无法精确限定修正形态')
         shape = next(choice for choice in choices if choice['properties']['form']['const'] == form)
         properties = shape['properties']
+        if target.get('required_conditions'):
+            properties['conditions'] = {**properties['conditions'], 'allOf': [
+                {'contains': {'const': condition}} for condition in target['required_conditions']]}
         shape = obj({'form': properties['form'], **{k: v for k, v in properties.items() if k != 'form'}})
         repairs[key] = obj({'points': array(shape, 8), 'handling': {'enum': ['replace', 'context']}, 'reason': string(600)})
     issue = obj({'passage_key': {'enum': list(dict.fromkeys(v['passage_key'] for v in targets.values()))},
@@ -49,7 +52,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         conditions = target['point'].get('conditions', [])
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
         target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and not re.search(
-            r'前提|范围|串用|条件|联合定义|仅说明机制', target.get('error', '')) else []
+            r'前提|范围|串用|条件|联合定义', target.get('error', '')) else []
         if target.get('error') == '知识主体必须逐字来自当前原文块':
             target['fixed_fields'] = {k:deepcopy(v) for k,v in target['point'].items()
                 if k not in {'subject','left_subject','right_subject'}}
@@ -70,8 +73,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '错误“一个属性值不能夹带独立命题”指value内含分号或多个句子，应拆成分别成立的点，不可删掉其中事实。'
         '每个修正点保持目标点的form；若错误明确指出联合定义，则必须改为definition，meaning和constraints完整保留基本情况与递归关系，不拆成两个泛化fact。'
         '若错误指出当前块仅说明机制，则改为definition表达完整策略含义，不把缺少初始状态的几步机制冒充可执行完整算法。'
+        '方法改为定义不是前提出错：required_conditions必须逐条照抄，不能因改form清空conditions。'
+        '定义constraints涉及栈或队列依赖时，仍保留本讲具体实现的conditions；补充限定不能代替原有有效前提。'
         '若错误指出环境数值或来源过强断言而无法由当前材料明确限定，则归context并在source_issues注明，不补造条件。'
-        '若错误指出时间和空间独立量，则拆为不同property；若value中含若/当/如果，必须将真实前提移入conditions以进入元问题。'
+        '若错误指出时间和空间独立量，则拆为不同property；若value是若/当/如果引出的条件句，必须将真实前提移入conditions以进入元问题；“当前”是对象限定，不是条件句。'
         '括号定义不能禁止任意)(子串，()()是反例；根据冻结扫描算法改为前缀余额非负且最终余额为0，或记来源疑点。'
         '具体轨迹、教学目标或没有独立一般知识的点可明确归context并说明理由，不能虚构替代知识。'
         '不要返回原顶层passages。只输出{"repairs":{"目标键":{"points":[修正后完整点],"handling":"replace","reason":"具体修改"}},"source_issues":[]}。'
@@ -85,7 +90,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
     error = next(Draft202012Validator(repair_schema(targets, {k: p['text'] for k, p in passages.items()})).iter_errors(clean), None)
-    require(error is None, '修正响应字段无效：' + ('/'.join(str(k) for k in error.absolute_path) if error else ''))
+    error_label = '修正响应前提无效或缺失：' if error and 'conditions' in error.absolute_path else '修正响应字段无效：'
+    require(error is None, error_label + ('/'.join(str(k) for k in error.absolute_path) if error else ''))
     output = deepcopy(response); decisions = []
     original_traces = response.get('_content_review_trace'); trace_cursor = 0; repaired_traces = []
     for key, entry in output['passages'].items():
