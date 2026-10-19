@@ -5,7 +5,7 @@ import pytest
 
 from knowledge_mastery import freeze_knowledge_refs
 from question_bank import QuestionBankRepository, formal_task_from_question_bank_item, refresh_question_bank_bundle
-from question_bank_knowledge import bind_questions, binding_view
+from question_bank_knowledge import auto_bind_new_questions, bind_questions, binding_view, question_binding_projection
 
 
 def course():
@@ -48,6 +48,81 @@ def test_auto_binds_actual_atomic_target_not_all_lecture_points_and_is_idempoten
     assert asyncio.run(bind_questions(course(), updated, matcher=None)) == updated
 
 
+def test_auto_bind_new_questions_batches_every_new_generated_question():
+    original = refresh_question_bank_bundle({'course_id': 'c1', 'items': [
+        {'item_id': f'q{i}', 'revision_id': f'r{i}', 'course_id': 'c1', 'node_id': 'n1',
+         'prompt': f'求整数结果 {i} / 2', 'source_type': 'generated', 'lifecycle_status': 'candidate'}
+        for i in range(10)
+    ]})
+    calls = []
+
+    async def match(items, points):
+        calls.append([item['revision_id'] for item in items])
+        return [{'revision_id': item['revision_id'], 'knowledge_ids': ['k1'], 'confidence': .95,
+                 'reason': '直接考查整数除法规则', 'evidence': item['prompt']}
+                for item in items]
+
+    updated = asyncio.run(auto_bind_new_questions(course(), original,
+        revision_ids=[item['revision_id'] for item in original['items']], matcher=match))
+
+    assert [len(batch) for batch in calls] == [8, 2]
+    assert binding_view(course(), updated)['counts']['bound'] == 10
+
+
+def test_auto_bind_new_questions_does_not_touch_non_generated_or_existing_items():
+    original = refresh_question_bank_bundle({'course_id': 'c1', 'items': [
+        {'item_id': 'new', 'revision_id': 'r-new', 'course_id': 'c1', 'node_id': 'n1',
+         'prompt': '求 -7 / 2', 'source_type': 'generated', 'lifecycle_status': 'candidate'},
+        {'item_id': 'imported', 'revision_id': 'r-imported', 'course_id': 'c1', 'node_id': 'n1',
+         'prompt': '导入题', 'source_type': 'imported', 'lifecycle_status': 'candidate'},
+        {'item_id': 'variant', 'revision_id': 'r-variant', 'course_id': 'c1', 'node_id': 'n1',
+         'prompt': '变体题', 'source_type': 'variant', 'lifecycle_status': 'candidate'},
+    ]})
+
+    async def match(items, _points):
+        assert [item['revision_id'] for item in items] == ['r-new', 'r-variant']
+        return [{'revision_id': item['revision_id'], 'knowledge_ids': ['k1'], 'confidence': .95,
+                 'reason': '直接考查知识点', 'evidence': item['prompt']} for item in items]
+
+    updated = asyncio.run(auto_bind_new_questions(course(), original,
+        revision_ids=['r-new', 'r-imported', 'r-variant'], matcher=match))
+
+    assert updated['items'][0]['knowledge_binding']['status'] == 'bound'
+    assert 'knowledge_binding' not in updated['items'][1]
+    assert updated['items'][2]['knowledge_binding']['status'] == 'bound'
+
+
+def test_auto_bind_new_questions_skips_exact_assessment_bindings():
+    original = bank()
+    original['items'][0].update(
+        assessment_binding_schema='atomic_assessment_v1',
+        primary_knowledge_ids=['k1'], knowledge_revision_refs={'k1': 'kr1'},
+        knowledge_baseline_revision='tree1', source_type='generated',
+    )
+
+    async def unexpected(*_args):
+        raise AssertionError('already-bound assessment item must not be rematched')
+
+    assert asyncio.run(auto_bind_new_questions(course(), original, matcher=unexpected)) == original
+
+
+def test_question_bank_projection_exposes_binding_status_and_labels_without_mutating_items():
+    updated = asyncio.run(bind_questions(course(), bank(), matcher=match))
+    item = updated['items'][0]
+    projection = question_binding_projection(course(), updated, [item])[item['revision_id']]
+
+    assert projection['knowledge_binding_status'] == 'bound'
+    assert projection['knowledge_points'][0]['name'] == '整数除法'
+    assert item['course_knowledge_refs'] == ['k1']
+    assert 'knowledge_points' not in item
+
+
+def test_question_bank_projection_marks_tree_unavailable_explicitly():
+    projection = question_binding_projection({'course_id': 'c1'}, bank(), bank()['items'])
+    assert projection['r1']['knowledge_binding_status'] == 'tree_unavailable'
+    assert projection['r1']['knowledge_points'] == []
+
+
 def test_manual_binding_is_validated_and_old_revisions_remain_readable(tmp_path):
     repository = QuestionBankRepository(tmp_path)
     original = repository.save_bundle('c1', bank())
@@ -78,6 +153,44 @@ def test_uncertain_match_remains_pending_and_does_not_feed_section_refs_to_maste
     task = formal_task_from_question_bank_item(updated['items'][0])
     assert task['concept_ids'] == []
     assert freeze_knowledge_refs(course()['course_knowledge_base'], task) == {}
+
+
+def test_model_can_select_server_numbered_public_evidence_without_copying_or_ellipsis():
+    from question_bank_knowledge import _question_evidence_units
+    original = bank()
+    evidence_id = next(unit['id'] for unit in _question_evidence_units(original['items'][0])
+                       if '-7 / 2' in unit['text'])
+
+    async def numbered(items, points):
+        return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .95,
+                 'reason': '直接检查整除规则', 'evidence_ids': [evidence_id]}]
+
+    updated = asyncio.run(bind_questions(course(), original, matcher=numbered))
+    record = updated['items'][0]['knowledge_binding']
+    assert record['status'] == 'bound'
+    assert record['evidence_refs'][0]['quote'].startswith(original['items'][0]['prompt'])
+    assert record['source_question_revision'] == 'r1'
+
+
+def test_unknown_evidence_ids_and_stitched_quotations_stay_pending_with_reason():
+    for evidence in ({'evidence_ids': ['E9999']}, {'evidence': '计算...整数结果。'}):
+        async def invalid(items, points):
+            return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .99,
+                     'reason': '检查整除', **evidence}]
+        updated = asyncio.run(bind_questions(course(), bank(), matcher=invalid))
+        assert updated['items'][0]['knowledge_binding']['status'] == 'pending'
+        assert updated['items'][0]['knowledge_binding']['review_reason'] == 'invalid_evidence'
+        assert updated['items'][0]['formal_task']['concept_ids'] == []
+
+
+def test_multiline_operation_sequence_stays_in_one_exact_evidence_span():
+    from question_bank_knowledge import _question_evidence_units, _question_text
+    item = bank()['items'][0]
+    item['prompt'] = '初始空栈。\n' + '\n'.join(f'{i}. push({i})' for i in range(1, 9)) + '\n连续pop两次后是什么？'
+    units = _question_evidence_units(item)
+    assert item['prompt'] in units[0]['text']
+    assert ''.join(unit['text'] for unit in units) == _question_text(item)
+    assert all(len(unit['text']) <= 400 for unit in units)
 
 
 def test_no_tree_no_matching_or_mutation():
@@ -289,3 +402,95 @@ def test_auto_scopes_legacy_child_node_to_its_lecture_atoms():
         return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .95, 'reason': '直接检查整除', 'evidence': '-7 / 2'}]
     updated = asyncio.run(bind_questions(current, bank(), matcher=scoped))
     assert binding_view(current, updated)['counts']['bound'] == 1
+
+
+def generic_adopted_course():
+    current = course()
+    current['nodes'] = [
+        {'node_id': 'lecture-1', 'node_level': 1},
+        {'node_id': 'n1', 'node_level': 2, 'parent_node_id': 'lecture-1'},
+        {'node_id': 'lecture-2', 'node_level': 1},
+        {'node_id': 'n2', 'node_level': 2, 'parent_node_id': 'lecture-2'},
+    ]
+    base = current['course_knowledge_base']
+    base.pop('lifecycle_status')
+    base.update(tree_schema='knowledge_first_generic_v1', status='accepted')
+    for index, point in enumerate(base['knowledge_points'][:2], 1):
+        point.pop('status')
+        point.update(granularity_status='candidate', section_refs=[f'lecture-{index}'],
+                     meta_question='检查本点', meta_answer='本点的回答')
+    return current
+
+
+def test_accepted_generic_tree_is_available_for_binding_without_certifying_atomic_evidence():
+    current = generic_adopted_course()
+    before = deepcopy(current)
+    view = binding_view(current, bank())
+    assert view['tree_ready']
+    assert {p['knowledge_id'] for p in view['points']} == {'k1', 'k2'}
+
+    async def scoped(items, points):
+        assert [p['knowledge_id'] for p in points] == ['k1']
+        return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .95,
+                 'reason': '直接检查整除规则', 'evidence': '-7 / 2'}]
+
+    updated = asyncio.run(bind_questions(current, bank(), matcher=scoped))
+    assert binding_view(current, updated)['counts']['bound'] == 1
+    assert updated['items'][0]['course_knowledge_refs'] == ['k1']
+    assert not updated['items'][0].get('assessment_binding_schema')
+    assert current == before
+    current['course_knowledge_base']['status'] = 'candidate'
+    assert not binding_view(current, bank())['tree_ready']
+
+
+def test_generation_snapshot_tracks_accepted_generic_knowledge_revision():
+    from routers.question_bank import _question_source_revision
+    current = generic_adopted_course()
+    before = _question_source_revision(current)
+    current['course_knowledge_base']['revision_id'] = 'adopted-tree-new'
+    assert _question_source_revision(current) != before
+
+
+def test_binding_api_uses_workspace_ancestry_when_canonical_course_has_no_nodes(api, monkeypatch):
+    from types import SimpleNamespace
+    from routers import question_bank as routes
+    import question_bank_knowledge as domain
+
+    client, current, repository, original = api
+    projected = generic_adopted_course()
+    current.update(projected, nodes=[])
+    monkeypatch.setattr(routes, 'get_task_manager_optional', lambda: SimpleNamespace(
+        get_generation_workspace_course=lambda _: projected))
+
+    async def scoped(items, points):
+        assert [p['knowledge_id'] for p in points] == ['k1']
+        return [{'revision_id': 'r1', 'knowledge_ids': ['k1'], 'confidence': .95,
+                 'reason': '直接检查整除规则', 'evidence': '-7 / 2'}]
+
+    monkeypatch.setattr(domain, 'match_questions', scoped)
+    response = client.post('/api/courses/c1/question-bank/knowledge-bindings',
+        headers={'X-User-Id': 'owner'}, json=request_body(original))
+    assert response.status_code == 200, response.text
+    assert response.json()['counts']['bound'] == 1
+    assert repository.load_bundle('c1')['items'][0]['course_knowledge_refs'] == ['k1']
+
+
+def test_auto_binding_failure_preserves_generated_question_as_pending_without_retry_loop():
+    original = bank()
+    original['items'][0]['source_type'] = 'generated'
+    attempts = []
+
+    async def unavailable(*_args):
+        attempts.append(True)
+        raise RuntimeError('private provider failure')
+
+    updated = asyncio.run(auto_bind_new_questions(course(), original, matcher=unavailable))
+    item = updated['items'][0]
+    assert item['prompt'] == original['items'][0]['prompt']
+    assert item['answer_spec'] == original['items'][0]['answer_spec']
+    assert item['knowledge_binding']['status'] == 'pending'
+    assert item['knowledge_binding']['knowledge_ids'] == []
+    assert item['knowledge_binding']['reason'] == 'knowledge_binding_unavailable'
+    assert 'private provider' not in str(updated)
+    assert asyncio.run(auto_bind_new_questions(course(), updated, matcher=unavailable)) == updated
+    assert len(attempts) == 1
