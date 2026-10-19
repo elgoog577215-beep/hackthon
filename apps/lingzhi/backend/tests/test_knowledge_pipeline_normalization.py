@@ -194,3 +194,41 @@ async def test_invalid_correction_is_completed_inside_one_bounded_transaction(sv
     assert len(calls) == 2 and calls[1]['correction_feedback']['diagnostic']
     assert len(record['attempts']) == 2 and record['attempts'][0]['status'] == 'failed'
     assert result['passages']['S1.1']['points'][0]['conditions'] == ['本讲实现', 'n表示元素数']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('issue_recorded', [False, True])
+async def test_unsupported_source_has_an_explicit_auditable_abstention(svc, monkeypatch, issue_recorded):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(subject='材料中不存在的结构')])
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'source_issue', 'points': [], 'reason': '当前块未提供该结构结论，不能替换为另一个结构'}},
+            'source_issues': [{'passage_key': 'S1.1', 'kind': 'suspected_error', 'detail': '候选知识与绑定来源不符'}] if issue_recorded else []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    if not issue_recorded:
+        with pytest.raises(CourseDocumentConflict):
+            await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    else:
+        record = {}; result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, record)
+        assert result['passages']['S1.1']['points'] == []
+        assert result['source_issues'][0]['detail']
+        assert record['decisions'][0]['action'] == 'source_issue'
+
+
+@pytest.mark.asyncio
+async def test_transport_error_during_correction_is_preserved_without_retry(svc, monkeypatch):
+    from knowledge_extraction_repair import correct_points
+    from knowledge_atomic import KnowledgeModelDegenerateOutput
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu'); calls = []
+    async def call(*args):
+        calls.append(1); raise KnowledgeModelDegenerateOutput('真实空白退化故障')
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    record = {}
+    with pytest.raises(KnowledgeModelDegenerateOutput):
+        await correct_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1,
+            value([point(subject='不存在')]), record, compile_result=lambda v: v, validate_source=lambda: None, max_attempts=2)
+    assert calls == [1]
+    assert record['attempts'][0]['validation_error']['code'] == 'KnowledgeModelDegenerateOutput'
