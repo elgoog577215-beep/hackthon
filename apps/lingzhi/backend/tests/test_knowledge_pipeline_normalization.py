@@ -169,12 +169,30 @@ async def test_cross_batch_wording_collision_is_reconciled_before_classification
     assert len(candidate['knowledge_points']) == 1
     assert len(candidate['knowledge_points'][0]['source_quotes']) == 2
     assert saved['checkpoint']['atomic_pipeline']['reconciliation']['status'] == 'completed'
+    resumed = start(svc, 'explicit-revision', resume_job_id=job['id'], retry_batch_id='all_atoms')
+    copied = resumed['checkpoint']['atomic_pipeline']
+    assert 'reconciliation' not in copied
+    assert all('reconciled_response' not in b for b in copied['inventory_batches'])
+    assert svc.authoring.get_job('c-pilot', job['id']) == saved
 
 
 def test_complexity_notation_is_not_an_execution_trace():
     from knowledge_semantic_contract import quality_point
     compiled, _ = quality_point(point(subject='入栈', property='O(1)成立前提', value='容量充足'), '入栈在容量充足时为O(1)。')
     assert compiled['claim'] == '入栈的O(1)成立前提为容量充足。'
+
+
+def test_explicit_numeric_instance_is_retained_as_context_not_general_knowledge():
+    from knowledge_source_rules import contextualize_component_explanations
+    example = point(subject='有序数组', property='n=8时总比较次数', value='28')
+    general = point(subject='有序数组', property='最坏比较次数', value='n(n-1)/2', conditions=['n表示数组长度'])
+    response = value([example, general]); response['_content_review_trace'] = [{'origin': 'sample'}, {'origin': 'general'}]
+    before = deepcopy(response)
+    result, records = contextualize_component_explanations(response, {'S1.1': {'text': '实例n=8，总比较次数28。一般n个元素的最坏比较次数为n(n-1)/2。'}})
+    assert result['passages']['S1.1']['points'] == [general]
+    assert result['_content_review_trace'] == [{'origin': 'general'}]
+    assert records[0]['point'] == example and records[0]['status'] == 'context_only'
+    assert response == before
 
 
 @pytest.mark.asyncio
