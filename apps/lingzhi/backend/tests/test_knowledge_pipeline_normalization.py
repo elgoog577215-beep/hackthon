@@ -88,6 +88,21 @@ async def test_field_patch_never_reserializes_or_changes_frozen_math(svc, monkey
 
 
 @pytest.mark.asyncio
+async def test_multi_form_repair_validates_patch_against_original_comparison(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([dict(form='comparison', left_subject='入栈', right_subject='出栈', property='操作',
+        left_value='O(n)', right_value='O(n)', conditions=['n表示元素数'], attachments=[])])
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'patch',
+            'patch': {'property': '时间复杂度', 'left_value': 'O(n)', 'right_value': 'O(n)'}, 'reason': '明确成本属性'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    assert result['passages']['S1.1']['points'][0]['form'] == 'comparison'
+
+
+@pytest.mark.asyncio
 async def test_append_conditions_preserves_frozen_scope_without_model_retyping(svc, monkeypatch):
     from knowledge_extraction_repair import repair_points
     setup_course(svc, monkeypatch)
