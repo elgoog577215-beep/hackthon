@@ -6366,11 +6366,11 @@
   "questionBank": {
     "quantity": {
       "title": "Quantity and generation mode",
-      "count": "Questions per lecture",
+      "count": "Question count",
       "append": "Append questions",
       "fill": "Fill to the target count",
-      "appendHint": "Add this many questions to each selected lecture, retain existing questions, and check for duplicates.",
-      "fillHint": "Generate only the shortfall for each selected lecture. Existing questions are retained and never reduced.",
+      "appendHint": "Add questions to the current lecture, keeping existing questions and checking for duplicates.",
+      "fillHint": "Fill only the current lecture’s shortfall and keep existing questions.",
       "invalid": "Enter a whole number from 1 to 20."
     },
     "backToList": "Back to question list",
@@ -6641,7 +6641,7 @@
       "description": "Choose a scope. The system will compose questions from course materials and existing items.",
       "published": "{count} published",
       "scope": "Scope",
-      "currentLesson": "Current session",
+      "currentLesson": "Current lecture",
       "currentLessonHint": "Keep the scope used to open the question bank",
       "sectionCount": "Covers {count} sections",
       "wholeCourse": "Whole course",
@@ -6653,7 +6653,7 @@
       "rangeStart": "First chapter",
       "rangeEnd": "Last chapter",
       "selectedChapterCount": "{count} chapters selected",
-      "selectChapterHint": "Select at least one chapter",
+      "selectChapterHint": "Select a lecture first",
       "chapterLabel": "Lesson {number} · {title}",
       "selectAll": "Select all",
       "clearSelection": "Clear",
@@ -6673,7 +6673,8 @@
       "qualityReview": "Quality check",
       "pendingReview": "{count} need review",
       "coverageGap": "{count} objectives uncovered",
-      "issues": "{count} items need attention"
+      "issues": "{count} items need attention",
+      "automaticHint": "Difficulty and question types follow this lecture’s content"
     },
     "examPaper": {
       "eyebrow": "Question-bank action",

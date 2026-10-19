@@ -6366,11 +6366,11 @@
   "questionBank": {
     "quantity": {
       "title": "生成数量与方式",
-      "count": "每讲生成数量",
+      "count": "题目数量",
       "append": "追加生成",
       "fill": "补齐到指定数量",
-      "appendHint": "每个所选讲次新增指定数量，保留全部已有题目，并检查重复。",
-      "fillHint": "每个所选讲次只补足数量差额，已有题目保留，不减少现有题目。",
+      "appendHint": "为当前讲次新增题目，保留已有题目并检查重复。",
+      "fillHint": "仅补足当前讲次的数量差额，保留已有题目。",
       "invalid": "请输入 1 到 20 之间的整数。"
     },
     "backToList": "返回题目列表",
@@ -6641,7 +6641,7 @@
       "description": "选择范围，系统会结合课程资料和已有题目自动编排。",
       "published": "已发布 {count} 道",
       "scope": "出题范围",
-      "currentLesson": "当前课次",
+      "currentLesson": "当前讲次",
       "currentLessonHint": "沿用进入题库时的当前范围",
       "sectionCount": "覆盖 {count} 个小节",
       "wholeCourse": "整门课程",
@@ -6653,7 +6653,7 @@
       "rangeStart": "开始讲次",
       "rangeEnd": "结束讲次",
       "selectedChapterCount": "已选择 {count} 个讲次",
-      "selectChapterHint": "请选择至少一个讲次",
+      "selectChapterHint": "请先选择一个讲次",
       "chapterLabel": "第 {number} 讲 · {title}",
       "selectAll": "全选",
       "clearSelection": "清空",
@@ -6673,7 +6673,8 @@
       "qualityReview": "质量检查",
       "pendingReview": "{count} 道待审核",
       "coverageGap": "{count} 项待覆盖",
-      "issues": "{count} 项待处理"
+      "issues": "{count} 项待处理",
+      "automaticHint": "难度与题型根据本讲内容自动编排"
     },
     "examPaper": {
       "eyebrow": "题库内部功能",
