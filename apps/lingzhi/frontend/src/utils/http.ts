@@ -4,6 +4,7 @@ import { trackApiAction } from './usage-tracker';
 import { publishAppError, toAppError } from './app-error';
 import { createUuid } from './client-id';
 import { getStudyIdentity, getStudyToken } from './study-identity';
+import { RUNTIME_ID, verifyRuntime } from './runtime-identity';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
@@ -44,6 +45,7 @@ export const redirectToQizhiLogin = (): void => {
 };
 
 export const applyQizhiAuthorization = (headers: Headers): Headers => {
+  if (RUNTIME_ID) headers.set('X-Lingzhi-Runtime', RUNTIME_ID);
   const token = getQizhiAccessToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return headers;
@@ -365,6 +367,14 @@ http.interceptors.request.use(
 );
 
 // Response Interceptor
+if (RUNTIME_ID) {
+  http.interceptors.request.use(async config => {
+    config.headers.set('X-Lingzhi-Runtime', RUNTIME_ID);
+    if (!['get','head','options'].includes((config.method || 'get').toLowerCase())) await verifyRuntime();
+    return config;
+  });
+}
+
 http.interceptors.response.use(
   (response: AxiosResponse) => {
     const startedAt = response.config.usageStartedAt;

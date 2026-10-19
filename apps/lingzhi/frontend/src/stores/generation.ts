@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { defineStore } from 'pinia'
+import { generationStorageKey } from '../utils/runtime-identity'
 import http, {
   getActiveRequestIdentityScope,
   identityRequestConfig,
@@ -24,7 +25,7 @@ import { renderDiagnosticsFor, validateRenderedContent } from '@/utils/render-va
 export { ElMessage, TEACHING_STYLES }
 export type { TeachingStyle }
 
-export const GENERATION_STATE_KEY = 'course-generation-state-v1'
+export const GENERATION_STATE_KEY = generationStorageKey()
 const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'pending',
   'running',

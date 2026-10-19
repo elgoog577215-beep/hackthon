@@ -39,6 +39,7 @@ def test_bundle_must_match_backend_and_data_identity(monkeypatch,tmp_path):
     monkeypatch.setenv('LINGZHI_DATA_DIR',str(tmp_path/'private-data'))
     manifest=runtime_manifest();assert manifest['knowledge_contract']=='knowledge_extract_v1'
     assert str(tmp_path) not in json.dumps(manifest)
+    with pytest.raises(RuntimeError,match='runtime'):validate_frontend_bundle(tmp_path)
     file=tmp_path/'runtime.json';file.write_text(json.dumps(manifest),encoding='utf8')
     validate_frontend_bundle(tmp_path)
     for key in ('runtime_id','release_sha','data_id','knowledge_contract'):

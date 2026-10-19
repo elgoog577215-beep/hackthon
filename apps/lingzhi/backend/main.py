@@ -13,6 +13,7 @@ import sys
 import os
 import logging
 import json
+from pathlib import Path
 
 try:
     from static_serving import ImmutableStaticFiles, frontend_file_response
@@ -90,6 +91,13 @@ async def lifespan(app: FastAPI):
         await representation_reconciliation_service.shutdown()
 
 app = FastAPI(lifespan=lifespan)
+from runtime_identity import RuntimeIdentityMiddleware, runtime_manifest, validate_frontend_bundle
+app.add_middleware(RuntimeIdentityMiddleware)
+
+
+@app.get('/api/runtime')
+def read_runtime_identity():
+    return JSONResponse(runtime_manifest(),headers={'Cache-Control':'no-store'})
 
 try:
     from application_errors import install_application_error_contract
@@ -158,7 +166,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=[
         "Content-Type", "Authorization", "X-Requested-With", "X-User-Id",
-        "X-Analytics-Admin-Token",
+        "X-Analytics-Admin-Token", "X-Lingzhi-Runtime",
     ],
     expose_headers=["X-Request-Id"],
 )
@@ -321,7 +329,8 @@ async def websocket_endpoint(websocket: WebSocket):
 # 静态文件服务（用于部署）
 # ============================================================================
 
-static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+static_dir = os.getenv('LINGZHI_FRONTEND_DIST') or os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+validate_frontend_bundle(static_dir)
 index_html = os.path.join(static_dir, "index.html")
 
 if os.path.exists(static_dir) and os.path.exists(index_html):
@@ -342,6 +351,8 @@ if os.path.exists(static_dir) and os.path.exists(index_html):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="API endpoint not found")
         file_path = os.path.join(static_dir, full_path)
+        if not Path(file_path).resolve().is_relative_to(Path(static_dir).resolve()):
+            raise HTTPException(status_code=404, detail="Frontend file not found")
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return frontend_file_response(file_path)
         return frontend_file_response(index_html, entrypoint=True)

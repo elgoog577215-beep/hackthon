@@ -108,6 +108,7 @@
     </header>
 
     <main class="app-main">
+      <RuntimeGate>
       <RouterView v-slot="{ Component, route: currentRoute }">
         <Transition name="route-surface" mode="out-in">
           <component
@@ -116,6 +117,7 @@
           />
         </Transition>
       </RouterView>
+      </RuntimeGate>
     </main>
 
     <AppErrorCenter />
@@ -128,6 +130,7 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
+import RuntimeGate from './components/RuntimeGate.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import UiSegmentedControl from './components/UiSegmentedControl.vue'
 import { useCourseStore } from './stores/course'

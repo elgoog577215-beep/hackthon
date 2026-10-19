@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -416,9 +417,11 @@ class KnowledgeFirstService:
             require(not context["material_coverage"]["incomplete_assets"] and context["material_coverage"]["factual_evidence_count"] > 0,
                     "课程资料尚未完整解析或未选择，暂时不能生成知识内容")
             job = self.authoring.create_job(course_id, topic, job_type=kind, request_id=request_id)
+            from runtime_identity import runtime_manifest
             state = self.authoring.load(course_id)
             lesson = state["lessons"].get(lesson_id or topic) or {}
             job = self.authoring.update_job(course_id, job["id"], actor=raw.get("owner_id"),
+                **({'runtime_identity':runtime_manifest()} if os.getenv('LINGZHI_RUNTIME_ID') else {}),
                 source_mode=source_mode, knowledge_lesson_id=lesson_id, source_knowledge_revision=expected_revision, source_document_revision=expected_document,
                 source_script_revision=lesson.get("working_script_revision_id", ""),
                 source_context_revision=context["revision_id"],

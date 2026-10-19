@@ -1,4 +1,10 @@
 {
+  "runtime": {
+    "isolated": "Isolated test · Independent knowledge and relations",
+    "checking": "Checking the page and service versions…",
+    "mismatch": "The page does not match the current service, or the connection is unavailable. Refresh and try again.",
+    "reload": "Refresh page"
+  },
   "columnLayout": {
     "left": "Resize left panel",
     "right": "Resize right panel",
