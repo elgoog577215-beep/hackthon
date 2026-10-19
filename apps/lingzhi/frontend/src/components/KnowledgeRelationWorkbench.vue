@@ -1,9 +1,9 @@
 <template>
-  <details class="relation-workbench" open data-testid="knowledge-relation-workbench">
+  <details class="relation-workbench" data-testid="knowledge-relation-workbench">
     <summary>{{ t(run.adopted ? 'knowledgeFirst.adoptedRelationRecord' : 'knowledgeFirst.relationCandidates') }} · {{ t('knowledgeFirst.relationBatchSummary').replace('{done}',String(done)).replace('{total}',String(pipeline.batches.length)) }}</summary>
-    <p>{{ t('knowledgeFirst.relationReviewHint') }}</p>
+    <p>{{ t('knowledgeFirst.relationSelectHint') }}</p>
     <button v-if="canEdit && !run.adopted && pending && ['failed','cancelled','paused'].includes(run.status)" :disabled="disabled" type="button" data-testid="continue-relation-batches" @click="emit('continue')">{{ t('knowledgeFirst.continueRelationBatches') }}</button>
-    <details v-for="(batch,index) in pipeline.batches" :key="batch.id" class="relation-batch" :open="index === 0">
+    <details v-for="(batch,index) in pipeline.batches" :key="batch.id" class="relation-batch">
       <summary>{{ t('knowledgeFirst.relationBatch').replace('{number}',String(Number(index)+1)) }} · {{ t(batch.status === 'completed' ? 'knowledgeFirst.batchSaved' : 'knowledgeFirst.batchPending') }}</summary>
       <p v-if="batch.status !== 'completed'">{{ t('knowledgeFirst.relationBatchPending') }}</p>
       <p v-else-if="!batch.result?.relations?.length">{{ t('knowledgeFirst.noProposedRelations') }}</p>
