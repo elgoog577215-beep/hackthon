@@ -88,6 +88,20 @@ async def test_field_patch_never_reserializes_or_changes_frozen_math(svc, monkey
 
 
 @pytest.mark.asyncio
+async def test_append_conditions_preserves_frozen_scope_without_model_retyping(svc, monkeypatch):
+    from knowledge_extraction_repair import repair_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(property='时间复杂度', value='O(n)', conditions=['本讲  特定实现'])])
+    async def call(*args):
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'patch',
+            'patch': {'append_conditions': ['n表示栈中元素数']}, 'reason': '只新增定义'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    result = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, {})
+    assert result['passages']['S1.1']['points'][0]['conditions'] == ['本讲  特定实现', 'n表示栈中元素数']
+
+
+@pytest.mark.asyncio
 async def test_explicit_equivalence_merges_wording_variants_without_losing_attachments(svc, monkeypatch):
     from knowledge_extraction_repair import repair_points
     from knowledge_extract import compile_extraction
@@ -155,3 +169,28 @@ async def test_cross_batch_wording_collision_is_reconciled_before_classification
     assert len(candidate['knowledge_points']) == 1
     assert len(candidate['knowledge_points'][0]['source_quotes']) == 2
     assert saved['checkpoint']['atomic_pipeline']['reconciliation']['status'] == 'completed'
+
+
+def test_complexity_notation_is_not_an_execution_trace():
+    from knowledge_semantic_contract import quality_point
+    compiled, _ = quality_point(point(subject='入栈', property='O(1)成立前提', value='容量充足'), '入栈在容量充足时为O(1)。')
+    assert compiled['claim'] == '入栈的O(1)成立前提为容量充足。'
+
+
+@pytest.mark.asyncio
+async def test_invalid_correction_is_completed_inside_one_bounded_transaction(svc, monkeypatch):
+    from knowledge_extraction_repair import correct_points
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    original = value([point(property='时间复杂度', value='O(n)', conditions=['本讲实现'])]); calls = []
+    async def call(*args):
+        payload = json.loads(args[-2].split('\nINPUT_JSON:\n')[1]); calls.append(payload)
+        correction = {'append_conditions': ['n表示元素数']} if len(calls) == 2 else {'subject': '入栈'}
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'patch', 'patch': correction, 'reason': '定点修正'}}, 'source_issues': []})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    record = {}
+    result, _ = await correct_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, original, record,
+        compile_result=lambda corrected: corrected, validate_source=lambda: None, max_attempts=2)
+    assert len(calls) == 2 and calls[1]['correction_feedback']['diagnostic']
+    assert len(record['attempts']) == 2 and record['attempts'][0]['status'] == 'failed'
+    assert result['passages']['S1.1']['points'][0]['conditions'] == ['本讲实现', 'n表示元素数']
