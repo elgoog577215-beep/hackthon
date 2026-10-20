@@ -17,7 +17,7 @@ def response_schema(keys):
 
 async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, record, save, validate_source):
     from knowledge_atomic import call_stage
-    from knowledge_equivalence import validate_groups
+    from knowledge_equivalence import validate_groups, complementary_targets
     lookup = {p['key']: p for p in points}; ordered = {p['key']: i for i, p in enumerate(points)}
     candidates = set()
     def pair(a, b): return tuple(sorted((a, b), key=ordered.get))
@@ -33,7 +33,10 @@ async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, rec
         if subjects and subjects == b.get('atomic_contract', {}).get('subjects') and (
                 sorted(normalized(c) for c in a.get('conditions', [])) == sorted(normalized(c) for c in b.get('conditions', []))):
             candidates.add(pair(a['key'], b['key']))
-    candidates = sorted(candidates, key=lambda p: (ordered[p[0]], ordered[p[1]]))
+    record['rejected_complementary_targets'] = [list(keys) for keys in sorted(candidates, key=lambda p: (ordered[p[0]], ordered[p[1]]))
+                                               if complementary_targets(lookup[keys[0]], lookup[keys[1]])]
+    candidates = sorted((keys for keys in candidates if not complementary_targets(lookup[keys[0]], lookup[keys[1]])),
+                        key=lambda p: (ordered[p[0]], ordered[p[1]]))
     record['unreviewed_pair_count'] = max(0, len(candidates) - LIMIT)
     record['pair_batches'] = []; decisions = {}
     for offset in range(0, min(len(candidates), LIMIT), WIDTH):
@@ -46,6 +49,8 @@ async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, rec
             'relation四选一：restatement=同一事实的同义转述或定义的直接展开；derived_equivalence=需要计算、额外规律或推导才等价；'
             'different=不同事实或只有单向关系；uncertain=依据不足。只有restatement允许合并。'
             '完整状态枚举若穷尽同一约束的全部可能，可能是restatement；仅一个例子或部分情况不能代表整体。'
+            'A单独须完整表达B，B单独须完整表达A；若两条合起来才能穷尽情况，那是互补，不是同义。'
+            '通过取反、逆否或互补重构而改变检查目标，属于推导等价；不能把不同结果条件删去一个。'
             '不同量、不同检查目标即使可互相计算或通过另一规律推出，仍是derived_equivalence或different，不合并。'
             '不能仅因property字面不同就判不同，也不能仅因主题相同就合并。'
             '成立条件必须相同；不能补假设，不能把否定性边界辨析并入一般规则。'
