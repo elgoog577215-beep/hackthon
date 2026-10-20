@@ -9,6 +9,30 @@ from knowledge_expression import review_instruction
 CONTRACT = 'knowledge_content_review_v3'
 
 
+def review_input_signature(extraction, context, keys):
+    from knowledge_compact import passage_catalog
+    from course_document import stable_hash
+    return stable_hash({'extraction': extraction, 'context_revision': context.get('revision_id'), 'contract': CONTRACT,
+        'passages': passage_catalog({**context, 'knowledge_passage_mode':'source_blocks_v1'}, keys)}, prefix='krev_')
+
+
+def freeze_review(record, extraction, context, keys, *, origin_job_id):
+    """Reuse a complete structural artifact only after its source was checked by start()."""
+    from knowledge_compact import parse_complete_json
+    from jsonschema import Draft202012Validator
+    if record.get('contract') != CONTRACT or not record.get('raw_response'): return None
+    try:
+        parsed = parse_complete_json(record['raw_response'])
+        point_keys = [f'{key}:{i}' for key, entry in extraction['passages'].items() for i, _ in enumerate(entry['points'])]
+        clean = {k:v for k,v in parsed.items() if k != '_format_normalizations'}
+        if not Draft202012Validator(response_schema(point_keys, list(extraction['passages']))).is_valid(clean): return None
+        signature = review_input_signature(extraction, context, keys)
+    except (CourseDocumentConflict, ValueError, TypeError, KeyError, AttributeError): return None
+    return {'contract': CONTRACT, 'raw_response': record['raw_response'], 'input_signature': signature,
+            'origin_job_id': record.get('review_origin_job_id') or origin_job_id,
+            'semantics_verified': False}
+
+
 def response_schema(point_keys, passage_keys):
     # Avoid a large per-point union grammar. The compiler validates full forms.
     points = array({'type': 'object'}, 8)

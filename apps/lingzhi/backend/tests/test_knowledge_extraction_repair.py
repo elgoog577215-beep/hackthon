@@ -240,7 +240,9 @@ async def test_extraction_repair_is_bounded_to_two_requests_and_preserves_failur
     assert copied['retry_feedback']['failed_correction_response']
     assert svc.authoring.get_job('c-pilot', job['id']) == original
     await svc.run('c-pilot', resumed['id'])
-    assert calls == ['extract', 'content_review', 'extract_repair', 'extract_repair', 'content_review', 'extract_repair', 'extract_repair']
+    # An explicit continuation reuses the structurally complete review;
+    # only the failed field correction receives a new bounded budget.
+    assert calls == ['extract', 'content_review', 'extract_repair', 'extract_repair', 'extract_repair', 'extract_repair']
     assert feedbacks == [None, copied['retry_feedback']]
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 

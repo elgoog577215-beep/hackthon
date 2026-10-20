@@ -445,6 +445,14 @@ class KnowledgeFirstService:
                         prior.pop('hierarchy', None)
                 else:
                     require(original.get('status') != 'completed', '已完成任务请明确选择需要重新细化的批次')
+                if (not retry_batch_id and original.get('status') != 'completed'
+                        and prior.get('processing_contract') == 'knowledge_validation_pipeline_v3'
+                        and prior.get('expression_contract') == 'knowledge_expression_v1'
+                        and prior.get('content_review_contract') == 'knowledge_content_review_v3'):
+                    prior['processing_contract'] = 'knowledge_validation_pipeline_v4'
+                    prior['processing_upgrade'] = {'from': 'knowledge_validation_pipeline_v3',
+                        'to': 'knowledge_validation_pipeline_v4', 'origin_job_id': resume_job_id,
+                        'scope': 'incomplete_batches_only'}
                 continued_checkpoint.pop('candidate', None)
                 if pipeline == PIPELINE:
                     organize_hierarchy = bool(organize_hierarchy or prior.get('organize_hierarchy'))
@@ -457,6 +465,13 @@ class KnowledgeFirstService:
                             if batch.get('content_review') and (response := reusable_extract(batch)):
                                 batch['frozen_extract_response'] = response
                                 batch['extraction_origin_job_id'] = batch.get('extraction_origin_job_id') or resume_job_id
+                                if not retry_batch_id and prior.get('processing_contract') == 'knowledge_validation_pipeline_v4':
+                                    from knowledge_review_protocol import freeze_review
+                                    from knowledge_compact import parse_complete_json
+                                    frozen = freeze_review(batch['content_review'], parse_complete_json(response), context,
+                                        batch['source_keys'], origin_job_id=resume_job_id)
+                                    if frozen: batch['frozen_content_review'] = frozen
+                            if retry_batch_id: batch.pop('frozen_content_review', None)
                             batch['prior_attempt_job_id'] = resume_job_id
                             for field in ('raw_response', 'validation_error', 'repair', 'content_review', 'reconciled_response'):
                                 batch.pop(field, None)

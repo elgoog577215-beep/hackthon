@@ -516,6 +516,13 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
         from knowledge_equivalence_pairs import response_schema
         structure = response_schema(list(payload['pairs']))
+    elif stage == 'extract_repair' and '\nINPUT_JSON:\n' in prompt:
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
+        if payload.get('repair_contract') == 'knowledge_correction_plan_v3' and all(
+                t.get('correction_plan', {}).get('expression_only') for t in payload['targets'].values()):
+            from knowledge_extraction_repair import repair_schema
+            structure = repair_schema(payload['targets'], {p['key']:p['text'] for p in payload['source_passages']},
+                                      expression_contract=payload['expression_contract'])
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.
@@ -524,7 +531,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
     quality_job = svc.authoring.read_projection(course_id, lambda state:
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') == 'knowledge_extract_v9')
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
-    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs'} and structure is not None):
+    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     svc.authoring.update_job_live(course_id, job_id, request_budget=request_budget,
@@ -622,7 +629,7 @@ async def run_atomic(svc, course_id, job_id):
         from knowledge_granularity import CONTRACT as GRANULARITY_CONTRACT
         from knowledge_expression import CONTRACT as EXPRESSION_CONTRACT, check_contract
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
-            'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v3',
+            'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v4',
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             **({'granularity_contract': GRANULARITY_CONTRACT} if fast else {}),
@@ -637,7 +644,9 @@ async def run_atomic(svc, course_id, job_id):
                 context['content_review_contract'] = pipeline['content_review_contract']
             if pipeline.get('granularity_contract'):
                 context['granularity_contract'] = pipeline['granularity_contract']
-            context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v3' else 1
+            context['knowledge_validation_contract'] = pipeline.get('processing_contract')
+            context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') in {
+                'knowledge_validation_pipeline_v3', 'knowledge_validation_pipeline_v4'} else 1
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))
         pipeline['include_relations'] = bool(job.get('include_relations', pipeline.get('include_relations', False)))
         def save(**extra):
@@ -668,6 +677,9 @@ async def run_atomic(svc, course_id, job_id):
                         extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
                     batch['generation_origin'] = 'model_extract'
                 validate_source()
+                if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4':
+                    batch['raw_response'] = response
+                    save()  # Commit a complete extraction independently of later review/format validation.
                 try:
                     parsed = parse_complete_json(response)
                     if pipeline['prompt_contract'] == 'knowledge_extract_v9':
@@ -679,8 +691,10 @@ async def run_atomic(svc, course_id, job_id):
                             svc.authoring.update_job_live(course_id, job_id, batch_index=i)
                             parsed = await review_content(svc, course_id, job_id, provider, raw, context,
                                 batch['source_keys'], parsed, batch['content_review'], feedback=batch.get('retry_feedback'),
-                                reference_points=prior_question_context(pipeline, i, parsed))
+                                reference_points=prior_question_context(pipeline, i, parsed),
+                                frozen=batch.get('frozen_content_review'))
                             validate_source()
+                            if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4': save()
                         except Exception:
                             batch['content_review']['status'] = 'failed'
                             raise

@@ -8,6 +8,15 @@ from course_versioning import stable_hash
 
 CONTRACT = 'knowledge_expression_v1'
 REVIEW_CONTRACT = 'knowledge_content_review_v2'
+VALIDATION_CONTRACT = 'knowledge_validation_pipeline_v4'
+
+
+class KnowledgeNameValidationError(CourseDocumentConflict):
+    """A presentation error; it never authorizes a change to semantic slots."""
+    def __init__(self, message, *, reason='invalid_statement', point_key=None):
+        self.diagnostics = [{'code': 'invalid_short_statement', 'field': 'name', 'reason': reason, 'message': message,
+                             **({'point_key': point_key} if point_key else {})}]
+        super().__init__(message)
 
 
 def check_contract(contract):
@@ -20,14 +29,14 @@ def validate_name(name, point):
     if (not isinstance(name, str) or not 2 <= len(name.strip()) <= 200
             or re.search(r'[？?\n\r]', name)
             or re.match(r'^(?:如何|怎样|怎么|为何|为什么|什么|能否|是否)', name.strip())):
-        raise CourseDocumentConflict('短陈述名称必须是简短、完整的陈述，不得使用问句')
+        raise KnowledgeNameValidationError('短陈述名称必须是简短、完整的陈述，不得使用问句')
     name = name.strip()
     subject = point.get('subject', '')
     nominal = {subject, f'{subject}的定义', f'{subject}的性质', f'{subject}的规则', f'{subject}的公式'}
     if point.get('property'):
         nominal.add(f"{subject}的{point['property']}")
     if name in nominal:
-        raise CourseDocumentConflict('短陈述不能只有对象或属性名，须表达具体知识')
+        raise KnowledgeNameValidationError('短陈述不能只有对象或属性名，须表达具体知识', reason='nominal_only')
     return name
 
 
@@ -57,15 +66,29 @@ def bound_name(expression, point, source_text):
             or expression.get('semantic_signature') != semantic_signature(point)
             or expression.get('source_signature') != stable_hash(source_text, prefix='ksrc_')):
         raise CourseDocumentConflict('短陈述与完整知识或来源不匹配，需重新核对')
+    if expression.get('status') == 'pending':
+        diagnostic = next(iter(expression.get('diagnostics') or []), {})
+        raise KnowledgeNameValidationError(diagnostic.get('message') or '短陈述尚未通过表达校验，不能进入完整候选',
+                                          reason=diagnostic.get('reason') or 'pending_expression')
     reviewed = validate_name(expression.get('text'), point)
     return symbolic_name(point) or reviewed
 
 
-def named_traces(names, points, source_text, trace):
+def named_traces(names, points, source_text, trace, *, defer_invalid=False):
     if not isinstance(names, list) or len(names) != len(points):
         raise CourseDocumentConflict('短陈述与最终知识点数量不一致')
-    return [{**deepcopy(trace), 'expression': bind_name(name, point, source_text)}
-            for name, point in zip(names, points)]
+    result = []
+    for name, point in zip(names, points):
+        try: expression = bind_name(name, point, source_text)
+        except KnowledgeNameValidationError as error:
+            # Only a string with an expression-quality error can be staged.
+            # Missing/wrong-shaped rows and binding changes remain hard errors.
+            if not defer_invalid or not isinstance(name, str): raise
+            expression = {'contract': CONTRACT, 'text': name, 'semantic_signature': semantic_signature(point),
+                          'source_signature': stable_hash(source_text, prefix='ksrc_'), 'status': 'pending',
+                          'diagnostics': deepcopy(error.diagnostics), 'semantics_verified': False}
+        result.append({**deepcopy(trace), 'expression': expression})
+    return result
 
 
 def review_instruction(review_contract=REVIEW_CONTRACT):

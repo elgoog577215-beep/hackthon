@@ -395,7 +395,7 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
 
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
-    from knowledge_expression import check_contract, bound_name, symbolic_name
+    from knowledge_expression import check_contract, bound_name, symbolic_name, KnowledgeNameValidationError
     expression_contract = check_contract(context.get('expression_contract'))
     require(response.get('_expression_contract') == expression_contract, '短陈述合同与冻结任务不一致或缺失')
     expressions = response.get('_content_review_trace')
@@ -409,7 +409,7 @@ def compile_extraction(raw, context, keys, index, response):
     for key, entry in value['passages'].items():
         require(isinstance(entry, dict) and isinstance(entry.get('points'), list), '片段知识结构无效')
         normalized = []
-        for point in entry['points']:
+        for ordinal, point in enumerate(entry['points']):
             if response['response_contract'] == WIRE_CONTRACT: point = expand_wire(point)
             elif response['response_contract'] == CONTRACT: point = expand_scalar(point)
             if response['response_contract'] == QUALITY_CONTRACT:
@@ -421,7 +421,9 @@ def compile_extraction(raw, context, keys, index, response):
             if expression_contract:
                 require(len(audits) < len(expressions), '短陈述核对数量不足')
                 expression = expressions[len(audits)].get('expression')
-                normalized_point['name'] = bound_name(expression, point, passages[key]['text'])
+                try: normalized_point['name'] = bound_name(expression, point, passages[key]['text'])
+                except KnowledgeNameValidationError as error:
+                    raise KnowledgeNameValidationError(str(error), reason=error.diagnostics[0]['reason'], point_key=f'{key}:{ordinal}') from error
                 audit['expression'] = deepcopy(expression)
                 audit['expression']['display_name'] = normalized_point['name']
                 audit['expression']['name_origin'] = 'frozen_formula' if symbolic_name(point) else 'reviewed_statement'
