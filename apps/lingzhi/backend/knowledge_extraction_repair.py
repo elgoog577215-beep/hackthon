@@ -65,8 +65,8 @@ def repair_schema(targets, passages, *, expression_contract=None, semantic_roles
             if field in properties: properties[field] = {'const': deepcopy(value)}
         shape = obj({'form': properties['form'], **{k: v for k, v in properties.items() if k != 'form'}})
         shape['properties'] = properties
-        replacement = obj({'points': array(shape, 1 if plan.get('single_point') else 8,
-            1 if plan.get('single_point') else 0), 'handling': {'enum': ['replace'] if plan.get('single_point') else ['replace', 'context']}, 'reason': string(600)})
+        replacement = obj({'points': array(shape, 1 if plan.get('single_point') else 8,1),
+            'handling': {'const':'replace'}, 'reason': string(600)})
         alternatives = [replacement]
         if plan:
             patch_fields = {k: deepcopy(properties[k]) for k in plan['editable_fields'] if k in properties}
@@ -268,6 +268,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     required = {'repairs', 'source_issues'} | ({'short_statements'} if expression_contract else set())
     require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == required
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
+    if strict_effect:
+        from knowledge_correction_protocol import action_diagnostics
+        diagnostics=action_diagnostics(parsed['repairs'],targets)
+        if diagnostics:raise KnowledgePointValidationError(diagnostics)
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
     schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()}, expression_contract=expression_contract, semantic_roles=inspect_names)
     schema = specialize_schema(schema, clean)
@@ -345,8 +349,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 previous_binding=(trace or {}).get('relation_binding') or {}
                 previous_declaration={k:previous_binding.get(k) for k in ('kind','target','relation_type')}
                 binding_changed=bool(plan.get('binding_required') and parsed['repairs'][target].get('bindings')!=[previous_declaration])
-                record.setdefault('effects',{})[target]={'changed_fields':changed,'name_changed':name_changed,'binding_submitted':binding_changed}
-                if not changed and not name_changed and not binding_changed:
+                canonical_for=[key for key,row in parsed['repairs'].items() if row.get('handling')=='merge'
+                    and row.get('merge_into')==target and key in targets[target].get('duplicate_group',[])]
+                record.setdefault('effects',{})[target]={'changed_fields':changed,'name_changed':name_changed,'binding_submitted':binding_changed,'canonical_for':canonical_for}
+                if not changed and not name_changed and not binding_changed and not canonical_for:
                     raise KnowledgeRepairNoProgress([{'code':'repair_no_effect','target_key':target,'fields':plan['editable_fields'],
                         'actual':parsed['repairs'][target],'message':target+'：修复没有改变出错字段，已停止重复请求'}])
             require(isinstance(repair, dict) and not set(repair) - {'points', 'handling', 'reason', 'action', 'merge_into'}

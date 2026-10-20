@@ -7,6 +7,38 @@ from knowledge_compact import obj, array, string
 
 CONTRACT = 'knowledge_correction_plan_v4'
 
+def action_contract(target):
+    """One action vocabulary for prompts and pre-application diagnostics."""
+    plan=target.get('correction_plan',{})
+    if plan.get('binding_only'):
+        return {'bind_relation':{'required':['bindings'],'points':'禁止返回；程序保留原点'}}
+    if plan.get('expression_only'):
+        return {'rename':{'required':[],'points':'禁止返回；程序保留原点'}}
+    actions={'patch':{'required':['patch'],'points':'禁止返回；只改授权字段'},
+             'replace':{'required':['points'],'points':'必须有1至8个完整点，空数组不表示合并'}}
+    if plan.get('context_allowed'):actions['context']={'required':['points'],'points':'必须为空；登记背景去向'}
+    if plan.get('source_issue_allowed'):actions['source_issue']={'required':['points'],'points':'必须为空；同时登记source_issues'}
+    if target.get('duplicate_group'):
+        actions['merge']={'required':['merge_into'],'points':'禁止返回；程序从规范目标复制知识并保留双方来源'}
+    return actions
+
+
+def action_diagnostics(repairs,targets):
+    diagnostics=[]
+    for key,repair in repairs.items():
+        actions=action_contract(targets[key]);action=repair.get('handling');rule=actions.get(action)
+        required=set(rule['required']) if rule else set()
+        allowed={'handling','reason',*required}
+        if targets[key]['correction_plan'].get('binding_required'):allowed.add('bindings')
+        invalid=not rule or not required<=repair.keys() or bool(repair.keys()-allowed)
+        if action=='replace':invalid=invalid or not isinstance(repair.get('points'),list) or not repair['points']
+        if action in {'context','source_issue'}:invalid=invalid or repair.get('points')!=[]
+        if invalid:
+            diagnostics.append({'code':'invalid_repair_action','category':'protocol','target_key':key,
+                'fields':['handling',*sorted(required)],'actual':deepcopy(repair),'expected':actions,
+                'message':key+'：修复动作与字段不一致。replace必须返回非空完整点；合并须用merge和merge_into，不能替换为空。'})
+    return diagnostics
+
 
 def subject_scope(original,updated,source):
     """Retain an explicit, source-bound conditional suffix when shortening a subject."""
@@ -21,10 +53,7 @@ def envelope_schema(targets, *, expression_contract=None):
     rows = {}
     for key, target in targets.items():
         plan = target.get('correction_plan', {})
-        actions = ['bind_relation'] if plan.get('binding_only') else ['rename'] if plan.get('expression_only') else ['patch', 'replace']
-        if not plan.get('binding_only') and not plan.get('expression_only') and (not plan.get('single_point') or plan.get('context_allowed')): actions.append('context')
-        if plan.get('source_issue_allowed'): actions.append('source_issue')
-        if target.get('duplicate_group'): actions.append('merge')
+        actions = list(action_contract(target))
         row = obj({'handling':{'enum':actions},'reason':string(600),
                    'patch':{'type':'object'},'points':array({'type':'object'},8),
                    'merge_into':{'type':'string'}})
@@ -44,7 +73,9 @@ def envelope_schema(targets, *, expression_contract=None):
 
 def build_prompt(payload):
     payload = deepcopy(payload)
-    for target in payload['targets'].values(): target.pop('literal_subjects',None)
+    for target in payload['targets'].values():
+        target.pop('literal_subjects',None)
+        target['action_contract']=action_contract(target)
     for passage in payload['source_passages']: passage.pop('focus_options',None)
     examples = {}
     for key,target in payload['targets'].items():
@@ -80,6 +111,7 @@ def build_prompt(payload):
         '其余非single_point语义目标可用replace给允许形态的完整点；只有context_allowed的具体例子等才归context。'
         'source_issue_allowed且原文确实不支持原命题时，可source_issue,points=[]，并登记同块具体疑点，不为凑通过改成别的知识。'
         '重复问题按duplicate_resolution_required整组对照，等价时用merge_into指向规范目标，保留双方来源；不能形成链或环。'
+        'action_contract是各目标允许的动作及必填字段。replace的points不得为空；合并必须写handling="merge",merge_into="规范目标键",reason，不返回points或patch。规范目标可原样保留，不能仅为制造修改而改写。'
         '有expression_contract时，short_statements必须覆盖全部目标：patch/rename/bind_relation一条，replace与最终points同数，context/source_issue为空，merge与代表一致。'
         '名称必须是表达知识结论的简短陈述或完整公式；禁止问句、仅对象名和“对象的某属性”，保留必要对象、否定和范围。'
         'correction_feedback是前次失败的诊断；已经有效的语义修正可能已冻结在本次point里，不能撤回或重复改写。'
