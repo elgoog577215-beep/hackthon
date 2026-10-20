@@ -12,6 +12,19 @@ from knowledge_registry_projection import build_tree
 from knowledge_transport import REQUEST_SCOPE, model_scope
 
 
+def replay_saved(record, compile_result):
+    """Recheck a complete previous response locally; never edit the historical record."""
+    for attempt in reversed(record.get('attempts', [])):
+        if not attempt.get('raw_response'):
+            continue
+        try:
+            value = parse_json(attempt['raw_response'])
+            return value, compile_result(value)
+        except (ValueError, CourseDocumentConflict, TypeError, KeyError):
+            return None
+    return None
+
+
 def continued_pipeline(checkpoint, retry_batch_id):
     result = deepcopy(checkpoint)
     result.pop('candidate', None)
@@ -77,8 +90,17 @@ async def run(svc, course_id, job_id):
         svc.authoring.update_job(course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress, **updates)
 
     async def request(prompt, stage, record, compile_result):
+        validate_version()
         if record.get('status') == 'completed':
             return compile_result(deepcopy(record['response']))
+        replay = replay_saved(record, compile_result)
+        if replay is not None:
+            value, result = replay
+            record.update(status='completed', response=value, validation_origin='recompiled_saved_response',
+                          revalidated_by_job_id=job_id)
+            record.pop('validation_error', None)
+            save()
+            return result
         previous = None
         for attempt in range(2):
             validate_version()

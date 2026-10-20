@@ -39,7 +39,7 @@ def apply_decisions(candidates, catalog, decisions):
         fields = {'action', 'reason'}
         if action == 'replace':
             fields.add('points')
-        elif action in {'merge', 'reuse'}:
+        elif action in {'match', 'merge', 'reuse'}:
             fields.update(('target', 'same_claim', 'same_scope', 'same_symbols'))
         elif action == 'covered':
             fields.update(('parts', 'complete_coverage', 'adds_knowledge', 'same_scope'))
@@ -47,7 +47,7 @@ def apply_decisions(candidates, catalog, decisions):
             raise ValueError(key + '：未知身份动作')
         if set(decision) != fields or not isinstance(decision['reason'], str) or not decision['reason'].strip():
             raise ValueError(key + '：动作与字段不一致')
-        if action in {'merge', 'reuse'}:
+        if action in {'match', 'merge', 'reuse'}:
             if not all(decision[field] is True for field in ('same_claim', 'same_scope', 'same_symbols')):
                 raise ValueError(key + '：命题、范围及符号含义须明确一致，否则保留待确认')
             continue
@@ -59,7 +59,7 @@ def apply_decisions(candidates, catalog, decisions):
                     or any(not isinstance(p, dict) or set(p) != {'target', 'claim'}
                            or not isinstance(p['target'], str) or not isinstance(p['claim'], str) or not p['claim'].strip() for p in parts)
                     or len({p['target'] for p in parts}) != len(parts)):
-                raise ValueError(key + '：组合覆盖须逐项指向不同的明确知识')
+                raise ValueError(key + '：covered至少需要两个不同目标；同一知识的单目标对应请用match')
             continue
         original = by_key[key]
         if action == 'context':
@@ -113,10 +113,12 @@ def apply_decisions(candidates, catalog, decisions):
                 point = registered(target, key + '_' + target) if target in existing else retained(target, key)
                 bind(point, key, {**decision, 'covered_part': deepcopy(part)})
             continue
-        if action not in {'merge', 'reuse'}:
+        if action not in {'match', 'merge', 'reuse'}:
             continue
         target = decision['target']
-        point = retained(target, key) if action == 'merge' else registered(target, key)
+        # The target's frozen namespace owns the operation. A model's synonym
+        # for "reuse" must not override a valid, explicit identity reference.
+        point = registered(target, key) if target in existing else retained(target, key)
         bind(point, key, decision)
     points = [point for rows in canonical.values() for point in rows] + list(reused.values())
     if not points:
