@@ -5,7 +5,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-CONTRACT = 'knowledge_registry_v1'
+CONTRACT = 'knowledge_registry_v2'
 FIELDS = ('statement', 'knowledge_type', 'conditions', 'symbol_definitions', 'teaching_context', 'examples')
 
 def parse_json(response):
@@ -88,6 +88,8 @@ def identity_prompt(candidates, catalog):
     return render(
         '统一核对本讲候选的完整知识和身份。对象、结论、公式含义与真实适用条件相同才是同一知识。'
         '符号说明的同义表述不是适用范围差异；平均与瞬时、必要与充分、不同方向或范围必须区分。'
+        'coverage_unit_ids是已经列出的独立学习目标。不同清单项不能只因同属一个主题而match或covered；'
+        '常数求导不能被常数倍或和差求导吸收。保留独立知识，仅合并同一清单项内的完全等价表达。'
         '已有知识目录是冻结内容，只能复用，不得改写。名称相近只提供线索，不是合并依据。'
         '每个候选key恰好给一个决定：keep保留；replace用points给完整修正点或拆分点；'
         'match指向本轮另一个keep或单点replace目标，或已有目录E键；由程序根据目标身份完成合并或复用。uncertain保留待确认；'
@@ -103,7 +105,7 @@ def identity_prompt(candidates, catalog):
         '每项为{"target":"保留的候选键或已有E键","claim":"这一部分的知识"}，目标不能是match/covered/uncertain或拆分目标。'
         '本阶段不生成名称。输出{"decisions":{"候选key":{"action":"keep","reason":"核对依据"}}}。',
         {'stage': 'identity_review', 'contract': CONTRACT,
-         'candidates': [{k: p.get(k) for k in ('key', *FIELDS)} for p in candidates],
+         'candidates': [{k: p.get(k) for k in ('key', *FIELDS, 'coverage_unit_ids', 'check_intents')} for p in candidates],
          'existing_knowledge': [{k: p.get(k) for k in ('key', 'name', *FIELDS)} for p in catalog]})
 
 

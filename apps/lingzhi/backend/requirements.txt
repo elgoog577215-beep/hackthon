@@ -16,3 +16,4 @@ jsonschema>=4.23,<5
 python-docx>=1.1,<2.0
 openpyxl>=3.1,<4.0
 reportlab>=4.2,<6.0
+Jinja2==3.1.6

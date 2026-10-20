@@ -6,7 +6,7 @@ import json
 from course_document import stable_hash
 from course_repository import CourseDocumentConflict
 from generic_knowledge import require, sources
-from knowledge_registry_contract import CONTRACT, extraction_prompt, parse_candidates, identity_prompt, names_prompt, parse_names, parse_json
+from knowledge_registry_contract import CONTRACT, identity_prompt, names_prompt, parse_names, parse_json
 from knowledge_registry_identity import existing_catalog, apply_decisions
 from knowledge_registry_projection import build_tree
 from knowledge_transport import REQUEST_SCOPE, model_scope
@@ -43,12 +43,14 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch.pop('request', None)
         for key in ('registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
+        pipeline.pop('kc_profiles',None)
     return result
 
 
 async def run(svc, course_id, job_id):
     from knowledge_first import knowledge_revision, now
-    from knowledge_atomic import call_stage, run_batches, source_groups, KnowledgeBatchValidationError
+    from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
+    from knowledge_coverage import plan_prompt, review_prompt, apply_review, parse_plan, units_prompt, parse_unit_points
     job = svc._active(course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
@@ -61,8 +63,8 @@ async def run(svc, course_id, job_id):
             'source_unit_contract': context.get('source_unit_contract'),
             'extraction_mode': 'single_pass_v1', 'items': [], 'batches': [],
             'organize_hierarchy': job.get('organize_hierarchy', True), 'include_relations': job.get('include_relations', True),
-            'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'}
-                                  for i, keys in enumerate(source_groups(context), 1)],
+            'inventory_batches': [], 'identity_job_id':job_id,
+            'teaching_focus':deepcopy(job.get('teaching_focus',[])),
             'catalog': existing_catalog(raw)}
 
     def validate_version():
@@ -80,7 +82,7 @@ async def run(svc, course_id, job_id):
         if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
             pipeline['preview_tree'] = build_tree(raw, context, pipeline, job_id, preview=True)
         complete = sum(b['status'] == 'completed' for b in pipeline['inventory_batches'])
-        progress = int(55 * complete / len(pipeline['inventory_batches']))
+        progress = int(55 * complete / len(pipeline['inventory_batches'])) if pipeline['inventory_batches'] else 0
         if pipeline.get('registry'):
             progress = 70
         if pipeline.get('names', {}).get('status') == 'completed':
@@ -146,13 +148,30 @@ async def run(svc, course_id, job_id):
             from ai_base import AIBase
             provider = AIBase()
         available = sources(context)
+        materials=[{'key':key,'text':u['source_text']} for key,u in available.items()]
+        plan=pipeline.setdefault('coverage_plan',{})
+        if 'units' not in plan:
+            plan['units']=await request(plan_prompt(raw,context,materials,pipeline['teaching_focus']),
+                'coverage_plan',plan,lambda value:parse_plan(value,pipeline['teaching_focus']))
+            save()
+        review=pipeline.setdefault('coverage_review',{})
+        if 'units' not in review:
+            review['units']=await request(review_prompt(plan['units'],materials,pipeline['teaching_focus']),
+                'coverage_review',review,lambda value:apply_review(value,plan['units'],pipeline['teaching_focus']))
+            save()
+        if not pipeline['inventory_batches']:
+            units=review['units']
+            pipeline['inventory_batches']=[{'id':f'inventory-{i//6+1}',
+                'source_keys':list(available),'unit_keys':[u['key'] for u in units[i:i+6]],'status':'pending'}
+                for i in range(0,len(units),6)]
+            save()
 
         async def extract(index, batch):
-            materials = [{'key': key, 'text': available[key]['source_text']} for key in batch['source_keys']]
-            prompt = extraction_prompt(raw, context, materials, pipeline['catalog'])
+            units=[u for u in review['units'] if u['key'] in batch['unit_keys']]
+            prompt = units_prompt(units,materials,pipeline['catalog'])
             try:
-                batch['points'] = await request(prompt, 'candidate_extract', batch.setdefault('request', {}),
-                    lambda value: parse_candidates(value, f'B{index}', batch['source_keys']))
+                batch['points'] = await request(prompt, 'coverage_extract', batch.setdefault('request', {}),
+                    lambda value: parse_unit_points(value,units,batch['source_keys']))
             except (ValueError, CourseDocumentConflict) as error:
                 validate_version()
                 batch['validation_error'] = {'message': str(error)}
@@ -162,7 +181,7 @@ async def run(svc, course_id, job_id):
             batch.pop('validation_error', None)
             save()
 
-        await run_batches(pipeline['inventory_batches'], extract, width=4, stage='candidate_extract')
+        await run_batches(pipeline['inventory_batches'], extract, width=4, stage='coverage_extract')
         candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
         if not pipeline.get('registry'):
@@ -222,6 +241,34 @@ async def run(svc, course_id, job_id):
             await run_batches(relation_state['batches'], relate, width=4, stage='candidate_relations')
             tree = attach(tree, relation_state['batches'])
             relation_state['status'] = 'completed'
+        if pipeline['teaching_focus']:
+            from knowledge_kc_profiles import profile_prompt,compile_profiles,eligible_questions
+            selected=[p for p in tree['knowledge_points'] if p.get('profile_focus') in pipeline['teaching_focus']]
+            state=pipeline.setdefault('kc_profiles',{'batches':[
+                {'id':f'kc-{i//4+1}','point_ids':[p['knowledge_id'] for p in selected[i:i+4]],'status':'pending'}
+                for i in range(0,len(selected),4)]})
+            if 'sample_groups' not in state:
+                groups={}
+                if (raw.get('course_knowledge_base') or {}).get('status')=='accepted':
+                    from question_bank import QuestionBankRepository
+                    bundle=QuestionBankRepository().load_bundle(course_id)
+                    groups=eligible_questions(raw['course_knowledge_base'],bundle)
+                state['sample_groups']=deepcopy(groups)
+                save()
+            groups=state['sample_groups']
+            async def profile_batch(index,batch):
+                targets=[p for p in selected if p['knowledge_id'] in batch['point_ids']]
+                batch['result']=await request(profile_prompt(targets,groups),'kc_profiles',
+                    batch.setdefault('request',{}),lambda value:compile_profiles(value,targets,groups))
+                batch['status']='completed'
+                save()
+            await run_batches(state['batches'],profile_batch,width=3,stage='kc_profiles')
+            profiles={key:value for b in state['batches'] for key,value in b['result'].items()}
+            for point in tree['knowledge_points']:
+                if point['knowledge_id'] in profiles:
+                    point['kc_skill_profile']=profiles[point['knowledge_id']]
+            tree['kc_profile_summary']={'focus':pipeline['teaching_focus'],'profile_count':len(profiles),
+                'draft_count':len(profiles),'learner_evidence':False}
         validate_version()
         tree.update(source_context_revision=context['revision_id'],
                     source_scope_revision=context['scope_contract']['revision_id'], generation_job_id=job_id,

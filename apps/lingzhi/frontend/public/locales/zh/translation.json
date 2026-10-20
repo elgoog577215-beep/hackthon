@@ -8194,7 +8194,20 @@
     "saveInputs": "保存生成依据",
     "inputsSaved": "生成依据已保存",
     "genericReview": "请审阅知识命题、材料引文与讲次范围后再采用。引文匹配不代表内容已通过学科核验。",
-    "uncoveredSources": "尚未被知识点引用的材料片段："
+    "uncoveredSources": "尚未被知识点引用的材料片段：",
+    "coverageTitle": "独立知识清单",
+    "coverageHint": "这里显示清单项是否都有对应知识点；内容是否正确、完整仍需审阅。",
+    "checkIntents": "检查目标",
+    "teachingProfile": "教学与练习说明",
+    "profileKnowledgeDraft": "基于知识生成的教学档案草稿，暂无已核验题目样本。易错提示不代表你已经犯过这些错误。",
+    "profileSampleDraft": "基于已核验题目样本整理的教学档案草稿，仍需审阅；不代表个人学习表现。",
+    "profileFields": {
+      "description": "适用场景",
+      "assessment_focus": "考查重点",
+      "assessment_format": "练习方式",
+      "common_mistakes": "需要留意的错误",
+      "difficulty_cues": "难度变化"
+    }
   },
   "companionWorkspace": {
     "title": "灵知学伴",

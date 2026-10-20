@@ -70,13 +70,18 @@ def test_uncertain_is_a_visible_candidate_and_merge_cycles_are_rejected():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('full',[False,True])
-async def test_default_flow_never_calls_legacy_source_repair_and_preserves_course(svc,monkeypatch,full):
+@pytest.mark.parametrize('teaching',[False,True])
+async def test_default_flow_never_calls_legacy_source_repair_and_preserves_course(svc,monkeypatch,full,teaching):
     setup_course(svc,monkeypatch)
     raw=deepcopy(svc.repository.load_raw('c-pilot'));calls=[]
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload)
-        if payload['stage']=='candidate_extract':
-            return json.dumps({'points':[claim()],'context_note':''})
+        if payload['stage']=='coverage_review':
+            return json.dumps({'decisions':{u['key']:{'action':'keep','reason':'独立知识'} for u in payload['draft_units']},'additions':[]})
+        if payload['stage']=='coverage_plan':
+            return json.dumps({'units':[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'线性法则' if teaching else '','check_intent':'独立描述入栈'}]})
+        if payload['stage']=='coverage_extract':
+            return json.dumps({'points':{u['key']:[claim()] for u in payload['units']}})
         if payload['stage']=='identity_review':
             return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整知识'} for p in payload['candidates']}})
         if payload['stage']=='candidate_names':
@@ -86,20 +91,28 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
                 'point_groups':{p['key']:'__direct__' for p in payload['points']},'stop_reason':'同一范围内并列'})
         if payload['stage']=='candidate_relations':
             return json.dumps({'reviews':{key:'没有额外关系' for key in payload['focus_keys']},'edges':[]})
+        if payload['stage']=='kc_profiles':
+            from third_party.learningmap.kc import KCSkill
+            return json.dumps({'profiles':{p['key']:{field:'教学说明' for field in KCSkill.model_fields} for p in payload['profiles']}})
         pytest.fail('Unexpected legacy stage '+payload['stage'])
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     view=svc.view('c-pilot',source_mode='handouts')
     job,_=svc.start('c-pilot','tree','registry-new',view['knowledge_revision'],view['document_revision'],
         source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',
-        extraction_mode='single_pass_v1',organize_hierarchy=full,include_relations=full)
+        extraction_mode='single_pass_v1',organize_hierarchy=full,include_relations=full,teaching_focus=['线性法则'] if teaching else [])
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==['candidate_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])
+    assert [p['stage'] for p in calls]==['coverage_plan','coverage_review','coverage_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
     if full:
         assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
     assert tree['knowledge_points'][0]['statement']==claim()['statement']
+    assert tree['knowledge_coverage']['missing_unit_ids']==[]
+    if teaching:
+        profile=tree['knowledge_points'][0]['kc_skill_profile']
+        assert profile['knowledge_revision']==tree['knowledge_points'][0]['revision_id']
+        assert profile['basis']=='knowledge_draft' and not profile['learner_evidence']
     assert tree['provenance_contract']=='input_material_record_v1'
     assert tree['atomic_assessment']['ready_for_adoption']
     assert svc.repository.load_raw('c-pilot')==raw
@@ -157,7 +170,10 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
     setup_course(svc,monkeypatch);calls=[];broken=True
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload['stage'])
-        if payload['stage']=='candidate_extract':return json.dumps({'points':[claim()],'context_note':''})
+        if payload['stage']=='coverage_review':
+            return json.dumps({'decisions':{u['key']:{'action':'keep','reason':'独立知识'} for u in payload['draft_units']},'additions':[]})
+        if payload['stage']=='coverage_plan':return json.dumps({'units':[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'','check_intent':'独立描述入栈'}]})
+        if payload['stage']=='coverage_extract':return json.dumps({'points':{u['key']:[claim()] for u in payload['units']}})
         if payload['stage']=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整'} for p in payload['candidates']}})
         if payload['stage']=='candidate_names':
             return json.dumps({'names':{} if broken else {p['key']:{'name':'压栈把新元素放到栈顶','meta_question':'压栈有什么作用'} for p in payload['points']}})
@@ -173,7 +189,7 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
     assert before['status']=='failed'
     from knowledge_atomic import project_preview
     assert project_preview(before,'c-pilot')['knowledge_points']
-    assert calls==['candidate_extract','identity_review','candidate_names','candidate_names']
+    assert calls==['coverage_plan','coverage_review','coverage_extract','identity_review','candidate_names','candidate_names']
     broken=False;calls.clear()
     resumed=start('second',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     assert svc.authoring.get_job('c-pilot',resumed['id'])['status']=='completed'
@@ -252,3 +268,35 @@ def test_replay_revalidates_complete_saved_response_without_mutating_history():
     value,result=replay_saved(record,lambda v:parse_names(v,[{'key':'K1'}]))
     assert result['K1']['name']=='规则成立' and record==before
     assert replay_saved(record,lambda v:parse_names(v,[{'key':'K2'}])) is None
+
+
+@pytest.mark.asyncio
+async def test_profile_failure_resumes_only_profile_and_keeps_frozen_identity(svc,monkeypatch):
+    setup_course(svc,monkeypatch);broken=True;calls=[]
+    async def call(prompt,**kwargs):
+        payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=payload['stage'];calls.append(stage)
+        if stage=='coverage_plan':return json.dumps({'units':[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'基础操作','check_intent':'独立描述入栈'}]})
+        if stage=='coverage_review':return json.dumps({'decisions':{'U1':{'action':'keep','reason':'独立知识'}},'additions':[]})
+        if stage=='coverage_extract':return json.dumps({'points':{'U1':[claim()]}})
+        if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整'} for p in payload['candidates']}})
+        if stage=='candidate_names':return json.dumps({'names':{p['key']:{'name':'压栈把新元素放到栈顶','meta_question':'描述压栈'} for p in payload['points']}})
+        if stage=='kc_profiles':
+            from third_party.learningmap.kc import KCSkill
+            return json.dumps({'profiles':{} if broken else {p['key']:{field:'教学说明' for field in KCSkill.model_fields} for p in payload['profiles']}})
+        raise AssertionError(stage)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
+    view=svc.view('c-pilot',source_mode='handouts')
+    def start(request,**kw):return svc.start('c-pilot','tree',request,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',organize_hierarchy=False,include_relations=False,**kw)[0]
+    job=start('profile-first',teaching_focus=['基础操作']);await svc.run('c-pilot',job['id'])
+    old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
+    assert old['status']=='failed'
+    frozen=old['checkpoint']['atomic_pipeline']['preview_tree']['knowledge_points'][0]
+    broken=False;calls.clear()
+    new=start('profile-resume',resume_job_id=job['id']);await svc.run('c-pilot',new['id'])
+    out=svc.authoring.get_job('c-pilot',new['id'])
+    assert out['status']=='completed',out.get('error')
+    assert calls==['kc_profiles']
+    point=out['checkpoint']['candidate']['knowledge_points'][0]
+    assert point['knowledge_id']==frozen['knowledge_id'] and point['revision_id']==frozen['revision_id']
+    assert point['kc_skill_profile']['knowledge_id']==point['knowledge_id']
+    assert svc.authoring.get_job('c-pilot',job['id'])==old

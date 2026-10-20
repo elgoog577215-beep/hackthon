@@ -388,7 +388,10 @@ def compile_tree(raw, context, response):
 
 
 def handout_prompt(tree, lesson):
-    points = [p for p in tree['knowledge_points'] if p['knowledge_id'] in lesson['knowledge_ids']]
+    from knowledge_kc_profiles import profile_context
+    points = [{**{k:v for k,v in p.items() if k != 'kc_skill_profile'},
+               'teaching_profile_context':profile_context(p)}
+              for p in tree['knowledge_points'] if p['knowledge_id'] in lesson['knowledge_ids']]
     return ('编写可独立阅读的教材式讲义，不写教案或教师口播。只使用本讲知识、条件与材料依据，保留来源边界。'
         '直接输出Markdown内容块，每块先写独占行 <!-- block:{"type":"explanation","title":"标题","key":"b1","knowledge":["K1"]} --> 再写正文。'
         'knowledge仅使用输入知识短键，可以一块引用多点，每个必学点必须有讲解。类型可用introduction/definition/explanation/derivation/comparison/example/exercise/answer/summary/warning。'

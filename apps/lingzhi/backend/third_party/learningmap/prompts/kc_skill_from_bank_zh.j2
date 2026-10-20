@@ -1,0 +1,27 @@
+{# Adapted from LearningMAP kc_skill_from_bank.j2; see ../UPSTREAM.md. #}
+分析当前一个完整知识的考查方式，填写五字段教学档案。
+知识：{{ point.statement }}
+真实适用条件：{{ point.conditions }}
+符号说明：{{ point.symbol_definitions }}
+检查目标：{{ point.check_intents }}
+{% if samples %}
+以下为关联到当前知识及版本的题目样本（{{ samples|length }}条）：
+{% for q in samples %}
+题目ID：{{ q.id }}
+题型：{{ q.type }}
+题干：{{ q.content }}
+答案：{{ q.answer }}
+解析：{{ q.analysis }}
+{% endfor %}
+可以总结这些样本的题型和检查角度，但不得由题目数量推断学生错误频率。
+{% else %}
+当前没有已核验题目样本。仅根据完整知识与检查目标提出教学档案草稿；
+不得声称基于题库统计、学生真实作答或高频错误。
+{% endif %}
+用中文填写：
+description：适用场景，一句话。
+assessment_focus：检查的具体概念或操作，不能重写为另一条知识。
+assessment_format：适合的题型和问法；无样本时明确是建议。
+common_mistakes：待验证的易错方式，不能写成学生已经发生的事实。
+difficulty_cues：哪些结构或情境变化会增加难度。
+每字段简明，约30至120个汉字；不抄题，不产生新知识ID或学习记录。

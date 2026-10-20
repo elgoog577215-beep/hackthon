@@ -121,3 +121,31 @@ it('keeps the source quotation on a failed read and retries only that read', asy
   expect(http.post).not.toHaveBeenCalled()
   w.unmount()
 })
+
+
+it.each(['zh', 'en'] as const)('shows coverage and revision-bound teaching drafts without recording learner events in %s', async locale => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zh : en })))
+  await setLocale(locale)
+  const v: any = view()
+  v.tree.knowledge_coverage = { unit_count: 1, covered_unit_count: 1, units: [{key:'U1', statement:'势函数将状态映射为实数。'}] }
+  Object.assign(v.tree.knowledge_points[0], {
+    check_intents: ['独立说明定义'],
+    kc_skill_profile: { knowledge_id:'stable-id', knowledge_revision:'stable-rev', basis:'knowledge_draft',
+      skill: {description:'适用场景正文', assessment_focus:'检查目标正文', assessment_format:'练习方式正文', common_mistakes:'待验证易错方式', difficulty_cues:'难度变化正文'} }
+  })
+  vi.spyOn(http, 'get').mockResolvedValue({ data:v })
+  const w = mount(Manager, { props:{courseId:'c', treeOnly:true} }); await flushPromises()
+  expect(w.get('[data-testid="knowledge-coverage"]').text()).toContain('1 / 1')
+  await w.get('[data-knowledge-id="stable-id"]').trigger('click')
+  const profile=w.get('[data-testid="knowledge-teaching-profile"]')
+  expect(profile.text()).toContain(locale==='zh'?'暂无已核验题目样本':'No verified question samples')
+  expect(profile.text()).toContain('练习方式正文')
+  expect(w.get('[data-testid="knowledge-check-intents"]').text()).toContain('独立说明定义')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+  v.tree.knowledge_points[0].revision_id='new-revision'
+  const stale=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await stale.get('[data-knowledge-id="stable-id"]').trigger('click')
+  expect(stale.find('[data-testid="knowledge-teaching-profile"]').exists()).toBe(false)
+  stale.unmount()
+})

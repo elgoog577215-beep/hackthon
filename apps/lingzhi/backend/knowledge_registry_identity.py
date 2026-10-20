@@ -74,6 +74,9 @@ def apply_decisions(candidates, catalog, decisions):
             point = {**validate_point(row), 'key': key if len(rows) == 1 else f'{key}_{i}',
                      'input_material_keys': deepcopy(original['input_material_keys']),
                      'identity_members': [deepcopy(original)], 'identity_decisions': [deepcopy(decision)]}
+            for field in ('coverage_unit_ids','profile_focus','check_intents'):
+                if field in original:
+                    point[field]=deepcopy(original[field])
             if action == 'uncertain':
                 point['review_pending'] = True
                 issues.append({'code': 'knowledge_identity_pending', 'severity': 'blocking',
@@ -87,6 +90,9 @@ def apply_decisions(candidates, catalog, decisions):
             old = existing[target]
             point = {**deepcopy(old), 'key': key, 'input_material_keys': [], 'identity_members': [],
                      'identity_decisions': [], '_registered_point': deepcopy(old.get('_registered_point', old))}
+            # Coverage IDs belong to this generation, not the registered semantic identity.
+            for field in ('coverage_unit_ids','profile_focus','check_intents'):
+                point.pop(field,None)
             for field in FIELDS[2:]:
                 point.setdefault(field, [])
             point.setdefault('knowledge_type', 'rule')
@@ -101,6 +107,15 @@ def apply_decisions(candidates, catalog, decisions):
 
     def bind(point, key, decision):
         original = by_key[key]
+        units=original.get('coverage_unit_ids',[])
+        target_units=point.get('coverage_unit_ids',[])
+        if units and target_units and set(units)!=set(target_units):
+            raise ValueError(key+'：不同独立知识清单项不能按主题合并')
+        for field in ('coverage_unit_ids','check_intents'):
+            if field in original:
+                point[field]=list(dict.fromkeys([*point.get(field,[]),*original[field]]))
+        if original.get('profile_focus'):
+            point['profile_focus']=original['profile_focus']
         point['input_material_keys'] = list(dict.fromkeys([*point['input_material_keys'], *original['input_material_keys']]))
         point['identity_members'].append(deepcopy(original))
         point['identity_decisions'].append(deepcopy(decision))

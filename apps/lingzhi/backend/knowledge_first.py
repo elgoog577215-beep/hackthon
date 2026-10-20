@@ -331,7 +331,7 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
@@ -354,12 +354,23 @@ class KnowledgeFirstService:
             require(topic == "tree" or (raw.get("course_knowledge_base") or {}).get("status") == "accepted", "当前知识树尚未采用")
             state = self.authoring.load(course_id)
             existing_jobs = state["jobs"]
+            if teaching_focus is None:
+                previous=existing_jobs.get(resume_job_id) if resume_job_id else next((j for j in existing_jobs.values()
+                    if j.get('request_id')==request_id and j.get('knowledge_lesson_id')==lesson_id),None)
+                if previous is None:
+                    previous=next((j for j in reversed(list(existing_jobs.values()))
+                        if j.get('knowledge_lesson_id')==lesson_id and j.get('status')=='completed' and 'teaching_focus' in j),None)
+                teaching_focus=deepcopy((previous or {}).get('teaching_focus',[]))
+            require(isinstance(teaching_focus,list) and len(teaching_focus)<=8
+                and all(isinstance(s,str) and s.strip() and len(s)<=80 for s in teaching_focus)
+                and len(set(teaching_focus))==len(teaching_focus),'教学档案分支无效')
             if resume_job_id:
                 extraction_mode = (existing_jobs.get(resume_job_id) or {}).get('extraction_mode', '')
                 include_relations = bool((existing_jobs.get(resume_job_id) or {}).get('include_relations', False))
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(duplicate.get('teaching_focus',[])==teaching_focus,'请求标识对应不同教学档案分支')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(pipeline != PIPELINE or duplicate.get('extraction_mode', '') == extraction_mode, '请求标识对应不同提取模式')
                 require(pipeline != PIPELINE or bool(duplicate.get('include_relations')) == bool(include_relations), '请求标识对应不同关系生成选项')
@@ -384,6 +395,7 @@ class KnowledgeFirstService:
                     and original.get('source_knowledge_revision') == expected_revision, '课程或知识版本已变化，不能继续旧任务')
                 prior = (original.get('checkpoint') or {}).get('atomic_pipeline') or {}
                 if prior.get('generation_contract') == REGISTRY:
+                    require(original.get('teaching_focus',[])==teaching_focus,'继续任务不能更换已冻结教学档案分支')
                     require(original.get('status') != 'completed' or bool(retry_batch_id), '已完成任务请指定重做范围')
                     continued_checkpoint = continued_pipeline(original['checkpoint'], retry_batch_id)
                 else:
@@ -533,7 +545,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
-                    **({'generation_contract': 'knowledge_registry_v1'} if registry_mode else {}),
+                    **({'generation_contract': 'knowledge_registry_v2','teaching_focus':teaching_focus} if registry_mode else {}),
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
                     include_relations=include_relations if pipeline == PIPELINE else False,
@@ -551,7 +563,7 @@ class KnowledgeFirstService:
             from knowledge_relation_generation import run
             return await run(self,course_id,job_id)
         if pipeline:
-            if self.authoring.get_job(course_id, job_id).get('generation_contract') == 'knowledge_registry_v1':
+            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2'}:
                 from knowledge_registry_pipeline import run
                 return await run(self, course_id, job_id)
             from knowledge_atomic import run_atomic

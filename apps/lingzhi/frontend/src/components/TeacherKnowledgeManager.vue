@@ -110,6 +110,11 @@
               <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
+          <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
+            <summary>{{ t('knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
+            <p>{{ t('knowledgeFirst.coverageHint') }}</p>
+            <ul><li v-for="unit in displayTree.knowledge_coverage.units" :key="unit.key"><MathText :content="unit.statement" /></li></ul>
+          </details>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
             <div class="knowledge-tree-surface">
               <div class="knowledge-tree-view-switch" role="group" :aria-label="t('knowledgeFirst.treeViewMode')">
@@ -128,7 +133,7 @@
             <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
               <MathText tag="h2" :content="selectedPoint.name" /><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
-              <p class="knowledge-extraction-method">{{ t(`knowledgeFirst.method_${selectedPoint.extraction_method || 'unspecified'}`) }}</p>
+              <p v-if="selectedPoint.extraction_method" class="knowledge-extraction-method">{{ t(`knowledgeFirst.method_${selectedPoint.extraction_method || 'unspecified'}`) }}</p>
               <p v-if="selectedPoint.derivation_note">{{ selectedPoint.derivation_note }}</p>
               <KnowledgeTerms :point="selectedPoint" />
               <details v-if="selectedPoint.inventory_attachments?.length"><summary>{{ t('knowledgeFirst.inventoryAttachments') }}</summary><div v-for="item in selectedPoint.inventory_attachments" :key="item.key"><strong>{{ item.name }}</strong><p>{{ item.claim }}</p><blockquote v-for="(source,index) in item.sources" :key="index">{{ source.quote }}</blockquote></div></details>
@@ -137,6 +142,18 @@
               <section v-if="selectedPoint.teaching_context?.length"><h3>{{ t('knowledgeFirst.teachingContext') }}</h3><ul><li v-for="value in selectedPoint.teaching_context" :key="value"><MathText :content="value" /></li></ul></section>
               <details v-if="selectedPoint.examples?.length"><summary>{{ t('knowledgeFirst.applicationExamples') }}</summary><MarkdownRenderer v-for="(value,index) in selectedPoint.examples" :key="index" :content="value" /></details>
               <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
+              <section v-if="selectedPoint.check_intents?.length" data-testid="knowledge-check-intents">
+                <h3>{{ t('knowledgeFirst.checkIntents') }}</h3>
+                <ul><li v-for="intent in selectedPoint.check_intents" :key="intent"><MathText :content="intent" /></li></ul>
+              </section>
+              <section v-if="selectedPoint.kc_skill_profile?.knowledge_id === selectedPoint.knowledge_id && selectedPoint.kc_skill_profile?.knowledge_revision === selectedPoint.revision_id" data-testid="knowledge-teaching-profile">
+                <h3>{{ t('knowledgeFirst.teachingProfile') }}</h3>
+                <p class="notice">{{ t(selectedPoint.kc_skill_profile.basis === 'question_samples' ? 'knowledgeFirst.profileSampleDraft' : 'knowledgeFirst.profileKnowledgeDraft') }}</p>
+                <template v-for="field in ['description','assessment_focus','assessment_format','common_mistakes','difficulty_cues']" :key="field">
+                  <h4>{{ t(`knowledgeFirst.profileFields.${field}`) }}</h4>
+                  <MarkdownRenderer :content="selectedPoint.kc_skill_profile.skill[field]" />
+                </template>
+              </section>
               <h3>{{ t('knowledgeFirst.relations') }}</h3>
               <p v-if="!relations.length" class="muted">{{ t('knowledgeFirst.noRelation') }}</p>
               <div v-for="link in relatedLinks" :key="link.edge.id" class="relation">
@@ -412,7 +429,7 @@ function jobPhase(job: any) {
     && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
   const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
     : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
-  return stage ? `${t(['relations','tree_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : ['coverage_plan','coverage_review'].includes(stage) ? 'knowledgeFirst.coverageTitle' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null

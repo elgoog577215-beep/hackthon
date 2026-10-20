@@ -1,0 +1,7 @@
+{% if kc_skill %}
+## 当前知识的教学说明
+- 考查重点：{{ kc_skill["assessment_focus"] }}
+- 题型与问法：{{ kc_skill["assessment_format"] }}
+- 待验证的易错方式：{{ kc_skill["common_mistakes"] }}
+- 难度变化：{{ kc_skill["difficulty_cues"] }}
+{% endif %}

@@ -41,7 +41,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     for index, candidate in enumerate(registry['points'], 1):
         old = candidate.get('_registered_point')
         kid = candidate.get('knowledge_id') or stable_hash(
-            {'course': raw['course_id'], 'job': job_id, 'candidate': candidate['key']}, prefix='kp_')
+            {'course': raw['course_id'], 'job': pipeline.get('identity_job_id',job_id), 'candidate': candidate['key']}, prefix='kp_')
         row = names.get(candidate['key'], {})
         name = old.get('name') if old else row.get('name', candidate['statement'])
         question = old.get('meta_question') if old else row.get('meta_question', '请解释：' + candidate['statement'])
@@ -59,6 +59,9 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         for field in ('symbol_definitions', 'teaching_context', 'examples'):
             if not old or field in old:
                 point[field] = deepcopy(candidate.get(field, []))
+        for field in ('coverage_unit_ids','profile_focus','check_intents'):
+            if field in candidate:
+                point[field]=deepcopy(candidate[field])
         point['source_quotes'] = material_records(context, candidate['input_material_keys'])
         point['source_refs'] = list(dict.fromkeys(q['evidence_id'] for q in point['source_quotes']))
         point.setdefault('aliases', [])
@@ -104,6 +107,21 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     tree['revision_id'] = stable_hash(tree, prefix='kb_')
     existing = raw.get('course_knowledge_base') or {}
     result = merge_lesson_tree(existing, tree, lesson_id)
+    current_by_id = {p['knowledge_id']:p for p in points}
+    for point in result['knowledge_points']:
+        if point['knowledge_id'] in current_by_id:
+            for field in ('coverage_unit_ids','profile_focus','check_intents'):
+                if field in current_by_id[point['knowledge_id']]:
+                    point[field] = deepcopy(current_by_id[point['knowledge_id']][field])
+    frozen_units=pipeline.get('coverage_review',pipeline.get('coverage_plan',{})).get('units',[])
+    if frozen_units:
+        from knowledge_coverage import coverage_report
+        report=coverage_report(frozen_units,points)
+        result['knowledge_coverage']={**report,'units':deepcopy(frozen_units)}
+        if report['missing_unit_ids'] and not preview:
+            result['atomic_assessment']['ready_for_adoption']=False
+            result['atomic_assessment']['issues'].append({'code':'knowledge_coverage_gap','severity':'blocking',
+                'message':'知识清单仍有未承载项：'+','.join(report['missing_unit_ids'])})
     current_ids = {p['knowledge_id'] for p in points}
     old_points = [p for p in existing.get('knowledge_points', []) if lesson_id in p.get('section_refs', [])]
     result['identity_changes'] = {'retired_points': [

@@ -70,3 +70,46 @@ def test_profile_is_revision_bound_and_does_not_create_learner_facts():
     assert before['statement']==p['statement']
     with pytest.raises(ValueError):
         compile_profiles({'profiles':{'UNKNOWN':skill}},[p],{})
+
+
+def test_reused_registered_point_does_not_inherit_an_old_plan_unit():
+    from knowledge_registry_identity import apply_decisions
+    old={**point(),'key':'E1','knowledge_id':'kid','revision_id':'old','name':'常数的导数为零',
+         'coverage_unit_ids':['U99'],'profile_focus':'','check_intents':['旧检查']}
+    new={**point(),'key':'P1','input_material_keys':['S1'],'coverage_unit_ids':['U1'],'profile_focus':'线性法则','check_intents':['新检查']}
+    result=apply_decisions([new],[old],{'P1':{'action':'reuse','target':'E1','same_claim':True,'same_scope':True,'same_symbols':True,'reason':'同一知识'}})
+    assert result['points'][0]['coverage_unit_ids']==['U1']
+    assert result['points'][0]['profile_focus']=='线性法则'
+    assert old['coverage_unit_ids']==['U99']
+
+
+def test_question_samples_require_approved_current_complete_bindings():
+    from knowledge_kc_profiles import eligible_questions
+    tree={'revision_id':'base','knowledge_points':[{'knowledge_id':'kp1','revision_id':'r1'}]}
+    item={'revision_id':'q1','review_status':'approved','prompt':'求常数的导数','knowledge_binding':{'status':'bound','knowledge_ids':['kp1'],'knowledge_revision_refs':{'kp1':'r1'},'knowledge_baseline_revision':'base'}}
+    assert eligible_questions(tree,{'items':[item]})['kp1'][0]['id']=='q1'
+    for change in [{'review_status':'needs_review'},{'lifecycle_status':'retired'},
+                   {'knowledge_binding':{**item['knowledge_binding'],'knowledge_revision_refs':{'kp1':'old'}}},
+                   {'knowledge_binding':{**item['knowledge_binding'],'knowledge_ids':['kp1','missing']}}]:
+        assert not eligible_questions(tree,{'items':[{**item,**change}]})
+
+
+def test_handout_consumes_only_matching_profile_revision():
+    from generic_knowledge import handout_prompt
+    from knowledge_kc_profiles import compile_profiles
+    from third_party.learningmap.kc import KCSkill
+    p={**point(),'key':'K1','knowledge_id':'kp1','revision_id':'r1'}
+    p['kc_skill_profile']=compile_profiles({'profiles':{'K1':{key:'教学草稿内容' for key in KCSkill.model_fields}}},[p],{})['kp1']
+    lesson={'knowledge_ids':['kp1'],'title':'常数'}
+    assert '教学草稿内容' in handout_prompt({'knowledge_points':[p]},lesson)
+    p['revision_id']='r2'
+    assert '教学草稿内容' not in handout_prompt({'knowledge_points':[p]},lesson)
+
+
+def test_coverage_review_cannot_drop_units_while_returning_a_smaller_summary():
+    from knowledge_coverage import parse_plan, apply_review
+    units=parse_plan({'units':[unit(),unit('常数倍保持系数')]},['线性法则'])
+    with pytest.raises(ValueError,match='所有原清单ID'):
+        apply_review({'decisions':{'U1':{'action':'keep','reason':'保留'}},'additions':[]},units,['线性法则'])
+    result=apply_review({'decisions':{u['key']:{'action':'keep','reason':'完整'} for u in units},'additions':[unit('和差分别求导')]},units,['线性法则'])
+    assert len(result)==3 and [u['statement'] for u in result[:2]]==[u['statement'] for u in units]

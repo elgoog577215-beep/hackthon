@@ -8194,7 +8194,20 @@
     "saveInputs": "Save generation inputs",
     "inputsSaved": "Generation inputs saved",
     "genericReview": "Review knowledge claims, source quotations and lesson scope before adoption. Matching quotations do not establish subject accuracy.",
-    "uncoveredSources": "Source passages not referenced by knowledge points:"
+    "uncoveredSources": "Source passages not referenced by knowledge points:",
+    "coverageTitle": "Independent knowledge checklist",
+    "coverageHint": "This shows whether every planned unit has a knowledge point. Correctness and completeness still need review.",
+    "checkIntents": "Check objectives",
+    "teachingProfile": "Teaching and practice guidance",
+    "profileKnowledgeDraft": "Knowledge-based teaching draft. No verified question samples. These possible mistakes are not records of your performance.",
+    "profileSampleDraft": "Teaching draft based on verified question samples; review is still needed. This is not personal learning evidence.",
+    "profileFields": {
+      "description": "Where it applies",
+      "assessment_focus": "What to check",
+      "assessment_format": "Practice formats",
+      "common_mistakes": "Mistakes to watch for",
+      "difficulty_cues": "Difficulty variations"
+    }
   },
   "companionWorkspace": {
     "title": "Lingzhi Companion",
