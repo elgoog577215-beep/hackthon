@@ -87,6 +87,8 @@ async def test_new_jobs_freeze_policy_and_old_checkpoints_keep_old_policy(svc, m
         if stage in {'extract', 'content_review'}:
             assert (data.get('granularity_policy') or {}).get('contract') == (None if legacy else POLICY)
     assert saved['checkpoint']['candidate'].get('granularity_contract') == (None if legacy else POLICY)
+    assert pipeline.get('expression_contract') == (None if legacy else 'knowledge_expression_v1')
+    assert saved['checkpoint']['candidate'].get('expression_contract') == (None if legacy else 'knowledge_expression_v1')
     assert svc.repository.load_raw('c-pilot') == before
 
 

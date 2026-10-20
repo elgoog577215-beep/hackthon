@@ -59,6 +59,7 @@ def test_compiler_changes_only_name_and_keeps_full_fact_conditions_sources_and_i
     result = compile_extraction(raw, context, ['S1'], 1, response)
     actual, old = result['tree']['knowledge_points'][0], legacy['tree']['knowledge_points'][0]
     assert actual['name'] == '入栈把元素加入栈顶'
+    assert actual['knowledge_id'] == old['knowledge_id']
     for field in ('statement', 'conditions', 'meta_question', 'meta_answer', 'source_quotes', 'source_refs'):
         assert actual[field] == old[field], field
     assert actual['atomic_contract']['expression']['contract'] == CONTRACT
@@ -106,4 +107,36 @@ async def test_new_job_freezes_expression_contract(svc, monkeypatch):
     assert saved['status'] == 'completed', saved.get('error')
     assert saved['checkpoint']['atomic_pipeline']['expression_contract'] == CONTRACT
     assert saved['checkpoint']['candidate']['expression_contract'] == CONTRACT
+    assert saved['checkpoint']['candidate']['atomic_assessment']['content_review']['contract'] == 'knowledge_content_review_v2'
     assert all('expression' in p['atomic_contract'] for p in saved['checkpoint']['candidate']['knowledge_points'])
+
+
+@pytest.mark.asyncio
+async def test_limited_semantic_repair_rebinds_name_to_the_final_corrected_point(svc, monkeypatch):
+    from knowledge_expression import bind_name
+    from knowledge_compact import passage_catalog
+    from knowledge_extraction_repair import repair_points
+    from knowledge_extract import compile_extraction
+    raw, context = current(svc, monkeypatch)
+    source = passage_catalog({**context, 'knowledge_passage_mode': 'source_blocks_v1'}, ['S1'])[0]['text']
+    invalid = point('虚构入栈')
+    response = value([invalid]); response['_expression_contract'] = CONTRACT
+    response['_content_review_trace'] = [{'expression': bind_name('入栈把元素加入栈顶', invalid, source)}]
+
+    async def call(*args):
+        data = json.loads(args[-2].split('\nINPUT_JSON:\n', 1)[1])
+        assert data['expression_contract'] == CONTRACT
+        return json.dumps({'repairs': {'S1.1:0': {'handling': 'patch', 'patch': {'subject': '入栈'},
+            'reason': '主体须逐字来自原文'}}, 'short_statements': {'S1.1:0': ['入栈把元素加入栈顶']}, 'source_issues': []})
+
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    corrected = await repair_points(svc, 'c-pilot', 'j', None, raw, context, ['S1'], 1, response, {})
+    assert corrected['_content_review_trace'][0]['expression'] != response['_content_review_trace'][0]['expression']
+    compiled = compile_extraction(raw, context, ['S1'], 1, corrected)
+    assert compiled['tree']['knowledge_points'][0]['name'] == '入栈把元素加入栈顶'
+
+
+def test_unsupported_contract_and_missing_name_rows_are_explicit_errors():
+    from knowledge_expression import check_contract, named_traces
+    with pytest.raises(CourseDocumentConflict): check_contract('future-expression')
+    with pytest.raises(CourseDocumentConflict): named_traces([], [point()], '入栈将元素插入栈顶。', {})
