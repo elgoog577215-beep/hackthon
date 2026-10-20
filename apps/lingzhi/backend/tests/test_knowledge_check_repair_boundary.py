@@ -47,6 +47,23 @@ def test_binding_cannot_pick_the_subject_or_an_unmentioned_source_word():
         assert exc.value.diagnostics[0]['code']==code
 
 
+@pytest.mark.parametrize('subject,left,right,label,conclusion',[
+    ('匀减速运动','加速度','速度方向','加速度与速度方向关系','加速度方向与速度方向相反'),
+    ('匀减速运动','加速度方向','速度方向','加速度方向与速度方向的关系','相反'),
+    ('约束模型','变量甲','变量乙','变量甲和变量乙的关系','变量甲大于变量乙'),
+])
+def test_relation_between_explicit_endpoints_is_not_two_properties(subject,left,right,label,conclusion):
+    from knowledge_relation_binding import seal_binding,CONTRACT
+    from knowledge_semantic_contract import quality_point
+    source=f'{subject}中，{left}与{right}的关系为：{conclusion}。'
+    p=point(subject,property=label,value=conclusion);before=deepcopy(p)
+    b=seal_binding(p,source,{'kind':'relation','source_object':left,'target':right,'relation_type':'对象关系'})
+    _,audit=quality_point(p,source,semantic_roles=True,relation_binding_contract=CONTRACT,relation_binding=b)
+    assert p==before and audit['relation_binding']['source_object']==left
+    span=audit['relation_binding']['source_object_span']
+    assert source[span['start']:span['end']]==left
+
+
 @pytest.mark.asyncio
 async def test_no_effect_repair_stops_without_repeating_an_identical_request(svc,monkeypatch):
     from knowledge_extraction_repair import correct_points,KnowledgeRepairNoProgress
