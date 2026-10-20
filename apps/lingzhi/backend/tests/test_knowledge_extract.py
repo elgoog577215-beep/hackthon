@@ -252,7 +252,9 @@ async def test_failed_single_pass_continues_only_missing_source_group(svc, monke
     monkeypatch.setattr('knowledge_extract.extraction_groups', lambda context: [['S1'], ['S2']])
     fail = True; calls = []
     async def call(prompt, **kwargs):
-        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); source = payload['source_passages'][0]['source_key']
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+        if payload['stage'] == 'semantic_equivalence': return json.dumps({'groups': []})
+        source = payload['source_passages'][0]['source_key']
         if payload['stage'] == 'content_review': return json.dumps(review_response(payload), ensure_ascii=False)
         calls.append(source)
         if fail and source == 'S2': raise TimeoutError('isolated request interrupted')
@@ -284,7 +286,7 @@ async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, mo
     setup_course(svc, monkeypatch); calls = []
     async def call(prompt, **kwargs):
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data['stage'])
-        result = for_contract(data, response()) if data['stage'] == 'extract' else review_response(data) if data['stage'] == 'content_review' else {
+        result = for_contract(data, response()) if data['stage'] == 'extract' else review_response(data) if data['stage'] == 'content_review' else {'groups': []} if data['stage'] == 'semantic_equivalence' else {
             'response_contract': 'knowledge_partition_v1', 'groups': [],
             'point_groups': {p['key']: '__direct__' for p in data['points']}, 'stop_reason': '两个栈操作自然并列'}
         return json.dumps(result, ensure_ascii=False)
@@ -294,7 +296,7 @@ async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, mo
     await svc.run('c-pilot', job['id'])
     saved = svc.authoring.load('c-pilot')['jobs'][job['id']]
     assert saved['status'] == 'completed'
-    assert calls == ['extract', 'content_review', 'hierarchy_partition']
+    assert calls == ['extract', 'content_review', 'semantic_equivalence', 'hierarchy_partition']
     assert len(saved['checkpoint']['candidate']['knowledge_points']) == 2
     assert saved['checkpoint']['candidate']['atomic_assessment']['ready_for_adoption']
     assert svc.repository.load_raw('c-pilot') == before

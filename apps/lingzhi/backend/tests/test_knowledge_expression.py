@@ -110,7 +110,7 @@ async def test_new_job_freezes_expression_contract(svc, monkeypatch):
     assert saved['status'] == 'completed', saved.get('error')
     assert saved['checkpoint']['atomic_pipeline']['expression_contract'] == CONTRACT
     assert saved['checkpoint']['candidate']['expression_contract'] == CONTRACT
-    assert saved['checkpoint']['candidate']['atomic_assessment']['content_review']['contract'] == 'knowledge_content_review_v2'
+    assert saved['checkpoint']['candidate']['atomic_assessment']['content_review']['contract'] == 'knowledge_content_review_v3'
     assert all('expression' in p['atomic_contract'] for p in saved['checkpoint']['candidate']['knowledge_points'])
 
 

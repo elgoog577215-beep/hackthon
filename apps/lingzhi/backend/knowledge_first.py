@@ -451,6 +451,7 @@ class KnowledgeFirstService:
                     if prior.get('prompt_contract') == 'knowledge_extract_v9':
                         if any(b.get('status') != 'completed' for b in prior.get('inventory_batches', [])):
                             prior.pop('reconciliation', None)
+                            prior.pop('semantic_equivalence', None)
                         for batch in prior.get('inventory_batches', []):
                             if batch.get('status') == 'completed': continue
                             if batch.get('content_review') and (response := reusable_extract(batch)):

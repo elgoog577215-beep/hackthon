@@ -43,6 +43,8 @@ def fake_provider(svc, *, relation_fails=False):
             value = for_contract(data, value)
         elif stage == 'content_review':
             value = review_response(data)
+        elif stage == 'semantic_equivalence':
+            value = {'groups': []}
         elif stage == 'tree_relations':
             started.set()
             if relation_fails: raise TimeoutError('isolated relationship failure')
@@ -67,7 +69,7 @@ async def test_one_generation_includes_relations_without_prior_adoption_and_adop
     await svc.run('c-pilot', job['id']); saved = svc.authoring.get_job('c-pilot', job['id'])
     assert saved['status'] == 'completed', (saved.get('error'), calls, saved.get('raw_response'))
     candidate = saved['checkpoint']['candidate']
-    assert {stage for stage, _ in calls} == {'extract', 'content_review', 'hierarchy_partition', 'tree_relations'}
+    assert {stage for stage, _ in calls} == {'extract', 'content_review', 'semantic_equivalence', 'hierarchy_partition', 'tree_relations'}
     assert len(candidate['relations']) == 1
     assert candidate['atomic_assessment']['relation_status'] == 'completed'
     assert candidate['relation_assessment']['mode'] == 'with_tree'

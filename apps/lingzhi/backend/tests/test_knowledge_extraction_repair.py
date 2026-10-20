@@ -255,6 +255,7 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
     async def model(prompt, **kwargs):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
         if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
+        if payload['stage'] == 'semantic_equivalence': return json.dumps({'groups': []})
         if payload['stage'] == 'extract':
             return json.dumps(value([point('判空', property='检查对象', value='栈是否为空'), point('判空', property='检查对象', value='队列是否为空')]))
         result = {'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],
@@ -265,7 +266,7 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
     saved = svc.authoring.get_job('c-pilot', job['id'])
-    assert calls == ['extract', 'content_review', 'extract_repair'] and saved['status'] == 'completed'
+    assert calls == ['extract', 'content_review', 'extract_repair', 'semantic_equivalence'] and saved['status'] == 'completed'
     points = saved['checkpoint']['candidate']['knowledge_points']
     assert len({p['meta_question'] for p in points}) == 2
 
