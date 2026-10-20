@@ -93,6 +93,7 @@
         <p v-if="displayTree?.generation_preview" class="notice" role="status">{{ t('knowledgeFirst.streamingPreview') }}</p>
         <details v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment && !displayTree.generation_preview && (atomicReviewRequired || identityReviewRequired || displayTree.atomic_assessment.ready_for_adoption === false)" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
           <summary>{{ t(displayTree.atomic_assessment.ready_for_adoption === false ? 'knowledgeFirst.candidateNeedsRevision' : 'knowledgeFirst.adoptionReviewTitle') }} · {{ Number(atomicReviewRequired) + Number(identityReviewRequired) }}</summary>
+          <p v-for="(issue,index) in (displayTree.atomic_assessment.issues || []).filter((item:any) => item.message)" :key="index">{{ issue.message }}</p>
           <label v-if="atomicReviewRequired"><input v-model="confirmAtomicReview" type="checkbox" /> {{ t('knowledgeFirst.confirmAtomicReview') }}</label>
           <template v-if="identityReviewRequired">
             <label><input v-model="confirmIdentityChanges" type="checkbox" /> {{ t('knowledgeFirst.confirmIdentityChanges') }}</label></template>
@@ -132,6 +133,9 @@
               <KnowledgeTerms :point="selectedPoint" />
               <details v-if="selectedPoint.inventory_attachments?.length"><summary>{{ t('knowledgeFirst.inventoryAttachments') }}</summary><div v-for="item in selectedPoint.inventory_attachments" :key="item.key"><strong>{{ item.name }}</strong><p>{{ item.claim }}</p><blockquote v-for="(source,index) in item.sources" :key="index">{{ source.quote }}</blockquote></div></details>
               <template v-if="selectedPoint.conditions?.length"><h3>{{ t('knowledgeFirst.conditions') }}</h3><ul><li v-for="c in selectedPoint.conditions" :key="c"><MathText :content="c" /></li></ul></template>
+              <section v-if="selectedPoint.symbol_definitions?.length" data-testid="knowledge-symbol-definitions"><h3>{{ t('knowledgeFirst.symbolDefinitions') }}</h3><ul><li v-for="value in selectedPoint.symbol_definitions" :key="value"><MathText :content="value" /></li></ul></section>
+              <section v-if="selectedPoint.teaching_context?.length"><h3>{{ t('knowledgeFirst.teachingContext') }}</h3><ul><li v-for="value in selectedPoint.teaching_context" :key="value"><MathText :content="value" /></li></ul></section>
+              <details v-if="selectedPoint.examples?.length"><summary>{{ t('knowledgeFirst.applicationExamples') }}</summary><MarkdownRenderer v-for="(value,index) in selectedPoint.examples" :key="index" :content="value" /></details>
               <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
               <h3>{{ t('knowledgeFirst.relations') }}</h3>
               <p v-if="!relations.length" class="muted">{{ t('knowledgeFirst.noRelation') }}</p>
@@ -153,6 +157,7 @@
               <p v-if="!diagnoses.length" class="muted">{{ t(generic ? 'knowledgeFirst.genericNoDiagnosis' : 'knowledgeFirst.noDiagnosis') }}</p></template>
               <TeachingCapabilityPanel v-if="!treeOnly" :tree="displayTree" :point-id="selectedId" />
               <KnowledgeQuestionSupply v-if="!generic && data.can_edit && displayTree.revision_id === data.knowledge_revision" :course-id="courseId" :knowledge-id="selectedId" :baseline-revision="data.knowledge_revision" />
+              <p v-if="selectedPoint.provenance_contract === 'input_material_record_v1'" class="muted" data-testid="knowledge-input-material-notice">{{ t('knowledgeFirst.inputMaterialNotice') }}</p>
               <div v-for="source in selectedPoint.source_quotes" :key="source.evidence_id + source.quote" class="source-evidence">
                 <template v-if="source.handout_ref"><div class="source-evidence-heading"><span>{{ t('knowledgeFirst.generatedHandout') }} · {{ lessonLabels[source.handout_ref.lesson_id] || source.handout_ref.lesson_id }} · {{ short(source.handout_ref.script_revision_id) }}</span><button v-if="data.can_edit" type="button" data-testid="locate-knowledge-source" @click="selectedSource = source">{{ t('knowledgeFirst.locateSource') }}</button></div><details><summary>{{ t('knowledgeFirst.readSourceText') }}</summary><blockquote><MarkdownRenderer :content="source.quote" /></blockquote></details></template>
                 <blockquote v-else><MarkdownRenderer :content="source.quote" /></blockquote>

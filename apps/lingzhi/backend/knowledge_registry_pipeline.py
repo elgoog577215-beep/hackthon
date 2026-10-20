@@ -61,7 +61,7 @@ async def run(svc, course_id, job_id):
                 and svc._context(fresh, 'handouts', job['knowledge_lesson_id'])['revision_id'] == context['revision_id'],
                 '课程、知识或讲义版本已变化，保留候选')
 
-    def save():
+    def save(**updates):
         validate_version()
         pipeline['revision'] += 1
         if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
@@ -74,7 +74,7 @@ async def run(svc, course_id, job_id):
             progress = 80
         if pipeline.get('hierarchy', {}).get('status') == 'completed':
             progress = 90
-        svc.authoring.update_job(course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress)
+        svc.authoring.update_job(course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress, **updates)
 
     async def request(prompt, stage, record, compile_result):
         if record.get('status') == 'completed':

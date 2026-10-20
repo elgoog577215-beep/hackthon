@@ -22,8 +22,17 @@ def parse_json(response):
     value = json.loads(fenced.group(1) if fenced else clean, object_pairs_hook=unique)
     if not isinstance(value, dict):
         raise ValueError('模型须返回完整JSON对象')
-    if re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', str(value)):
-        raise ValueError('输出含无效控制字符，请正确转义公式')
+    def check_text(item):
+        if isinstance(item, str) and re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', item):
+            raise ValueError('输出含无效控制字符，请正确转义公式')
+        if isinstance(item, dict):
+            for key, child in item.items():
+                check_text(key)
+                check_text(child)
+        elif isinstance(item, list):
+            for child in item:
+                check_text(child)
+    check_text(value)
     return value
 
 

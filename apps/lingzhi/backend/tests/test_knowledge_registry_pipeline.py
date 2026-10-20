@@ -95,7 +95,9 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==['candidate_extract','identity_review','candidate_names']+(['hierarchy_partition','candidate_relations'] if full else [])
+    assert [p['stage'] for p in calls]==['candidate_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])
+    if full:
+        assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
     assert tree['knowledge_points'][0]['statement']==claim()['statement']
     assert tree['provenance_contract']=='input_material_record_v1'
