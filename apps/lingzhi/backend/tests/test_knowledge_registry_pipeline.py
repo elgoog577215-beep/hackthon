@@ -197,3 +197,27 @@ def test_relation_proposals_use_ids_and_keep_cyclic_proposals_visible():
     assert result['relation_assessment']['excluded_relations']
     bad=deepcopy(payload);bad['edges'][0]['target']='missing'
     with pytest.raises(ValueError):compile_edges(bad,tree,['K1'],'L1')
+
+
+def test_composite_repetition_can_map_to_multiple_registered_claims_without_new_leaves():
+    from knowledge_registry_identity import apply_decisions
+    rows=[{**claim(statement),'key':key,'input_material_keys':[material]} for key,statement,material in [
+        ('P1','速度是位移对时间的导数','S1'),('P2','加速度是速度对时间的导数','S2'),
+        ('P3','速度是位移对时间的导数，加速度是速度对时间的导数','S3')]]
+    decisions={key:{'action':'keep','reason':'独立完整规则'} for key in ['P1','P2']}
+    decisions['P3']={'action':'covered','reason':'组合重复，没有新增关系',
+        'complete_coverage':True,'adds_knowledge':False,'same_scope':True,
+        'parts':[{'target':'P1','claim':'速度定义'},{'target':'P2','claim':'加速度定义'}]}
+    result=apply_decisions(rows,[],decisions)
+    assert len(result['points'])==2 and not result['issues']
+    assert all('S3' in p['input_material_keys'] for p in result['points'])
+    assert all(p['identity_members'][-1]['statement']==rows[2]['statement'] for p in result['points'])
+    decisions['P3']['adds_knowledge']=True
+    with pytest.raises(ValueError):apply_decisions(rows,[],decisions)
+
+
+def test_relation_review_errors_identify_the_exact_missing_and_extra_keys():
+    from knowledge_registry_relations import compile_edges
+    with pytest.raises(ValueError) as exc:
+        compile_edges({'reviews':{'K2':'错误范围'},'edges':[]},{'knowledge_points':[]},['K1'],'L1')
+    assert 'K1' in str(exc.value) and 'K2' in str(exc.value)
