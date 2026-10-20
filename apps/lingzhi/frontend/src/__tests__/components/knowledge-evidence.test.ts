@@ -28,6 +28,24 @@ beforeEach(async () => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+it.each(['zh', 'en'] as const)('shows input materials and symbol definitions separately in %s', async locale => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zh : en })))
+  await setLocale(locale)
+  const v: any = view()
+  Object.assign(v.tree.knowledge_points[0], {
+    provenance_contract: 'input_material_record_v1', symbol_definitions: ['v(t)表示速度'],
+    teaching_context: ['直线运动'], conditions: ['速度函数可导']
+  })
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.get('[data-knowledge-id="stable-id"]').trigger('click')
+  expect(w.get('[data-testid="knowledge-symbol-definitions"]').text()).toContain('v(t)表示速度')
+  expect(w.get('[data-testid="knowledge-input-material-notice"]').text()).toContain(
+    locale === 'zh' ? '本轮参考材料' : 'Materials used in this generation')
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
 it.each(['zh','en'] as const)('explains frozen split formatting in %s without claiming literal source offsets', async locale => {
   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
   vi.spyOn(http,'get').mockResolvedValue({data:{available:true,quote_match:'frozen_split_passage',quote:'冻结引文',content:'原段落\n排版',source_kind:'generated_handout'}})
