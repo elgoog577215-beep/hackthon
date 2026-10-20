@@ -233,3 +233,22 @@ def test_relation_bucket_is_not_a_second_knowledge_boundary():
     for p in points[1:]:p['section_refs']=['L2']
     with pytest.raises(ValueError,match='讲次'):
         compile_edges(value,{'knowledge_points':points},['K1'],'L1')
+
+
+@pytest.mark.parametrize('action',['match','reuse'])
+def test_identity_target_namespace_determines_reuse_or_current_merge(action):
+    from knowledge_registry_identity import apply_decisions
+    rows=[{**claim(),'key':key,'input_material_keys':['S1']} for key in ['P1','P2']]
+    result=apply_decisions(rows,[],{'P1':{'action':'keep','reason':'规范点'},
+        'P2':{'action':action,'target':'P1','same_claim':True,'same_scope':True,'same_symbols':True,'reason':'同一知识'}})
+    assert len(result['points'])==1 and len(result['points'][0]['identity_members'])==2
+
+
+def test_replay_revalidates_complete_saved_response_without_mutating_history():
+    from knowledge_registry_pipeline import replay_saved
+    record={'status':'failed','attempts':[{'raw_response':'{"names":{"K1":{"name":"规则成立","meta_question":"说明规则"}}}'}]}
+    before=deepcopy(record)
+    from knowledge_registry_contract import parse_names
+    value,result=replay_saved(record,lambda v:parse_names(v,[{'key':'K1'}]))
+    assert result['K1']['name']=='规则成立' and record==before
+    assert replay_saved(record,lambda v:parse_names(v,[{'key':'K2'}])) is None
