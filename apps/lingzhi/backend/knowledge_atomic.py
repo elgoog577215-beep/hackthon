@@ -398,9 +398,10 @@ def assemble(raw, context, pipeline, hierarchy=None):
     if pipeline.get('expression_contract'):
         result['expression_contract'] = pipeline['expression_contract']
         names = {}
+        pending_equivalence = bool(pipeline.get('semantic_equivalence_contract')) and pipeline.get('semantic_equivalence', {}).get('status') != 'completed'
         for point in result['knowledge_points']:
             name = normalized(point['name'])
-            require(name not in names or names[name] == point['knowledge_id'], '不同知识点的短陈述名称重复')
+            require(pending_equivalence or name not in names or names[name] == point['knowledge_id'], '不同知识点的短陈述名称重复')
             names[name] = point['knowledge_id']
     if pipeline.get('semantic_equivalence', {}).get('status') == 'completed':
         record = pipeline['semantic_equivalence']

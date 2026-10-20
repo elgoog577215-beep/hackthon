@@ -35,7 +35,7 @@ def validate_groups(value, points):
     return groups
 
 
-def compile_reviews(value, points):
+def validate_reviews(value, points):
     require(isinstance(value, dict) and set(value) - {'_format_normalizations'} == {'point_reviews'}, '等价核对逐点响应无效')
     reviews = value['point_reviews']; keys = {p['key'] for p in points}
     require(isinstance(reviews, dict) and set(reviews) == keys, '同义核对须回应每个冻结知识点')
@@ -45,6 +45,11 @@ def compile_reviews(value, points):
                 and isinstance(row['forward_reason'], str) and 0 < len(row['forward_reason'].strip()) <= 400
                 and isinstance(row['reverse_reason'], str) and len(row['reverse_reason']) <= 400, '同义核对逐点去向无效')
         require(bool(row['reverse_reason'].strip()) == (row['canonical_key'] != key), '合并须有双向依据，独立点不填写反向依据')
+    return reviews
+
+
+def compile_reviews(value, points):
+    reviews = validate_reviews(value, points)
     groups = {}
     for key, row in reviews.items():
         canonical = row['canonical_key']
@@ -152,7 +157,12 @@ async def review_equivalence(svc, course_id, job_id, provider, points, pipeline,
         else:
             raw = await call_stage(svc, course_id, job_id, provider, prompt, 'semantic_equivalence')
             record['raw_response'] = raw; value = parse_complete_json(raw)
-            groups = compile_reviews(value, points) if contract in {CONTRACT, PARTITION_CONTRACT} else validate_groups(value, points)
+            if contract == CONTRACT:
+                reviews = validate_reviews(value, points)
+                record['proposed_edges'] = [[key, row['canonical_key']] for key, row in reviews.items() if key != row['canonical_key']]
+                groups = []  # Discovery is not an approved partition.
+            else:
+                groups = compile_reviews(value, points) if contract == PARTITION_CONTRACT else validate_groups(value, points)
         validate_source()
         if contract in {CONTRACT, PARTITION_CONTRACT} and len(points) >= 2: record['point_reviews'] = deepcopy(value['point_reviews'])
         if contract == CONTRACT:

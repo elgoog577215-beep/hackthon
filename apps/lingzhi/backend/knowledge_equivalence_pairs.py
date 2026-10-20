@@ -3,7 +3,7 @@ from copy import deepcopy
 from itertools import combinations
 import json
 
-from generic_knowledge import normalized, require
+from generic_knowledge import normalized
 from knowledge_compact import obj, string, parse_complete_json
 
 LIMIT = 64
@@ -21,6 +21,11 @@ async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, rec
     lookup = {p['key']: p for p in points}; ordered = {p['key']: i for i, p in enumerate(points)}
     candidates = set()
     def pair(a, b): return tuple(sorted((a, b), key=ordered.get))
+    record['rejected_scope_pairs'] = []
+    for a, b in record.get('proposed_edges', []):
+        if sorted(normalized(c) for c in lookup[a].get('conditions', [])) == sorted(normalized(c) for c in lookup[b].get('conditions', [])):
+            candidates.add(pair(a, b))
+        else: record['rejected_scope_pairs'].append([a, b])
     for group in proposals:
         candidates.update(pair(a, b) for a, b in combinations(group['member_keys'], 2))
     for a, b in combinations(points, 2):
