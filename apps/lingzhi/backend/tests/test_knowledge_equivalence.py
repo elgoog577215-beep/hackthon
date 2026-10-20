@@ -120,3 +120,81 @@ def test_review_envelope_schema_rejects_misnested_or_missing_keys_without_repair
     with pytest.raises(ValidationError): validate(broken, schema)
     del valid['addition_names']
     with pytest.raises(ValidationError): validate(valid, schema)
+
+
+@pytest.mark.asyncio
+async def test_real_pipeline_merges_ids_and_previews_use_the_merged_catalog(svc, monkeypatch):
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_extract import review_response
+    from backend.tests.test_knowledge_extraction_repair import point, value
+    from knowledge_atomic import project_preview
+    setup_course(svc, monkeypatch)
+    calls = []
+    async def model(prompt, **kwargs):
+        data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); stage = data['stage']; calls.append(stage)
+        if stage == 'extract':
+            return json.dumps(value([point('栈', property='取出顺序', value='后进先出'),
+                                     point('栈', property='访问顺序', value='后加入的元素先被移除')]))
+        if stage == 'content_review':
+            assert kwargs.get('json_schema') is not None
+            return json.dumps(review_response(data))
+        if stage == 'semantic_equivalence':
+            return json.dumps({'point_reviews': {'K1': {'canonical_key': 'K2', 'forward_reason': '后进先出即后加入先移除', 'reverse_reason': '后加入先移除即后进先出'},
+                                                'K2': {'canonical_key': 'K2', 'forward_reason': '本组代表', 'reverse_reason': ''}}})
+        assert len(data['points']) == 1 and data['points'][0]['key'] == 'K1'
+        return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [],
+                           'point_groups': {'K1': '__direct__'}, 'stop_reason': '同一访问规则'})
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
+    job = start(svc, extraction_mode='single_pass_v1', organize_hierarchy=True)
+    await svc.run('c-pilot', job['id']); saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'completed', saved.get('error')
+    candidate = saved['checkpoint']['candidate']; assert len(candidate['knowledge_points']) == 1
+    assert len(candidate['knowledge_inventory']) == 2
+    assert candidate['knowledge_points'][0]['semantic_equivalents'][0]['point']['knowledge_id'] != candidate['knowledge_points'][0]['knowledge_id']
+    assert candidate['semantic_equivalence']['identity_map'][0]['knowledge_id'] == candidate['knowledge_points'][0]['knowledge_id']
+    preview_job = deepcopy(saved); preview_job['status'] = 'running'
+    preview = project_preview(preview_job, 'c-pilot')
+    assert len(preview['knowledge_points']) == 1
+    assert preview['knowledge_points'][0]['knowledge_id'] == candidate['knowledge_points'][0]['knowledge_id']
+
+
+@pytest.mark.asyncio
+async def test_completed_equivalence_reuses_frozen_result_and_failure_stays_visible(monkeypatch):
+    from knowledge_equivalence import review_equivalence
+    rows = points(); calls = []; saves = []; state = {}
+    async def call(*args):
+        calls.append(1)
+        return json.dumps({'point_reviews': {p['key']: {'canonical_key': 'K1' if p['key'] == 'K2' else p['key'],
+            'forward_reason': '同义' if p['key'] == 'K2' else '独立检查目标', 'reverse_reason': '反向同义' if p['key'] == 'K2' else ''} for p in rows}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    await review_equivalence(None, 'c', 'j', None, rows, state, lambda **kw: saves.append(kw), lambda: None)
+    before = deepcopy(state)
+    await review_equivalence(None, 'c', 'j', None, rows, state, lambda **kw: saves.append(kw), lambda: None)
+    assert calls == [1] and state == before
+    async def invalid(*args): return '{"groups":[{"canonical_key":"K99"}]}'
+    monkeypatch.setattr('knowledge_atomic.call_stage', invalid)
+    state = {}
+    with pytest.raises(CourseDocumentConflict):
+        await review_equivalence(None, 'c', 'j', None, rows, state, lambda **kw: None, lambda: None)
+    assert state['semantic_equivalence']['status'] == 'failed'
+    assert 'K99' in state['semantic_equivalence']['raw_response']
+
+
+def test_equivalence_partition_requires_every_point_and_no_transitive_representatives():
+    from knowledge_equivalence import compile_reviews
+    rows = points()
+    value = {'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '独立目标', 'reverse_reason': ''} for p in rows}}
+    assert compile_reviews(value, rows) == []
+    del value['point_reviews']['K2']
+    with pytest.raises(CourseDocumentConflict): compile_reviews(value, rows)
+
+
+def test_concrete_numeric_program_instance_is_not_a_general_rule_but_symbolic_rules_remain_valid():
+    from knowledge_semantic_contract import quality_point
+    from backend.tests.test_knowledge_extraction_repair import point
+    instance = point('double r=5/2', property='结果', value='2.0')
+    source = '例：double r=5/2得到2.0。'
+    with pytest.raises(CourseDocumentConflict, match='具体算例'):
+        quality_point(instance, source, general_knowledge=True)
+    symbolic = point('幂函数', property='求导公式', value='(x^2)′=2x')
+    quality_point(symbolic, '幂函数的求导公式为(x^2)′=2x。', general_knowledge=True)
