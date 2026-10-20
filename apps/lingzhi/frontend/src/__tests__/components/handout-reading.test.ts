@@ -14,6 +14,20 @@ beforeEach(async () => {
 })
 
 describe('Handout reading actions', () => {
+  it('目录点击在当前阅读器内定位并通知编辑范围，不触发路由跳转', async () => {
+    const target = document.createElement('section')
+    target.id = 'reading-target'
+    target.scrollIntoView = vi.fn()
+    document.body.append(target)
+    const currentUrl = window.location.href
+    const wrapper = mount(HandoutTableOfContents, { props: { entries: [{ id: target.id, title: '当前位置' }] } })
+    await wrapper.get('a').trigger('click')
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'instant', block: 'start' })
+    expect(wrapper.emitted('navigate')).toEqual([['reading-target']])
+    expect(window.location.href).toBe(currentUrl)
+    wrapper.unmount(); target.remove()
+  })
+
   it('长章节滚动时定位具体内容块，章节容器不遮盖子目录定位', async () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
     vi.stubGlobal('cancelAnimationFrame', vi.fn())

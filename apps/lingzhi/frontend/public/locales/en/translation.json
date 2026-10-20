@@ -1263,7 +1263,22 @@
       "generateStepDetail": "Generate directly from the mapping",
       "mappingTitle": "This handout will follow the lesson plan below",
       "mappingReady": "The lesson plan guides the handout. Content blocks follow the learning goals, with a flexible sequence.",
+      "contentGroups": {
+        "explanation": "Explanation",
+        "practice": "Practice",
+        "question": "Question"
+      },
+      "contentGroupHints": {
+        "explanation": "Background, definitions, derivations, worked examples and comparisons",
+        "practice": "Theoretical exercises and practical cases; try the task before revealing the solution",
+        "question": "Review questions recall prior learning; guiding questions support reasoning and transfer"
+      },
       "contentTypes": {
+        "background": "Background",
+        "case": "Practical case",
+        "question": "Reflection question",
+        "review_question": "Review question",
+        "guiding_question": "Guiding question",
         "rule": "Rule",
         "diagram": "Diagram",
         "flowchart": "Flowchart",
@@ -1274,7 +1289,7 @@
         "comparison": "Comparison",
         "derivation": "Derivation",
         "example": "Worked example",
-        "exercise": "Exercise",
+        "exercise": "Theoretical exercise",
         "answer": "Solution",
         "misconception": "Misconception",
         "summary": "Summary",

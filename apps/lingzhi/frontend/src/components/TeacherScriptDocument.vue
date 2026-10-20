@@ -176,7 +176,7 @@
       </div>
     </section>
 
-    <nav v-if="scriptSections.length > 1" class="script-tabs" :aria-label="tr('courseWorkbench.scriptDocument.sectionNavigation')">
+    <nav v-if="!externalNavigation && scriptSections.length > 1" class="script-tabs" :aria-label="tr('courseWorkbench.scriptDocument.sectionNavigation')">
       <button
         v-for="(node, index) in scriptSections"
         :key="node.section_node_id"
@@ -193,7 +193,7 @@
     <div v-if="scriptSections.length" ref="handoutRoot" class="script-continuous handout-document" :class="{ 'has-concept-map': showConceptMap }" :data-state="!showWorkingPreview && savedScriptStale ? 'stale' : lesson.script.ready && !showWorkingPreview ? 'ready' : 'partial'">
       <div v-if="readingTools && !editing && !pendingCandidate" class="script-reading-tools">
         <HandoutReadingGuide :target="handoutRoot" :title="lesson.title" />
-        <HandoutTableOfContents v-if="handoutContents.length > 1" :entries="handoutContents" collapsible />
+        <HandoutTableOfContents v-if="!externalNavigation && handoutContents.length > 1" :entries="handoutContents" collapsible @navigate="selectContent" />
       </div>
       <div class="handout-reading-layout" :class="{ 'has-concept-map': showConceptMap }">
       <div class="handout-reading-body">
@@ -296,6 +296,7 @@ const props = withDefaults(defineProps<{
   assistantOpen?: boolean
   materialAssetIds?: string[]
   externalToolbar?: boolean
+  externalNavigation?: boolean
   requestBusy?: boolean
   readingTools?: boolean
   conceptMap?: boolean
@@ -309,6 +310,7 @@ const props = withDefaults(defineProps<{
   assistantOpen: false,
   materialAssetIds: () => [],
   externalToolbar: false,
+  externalNavigation: false,
   readingTools: true,
   conceptMap: true,
   requestBusy: false,
@@ -632,6 +634,11 @@ function activateNode(node: ScriptSection, scroll = true) {
   if (scroll) document.getElementById(sectionAnchor(node))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+function selectContent(id: string) {
+  const section = scriptSections.value.find(node => sectionAnchor(node) === id || node.blocks?.some(block => `script-block-${block.block_id}` === id))
+  if (section) activateNode(section, false)
+}
+
 function requestGeneration() {
   if (!props.generating && props.canGenerate) emit('generate', '')
 }
@@ -845,6 +852,8 @@ watch(scriptSections, sections => {
 watch(selectedNode, node => emit('ai-scope-change', { id: node?.section_node_id || '', title: node?.title || '' }), { immediate: true })
 
 defineExpose({
+  contents: handoutContents,
+  selectContent,
   requestAiCandidate,
   resolveAiCandidate,
   focusAiCandidate,

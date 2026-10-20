@@ -445,8 +445,8 @@ async function deleteAiRecord(note: Note) {
 .legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
 .course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
 /* Examples are reading insets; the prose keeps one continuous left edge. */
-.course-content-block[data-content-block-type="example"],
-.course-content-block[data-content-block-type="counterexample"] {
+.course-content-block:not(.is-handout-block)[data-content-block-type="example"],
+.course-content-block:not(.is-handout-block)[data-content-block-type="counterexample"] {
   margin-inline: -20px;
   padding: 22px 20px;
   border-radius: 12px;

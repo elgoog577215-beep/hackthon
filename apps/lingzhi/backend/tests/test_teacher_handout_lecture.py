@@ -358,12 +358,18 @@ async def test_continuation_keeps_complete_prose_once_and_only_requests_missing_
 
 @pytest.mark.asyncio
 async def test_budget_split_only_on_capacity_and_same_capability(monkeypatch):
-    from teaching_diagrams import teaching_diagram_prompt
+    from course_generation.prompts import build_handout_prompt, handout_course_context
+    from teacher_script import HANDOUT_CONTRACT_VERSION
     service = CourseService()
     calls = []
     scopes = []
+    one_section = build_handout_prompt(
+        course_title='', lesson={}, requirements='', sections=[{'node_id': 'a', 'text': 'x' * 1300}],
+        plan_sections={}, completed_sections=None, partial_text='', contract=HANDOUT_CONTRACT_VERSION,
+        course_context=handout_course_context({}),
+    )
     service._generation_budget = replace(
-        service._generation_budget, teacher_handout_max_input_chars=4000 + len(teaching_diagram_prompt()), teacher_handout_max_input_tokens=10000
+        service._generation_budget, teacher_handout_max_input_chars=len(one_section) + 1000, teacher_handout_max_input_tokens=10000
     )
 
     async def model(*args, **kwargs):

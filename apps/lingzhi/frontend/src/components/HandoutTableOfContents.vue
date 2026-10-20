@@ -2,7 +2,7 @@
   <component :is="collapsible ? 'details' : 'div'" class="handout-contents" :class="{ 'handout-contents--collapsible': collapsible }" data-handout-print-exclude>
     <summary v-if="collapsible">{{ t('courseWorkbench.scriptDocument.readingContents', '目录') }}</summary>
     <nav :aria-label="t('courseWorkbench.scriptDocument.readingContents', '目录')">
-      <a v-for="entry in entries" :key="entry.id" :href="`#${entry.id}`" :class="{ active: activeId === entry.id, 'handout-contents__child': entry.child }" :aria-current="activeId === entry.id ? 'location' : undefined" @click="activeId = entry.id"><MathText :content="entry.title" /></a>
+      <a v-for="entry in entries" :key="entry.id" :href="`#${entry.id}`" :class="{ active: activeId === entry.id, 'handout-contents__child': entry.child }" :aria-current="activeId === entry.id ? 'location' : undefined" @click.prevent="navigate(entry.id)"><MathText :content="entry.title" /></a>
     </nav>
   </component>
 </template>
@@ -13,8 +13,14 @@ import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{ entries: { id: string; title: string; child?: boolean }[]; collapsible?: boolean }>(), { collapsible: false })
+const emit = defineEmits<{ (event: 'navigate', id: string): void }>()
 const activeId = ref('')
 let animationFrame = 0
+function navigate(id: string) {
+  activeId.value = id
+  document.getElementById(id)?.scrollIntoView?.({ behavior: 'instant', block: 'start' })
+  emit('navigate', id)
+}
 function updatePosition() {
   const boundary = Math.min(160, window.innerHeight * .2)
   let current = props.entries[0]?.id || ''

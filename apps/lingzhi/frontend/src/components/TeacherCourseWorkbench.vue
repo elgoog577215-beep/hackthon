@@ -358,6 +358,7 @@
                 .replace('{completed}', String(lessonCompletedCount))
                 .replace('{total}', String(lessonStore.lessons.length)) }}</small>
             </header>
+            <div class="lesson-outline-scroll">
             <nav>
               <button
                 v-for="(lesson, index) in lessonStore.lessons"
@@ -409,6 +410,13 @@
                 </span>
               </button>
             </nav>
+            <HandoutTableOfContents
+              v-if="activeStage === 'script' && scriptDocument?.contents?.length && !scriptDocumentEditing && !aiCandidatePending"
+              class="lesson-outline-contents"
+              :entries="scriptDocument.contents"
+              @navigate="scriptDocument?.selectContent($event)"
+            />
+            </div>
           </aside>
           <div
             ref="lessonStageContent"
@@ -768,6 +776,7 @@
             :can-generate="currentScriptCanGenerate && !referenceGenerationBlocked"
             :generation-blocked-reason="referenceGenerationBlocked ? referenceGenerationBlockReason : ''"
             external-toolbar
+            external-navigation
             @generate="generateScript"
             @pause-generation="pauseScriptGeneration"
             @cancel-generation="cancelScriptGeneration"
@@ -1182,6 +1191,7 @@ import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.v
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
+import HandoutTableOfContents from './HandoutTableOfContents.vue'
 import { hasRetainedStaleScript, hasScriptPreviewContent, scriptFailurePresentation, scriptGenerationPresentation } from '../utils/teacher-script-presentation'
 import { teacherFacingTeachingLabel } from '../utils/teaching-terminology'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
@@ -1279,6 +1289,8 @@ type ProductionAiDocumentHandle = {
   selectAiScope?: (scopeId: string) => boolean
 }
 type ScriptDocumentHandle = ProductionAiDocumentHandle & {
+  contents: { id: string; title: string; child?: boolean }[]
+  selectContent: (id: string) => void
   showWorkingPreview: boolean
   editing: boolean
   saving: boolean
@@ -4871,6 +4883,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.lesson-outline-contents{margin-top:14px;padding-top:14px;border-top:1px solid var(--lz-border,#e1e5ec)}
+.lesson-outline--fixed>.lesson-outline-scroll{min-height:0;overflow:auto;padding:6px;background:#fff;scrollbar-width:thin}
 .outline-generation-mode { max-width: 520px; }
 .outline-generation-mode select, .outline-generation-mode small { font-size: 15px; }
 .stage-prerequisite-reason { margin: 8px 12px 16px; color: #64748b; font-size: 15px; line-height: 1.6; }

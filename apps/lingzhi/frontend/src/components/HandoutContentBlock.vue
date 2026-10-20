@@ -1,12 +1,13 @@
 <template>
   <component :is="isAnswerDisclosure ? 'details' : 'div'" class="handout-block"
-    :class="[`handout-block--${tone}`, { 'handout-block--answer': isAnswerDisclosure }]"
-    :data-handout-type="contentType || undefined" :data-answer-to="answerTo || undefined">
+    :class="[`handout-block--${tone}`, group ? `handout-block--group-${group}` : '', { 'handout-block--answer': isAnswerDisclosure }]"
+    :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
+        <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
         <span v-if="displayLabel" class="handout-block__label">{{ displayLabel }}</span>
         <span v-if="displayLabel && title" class="handout-block__separator" aria-hidden="true">·</span>
-        <h5 v-if="title"><MathText :content="title" /></h5>
+        <h5 v-if="title"><MathText :content="displayTitle" /></h5>
       </div>
       <span v-if="isAnswerDisclosure" class="handout-block__disclosure">
         <span class="handout-block__reveal">{{ t('courseWorkbench.scriptDocument.revealAnswer', '展开解答') }}</span>
@@ -24,6 +25,7 @@ import { computed } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
+import { handoutContentGroup, handoutContentType } from '../utils/handout-content'
 import '../styles/handout-document.css'
 
 const props = withDefaults(defineProps<{
@@ -38,6 +40,8 @@ const props = withDefaults(defineProps<{
 
 // Keep streaming and interrupted drafts visible; only settled linked answers collapse.
 const isAnswerDisclosure = computed(() => Boolean(props.answerTo && props.collapseAnswer && !props.streaming && props.showHeader))
+const normalizedType = computed(() => handoutContentType(props.contentType))
+const group = computed(() => props.answerTo ? undefined : handoutContentGroup(normalizedType.value))
 const tone = computed(() => {
   const tones: Record<string, string> = {
     definition: 'definition', 定义: 'definition',
@@ -45,10 +49,22 @@ const tone = computed(() => {
     example: 'example', 例题: 'example', exercise: 'exercise', 练习: 'exercise',
     misconception: 'warning', 辨析: 'warning', warning: 'warning', 易错点: 'warning',
   }
-  return tones[props.contentType] || 'prose'
+  return tones[normalizedType.value] || 'prose'
 })
-// Explanatory paragraphs read as a chapter, rather than a sequence of role badges.
-const displayLabel = computed(() => tone.value === 'prose' && ['introduction', 'explanation', 'comparison', 'derivation'].includes(props.contentType) ? '' : props.label)
+const displayLabel = computed(() => {
+  const label = normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label
+  return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
+})
+const displayTitle = computed(() => {
+  for (const label of [displayLabel.value, props.label]) {
+    if (!label) continue
+    for (const separator of ['：', ':']) {
+      const prefix = label + separator
+      if (props.title.startsWith(prefix)) return props.title.slice(prefix.length).trim() || props.title
+    }
+  }
+  return props.title
+})
 </script>
 
 <style scoped>
@@ -74,6 +90,15 @@ const displayLabel = computed(() => tone.value === 'prose' && ['introduction', '
 .handout-block--answer>.handout-block__heading:focus-visible{outline:3px solid #328dcc;outline-offset:3px}
 .handout-block--answer>.handout-block__body{padding:6px 20px 20px}
 .handout-block--answer>.handout-block__heading h5{color:#315e91;font:650 16px/1.7 var(--handout-sans)}
+.handout-block__group{flex:none;padding:1px 7px;border:1px solid var(--handout-edge);border-radius:4px;color:var(--handout-accent);background:var(--handout-tint);font:700 15px/1.7 var(--handout-sans)}
+.handout-block--group-explanation{--handout-accent:#315e91;--handout-tint:#f0f5fc;--handout-edge:#d1dfef}
+.handout-block--group-practice{--handout-accent:#17815a;--handout-tint:#edf7f2;--handout-edge:#cbe5d8}
+.handout-block--group-question{--handout-accent:#6e4a9c;--handout-tint:#f2eef9;--handout-edge:#d8cce9}
+.handout-block[data-handout-group]:not(.handout-block--answer){padding:16px 22px 18px;border:0;border-left:3px solid var(--handout-accent);background:var(--handout-tint)}
+.handout-block[data-handout-group="explanation"]:not(.handout-block--answer){background:transparent}
+.handout-block[data-handout-group]>.handout-block__heading{margin:0 0 12px}
+.handout-block[data-handout-group]>.handout-block__heading h5{color:#242a35;font:700 19px/1.6 var(--handout-serif)}
+.handout-block--warning .handout-block__label,.handout-block--warning .handout-block__separator{color:#a64355}
 .handout-block__disclosure{flex:none;display:flex;align-items:center;gap:8px;color:#315e91;font:650 15px/1.7 var(--handout-sans)}
 .handout-block__hide{display:none}
 .handout-block[open] .handout-block__reveal{display:none}

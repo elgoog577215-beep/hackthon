@@ -30,7 +30,7 @@ from teaching_design import (
 )
 from teaching_diagrams import teaching_diagram_prompt
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v40"
+PROMPT_CONTRACT_VERSION = "course_prompt_v41"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
@@ -135,14 +135,19 @@ def build_handout_prompt(
         + "\n\n按以下顺序直接输出 Markdown，替换方括号内的说明为正文。"
         "每个内容块先输出独占行 <!-- block:{\"type\":\"类型\",\"title\":\"具体标题\",\"key\":\"本节内唯一键\"} -->，随后写该块 Markdown 正文。"
         "下一块标记、小节标记或响应结束即结束当前块，不另写块结束标记。"
-        "type 可用 definition、explanation、comparison、derivation、example、exercise、answer、misconception、summary、introduction，"
+        "内容块按教学用途组织为三类。讲解：background（背景）、introduction（引入）、definition（定义）、explanation（解释）、"
+        "derivation（推导）、example（举例，完整展示思路与解法）、comparison（对比），以及 theorem、result、misconception、summary 等；"
+        "练习：exercise（理论练习，给出明确条件和作答要求）、case（实战案例，给出情境、约束、待交付成果及验收标准）；"
+        "提问：review_question（复习提问，回顾已讲知识及其条件）、guiding_question（启发提问，引导比较、推理、预测或迁移，不在题面泄露结论）。"
         "确有需要时可用 theorem、result、warning 或自定义典故、思想实验、实验等类型。"
         "这不是必选清单：按学习起点、目标、学科、资料和要求自由决定块类型、数量、顺序；允许先推导后定义，不凑齐、不为变化而变化。"
         "一个块承担一个连贯的学习作用，可含多个段落、代码、公式或表格；不要每个自然段都拆块。"
         "解答或自定义反馈块用 answer_to 引用本小节需要回应的练习、思想实验或任务块的 key。"
         "所有元数据只写在块标记的同一个 JSON 对象内。例如：<!-- block:{\"type\":\"answer\",\"title\":\"自测解答\",\"key\":\"a1\",\"answer_to\":\"q1\"} -->。"
         "knowledge 如需提供也放在此 JSON 对象内；正文不另写 answer_to:、knowledge: 等元数据行。"
-        "练习块只含题面和作答要求；参考解答必须另起解答块并引用练习的 key，不在练习块内用小标题混写答案。例题的完整解法留在例题块。"
+        "三类不是必选清单，也不规定先后顺序；根据教学目标与内容需要选择，不为凑齐类别增加无意义任务。"
+        "练习、实战案例和提问块只放题面、任务与作答要求；参考解答另用 answer 块并以 answer_to 关联所回应任务的 key，"
+        "解答给出推理依据、参考思路或评价标准，开放问题不伪装只有唯一答案。不能在任务块或标题中泄露答案。例题的完整解法留在 example 块。"
         "knowledge 可选，格式为字符串数组，仅引用输入教案已有知识名称，无法精确绑定就省略，不能编造。"
         "教案模块提供目标和教学深度，不规定正文块一一对应或固定顺序；课堂组织、分组和教师话术不直接搬进教材。"
         "课程上下文决定讲解深度与支架：目标难度和学习起点分开，基础不足时补必要解释与例子，不擅自降低目标；"

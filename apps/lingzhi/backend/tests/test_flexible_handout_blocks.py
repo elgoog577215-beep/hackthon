@@ -35,6 +35,24 @@ def test_free_order_custom_types_and_answer_identity():
     assert {b['block_id'] for b in blocks}.isdisjoint(b['block_id'] for b in regenerated['blocks'])
 
 
+def test_pedagogical_tasks_and_question_answers_keep_distinct_roles_and_links():
+    text = '\n'.join([
+        marker('background', '应用背景', '考虑资料已给出的使用情境。', key='background'),
+        marker('举例', '先看完整示范', '从条件出发，得到并核对结论。', key='worked'),
+        marker('理论练习', '运用规则', '请按给定条件推演。', key='exercise'),
+        marker('case', '完成应用方案', '在明确约束内提交方案并说明验收依据。', key='case'),
+        marker('复习性提问', '回顾成立条件', '这条规则需要什么条件？', key='review'),
+        marker('guiding_question', '改变条件后会怎样', '请比较两种可能并给出理由。', key='guide'),
+        marker('answer', '开放问题的参考思路', '可以比较不同方案，不要求唯一结论。', key='answer', answer_to='guide'),
+    ])
+    parsed = parse_handout_blocks(text, 's', identity='new-question-job', complete=True)
+    assert not parsed['error']
+    blocks = parsed['blocks']
+    assert [block['content_type'] for block in blocks] == ['background', 'example', 'exercise', 'case', 'review_question', 'guiding_question', 'answer']
+    assert [block['role'] for block in blocks[2:6]] == ['activity', 'activity', 'checkpoint', 'checkpoint']
+    assert blocks[-1]['answer_to'] == blocks[-2]['block_id']
+
+
 @pytest.mark.parametrize('title,expected', [
     ('比较"先进"与"后进"', '比较"先进"与"后进"'),
     (r'比较\"先进\"与"后进"', '比较"先进"与"后进"'),

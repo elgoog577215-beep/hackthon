@@ -1263,7 +1263,22 @@
       "generateStepDetail": "按对应内容直接生成",
       "mappingTitle": "本讲讲义将按以下教案生成",
       "mappingReady": "教案提供教学依据，讲义将按本讲目标灵活编排。",
+      "contentGroups": {
+        "explanation": "讲解",
+        "practice": "练习",
+        "question": "提问"
+      },
+      "contentGroupHints": {
+        "explanation": "背景、定义、推导、举例、对比等，帮助理解知识",
+        "practice": "理论练习与实战案例，先完成任务，再展开解答",
+        "question": "复习提问回顾已学内容，启发提问引导判断与迁移"
+      },
       "contentTypes": {
+        "background": "背景",
+        "case": "实战案例",
+        "question": "思考提问",
+        "review_question": "复习提问",
+        "guiding_question": "启发提问",
         "rule": "规则",
         "diagram": "图解",
         "flowchart": "流程图",
@@ -1273,8 +1288,8 @@
         "explanation": "解释",
         "comparison": "对比",
         "derivation": "推导",
-        "example": "例题",
-        "exercise": "练习",
+        "example": "举例",
+        "exercise": "理论练习",
         "answer": "解答",
         "misconception": "辨析",
         "summary": "总结",
