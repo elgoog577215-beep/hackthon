@@ -184,3 +184,52 @@ async def test_valid_binding_survives_a_separate_semantic_failure(svc,monkeypatc
     assert staged['passages']==before['passages']
     assert staged['_content_review_trace'][0]['relation_binding']['target']=='栈顶'
     assert [row['relation_binding']['target'] for row in output['_content_review_trace']]==['栈顶','栈底']
+
+
+def test_replacement_cannot_silently_delete_a_knowledge_point():
+    from jsonschema import Draft202012Validator
+    from knowledge_extraction_repair import repair_schema
+    from knowledge_correction_plan import correction_plan
+    p=point();plan=correction_plan(p,[{'code':'duplicate_question','message':'同一问题存在不同答案'}])
+    targets={key:{'point':p,'passage_key':'S1.1','correction_plan':plan,
+        'duplicate_group':['S1.1:0','S1.1:1']} for key in ['S1.1:0','S1.1:1']}
+    schema=repair_schema(targets,{'S1.1':'入栈将元素插入栈顶。'},semantic_roles=True)
+    invalid={'repairs':{key:{'handling':'replace','points':[],'reason':'已经合并'} for key in targets},'source_issues':[]}
+    assert list(Draft202012Validator(schema).iter_errors(invalid))
+
+
+@pytest.mark.asyncio
+async def test_merge_can_keep_canonical_point_unchanged_and_invalid_action_has_typed_feedback(svc,monkeypatch):
+    from knowledge_extraction_repair import correct_points
+    from knowledge_relation_binding import CONTRACT
+    from knowledge_expression import bind_name
+    from backend.tests.test_knowledge_extraction_repair import value
+    raw,context=context_for(svc,monkeypatch)
+    context.update(knowledge_correction_contract='knowledge_correction_plan_v5',relation_binding_contract=CONTRACT)
+    source='入栈将元素插入栈顶，亦即在栈顶加入一个元素。'
+    passages=[dict(key='S1.1',source_key='S1',text=source,start=0,end=len(source))]
+    monkeypatch.setattr('knowledge_extraction_repair.passage_catalog',lambda *a,**k:deepcopy(passages))
+    points=[point(),point(value='在栈顶加入一个元素')]
+    name='入栈把元素加入栈顶'
+    original=value(points);original['_content_review_trace']=[{'expression':bind_name(name,p,source)} for p in points]
+    before=deepcopy(original);calls=[];record={}
+    async def call(*args):
+        payload=json.loads(args[-2].split('\nINPUT_JSON:\n')[1]);calls.append(payload)
+        if len(calls)==1:
+            merged={'handling':'replace','points':[],'merge_into':'S1.1:0','reason':'合并到规范点'}
+        else:
+            diagnostic=payload['correction_feedback']['diagnostics'][0]
+            assert diagnostic['code']=='invalid_repair_action'
+            assert diagnostic['target_key']=='S1.1:1'
+            assert diagnostic['actual']['handling']=='replace'
+            assert 'merge' in diagnostic['expected']
+            merged={'handling':'merge','merge_into':'S1.1:0','reason':'完整命题和条件相同'}
+        return json.dumps({'repairs':{
+            'S1.1:0':{'handling':'replace','points':[points[0]],'reason':'原样保留规范点'},
+            'S1.1:1':merged},'short_statements':{key:[name] for key in ['S1.1:0','S1.1:1']},'source_issues':[]})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    output,_=await correct_points(svc,'c-pilot','j',None,raw,context,['S1'],1,original,record,
+        compile_result=lambda r:r,validate_source=lambda:None,max_attempts=2)
+    assert len(calls)==2 and original==before
+    assert output['passages']['S1.1']['points']==[points[0],points[0]]
+    assert record['decisions'][1]['merge_into']=='S1.1:0'
