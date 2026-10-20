@@ -17,6 +17,11 @@ def policy_payload(contract=CONTRACT):
     return {
         'contract': CONTRACT,
         'knowledge_unit': '本课范围和前置下，一个可完整解释、明确条件并有针对性检查的概念、规则、判断或最小方法。',
+        'representation': {
+            'rule_form': 'fact',
+            'rule_preconditions_field': 'conditions',
+            'instruction': '一般规则或求导公式使用fact，property明确一个规则性质（如求导公式），value保留完整公式，实际可导、非零和常量等前提放conditions并随本点保留；不把所有规则改写成术语definition。definition用于函数复合等真正概念，其constraints只放定义不可缺少的内涵限定，不代替规则的实际适用前提。每点自行说明所用符号的含义，不能依赖相邻点或父分类补足。',
+        },
         'split_when': [
             '候选确实包含多个可分别完整陈述、具有独立边界的知识核，并能分别教学、检查和补学。',
             '拆分后每点保留必要条件、来源和原内容去向；不是只根据名称或可能出错位置拆分。',
