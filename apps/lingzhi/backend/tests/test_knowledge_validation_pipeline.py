@@ -14,6 +14,20 @@ from course_repository import CourseDocumentConflict
 PROCESSING = 'knowledge_validation_pipeline_v4'
 
 
+def test_formula_display_preserves_the_object_and_legacy_rendering():
+    from knowledge_expression import bind_name, bound_name
+    source = '法线的方程为x=a，垂直切线的方程也为x=a，成立条件不同。'
+    rows = [point('法线', property='方程', value='x=a', conditions=["f′(a)=0"]),
+            point('垂直切线', property='方程', value='x=a', conditions=['斜率趋于无穷'])]
+    names = []
+    for rule in rows:
+        expression = bind_name(f"{rule['subject']}方程为x=a", rule, source)
+        assert bound_name(expression, rule, source) == 'x=a'
+        names.append(bound_name(expression, rule, source, qualify_formula=True))
+    assert names == ['法线：x=a', '垂直切线：x=a']
+    assert rows[0]['conditions'] != rows[1]['conditions']
+
+
 def context_for(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     raw = svc.repository.load_raw('c-pilot')
