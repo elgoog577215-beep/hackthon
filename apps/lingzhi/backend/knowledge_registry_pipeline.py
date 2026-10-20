@@ -41,6 +41,8 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch['status'] = 'pending'
             batch.pop('points', None)
             batch.pop('request', None)
+            batch.pop('discovery_points', None)
+            batch.pop('atomization_batches', None)
         for key in ('registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
         pipeline.pop('kc_profiles',None)
@@ -50,7 +52,8 @@ def continued_pipeline(checkpoint, retry_batch_id):
 async def run(svc, course_id, job_id):
     from knowledge_first import knowledge_revision, now
     from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
-    from knowledge_coverage import plan_prompt, review_prompt, apply_review, focus_prompt, parse_focus, combine_focus, parse_plan, units_prompt, parse_unit_points
+    from knowledge_coverage import parse_plan, units_prompt, parse_unit_points
+    from knowledge_discovery import material_batches, discovery_prompt, parse_discovery, discovered_units, atomization_prompt, parse_atoms
     job = svc._active(course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
@@ -81,15 +84,15 @@ async def run(svc, course_id, job_id):
         pipeline['revision'] += 1
         if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
             pipeline['preview_tree'] = build_tree(raw, context, pipeline, job_id, preview=True)
-        complete = sum(b['status'] == 'completed' for b in pipeline['inventory_batches'])
-        progress = 8 if pipeline.get('coverage_plan',{}).get('units') else 0
-        if pipeline.get('coverage_review',{}).get('units'):
-            progress = 15
-        reviews=pipeline.get('focus_reviews',[])
-        if reviews:
-            progress = 15 + int(15*sum(b['status']=='completed' for b in reviews)/len(reviews))
-        if pipeline['inventory_batches']:
-            progress = 30 + int(25*complete/len(pipeline['inventory_batches']))
+        batches=pipeline['inventory_batches']
+        done=0.0
+        for batch in batches:
+            if batch['status']=='completed':
+                done+=1
+            elif 'discovery_points' in batch:
+                groups=batch.get('atomization_batches',[])
+                done+=0.25+0.75*sum(g['status']=='completed' for g in groups)/max(len(groups),1)
+        progress=int(55*done/len(batches)) if batches else 0
         if pipeline.get('registry'):
             progress = 70
         if pipeline.get('names', {}).get('status') == 'completed':
@@ -159,58 +162,66 @@ async def run(svc, course_id, job_id):
             provider = AIBase()
         available = sources(context)
         materials=[{'key':key,'text':u['source_text']} for key,u in available.items()]
-        if job.get('coverage_units'):
+        supplied = bool(job.get('coverage_units'))
+        if supplied:
             if 'frozen_units' not in pipeline:
-                pipeline['frozen_units']=parse_plan({'units':job['coverage_units']},pipeline['teaching_focus'])
-                pipeline['plan_origin']='provided_coverage_plan'
-                save()
+                pipeline['frozen_units'] = parse_plan({'units':job['coverage_units']}, pipeline['teaching_focus'])
+            pipeline['plan_origin'] = 'provided_coverage_plan'
+            if not pipeline['inventory_batches']:
+                units = pipeline['frozen_units']
+                pipeline['inventory_batches'] = [
+                    {'id':f'inventory-{i//6+1}', 'source_keys':list(available),
+                     'unit_keys':[u['key'] for u in units[i:i+6]], 'status':'pending'}
+                    for i in range(0,len(units),6)]
         else:
-            plan=pipeline.setdefault('coverage_plan',{})
-            if 'units' not in plan:
-                plan['units']=await request(plan_prompt(raw,context,materials,pipeline['teaching_focus']),
-                    'coverage_plan',plan,lambda value:parse_plan(value,pipeline['teaching_focus']))
-                save()
-            review=pipeline.setdefault('coverage_review',{})
-            if 'units' not in review:
-                review['units']=await request(review_prompt(plan['units'],materials,pipeline['teaching_focus']),
-                    'coverage_review',review,lambda value:apply_review(value,plan['units'],pipeline['teaching_focus']))
-                save()
-            if 'frozen_units' not in pipeline:
-                if pipeline['teaching_focus']:
-                    reviews=pipeline.setdefault('focus_reviews',[{'id':f'focus-{i+1}','focus':focus,'status':'pending'} for i,focus in enumerate(pipeline['teaching_focus'])])
-                    async def review_focus(index,batch):
-                        batch['result']=await request(focus_prompt(batch['focus'],review['units'],materials),'coverage_focus',
-                            batch.setdefault('request',{}),lambda value:parse_focus(value,batch['focus'],review['units']))
-                        batch['status']='completed'
-                        save()
-                    await run_batches(reviews,review_focus,width=3,stage='coverage_focus')
-                    pipeline['frozen_units']=combine_focus(review['units'],reviews,pipeline['teaching_focus'])
-                else:
-                    pipeline['frozen_units']=deepcopy(review['units'])
-                save()
-        if not pipeline['inventory_batches']:
-            units=pipeline['frozen_units']
-            pipeline['inventory_batches']=[{'id':f'inventory-{i//6+1}',
-                'source_keys':list(available),'unit_keys':[u['key'] for u in units[i:i+6]],'status':'pending'}
-                for i in range(0,len(units),6)]
-            save()
+            pipeline['plan_origin'] = 'material_discovery'
+            if not pipeline['inventory_batches']:
+                pipeline['inventory_batches'] = material_batches(materials)
+        save()
 
         async def extract(index, batch):
-            units=[u for u in pipeline['frozen_units'] if u['key'] in batch['unit_keys']]
-            prompt = units_prompt(units,materials,pipeline['catalog'])
+            if supplied:
+                units = [u for u in pipeline['frozen_units'] if u['key'] in batch['unit_keys']]
+                prompt = units_prompt(units, materials, pipeline['catalog'])
+                stage = 'coverage_extract'
+                compile_result = lambda value: parse_unit_points(value,units,batch['source_keys'])
+            else:
+                local_materials = [m for m in materials if m['key'] in batch['source_keys']]
+                prompt = discovery_prompt(raw,context['handout_lessons'][0]['title'],local_materials,pipeline['teaching_focus'])
+                stage = 'knowledge_discovery'
+                compile_result = lambda value: parse_discovery(value,batch['id'],batch['source_keys'],pipeline['teaching_focus'])
             try:
-                batch['points'] = await request(prompt, 'coverage_extract', batch.setdefault('request', {}),
-                    lambda value: parse_unit_points(value,units,batch['source_keys']))
+                discovered = await request(prompt,stage,batch.setdefault('request',{}),compile_result)
+                if supplied:
+                    batch['points'] = discovered
+                else:
+                    batch['discovery_points'] = discovered
+                    groups=batch.setdefault('atomization_batches',[
+                        {'id':f"{batch['id']}-atoms-{i+1}",'keys':[p['key']],'status':'pending'}
+                        for i,p in enumerate(discovered)])
+                    for group in groups:
+                        if group['status']=='completed':
+                            continue
+                        originals=[p for p in discovered if p['key'] in group['keys']]
+                        group['result']=await request(atomization_prompt(originals),'knowledge_atomize',
+                            group.setdefault('request',{}),lambda value:parse_atoms(value,originals))
+                        group['status']='completed'
+                        batch['points']=[p for g in groups for p in g.get('result',[])]
+                        pipeline['frozen_units']=discovered_units([p for b in pipeline['inventory_batches'] for p in b.get('points',[])])
+                        save()
+                    batch.setdefault('points',[])
             except (ValueError, CourseDocumentConflict) as error:
                 validate_version()
-                batch['validation_error'] = {'message': str(error)}
+                batch['validation_error'] = {'message':str(error)}
                 save()
-                raise KnowledgeBatchValidationError(batch['id'], str(error)) from error
+                raise KnowledgeBatchValidationError(batch['id'],str(error)) from error
             batch['status'] = 'completed'
-            batch.pop('validation_error', None)
+            batch.pop('validation_error',None)
+            if not supplied:
+                pipeline['frozen_units'] = discovered_units([p for b in pipeline['inventory_batches'] for p in b.get('points',[])])
             save()
 
-        await run_batches(pipeline['inventory_batches'], extract, width=4, stage='coverage_extract')
+        await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
         candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
         if not pipeline.get('registry'):

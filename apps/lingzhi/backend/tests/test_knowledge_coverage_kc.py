@@ -106,43 +106,12 @@ def test_handout_consumes_only_matching_profile_revision():
     assert '教学草稿内容' not in handout_prompt({'knowledge_points':[p]},lesson)
 
 
-def test_coverage_review_cannot_drop_units_while_returning_a_smaller_summary():
-    from knowledge_coverage import parse_plan, apply_review
-    units=parse_plan({'units':[unit(),unit('常数倍保持系数')]},['线性法则'])
-    with pytest.raises(ValueError,match='所有原清单ID'):
-        apply_review({'decisions':{'U1':{'action':'keep','reason':'保留'}},'additions':[]},units,['线性法则'])
-    result=apply_review({'decisions':{u['key']:{'action':'keep','reason':'完整'} for u in units},'additions':[unit('和差分别求导')]},units,['线性法则'])
-    assert len(result)==3 and [u['statement'] for u in result[:2]]==[u['statement'] for u in units]
 
 
-def test_focus_review_reuses_existing_units_and_keeps_other_branches():
-    from knowledge_coverage import parse_plan, parse_focus, combine_focus
-    units=parse_plan({'units':[unit(focus=''),unit('常数倍保持系数')]},['线性法则'])
-    value={'facets':{'concepts':[],'rules':[{**unit('常数倍保持系数'),'covers':['U2']}],'representations':[],'methods':[],'boundary_cases':[]},'include_existing':['U1']}
-    result=parse_focus(value,'线性法则',units)
-    combined=combine_focus(units,[{'focus':'线性法则','result':result}],['线性法则'])
-    assert len(combined)==2 and all(u['profile_focus']=='线性法则' for u in combined)
-    value['include_existing']=['UNKNOWN']
-    with pytest.raises(ValueError):parse_focus(value,'线性法则',units)
 
 
-def test_composite_plan_repetition_needs_complete_explicit_coverage():
-    from knowledge_coverage import parse_plan,apply_review
-    units=parse_plan({'units':[unit('规则甲'),unit('规则乙'),unit('规则甲与规则乙')]},['线性法则'])
-    decisions={u['key']:{'action':'keep','reason':'完整'} for u in units[:2]}
-    decisions['U3']={'action':'covered','reason':'仅重复组合','targets':['U1','U2'],'complete_coverage':True,'adds_knowledge':False,'same_scope':True}
-    assert len(apply_review({'decisions':decisions,'additions':[]},units,['线性法则']))==2
-    decisions['U3']['adds_knowledge']=True
-    with pytest.raises(ValueError):apply_review({'decisions':decisions,'additions':[]},units,['线性法则'])
 
 
-def test_focus_can_carry_an_existing_unassigned_unit_without_duplicating_it():
-    from knowledge_coverage import parse_plan,parse_focus,combine_focus
-    units=parse_plan({'units':[unit(focus=''),unit('常数倍保持系数')]},['线性法则'])
-    value={'facets':{'concepts':[],'rules':[{**unit(),'covers':['U1']},{**unit('常数倍保持系数'),'covers':['U2']}],'representations':[],'methods':[],'boundary_cases':[]},'include_existing':[]}
-    result=parse_focus(value,'线性法则',units)
-    assert result['replaced_existing']==['U1']
-    assert len(combine_focus(units,[{'focus':'线性法则','result':result}],['线性法则']))==2
 
 
 def test_true_synonyms_from_different_units_merge_without_losing_coverage():

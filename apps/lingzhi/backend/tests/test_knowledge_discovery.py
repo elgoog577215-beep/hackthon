@@ -38,3 +38,26 @@ def test_context_only_material_is_recorded_without_inventing_leaves():
     assert parse_discovery({'points':[],'context_note':'本块只有课堂安排'},'b',['S1'],[])==[]
     with pytest.raises(ValueError):parse_discovery({'points':[],'context_note':''},'b',['S1'],[])
     with pytest.raises(ValueError):parse_discovery({'points':[point()],'context_note':'','unexpected':1},'b',['S1'],[])
+
+
+def test_atomicization_keeps_each_complete_claim_and_inherits_only_tracking_metadata():
+    from knowledge_discovery import parse_discovery,parse_atoms
+    from knowledge_registry_contract import FIELDS
+    original=parse_discovery({'points':[point('两个独立结论')],'context_note':''},'b',['S1'],[])
+    key=original[0]['key'];row={k:v for k,v in point().items() if k in {'statement','knowledge_type','conditions','check_intents'}}
+    response={'items':{key:{'disposition':'knowledge','reason':'两个独立可检查的结论',
+        'points':[{**row,'statement':'完整结论甲'},{**row,'statement':'完整结论乙'}]}}}
+    result=parse_atoms(response,original)
+    assert [p['statement'] for p in result]==['完整结论甲','完整结论乙']
+    assert result[0]['coverage_unit_ids']!=result[1]['coverage_unit_ids']
+    assert all(p['discovery_parent_key']==key and p['input_material_keys']==['S1'] for p in result)
+    with pytest.raises(ValueError):parse_atoms({'items':{}},original)
+    response['items'][key]['points']=[]
+    with pytest.raises(ValueError):parse_atoms(response,original)
+    response['items'][key]['disposition']='example'
+    assert parse_atoms(response,original)==[]
+
+
+def test_atomization_request_never_regroups_claims_into_a_summary():
+    from knowledge_discovery import atomization_prompt
+    with pytest.raises(ValueError):atomization_prompt([point(),point()])

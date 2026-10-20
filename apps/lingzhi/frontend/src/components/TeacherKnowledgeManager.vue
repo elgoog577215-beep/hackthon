@@ -113,6 +113,7 @@
           <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
             <summary>{{ t('knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
             <p>{{ t('knowledgeFirst.coverageHint') }}</p>
+            <p v-if="displayTree.knowledge_coverage.plan_origin === 'material_discovery'" data-testid="knowledge-discovery-plan">{{ t('knowledgeFirst.discoveryPlanNotice') }}</p>
             <p v-if="displayTree.knowledge_coverage.plan_origin === 'provided_coverage_plan'" data-testid="knowledge-provided-plan">{{ t('knowledgeFirst.providedPlanNotice') }}</p>
             <ul><li v-for="unit in displayTree.knowledge_coverage.units" :key="unit.key"><MathText :content="unit.statement" /></li></ul>
           </details>
@@ -430,7 +431,7 @@ function jobPhase(job: any) {
     && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
   const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
     : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
-  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : ['coverage_plan','coverage_review','coverage_focus'].includes(stage) ? 'knowledgeFirst.coverageTitle' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'knowledge_discovery' ? 'knowledgeFirst.discoverKnowledge' : stage === 'knowledge_atomize' ? 'knowledgeFirst.separateKnowledge' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null

@@ -150,3 +150,14 @@ it.each(['zh', 'en'] as const)('shows coverage and revision-bound teaching draft
   expect(stale.find('[data-testid="knowledge-teaching-profile"]').exists()).toBe(false)
   stale.unmount()
 })
+
+
+it.each(['zh','en'] as const)('labels automatic discovery honestly in %s',async locale=>{
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
+  const v:any=view();v.tree.knowledge_coverage={plan_origin:'material_discovery',unit_count:2,covered_unit_count:2,units:[]}
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-discovery-plan"]').text()).toContain(locale==='zh'?'由材料自动生成':'discovered from the material')
+  expect(w.find('[data-testid="knowledge-provided-plan"]').exists()).toBe(false)
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})

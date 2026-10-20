@@ -8208,7 +8208,10 @@
       "common_mistakes": "需要留意的错误",
       "difficulty_cues": "难度变化"
     },
-    "providedPlanNotice": "本版按指定的知识清单生成；相同讲义再次生成时会沿用该清单。"
+    "providedPlanNotice": "本版使用指定的知识清单；重新生成默认自动发现知识。",
+    "discoverKnowledge": "逐块发现知识",
+    "separateKnowledge": "逐条拆分独立结论",
+    "discoveryPlanNotice": "本清单由材料自动生成，记录知识拆分和同义合并后的对应关系。"
   },
   "companionWorkspace": {
     "title": "灵知学伴",

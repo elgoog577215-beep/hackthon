@@ -5,7 +5,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-CONTRACT = 'knowledge_registry_v2'
+CONTRACT = 'knowledge_registry_v3'
 FIELDS = ('statement', 'knowledge_type', 'conditions', 'symbol_definitions', 'teaching_context', 'examples')
 
 def parse_json(response):
@@ -87,9 +87,11 @@ def parse_candidates(value, batch_key, material_keys):
 def identity_prompt(candidates, catalog):
     return render(
         '统一核对本讲候选的完整知识和身份。对象、结论、公式含义与真实适用条件相同才是同一知识。'
-        '符号说明的同义表述不是适用范围差异；平均与瞬时、必要与充分、不同方向或范围必须区分。'
+        '符号说明的同义表述不是适用范围差异；平均与瞬时、必要与充分、不同物理方向或范围必须区分。'
         'coverage_unit_ids是已经列出的独立学习目标。不同清单项不能只因同属一个主题而match或covered；'
         '常数求导不能被常数倍或和差求导吸收。完整知识的口头表述、公式和换记号若语义完全等价应合并，保留所有清单关联；清单ID不同本身不是语义不同的证据。'
+        '同一命题与其逆否命题在相同范围内应对应同一知识；口头公式、符号缩写和教学用途说明不得重复占据叶子。'
+        '不同检查角度不是不同知识的证据。纯用途介绍并入完整规律，纯算例或操作错误归context。'
         '已有知识目录是冻结内容，只能复用，不得改写。名称相近只提供线索，不是合并依据。'
         '每个候选key恰好给一个决定：keep保留；replace用points给完整修正点或拆分点；'
         'match指向本轮另一个keep或单点replace目标，或已有目录E键；由程序根据目标身份完成合并或复用。uncertain保留待确认；'
