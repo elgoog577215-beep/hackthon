@@ -8211,7 +8211,8 @@
     "providedPlanNotice": "This version used a specified knowledge checklist. Regeneration discovers knowledge automatically by default.",
     "discoverKnowledge": "Discovering knowledge from material blocks",
     "separateKnowledge": "Separating independent claims",
-    "discoveryPlanNotice": "This checklist was discovered from the material and tracks the claims after splitting and equivalent-claim merging."
+    "discoveryPlanNotice": "This checklist was discovered from the material and tracks the claims after splitting and equivalent-claim merging.",
+    "discoveryCoverageTitle": "Automatic candidate mapping"
   },
   "companionWorkspace": {
     "title": "Lingzhi Companion",

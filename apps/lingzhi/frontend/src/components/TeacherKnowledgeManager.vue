@@ -111,7 +111,7 @@
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
           <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
-            <summary>{{ t('knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
+            <summary>{{ t(displayTree.knowledge_coverage.plan_origin === 'material_discovery' ? 'knowledgeFirst.discoveryCoverageTitle' : 'knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
             <p>{{ t('knowledgeFirst.coverageHint') }}</p>
             <p v-if="displayTree.knowledge_coverage.plan_origin === 'material_discovery'" data-testid="knowledge-discovery-plan">{{ t('knowledgeFirst.discoveryPlanNotice') }}</p>
             <p v-if="displayTree.knowledge_coverage.plan_origin === 'provided_coverage_plan'" data-testid="knowledge-provided-plan">{{ t('knowledgeFirst.providedPlanNotice') }}</p>

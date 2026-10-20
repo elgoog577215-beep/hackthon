@@ -8211,7 +8211,8 @@
     "providedPlanNotice": "本版使用指定的知识清单；重新生成默认自动发现知识。",
     "discoverKnowledge": "逐块发现知识",
     "separateKnowledge": "逐条拆分独立结论",
-    "discoveryPlanNotice": "本清单由材料自动生成，记录知识拆分和同义合并后的对应关系。"
+    "discoveryPlanNotice": "本清单由材料自动生成，记录知识拆分和同义合并后的对应关系。",
+    "discoveryCoverageTitle": "自动候选对应情况"
   },
   "companionWorkspace": {
     "title": "灵知学伴",
