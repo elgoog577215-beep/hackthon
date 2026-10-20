@@ -141,6 +141,8 @@ async def test_real_pipeline_merges_ids_and_previews_use_the_merged_catalog(svc,
         if stage == 'semantic_equivalence':
             return json.dumps({'point_reviews': {'K1': {'canonical_key': 'K2', 'forward_reason': '后进先出即后加入先移除', 'reverse_reason': '后加入先移除即后进先出'},
                                                 'K2': {'canonical_key': 'K2', 'forward_reason': '本组代表', 'reverse_reason': ''}}})
+        if stage == 'semantic_equivalence_pairs':
+            return json.dumps({'pair_reviews': {key: {'relation': 'restatement', 'forward_reason': '同一访问顺序', 'reverse_reason': '同义转述'} for key in data['pairs']}})
         assert len(data['points']) == 1 and data['points'][0]['key'] == 'K1'
         return json.dumps({'response_contract': 'knowledge_partition_v1', 'groups': [],
                            'point_groups': {'K1': '__direct__'}, 'stop_reason': '同一访问规则'})
@@ -227,3 +229,20 @@ def test_literal_source_subject_must_not_end_at_an_unfinished_predicate():
     with pytest.raises(CourseDocumentConflict, match='残缺谓语'):
         quality_point(point('元素插入到', value='栈顶'), '入栈将元素插入到栈顶。', general_knowledge=True)
     quality_point(point('类型转换', value='在赋值时发生'), '类型转换在赋值时发生。', general_knowledge=True)
+
+
+@pytest.mark.asyncio
+async def test_pair_confirmation_finds_missed_restatements_and_rejects_derived_equivalence(monkeypatch):
+    from knowledge_equivalence_pairs import confirm_pairs
+    rows = points()[:2]
+    for p in rows: p['atomic_contract']['subjects'] = ['物体']
+    async def call(*args):
+        data = json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        assert len(data['pairs']) == 1
+        return json.dumps({'pair_reviews': {'E1': {'relation': relation, 'forward_reason': '正向依据', 'reverse_reason': '反向依据'}}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    for relation in ['restatement', 'derived_equivalence', 'different', 'uncertain']:
+        record = {}
+        groups = await confirm_pairs(None, 'c', 'j', None, rows, [], record, lambda **kw: None, lambda: None)
+        assert len(groups) == (1 if relation == 'restatement' else 0)
+        assert record['pair_batches'][0]['status'] == 'completed'
