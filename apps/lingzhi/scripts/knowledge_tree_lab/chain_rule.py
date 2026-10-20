@@ -56,10 +56,30 @@ def build_bundle():
           ['6*(3*x+1)'], ['2*(3*x+1)'], ['K-CHAIN'], '表示变化', '抽象函数记号，已提供基础导数')
     check('transfer-2', "已知A'(z)=cos(z)、(2t)'=2，求A(2t)对t的导数；各函数满足链式条件。",
           ['2*cos(2*t)'], ['cos(2*t)'], ['K-CHAIN'], '表示变化', '另一抽象记号及自变量')
-    check('verify-1', '独立对sin(4x)求导。', ['4*cos(4*x)'], ['cos(4*x)'],
-          ['K-SIN', 'K-CHAIN'], '后续独立验证', '新题', 'verification')
-    check('verify-2', '独立对cos(5x)求导。', ['-5*sin(5*x)'], ['-sin(5*x)'],
-          ['K-COS', 'K-CHAIN'], '后续独立验证', '另一新题', 'verification')
+    verification = {
+        'structure': [
+            ('指定外层为sqrt(u)，把sqrt(1+x^2)写为先u后y的两步，不求导。', 'u=1+x^2，y=sqrt(u)', 'u=sqrt(x)，y=1+u^2', ['K-COMP']),
+            ('指定外层为sin(u)，把sin(4x-1)写为先u后y的两步，不求导。', 'u=4x-1，y=sin(u)', 'u=sin(x)，y=4u-1', ['K-COMP'])],
+        'power': [('求x^4对x的导数。', '4*x^3', 'x^3', ['K-POWER']), ('求x^5对x的导数。', '5*x^4', 'x^4', ['K-POWER'])],
+        'trig': [('求sin(v)对v的导数，采用弧度。', 'cos(v)', 'sin(v)', ['K-SIN']), ('求cos(v)对v的导数，采用弧度。', '-sin(v)', 'sin(v)', ['K-COS'])],
+        'evaluation': [
+            ("已知g(0)=2、g'(0)=4、f'(2)=3、f'(0)=5；满足链式条件，求(f∘g)'(0)。", '12', '20', ['K-CHAIN']),
+            ("已知g(3)=1、g'(3)=5、f'(1)=4、f'(3)=7；满足链式条件，求(f∘g)'(3)。", '20', '35', ['K-CHAIN'])],
+        'combination': [
+            ("已知f'(g(x0))=7、g'(x0)=2；满足链式条件，写出最终完整运算式，不求值。", '7*2', '我认为最终式子就是7，不需要其他因子', ['K-CHAIN']),
+            ("已知f'(g(x0))=3、g'(x0)=6；满足链式条件，写出最终完整运算式，不求值。", '3*6', '我认为最终式子就是3，不需要其他因子', ['K-CHAIN'])],
+        'transfer': [
+            ("已知D'(u)=3u^2、(2s-1)'=2，满足链式条件，求D(2s-1)对s的导数。", '6*(2*s-1)^2', '3*(2*s-1)^2', ['K-CHAIN']),
+            ("已知H'(v)=-sin(v)、(4s)'=4，满足链式条件，求H(4s)对s的导数。", '-4*sin(4*s)', '-sin(4*s)', ['K-CHAIN'])],
+    }
+    verify_keys = {}
+    for target, tasks in verification.items():
+        verify_keys[target] = []
+        for index, (prompt, answer, wrong, refs) in enumerate(tasks, 1):
+            key = f'verify-{index}' if target == 'combination' else f'verify-{target}-{index}'
+            check(key, prompt, [answer], [wrong], refs, '针对性后续验证', '未展示答案的新检查', 'verification')
+            checks[key]['verification_target'] = target
+            verify_keys[target].append(key)
     components = ['structure-1', 'structure-2', 'power-1', 'power-2', 'trig-1', 'trig-2',
                   'arithmetic', 'evaluation-1', 'evaluation-2']
     rules = {
@@ -80,7 +100,7 @@ def build_bundle():
                      '对照sin(2x)与F(3x+1)中的相同复合结构，再换未见的函数记号独立作答。'),
     }
     hypotheses = {key: {'hypothesis_id': key, 'label': label, 'knowledge_ids': refs, 'category': category,
-                        'fail_checks': fails, 'controls': controls, 'help': explanation}
+                        'fail_checks': fails, 'controls': controls, 'help': explanation, 'verify_checks': verify_keys[key]}
                   for key, (label, refs, category, fails, controls, explanation) in rules.items()}
     bundle = {'contract': 'chain_rule_diagnostic_lab_v1', 'source_kind': 'authored_sample',
               'knowledge': knowledge, 'checks': checks, 'hypotheses': hypotheses}
@@ -169,7 +189,7 @@ def replay(events, *, bundle=None, actor='sample-student', course='chain-sample'
         key = candidates[0]
         help_candidate = {'target': key, 'explanation': bundle['hypotheses'][key]['help'],
                           'student_choices': ['accept', 'adjust', 'later', 'decline'],
-                          'verify_with': ['verify-1', 'verify-2'], 'effect': 'pending'}
+                          'verify_with': list(bundle['hypotheses'][key]['verify_checks']), 'effect': 'pending'}
     next_checks = [] if candidates else [key for key, check in bundle['checks'].items()
         if check['role'] == 'diagnostic' and states[key] in {'not_observed', 'conflicting'}][:1]
     return {'status': 'candidate' if len(candidates) == 1 else 'multiple_candidates' if candidates else 'insufficient',
@@ -178,14 +198,15 @@ def replay(events, *, bundle=None, actor='sample-student', course='chain-sample'
             'history_event_count': len(events), 'mastery_updated': False, 'diagnosis_confirmed': False}
 
 
-def help_effect(events, *, help_id, actor='sample-student', course='chain-sample'):
+def help_effect(events, *, help_id, target='combination', actor='sample-student', course='chain-sample'):
     bundle = build_bundle()
     usable, excluded = _eligible(events, bundle, actor, course, 'verification')
+    expected = set(bundle['hypotheses'][target]['verify_checks'])
     outcomes = {}
     for event in usable:
-        if event.get('help_id') == help_id and event['check_id'] in {'verify-1', 'verify-2'}:
+        if event.get('help_id') == help_id and event['check_id'] in expected:
             outcomes.setdefault(event['check_id'], set()).add(event['passed'])
-    complete = set(outcomes) == {'verify-1', 'verify-2'} and all(len(values) == 1 for values in outcomes.values())
+    complete = set(outcomes) == expected and all(len(values) == 1 for values in outcomes.values())
     status = ('pending' if not complete else 'short_term_independent_pass'
               if all(values == {True} for values in outcomes.values()) else 'no_clear_improvement')
     return {'status': status, 'retention': 'not_observed', 'transfer': 'not_observed',
