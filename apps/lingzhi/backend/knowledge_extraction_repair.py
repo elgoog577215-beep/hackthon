@@ -347,8 +347,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 changed=sorted(k for p in repair['points'] for k in set(original)|set(p) if original.get(k)!=p.get(k)) if repair['points'] else ['handling']
                 plan=targets[target]['correction_plan'];name_changed=bool(plan['expression_only'] and parsed.get('short_statements',{}).get(target)!=[targets[target].get('current_name')])
                 previous_binding=(trace or {}).get('relation_binding') or {}
-                previous_declaration={k:previous_binding.get(k) for k in ('kind','target','relation_type')}
-                binding_changed=bool(plan.get('binding_required') and parsed['repairs'][target].get('bindings')!=[previous_declaration])
+                from knowledge_relation_binding import declaration_fields
+                previous_declaration=declaration_fields(original,{k:previous_binding.get(k) for k in ('kind','source_object','target','relation_type')})
+                declarations=[declaration_fields(original,b) for b in parsed['repairs'][target].get('bindings',[])]
+                binding_changed=bool(plan.get('binding_required') and declarations!=[previous_declaration])
                 canonical_for=[key for key,row in parsed['repairs'].items() if row.get('handling')=='merge'
                     and row.get('merge_into')==target and key in targets[target].get('duplicate_group',[])]
                 record.setdefault('effects',{})[target]={'changed_fields':changed,'name_changed':name_changed,'binding_submitted':binding_changed,'canonical_for':canonical_for}

@@ -64,6 +64,19 @@ def test_relation_between_explicit_endpoints_is_not_two_properties(subject,left,
     assert source[span['start']:span['end']]==left
 
 
+def test_unbound_contextual_endpoint_requests_interpretation_not_semantic_rewrite():
+    from knowledge_relation_binding import seal_binding,CONTRACT
+    from knowledge_semantic_contract import quality_point
+    from knowledge_correction_plan import KnowledgePointValidationError,correction_plan
+    p=point('约束模型',property='变量甲与变量乙的关系',value='变量甲大于变量乙')
+    source='约束模型中，变量甲大于变量乙。'
+    b=seal_binding(p,source,{'kind':'relation','target':'变量乙','relation_type':'大小关系'})
+    with pytest.raises(KnowledgePointValidationError) as exc:
+        quality_point(p,source,semantic_roles=True,relation_binding_contract=CONTRACT,relation_binding=b)
+    assert [d['code'] for d in exc.value.diagnostics]==['relation_roles_incomplete']
+    assert correction_plan(p,exc.value.diagnostics)['binding_only']
+
+
 @pytest.mark.asyncio
 async def test_no_effect_repair_stops_without_repeating_an_identical_request(svc,monkeypatch):
     from knowledge_extraction_repair import correct_points,KnowledgeRepairNoProgress

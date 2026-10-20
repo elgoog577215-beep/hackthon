@@ -224,7 +224,9 @@ def build_point(point, options, *, allow_relation_property=False, allow_named_op
                 single_relation=True
                 if typed_relation['kind']=='relation':
                     audit['relation_target']=typed_relation['target']
-                    remainder=prop.replace(typed_relation['target'],'对象').removeprefix('与')
+                    from knowledge_relation_binding import property_role_text
+                    remainder=property_role_text(point,typed_relation)
+                    remainder=re.sub(r'⟪left⟫(?:与|和|及|以及|、)⟪right⟫|⟪right⟫(?:与|和|及|以及|、)⟪left⟫','关系双方',remainder).removeprefix('与')
                     if re.search(r'[、;；，,]|以及|与|和|及',remainder):
                         from knowledge_correction_plan import KnowledgePointValidationError
                         raise KnowledgePointValidationError([{'code':'compound_property','fields':['property'],'message':'关系对象之外仍包含多个独立属性'}])

@@ -12,7 +12,7 @@ class KnowledgePointValidationError(CourseDocumentConflict):
 
 
 def correction_plan(point, diagnostics):
-    binding_codes={'relation_binding_required','relation_binding_stale','relation_binding_uncertain','relation_source_missing','relation_binding_self_target','relation_target_unresolved'}
+    binding_codes={'relation_binding_required','relation_binding_stale','relation_binding_uncertain','relation_source_missing','relation_binding_self_target','relation_target_unresolved','relation_roles_incomplete'}
     narrow = {'source_subject': ('subject', 'left_subject', 'right_subject', 'conditions'), 'undefined_quantity': ('conditions',),
               'source_relation': ('property',)}
     codes = {d['code'] for d in diagnostics if d['code'] != 'invalid_short_statement'}

@@ -90,7 +90,7 @@ def build_prompt(payload):
             row = {'handling':'patch','patch':patch,'reason':'对应诊断的修改'}
         else: row = {'handling':'replace','points':['按目标允许形态填写完整修正点'],'reason':'对应诊断的修改'}
         if plan.get('binding_required'):
-            row['bindings']=[{'kind':'relation','target':'当前原文中的完整对象','relation_type':'关系类型'}]
+            row['bindings']=[{'kind':'relation','source_object':'关系一方的原文对象','target':'关系另一方的原文对象','relation_type':'关系类型'}]
         examples[key] = row
     example = {'repairs':examples,'source_issues':[]}
     if payload.get('expression_contract'): example['short_statements'] = {key:[payload['targets'][key].get('current_name','原名称') if payload['targets'][key]['correction_plan'].get('binding_only') and not any(d['code']=='invalid_short_statement' for d in payload['targets'][key]['correction_plan']['diagnostics']) else '修正后完整知识的简短陈述'] for key in examples}
@@ -98,8 +98,8 @@ def build_prompt(payload):
         '对冻结知识执行一次限域修正，只输出一个紧凑JSON对象。不是重新提取或重新核对全文。'
         'targets每个键恰好回应一次；correction_plan是唯一编辑权限，fixed_fields全部冻结。'
         '先按权限选择一个动作：binding_only=true只返回bind_relation和bindings，不改写property或其他知识字段；有效名称原样保留，只有诊断明确指出名称错误时才修名称。'
-        'bindings逐一对应最终点：kind=relation时分别填写target原文对象和relation_type关系类型；kind=attribute表示普通属性，target与relation_type均为空；无法确定填kind=uncertain并在reason说明。'
-        'target是与point.subject不同、由冻结property或value明确提及的另一对象，不得重复主体，不得随便选择原文中别的词。relation_type说明两者如何关联，不能代替对象；不得把关系描述的修饰语拼到对象上。没有绑定不等于来源缺失。'
+        'bindings逐一对应最终点：kind=relation时分别填写source_object关系一方、target另一方及relation_type关系类型；kind=attribute表示普通属性，对象与relation_type均为空；无法确定填kind=uncertain并在reason说明。'
+        'source_object默认是point.subject；若主体仅说明场景而属性内描述两方关系，必须从冻结属性或结论中明确选出关系一方，不能把场景当关系端点。双方须不同且都能在当前原文定位。target由冻结property或value明确提及，不得随便选择原文中别的词。relation_type说明两者如何关联，不能代替对象；不得把关系描述的修饰语拼到对象上。没有绑定不等于来源缺失。'
         'binding_required=true即使同时修语义字段也要给最终点的bindings；空points对应空bindings。'
         '修复必须改变被诊断的字段或补齐有效绑定；理由声称已改但数据未改，会立即停止重复请求。'
         '否则expression_only=true只允许handling="rename",reason，禁止改语义字段。'
