@@ -31,6 +31,8 @@ def test_extract_policy_preserves_source_and_response_contract(svc, monkeypatch)
     assert context == before
     assert {'check_items', 'learner_records'} <= set(policy['not_knowledge'])
     assert policy['split_when'] and policy['keep_together'] and policy['source_boundary']
+    assert policy.get('representation', {}).get('rule_form') == 'fact'
+    assert policy['representation'].get('rule_preconditions_field') == 'conditions'
 
 
 def test_unknown_policy_cannot_silently_fall_back(svc, monkeypatch):
