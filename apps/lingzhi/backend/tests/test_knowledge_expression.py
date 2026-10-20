@@ -155,3 +155,12 @@ def test_literal_joint_notation_is_not_split_by_punctuation_in_new_contract():
     assert 'if/else分支' in compiled['claim']
     assert audit['subject_notation_review'] == ['if/else分支']
     assert audit['semantics_verified'] is False
+
+
+def test_complete_symbolic_formula_is_used_without_a_verbose_word_mnemonic():
+    from knowledge_expression import bind_name, bound_name
+    rule = point('乘积求导', property='求导公式', value='(uv)′=u′v+uv′', conditions=['u和v在当前点可导'])
+    source = '乘积求导公式为(uv)′=u′v+uv′，u和v在当前点可导。'
+    expression = bind_name('乘积求导为前导后乘加前乘后导', rule, source)
+    assert bound_name(expression, rule, source) == rule['value']
+    assert expression['text'] == '乘积求导为前导后乘加前乘后导'  # Original model wording stays auditable.
