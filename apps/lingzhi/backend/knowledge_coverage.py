@@ -87,11 +87,16 @@ def focus_prompt(focus, units, materials):
         '每组可为空；每条必须是可单独讲解、检查和补学的完整知识。'
         '同一对象的定义、数值关系与方程是不同学习内容，分别放入合适视角，不把它们粘在一条里。'
         '同一公式的因子、符号、局部步骤保持整体；适用条件附在对应规则中，不另造条件叶子。'
-        '常见失误、换记号、逆否表达、重复组合不增加知识。不要补一个仅把已有基础规则重新组合的综合叶子。'
+        '拆分样例：求导的线性性质应保留常数函数求导、常数倍求导、和差求导三个独立基础规则；'
+        '不要用一个线性组合总公式取代这三个规则，也不要再加总公式或换记号来重复计数。'
+        '相对地，乘积求导只需保留完整的两项相加公式；不要另建“乘积法则是什么”的公式复述、适用条件或某道算例叶子。'
+        '这些样例说明独立学习内容与公式碎片的区别，同样用于其他学科。'
+        '常见失误、换记号、逆否表达、重复组合不增加知识。不得将一条知识先作口头定义再以公式重复计数；'
+        '不得将具体算例答案另设知识；完整推导仅在具有独立可迁移的方法时列出，等式各步必须一致。'
         'draft_units是需保留的有效知识范围，允许重新组织和拆分；各输出条的covers列出其承载的原清单key。'
         '原清单所有key至少对应一个输出条；遗漏知识covers为空。一个完整公式及其条件必须仍完整保留。'
         '逐段阅读材料，补齐本分支缺失的对象定义与表示，允许概括与必要背景，不要求原文逐字匹配。'
-        'existing_other_units已有知识不要重复生成，用include_existing引用其key。'
+        'existing_other_units已有且尚未归属试点分支的知识可用include_existing原样引用，或由输出条covers其key完整承载；同一key不要同时使用两种方式。'
         '输出{"facets":{"concepts":[{"statement":"完整知识","branch":"主题","knowledge_type":"definition",'
         '"profile_focus":"分支名","check_intent":"可观察检查目标","covers":["原key"]}],'
         '"rules":[],"representations":[],"methods":[],"boundary_cases":[]},"include_existing":[]}。'
@@ -106,33 +111,40 @@ def parse_focus(value, focus, units):
     facets=value.get('facets') if isinstance(value,dict) else None
     if not isinstance(facets,dict) or set(facets)!=set(FOCUS_FACETS):
         raise ValueError('分支清单必须逐个填写五个教学视角，允许空组')
+    others={u['key']:u for u in units if not u['profile_focus']}
+    available=selected|set(others)
     rows=[];covered=set()
     for facet in FOCUS_FACETS:
         if not isinstance(facets[facet],list):raise ValueError('教学视角必须是知识列表')
         for row in facets[facet]:
             covers=row.get('covers') if isinstance(row,dict) else None
-            if not isinstance(covers,list) or any(not isinstance(key,str) or key not in selected for key in covers):
-                raise ValueError('分支清单承载了未知原清单ID')
+            if not isinstance(covers,list) or any(not isinstance(key,str) or key not in available for key in covers):
+                raise ValueError('分支清单covers必须使用当前分支或未归属分支的已有ID：'+','.join(sorted(available)))
             covered.update(covers)
             rows.append({k:v for k,v in row.items() if k!='covers'})
-    if covered!=selected:raise ValueError('分支清单遗漏原有独立知识：'+','.join(sorted(selected-covered)))
+    if not selected.issubset(covered):raise ValueError('分支清单遗漏原有独立知识：'+','.join(sorted(selected-covered)))
     revised=parse_plan({'units':rows},[focus]) if rows else []
     included=value.get('include_existing')
     others={u['key']:u for u in units if not u['profile_focus']}
     if not isinstance(included,list) or any(not isinstance(k,str) or k not in others for k in included) or len(set(included))!=len(included):
         raise ValueError('分支审阅只能引用已有且尚未归属其他试点分支的知识ID')
+    replaced=sorted(covered-set(selected))
+    if set(included)&set(replaced):raise ValueError('已有知识不能同时引用并替换')
     for unit in revised:unit['profile_focus']=focus
-    return {'units':revised,'include_existing':included}
+    return {'units':revised,'include_existing':included,'replaced_existing':replaced}
 
 
 def combine_focus(units, reviews, focus):
-    included={}
+    included={};replaced=set()
     for review in reviews:
+        for key in review['result'].get('replaced_existing',[]):
+            if key in replaced or key in included:raise ValueError('同一知识被多个试点分支重复领取')
+            replaced.add(key)
         for key in review['result']['include_existing']:
-            if key in included:raise ValueError('同一知识被多个试点分支重复领取')
+            if key in included or key in replaced:raise ValueError('同一知识被多个试点分支重复领取')
             included[key]=review['focus']
     rows=[{**{k:v for k,v in u.items() if k!='key'},'profile_focus':included.get(u['key'],u['profile_focus'])}
-          for u in units if u['profile_focus'] not in focus]
+          for u in units if u['profile_focus'] not in focus and u['key'] not in replaced]
     rows.extend({k:v for k,v in u.items() if k!='key'} for review in reviews for u in review['result']['units'])
     return parse_plan({'units':rows},focus)
 

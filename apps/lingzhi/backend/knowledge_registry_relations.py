@@ -13,7 +13,7 @@ def prompt(tree, focus_keys):
         '先修prerequisite区分required必要前提与recommended建议先学；推导derives须给至少两步推导；'
         '应用applies_to须说明目标怎样使用源知识。关系双方用目录key，重点分析focus_keys涉及的关系。'
         'conditions只放额外适用条件，reason解释关系，context说明教学场景。'
-        'reviews的键必须恰好等于focus_keys，只处理本批焦点。catalog中的其余知识只供选择关系目标，禁止为它们补写reviews。'
+        'reviews必须覆盖focus_keys，优先只写本批焦点以控制篇幅；额外说明仅可引用当前catalog中的真实知识key。'
         '每个focus_key给关系取舍理由，可以没有关系；取舍关系不代表删除知识。'
         '输出{"reviews":{"K1":"取舍理由"},"edges":[{"source":"K1","target":"K2","type":"prerequisite",'
         '"necessity":"recommended","reason":"关系理由","context":"教学场景","conditions":[],"steps":[]}]}。'
@@ -29,9 +29,10 @@ def compile_edges(value, tree, focus_keys, lesson_id):
     reviews, edges = value['reviews'], value['edges']
     if not isinstance(reviews, dict):
         raise ValueError('reviews必须为对象，键只能为：' + ','.join(focus_keys))
-    if set(reviews) != set(focus_keys):
+    catalog_keys={p['key'] for p in tree['knowledge_points']}
+    if not set(focus_keys).issubset(reviews) or not set(reviews).issubset(catalog_keys):
         raise ValueError('reviews键不匹配：缺少=' + ','.join(sorted(set(focus_keys)-set(reviews)))
-                         + '；多余=' + ','.join(sorted(set(reviews)-set(focus_keys)))
+                         + '；多余=' + ','.join(sorted(set(reviews)-catalog_keys))
                          + '。只调整本批取舍记录，不修改知识目录。')
     if any(not isinstance(r, str) or not r.strip() for r in reviews.values()):
         raise ValueError('每个焦点必须有非空关系取舍理由')

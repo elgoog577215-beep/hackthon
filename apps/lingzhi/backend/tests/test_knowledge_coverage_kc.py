@@ -134,3 +134,12 @@ def test_composite_plan_repetition_needs_complete_explicit_coverage():
     assert len(apply_review({'decisions':decisions,'additions':[]},units,['线性法则']))==2
     decisions['U3']['adds_knowledge']=True
     with pytest.raises(ValueError):apply_review({'decisions':decisions,'additions':[]},units,['线性法则'])
+
+
+def test_focus_can_carry_an_existing_unassigned_unit_without_duplicating_it():
+    from knowledge_coverage import parse_plan,parse_focus,combine_focus
+    units=parse_plan({'units':[unit(focus=''),unit('常数倍保持系数')]},['线性法则'])
+    value={'facets':{'concepts':[],'rules':[{**unit(),'covers':['U1']},{**unit('常数倍保持系数'),'covers':['U2']}],'representations':[],'methods':[],'boundary_cases':[]},'include_existing':[]}
+    result=parse_focus(value,'线性法则',units)
+    assert result['replaced_existing']==['U1']
+    assert len(combine_focus(units,[{'focus':'线性法则','result':result}],['线性法则']))==2

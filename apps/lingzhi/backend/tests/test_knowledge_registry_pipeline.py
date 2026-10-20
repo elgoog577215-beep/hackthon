@@ -303,3 +303,11 @@ async def test_profile_failure_resumes_only_profile_and_keeps_frozen_identity(sv
     assert point['knowledge_id']==frozen['knowledge_id'] and point['revision_id']==frozen['revision_id']
     assert point['kc_skill_profile']['knowledge_id']==point['knowledge_id']
     assert svc.authoring.get_job('c-pilot',job['id'])==old
+
+
+def test_relation_review_can_include_other_valid_catalog_points_without_retry():
+    from knowledge_registry_relations import compile_edges
+    tree={'knowledge_points':[{'key':'K1'},{'key':'K2'}]}
+    assert compile_edges({'reviews':{'K1':'无需额外关系','K2':'额外有效说明'},'edges':[]},tree,['K1'],'L1')==[]
+    with pytest.raises(ValueError):compile_edges({'reviews':{'K2':'遗漏焦点'},'edges':[]},tree,['K1'],'L1')
+    with pytest.raises(ValueError):compile_edges({'reviews':{'K1':'说明','UNKNOWN':'未知ID'},'edges':[]},tree,['K1'],'L1')
