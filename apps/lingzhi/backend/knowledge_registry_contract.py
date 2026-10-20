@@ -91,12 +91,16 @@ def identity_prompt(candidates, catalog):
         '已有知识目录是冻结内容，只能复用，不得改写。名称相近只提供线索，不是合并依据。'
         '每个候选key恰好给一个决定：keep保留；replace用points给完整修正点或拆分点；'
         'merge指向本轮另一个keep或单点replace目标；reuse指向已有目录E键；uncertain保留待确认；'
+        'covered用于被多个已有独立知识完全覆盖的重复组合，不创建额外叶子；须给parts逐部分说明对应target和claim，'
+        '并声明complete_coverage=true,adds_knowledge=false,same_scope=true。若组合本身增加新关系或必要联合含义，不能选covered。'
         'context仅用于纯算例或教学安排，并明确原因。不得为了去重删除有效知识。'
         'merge/reuse必须声明same_claim、same_scope、same_symbols均为true，并在reason说明完整命题和范围一致。'
         '无法确认时选uncertain，不能用false的等价声明强行合并。禁止合并链、环或指向待确认目标。'
         'replace的每个点必须含statement,knowledge_type,conditions,symbol_definitions,teaching_context,examples；'
         '其余动作不得夹带points。keep/uncertain/context只填action和reason；'
         'merge/reuse只填action,target,same_claim,same_scope,same_symbols,reason。'
+        'covered只填action,reason,complete_coverage,adds_knowledge,same_scope,parts；parts至少两个不同目标，'
+        '每项为{"target":"保留的候选键或已有E键","claim":"这一部分的知识"}，目标不能是merge/covered/uncertain或拆分目标。'
         '本阶段不生成名称。输出{"decisions":{"候选key":{"action":"keep","reason":"核对依据"}}}。',
         {'stage': 'identity_review', 'contract': CONTRACT,
          'candidates': [{k: p.get(k) for k in ('key', *FIELDS)} for p in candidates],

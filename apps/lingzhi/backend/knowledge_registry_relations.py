@@ -13,7 +13,8 @@ def prompt(tree, focus_keys):
         '先修prerequisite区分required必要前提与recommended建议先学；推导derives须给至少两步推导；'
         '应用applies_to须说明目标怎样使用源知识。关系双方用目录key，至少一方在focus_keys。'
         'conditions只放额外适用条件，reason解释关系，context说明教学场景。'
-        '每个focus_key在reviews中给取舍理由，可以没有关系。'
+        'reviews的键必须恰好等于focus_keys，只处理本批焦点。catalog中的其余知识只供选择关系目标，禁止为它们补写reviews。'
+        '每个focus_key给关系取舍理由，可以没有关系；取舍关系不代表删除知识。'
         '输出{"reviews":{"K1":"取舍理由"},"edges":[{"source":"K1","target":"K2","type":"prerequisite",'
         '"necessity":"recommended","reason":"关系理由","context":"教学场景","conditions":[],"steps":[]}]}。'
         '非先修的necessity填null，非推导steps填[]。不要输出引用或其他内容字段。',
@@ -26,10 +27,16 @@ def compile_edges(value, tree, focus_keys, lesson_id):
     if not isinstance(value, dict) or set(value) != {'reviews', 'edges'}:
         raise ValueError('关系响应只允许reviews和edges')
     reviews, edges = value['reviews'], value['edges']
-    if (not isinstance(reviews, dict) or set(reviews) != set(focus_keys)
-            or any(not isinstance(r, str) or not r.strip() for r in reviews.values())
-            or not isinstance(edges, list) or len(edges) > 80):
-        raise ValueError('关系取舍记录缺失或越界')
+    if not isinstance(reviews, dict):
+        raise ValueError('reviews必须为对象，键只能为：' + ','.join(focus_keys))
+    if set(reviews) != set(focus_keys):
+        raise ValueError('reviews键不匹配：缺少=' + ','.join(sorted(set(focus_keys)-set(reviews)))
+                         + '；多余=' + ','.join(sorted(set(reviews)-set(focus_keys)))
+                         + '。只调整本批取舍记录，不修改知识目录。')
+    if any(not isinstance(r, str) or not r.strip() for r in reviews.values()):
+        raise ValueError('每个焦点必须有非空关系取舍理由')
+    if not isinstance(edges, list) or len(edges) > 80:
+        raise ValueError('edges必须是最多80项的列表')
     by_key = {p['key']: p for p in tree['knowledge_points']}
     result = []
     for row in edges:
