@@ -385,6 +385,12 @@ class KnowledgeFirstService:
                 review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
                 if review_only:
                     if prior.get('source_unit_contract')=='complete_handout_blocks_v1' and prior.get('semantic_equivalence_contract')=='knowledge_equivalence_v3':
+                        review=prior.get('semantic_equivalence') or {}
+                        if review.get('status')=='completed' and review.get('point_reviews') and review.get('raw_response'):
+                            from knowledge_equivalence import catalog_signature
+                            if review.get('input_signature')==catalog_signature(review.get('input_points',[])):
+                                prior['frozen_equivalence_discovery']={k:deepcopy(review[k]) for k in ['input_signature','point_reviews','raw_response']}
+                                prior['frozen_equivalence_discovery'].update(origin_job_id=resume_job_id,origin_contract='knowledge_equivalence_v3')
                         prior['semantic_equivalence_contract']='knowledge_equivalence_v4'
                         prior['equivalence_protocol_upgrade']={'from':'knowledge_equivalence_v3','to':'knowledge_equivalence_v4','origin_job_id':resume_job_id}
                         for field in ('semantic_equivalence','hierarchy','relations'):prior.pop(field,None)

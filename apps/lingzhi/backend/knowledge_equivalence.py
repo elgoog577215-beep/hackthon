@@ -179,8 +179,17 @@ async def review_equivalence(svc, course_id, job_id, provider, points, pipeline,
             value = {'groups': []}
             groups = []
         else:
-            raw = await call_stage(svc, course_id, job_id, provider, prompt, 'semantic_equivalence')
-            record['raw_response'] = raw; value = parse_complete_json(raw)
+            frozen=pipeline.get('frozen_equivalence_discovery') or {}
+            if contract==SCOPED_CONTRACT and frozen.get('input_signature')==signature and frozen.get('origin_contract')==CONTRACT:
+                value={'point_reviews':deepcopy(frozen['point_reviews'])}
+                validate_reviews(value,points)
+                raw=frozen['raw_response']
+                require(parse_complete_json(raw).get('point_reviews')==value['point_reviews'],'旧同义候选发现响应与保存记录不一致')
+                record.update(discovery_origin_job_id=frozen['origin_job_id'],discovery_origin_contract=frozen['origin_contract'])
+            else:
+                raw = await call_stage(svc, course_id, job_id, provider, prompt, 'semantic_equivalence')
+                value = parse_complete_json(raw)
+            record['raw_response'] = raw
             if contract in {SCOPED_CONTRACT,CONTRACT}:
                 reviews = validate_reviews(value, points)
                 record['proposed_edges'] = [[key, row['canonical_key']] for key, row in reviews.items() if key != row['canonical_key']]
