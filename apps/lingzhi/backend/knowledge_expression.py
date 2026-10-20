@@ -51,17 +51,17 @@ def bind_name(name, point, source_text):
             'semantics_verified': False}
 
 
-def symbolic_name(point):
+def symbolic_name(point, *, qualify_formula=False):
     value = point.get('value', '')
     if (point.get('form') == 'fact' and re.search(r'公式|方程', str(point.get('property', '')))
             and isinstance(value, str) and 2 <= len(value.strip()) <= 200
             and value.count('=') == 1 and not re.search(r'[\u3400-\u9fff\n\r？?]|[<>!]=', value)
             and all(part.strip() for part in value.split('='))):
-        return value.strip()
+        return f"{point['subject']}：{value.strip()}" if qualify_formula else value.strip()
     return None
 
 
-def bound_name(expression, point, source_text):
+def bound_name(expression, point, source_text, *, qualify_formula=False):
     if (not isinstance(expression, dict) or expression.get('contract') != CONTRACT
             or expression.get('semantic_signature') != semantic_signature(point)
             or expression.get('source_signature') != stable_hash(source_text, prefix='ksrc_')):
@@ -71,7 +71,22 @@ def bound_name(expression, point, source_text):
         raise KnowledgeNameValidationError(diagnostic.get('message') or '短陈述尚未通过表达校验，不能进入完整候选',
                                           reason=diagnostic.get('reason') or 'pending_expression')
     reviewed = validate_name(expression.get('text'), point)
-    return symbolic_name(point) or reviewed
+    return symbolic_name(point, qualify_formula=qualify_formula) or reviewed
+
+
+def qualify_formula_display(point):
+    """Project old completed formula checkpoints without discarding their object.
+
+    The compiled name is display data, not a semantic identity or a reason to
+    merge distinct facts. Call on an owned copy before computing its revision.
+    """
+    atomic = point.get('atomic_contract') or {}
+    expression = atomic.get('expression') or {}
+    subjects = atomic.get('subjects') or []
+    if expression.get('name_origin') != 'frozen_formula' or len(subjects) != 1:
+        return
+    point['name'] = f"{subjects[0]}：{point['name']}"
+    expression.update(display_name=point['name'], name_origin='qualified_frozen_formula')
 
 
 def named_traces(names, points, source_text, trace, *, defer_invalid=False):

@@ -444,12 +444,13 @@ def compile_extraction(raw, context, keys, index, response):
             if expression_contract:
                 require(len(audits) < len(expressions), '短陈述核对数量不足')
                 expression = expressions[len(audits)].get('expression')
-                try: normalized_point['name'] = bound_name(expression, point, passages[key]['text'])
+                scoped_formula = context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4'
+                try: normalized_point['name'] = bound_name(expression, point, passages[key]['text'], qualify_formula=scoped_formula)
                 except KnowledgeNameValidationError as error:
                     raise KnowledgeNameValidationError(str(error), reason=error.diagnostics[0]['reason'], point_key=f'{key}:{ordinal}') from error
                 audit['expression'] = deepcopy(expression)
                 audit['expression']['display_name'] = normalized_point['name']
-                audit['expression']['name_origin'] = 'frozen_formula' if symbolic_name(point) else 'reviewed_statement'
+                audit['expression']['name_origin'] = ('qualified_frozen_formula' if scoped_formula else 'frozen_formula') if symbolic_name(point) else 'reviewed_statement'
             normalized.append(normalized_point); audits.append(audit)
         entry['points'] = normalized
     output = compile_legacy(raw, context, keys, index, value)

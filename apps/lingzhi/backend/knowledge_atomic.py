@@ -324,6 +324,9 @@ def assemble(raw, context, pipeline, hierarchy=None):
         global_keys = {}
         for original in tree['knowledge_points']:
             point = deepcopy(original); point['parent_id'] = point['primary_concept_group_id'] = mapped_categories[point['parent_id']]
+            if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4':
+                from knowledge_expression import qualify_formula_display
+                qualify_formula_display(point)
             point['generation_batch_id'] = batch['id']
             previous = exact_points.get(point['knowledge_id']) if pipeline.get('prompt_contract') == 'knowledge_extract_v9' else None
             if previous:
