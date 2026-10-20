@@ -21,6 +21,8 @@ def prior_question_context(pipeline, batch_index, response):
 
 async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record, feedback=None, reference_points=None):
     from knowledge_atomic import call_stage
+    from knowledge_expression import check_contract, named_traces, review_instruction, REVIEW_CONTRACT
+    expression_contract = check_contract(context.get('expression_contract'))
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = passage_catalog(context, keys); catalog = {p['key']: p for p in passages}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(catalog), '内容核对前来源块必须完整')
@@ -33,6 +35,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     payload = {'stage': 'content_review', 'review_contract': CONTRACT,
                'source_passages': passages, 'points': originals, 'source_cautions': cautions,
                'source_issues': response.get('source_issues', []), 'scope_evidence': scope_evidence(context)}
+    if expression_contract:
+        payload.update(review_contract=REVIEW_CONTRACT, expression_contract=expression_contract)
     if feedback:
         payload['previous_attempt_feedback'] = deepcopy(feedback)
     if reference_points:
@@ -88,9 +92,12 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
     from knowledge_granularity import apply_policy
     prompt = apply_policy(prompt, context.get('granularity_contract'))
+    if expression_contract:
+        prompt = review_instruction() + prompt
+        record['expression_contract'] = expression_contract
     if context.get('granularity_contract'):
         record['granularity_contract'] = context['granularity_contract']
-    record.update(contract=CONTRACT, status='requested', original_point_count=len(originals), semantics_verified=False,
+    record.update(contract=REVIEW_CONTRACT if expression_contract else CONTRACT, status='requested', original_point_count=len(originals), semantics_verified=False,
                   evidence_kind='separate_request_same_model', source_cautions=cautions,
                   scope_evidence=deepcopy(payload['scope_evidence']))
     if feedback:
@@ -100,10 +107,13 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     text = await call_stage(svc, course_id, job_id, provider, prompt, 'content_review')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
-    require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == {'point_reviews', 'additions', 'source_issues'}, '内容核对响应字段无效')
+    required = {'point_reviews', 'additions', 'source_issues'} | ({'addition_names'} if expression_contract else set())
+    require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == required, '内容核对响应字段无效')
     reviews, additions, issues = parsed['point_reviews'], parsed['additions'], parsed['source_issues']
     require(isinstance(reviews, dict) and set(reviews) == set(originals), '内容核对遗漏或越界')
     require(isinstance(additions, dict) and set(additions) == set(catalog), '内容核对新增点来源不完整或越界')
+    if expression_contract:
+        require(isinstance(parsed['addition_names'], dict) and set(parsed['addition_names']) == set(catalog), '新增短陈述来源不完整或越界')
     require(isinstance(issues, list) and len(issues) <= 32 and all(isinstance(i, dict) and i.get('passage_key') in catalog
         and i.get('kind') in {'suspected_error', 'contradiction'} and isinstance(i.get('detail'), str) and i['detail'].strip() for i in issues), '内容核对疑点无效')
     output = deepcopy(response); traces = []
@@ -111,7 +121,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
         points = []; reasons = []
         for i, original in enumerate(entry['points']):
             identity = f'{key}:{i}'; review = reviews[identity]
-            require(isinstance(review, dict) and set(review) == {'decision', 'points', 'reason'} and review['decision'] in {'keep', 'replace', 'context', 'source_issue'}
+            fields = {'decision', 'points', 'reason'} | ({'names'} if expression_contract else set())
+            require(isinstance(review, dict) and set(review) == fields and review['decision'] in {'keep', 'replace', 'context', 'source_issue'}
                 and isinstance(review['reason'], str) and 0 < len(review['reason'].strip()) <= 600
                 and isinstance(review['points'], list) and len(review['points']) <= 8, '逐点内容核对结构无效')
             require(bool(review['points']) == (review['decision'] == 'replace'), '逐点内容核对决定与替换内容冲突')
@@ -119,17 +130,22 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
                 require(any(issue['passage_key'] == key for issue in issues), '来源疑点缺少具体记录')
             chosen = [original] if review['decision'] == 'keep' else review['points']
             points.extend(deepcopy(chosen)); reasons.append(review['reason'])
-            traces.extend({'point_review_key': identity, 'decision': review['decision'], 'reason': review['reason'],
-                           'evidence_kind': 'separate_request_same_model', 'semantics_verified': False} for _ in chosen)
+            trace = {'point_review_key': identity, 'decision': review['decision'], 'reason': review['reason'],
+                     'evidence_kind': 'separate_request_same_model', 'semantics_verified': False}
+            traces.extend(named_traces(review['names'], chosen, catalog[key]['text'], trace)
+                          if expression_contract else [deepcopy(trace) for _ in chosen])
         require(isinstance(additions[key], list) and len(additions[key]) <= 8 and all(isinstance(p, dict) for p in additions[key]), '内容核对新增点结构无效')
         points.extend(deepcopy(additions[key]))
-        traces.extend({'point_review_key': key, 'decision': 'addition', 'evidence_kind': 'separate_request_same_model', 'semantics_verified': False}
-                      for _ in additions[key])
+        trace = {'point_review_key': key, 'decision': 'addition', 'evidence_kind': 'separate_request_same_model', 'semantics_verified': False}
+        traces.extend(named_traces(parsed['addition_names'][key], additions[key], catalog[key]['text'], trace)
+                      if expression_contract else [deepcopy(trace) for _ in additions[key]])
         entry['points'] = points
         if points: entry['note'] = None
         elif reasons: entry['note'] = {'handling': 'context', 'reason': '本块候选已逐点归为背景或来源疑点，全部理由保留于内容核对记录。'}
     output['source_issues'] = [*output.get('source_issues', []), *deepcopy(issues)]
     output['_content_review_trace'] = traces
+    if expression_contract:
+        output['_expression_contract'] = expression_contract
     output['_format_normalizations'] = sorted(set(output.get('_format_normalizations', [])) | set(parsed.get('_format_normalizations', [])))
     output, quarantines = quarantine_source_errors(output, catalog)
     output, contextual = contextualize_component_explanations(output, catalog)

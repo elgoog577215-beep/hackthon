@@ -29,6 +29,8 @@ async def reconcile(svc, course_id, job_id, provider, raw, context, pipeline, sa
     require(record['status'] != 'completed', '全讲核对后仍有冲突，不能自动重复修正')
     selected = {key for group in collisions for _, key, _ in group}
     combined = {'response_contract': 'knowledge_extract_v9', 'passages': {}, 'source_issues': [], '_content_review_trace': []}
+    if context.get('expression_contract'):
+        combined['_expression_contract'] = context['expression_contract']
     keys = []
     for index, batch in enumerate(batches, 1):
         response = responses[index]; cursor = 0

@@ -387,6 +387,13 @@ def assemble(raw, context, pipeline, hierarchy=None):
     result = merge_lesson_tree(existing, base, lesson_id)
     if pipeline.get('granularity_contract'):
         result['granularity_contract'] = pipeline['granularity_contract']
+    if pipeline.get('expression_contract'):
+        result['expression_contract'] = pipeline['expression_contract']
+        names = {}
+        for point in result['knowledge_points']:
+            name = normalized(point['name'])
+            require(name not in names or names[name] == point['knowledge_id'], '不同知识点的短陈述名称重复')
+            names[name] = point['knowledge_id']
     # No new relationship discovery in this pipeline; keep still-valid adopted edges.
     all_ids = {p['knowledge_id'] for p in result['knowledge_points']}
     result['relations'] = [deepcopy(r) for r in existing.get('relations', []) if r['source_id'] in all_ids and r['target_id'] in all_ids]
@@ -580,14 +587,18 @@ async def run_atomic(svc, course_id, job_id):
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
         from knowledge_granularity import CONTRACT as GRANULARITY_CONTRACT
+        from knowledge_expression import CONTRACT as EXPRESSION_CONTRACT, check_contract
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
             'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v3',
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             **({'granularity_contract': GRANULARITY_CONTRACT} if fast else {}),
+            **({'expression_contract': EXPRESSION_CONTRACT} if fast else {}),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
             context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
+            if check_contract(pipeline.get('expression_contract')):
+                context['expression_contract'] = pipeline['expression_contract']
             if pipeline.get('granularity_contract'):
                 context['granularity_contract'] = pipeline['granularity_contract']
             context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v3' else 1

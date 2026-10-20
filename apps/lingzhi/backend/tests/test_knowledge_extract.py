@@ -28,8 +28,14 @@ def for_contract(payload, original):
 
 
 def review_response(payload):
-    return {'point_reviews': {key: {'decision': 'keep', 'points': [], 'reason': '隔离夹具原文支持'} for key in payload['points']},
-            'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}
+    result = {'point_reviews': {key: {'decision': 'keep', 'points': [], 'reason': '隔离夹具原文支持'} for key in payload['points']},
+              'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}
+    if payload.get('expression_contract'):
+        for key, review in result['point_reviews'].items():
+            point = payload['points'][key]['point']
+            review['names'] = [point['subject'] + point.get('value', point.get('meaning', '遵循原规则'))]
+        result['addition_names'] = {p['key']: [] for p in payload['source_passages']}
+    return result
 
 
 def test_single_pass_compiles_existing_coverage_and_question_guards(svc, monkeypatch):

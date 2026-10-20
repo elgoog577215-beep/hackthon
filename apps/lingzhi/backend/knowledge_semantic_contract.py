@@ -387,6 +387,12 @@ def quality_point(point, source_text):
 
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
+    from knowledge_expression import check_contract, bound_name
+    expression_contract = check_contract(context.get('expression_contract'))
+    require(response.get('_expression_contract') == expression_contract, '短陈述合同与冻结任务不一致或缺失')
+    expressions = response.get('_content_review_trace')
+    if expression_contract:
+        require(isinstance(expressions, list), '短陈述核对记录缺失')
     if response['response_contract'] == QUALITY_CONTRACT:
         context = {**context, 'knowledge_passage_mode': 'source_blocks_v1', 'exact_claim_consolidation': 'v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
@@ -403,6 +409,11 @@ def compile_extraction(raw, context, keys, index, response):
             else:
                 normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
             audit['schema_version'] = response['response_contract']
+            if expression_contract:
+                require(len(audits) < len(expressions), '短陈述核对数量不足')
+                expression = expressions[len(audits)].get('expression')
+                normalized_point['name'] = bound_name(expression, point, passages[key]['text'])
+                audit['expression'] = deepcopy(expression)
             normalized.append(normalized_point); audits.append(audit)
         entry['points'] = normalized
     output = compile_legacy(raw, context, keys, index, value)
