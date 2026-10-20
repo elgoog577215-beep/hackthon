@@ -3,8 +3,6 @@
 The patterns distinguish stipulated examples, not validated learner traits.
 Unknown free text is ungraded. No score or mastery record is written.
 """
-from copy import deepcopy
-
 from .pipeline import digest
 
 
@@ -111,6 +109,7 @@ def _eligible(events, bundle, actor, course, phase):
     usable, excluded = [], []
     for event in events:
         reason = ('scope' if event.get('user_id') != actor or event.get('course_id') != course
+                  else 'teacher_preview' if event.get('teacher_preview')
                   else 'stale_revision' if event.get('knowledge_revision') != bundle['revision']
                   else 'unknown_check' if event.get('check_id') not in bundle['checks']
                   else 'other_phase' if event.get('phase') != phase
@@ -127,7 +126,7 @@ def _eligible(events, bundle, actor, course, phase):
     for event in usable:
         if event.get('supersedes'):
             old = by_id.get(event['supersedes'])
-            if (old and not old.get('supersedes') and old['event_id'] != event['event_id']
+            if (old and event.get('correction_reason') and not old.get('supersedes') and old['event_id'] != event['event_id']
                     and all(old.get(key) == event.get(key) for key in ('activity_id', 'check_id'))):
                 superseded.add(old['event_id'])
             else:
@@ -182,9 +181,12 @@ def replay(events, *, bundle=None, actor='sample-student', course='chain-sample'
 def help_effect(events, *, help_id, actor='sample-student', course='chain-sample'):
     bundle = build_bundle()
     usable, excluded = _eligible(events, bundle, actor, course, 'verification')
-    outcomes = {event['check_id']: event['passed'] for event in usable
-                if event.get('help_id') == help_id and event['check_id'] in {'verify-1', 'verify-2'}}
-    status = ('pending' if set(outcomes) != {'verify-1', 'verify-2'}
-              else 'short_term_independent_pass' if all(outcomes.values()) else 'no_clear_improvement')
+    outcomes = {}
+    for event in usable:
+        if event.get('help_id') == help_id and event['check_id'] in {'verify-1', 'verify-2'}:
+            outcomes.setdefault(event['check_id'], set()).add(event['passed'])
+    complete = set(outcomes) == {'verify-1', 'verify-2'} and all(len(values) == 1 for values in outcomes.values())
+    status = ('pending' if not complete else 'short_term_independent_pass'
+              if all(values == {True} for values in outcomes.values()) else 'no_clear_improvement')
     return {'status': status, 'retention': 'not_observed', 'transfer': 'not_observed',
             'causal_effect_proven': False, 'mastery_updated': False, 'excluded': excluded}
