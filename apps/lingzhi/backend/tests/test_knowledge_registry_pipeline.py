@@ -221,3 +221,15 @@ def test_relation_review_errors_identify_the_exact_missing_and_extra_keys():
     with pytest.raises(ValueError) as exc:
         compile_edges({'reviews':{'K2':'错误范围'},'edges':[]},{'knowledge_points':[]},['K1'],'L1')
     assert 'K1' in str(exc.value) and 'K2' in str(exc.value)
+
+
+def test_relation_bucket_is_not_a_second_knowledge_boundary():
+    from knowledge_registry_relations import compile_edges
+    points=[{'key':f'K{i}','knowledge_id':f'kp{i}','revision_id':'r','name':'名称',
+             'statement':'完整知识','conditions':[],'section_refs':['L1']} for i in range(1,4)]
+    value={'reviews':{'K1':'没有直接关系'},'edges':[{'source':'K2','target':'K3','type':'prerequisite',
+        'necessity':'recommended','reason':'先学有助于理解','context':'同讲学习','conditions':[],'steps':[]}]}
+    assert len(compile_edges(value,{'knowledge_points':points},['K1'],'L1'))==1
+    for p in points[1:]:p['section_refs']=['L2']
+    with pytest.raises(ValueError,match='讲次'):
+        compile_edges(value,{'knowledge_points':points},['K1'],'L1')
