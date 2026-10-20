@@ -47,7 +47,23 @@ def test_unknown_policy_cannot_silently_fall_back(svc, monkeypatch):
 async def test_new_jobs_freeze_policy_and_old_checkpoints_keep_old_policy(svc, monkeypatch, legacy):
     setup_course(svc, monkeypatch)
     before = deepcopy(svc.repository.load_raw('c-pilot'))
-    calls = fake_provider(svc)
+    fake_provider(svc)
+    factory = svc.provider_factory
+    calls = []
+
+    def recording_provider():
+        provider = factory()
+        original_call = provider._call_llm
+
+        async def call(prompt, **kwargs):
+            data = payload(prompt)
+            calls.append((data['stage'], data))
+            return await original_call(prompt, **kwargs)
+
+        provider._call_llm = call
+        return provider
+
+    svc.provider_factory = recording_provider
     job = start(svc, extraction_mode='single_pass_v1')
     if legacy:
         # A pre-upgrade checkpoint with no policy must not be upgraded on resume.
@@ -111,3 +127,15 @@ async def test_review_uses_frozen_policy_without_creating_checks_or_student_reco
     assert record['granularity_contract'] == POLICY
     assert not record['semantics_verified']
     assert original == before
+
+
+def test_policy_preserves_legacy_prompt_and_rejects_missing_input():
+    from knowledge_granularity import apply_policy, policy_payload
+
+    old = 'frozen old prompt without JSON'
+    assert apply_policy(old) == old
+    with pytest.raises(ValueError, match='冻结输入'):
+        apply_policy(old, POLICY)
+    first = policy_payload()
+    first['split_when'].clear()
+    assert policy_payload()['split_when']  # No shared mutable policy state.

@@ -385,6 +385,8 @@ def assemble(raw, context, pipeline, hierarchy=None):
     base['uncovered_evidence_ids'] = [s['evidence_id'] for s in base['sources'] if s['evidence_id'] not in used]
     base['revision_id'] = stable_hash(base, prefix='kb_')
     result = merge_lesson_tree(existing, base, lesson_id)
+    if pipeline.get('granularity_contract'):
+        result['granularity_contract'] = pipeline['granularity_contract']
     # No new relationship discovery in this pipeline; keep still-valid adopted edges.
     all_ids = {p['knowledge_id'] for p in result['knowledge_points']}
     result['relations'] = [deepcopy(r) for r in existing.get('relations', []) if r['source_id'] in all_ids and r['target_id'] in all_ids]
@@ -577,13 +579,17 @@ async def run_atomic(svc, course_id, job_id):
         validate_source()
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
+        from knowledge_granularity import CONTRACT as GRANULARITY_CONTRACT
         pipeline = deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline')) or {
             'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v3',
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
+            **({'granularity_contract': GRANULARITY_CONTRACT} if fast else {}),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
             context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
+            if pipeline.get('granularity_contract'):
+                context['granularity_contract'] = pipeline['granularity_contract']
             context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v3' else 1
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))
         pipeline['include_relations'] = bool(job.get('include_relations', pipeline.get('include_relations', False)))

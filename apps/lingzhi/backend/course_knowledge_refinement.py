@@ -71,6 +71,8 @@ def _split_id(parent_id: str, index: int, name: str) -> str:
 
 def build_split_prompt(point: dict[str, Any]) -> str:
     """Ask about one specific node, quoting only what the judgement needs."""
+    from knowledge_granularity import policy_payload
+
     payload = {
         "name": _text(point.get("name")),
         "statement": _text(point.get("statement")),
@@ -79,6 +81,10 @@ def build_split_prompt(point: dict[str, Any]) -> str:
         "knowledge_type": _text(point.get("knowledge_type")),
     }
     return (
+        'GRANULARITY_POLICY_JSON:\n'
+        + json.dumps(policy_payload(), ensure_ascii=False, separators=(',', ':')) + '\n'
+        '以上仅为拆分审查标准，仍使用下述should_split/reason/parts格式。'
+        '不输出检查项、个人画像或学生记录，不添加当前知识与范围没有支持的内容。\n'
         "判断下面这个知识点是否需要拆分。\n\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
         "若不需要拆分，输出：{\"should_split\": false, \"reason\": \"...\"}\n"
