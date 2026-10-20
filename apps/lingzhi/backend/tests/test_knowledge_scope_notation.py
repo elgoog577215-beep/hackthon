@@ -49,3 +49,21 @@ async def test_aligned_scopes_still_require_explicit_bidirectional_pair_confirma
         merged,_=apply_equivalences(points,record)
         assert len(merged)==1 and merged[0]['conditions']==points[0]['conditions']
         assert merged[0]['semantic_equivalents'][0]['point']['conditions']==points[1]['conditions']
+
+
+@pytest.mark.asyncio
+async def test_completed_discovery_is_reused_only_as_proposals_without_rewriting_its_input(monkeypatch):
+    from knowledge_equivalence import review_equivalence,catalog_signature
+    points=rows();reviews={p['key']:{'canonical_key':p['key'],'forward_reason':'旧合同条件文字不同','reverse_reason':''} for p in points}
+    frozen={'input_signature':catalog_signature(points),'point_reviews':reviews,'raw_response':json.dumps({'point_reviews':reviews}),
+            'origin_job_id':'old-job','origin_contract':'knowledge_equivalence_v3'}
+    before=deepcopy(frozen);pipeline={'semantic_equivalence_contract':'knowledge_equivalence_v4','frozen_equivalence_discovery':frozen};calls=[]
+    async def call(*args):
+        assert args[-1]=='semantic_equivalence_pairs';calls.append(args[-1])
+        data=json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        return json.dumps({'pair_reviews':{key:{'relation':'restatement','forward_reason':'同一公式','reverse_reason':'同一速度函数的记号'} for key in data['pairs']}})
+    monkeypatch.setattr('knowledge_atomic.call_stage',call)
+    await review_equivalence(None,'c','new-job',None,points,pipeline,lambda **k:None,lambda:None)
+    assert calls==['semantic_equivalence_pairs'] and frozen==before
+    assert pipeline['semantic_equivalence']['discovery_origin_job_id']=='old-job'
+    assert len(pipeline['semantic_equivalence']['groups'])==1
