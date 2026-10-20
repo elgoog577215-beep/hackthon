@@ -384,6 +384,10 @@ class KnowledgeFirstService:
                 require(bool(prior), '原任务没有可继续的知识清单')
                 review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
                 if review_only:
+                    require(prior.get('correction_contract') in {None,'knowledge_correction_plan_v4'},'未知定点修正协议')
+                    if not prior.get('correction_contract'):
+                        prior['correction_contract']='knowledge_correction_plan_v4'
+                        prior['correction_protocol_upgrade']={'from':'knowledge_correction_plan_v3','to':'knowledge_correction_plan_v4','origin_job_id':resume_job_id,'scope':'new_attempt_only'}
                     prior['review_reference_catalog'] = [
                         {'batch_index': int(group['id'].split('-')[-1]), 'knowledge_id': point['knowledge_id'],
                          'subjects': deepcopy((point.get('atomic_contract') or {}).get('subjects', [point['name']])),

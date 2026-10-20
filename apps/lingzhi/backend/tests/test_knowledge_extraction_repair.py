@@ -231,7 +231,7 @@ async def test_extraction_repair_is_bounded_to_two_requests_and_preserves_failur
     assert batch['raw_response'] and batch['repair']['raw_response']
     assert batch['repair']['status'] == 'failed'
     assert len(batch['repair']['attempts']) == 2
-    assert 'json_schema' not in options[-1]  # Validate the small contract locally too.
+    assert 'short_statements' in options[-1]['json_schema']['required']  # Decode the envelope; semantic fields remain locally checked.
     original = deepcopy(saved)
     resumed = start(svc, 'new-isolated-attempt', resume_job_id=job['id'])
     copied = resumed['checkpoint']['atomic_pipeline']['inventory_batches'][0]
