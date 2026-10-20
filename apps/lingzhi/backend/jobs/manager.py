@@ -9768,6 +9768,12 @@ class TaskManager:
                 preserve_global_assessments=True,
             )
             question_bank_bundle["web_enrichment"] = web_enrichment
+            from question_bank_knowledge import auto_bind_new_questions
+            question_bank_bundle = await auto_bind_new_questions(
+                partial_course,
+                question_bank_bundle,
+                revision_ids=[item["revision_id"] for item in partial_question_bank.get("items") or []],
+            )
             question_bank_bundle = self._question_bank_repository.save_bundle(
                 str(self.tasks[task_id]["course_id"]),
                 question_bank_bundle,
@@ -10087,6 +10093,20 @@ class TaskManager:
             question_bank_bundle,
             asset_bundle,
         )
+        from question_bank_knowledge import auto_bind_new_questions
+        question_bank_bundle = await auto_bind_new_questions(
+            asset_course,
+            question_bank_bundle,
+            revision_ids=[item["revision_id"] for item in question_bank_bundle.get("items") or []
+                if item["revision_id"] not in {
+                    old["revision_id"] for old in (previous_question_bank or {}).get("items") or []
+                }],
+        )
+        asset_bundle = compile_learning_assets(
+            asset_course,
+            question_bank_bundle=question_bank_bundle,
+        )
+        asset_bundle.pop("question_bank_bundle", None)
         # Learning-asset compilation deterministically assigns the objective
         # identities and course-knowledge bindings used by its own contracts.
         # Persist that exact node projection before evaluating or publishing so

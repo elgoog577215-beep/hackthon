@@ -140,20 +140,7 @@
       @course-applied="handleCourseAdjustmentApplied"
     />
 
-    <CourseDialogShell v-if="globalChangeChoiceOpen" :title="t('courseAuditUpdates.globalChangeChoiceTitle')" @close="globalChangeChoiceOpen = false">
-          <div class="global-change-choice__options">
-            <button type="button" @click="chooseGlobalChange('structure')">
-              <span class="choice-icon"><LayoutGrid :size="20" /></span>
-              <span><strong>{{ t('courseAuditUpdates.adjustStructure', '调整结构') }}</strong><small>{{ t('courseAuditUpdates.adjustStructureHint', '编辑讲次和课程顺序') }}</small></span>
-              <ArrowRight :size="17" />
-            </button>
-            <button type="button" @click="chooseGlobalChange('semantic')">
-              <span class="choice-icon"><ScanSearch :size="20" /></span>
-              <span><strong>{{ t('courseAuditUpdates.globalSemantic', '全局语义') }}</strong><small>{{ t('courseAuditUpdates.globalSemanticHint', '用一句话说明要怎样改内容') }}</small></span>
-              <ArrowRight :size="17" />
-            </button>
-          </div>
-    </CourseDialogShell>
+
 
   </main>
 </template>
@@ -161,12 +148,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
-import CourseDialogShell from '../components/CourseDialogShell.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import CoursePublicationPanel from '../components/CoursePublicationPanel.vue'
 import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
@@ -207,7 +193,6 @@ const knowledgeFirstEnabled = ref(false)
 async function handleKnowledgeUpdated() { await loadWorkspace() }
 const courseInformationOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
-const globalChangeChoiceOpen = ref(false)
 const courseAdjustmentPlanId = ref('')
 const generationStarting = ref(false)
 const materialRefreshToken = ref(0)
@@ -440,15 +425,8 @@ function handleCourseAdjustmentApplied() {
   ])
 }
 
-async function openGlobalChange() { if (await finishWorkbenchEditing()) globalChangeChoiceOpen.value = true }
-function chooseGlobalChange(kind: 'structure' | 'semantic') {
-  globalChangeChoiceOpen.value = false
-  if (kind === 'structure') { openCourseAdjustment(); return }
-  void router.push({
-    name: 'course-audit-updates',
-    params: { courseId: courseId.value },
-    query: { ...auditCenterReturnQuery('changes'), mode: 'semantic' },
-  })
+async function openGlobalChange() {
+  if (await finishWorkbenchEditing()) openCourseAdjustment()
 }
 
 function openMaterialAudit() {
@@ -582,21 +560,6 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-error :deep(.app-error-notice) { width:min(620px,100%); }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
 :global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
-.global-change-choice { position:fixed; inset:0; z-index:1400; display:grid; place-items:center; padding:24px; }
-.global-change-choice__backdrop { position:absolute; inset:0; width:100%; height:100%; border:0; background:rgba(15,23,42,.42); cursor:default; }
-.global-change-choice__panel { position:relative; width:min(560px,100%); padding:30px; border:1px solid var(--lz-border); border-radius:12px; color:var(--lz-text-strong); background:#fff; box-shadow:0 24px 70px rgba(15,23,42,.2); }
-.global-change-choice__panel header small { color:var(--lz-brand-strong); font-size:13px; font-weight:700; }
-.global-change-choice__panel h2 { margin:7px 0 6px; font-size:24px; line-height:1.35; }
-.global-change-choice__panel header p { margin:0 0 22px; color:var(--lz-text-secondary); font-size:15px; line-height:1.6; }
-.global-change-choice__options { display:grid; gap:10px; padding:20px; }
-.global-change-choice__options button { display:grid; grid-template-columns:40px minmax(0,1fr) 18px; align-items:center; gap:12px; min-height:70px; padding:12px 14px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-primary); background:#fff; text-align:left; cursor:pointer; }
-.global-change-choice__options button:hover { border-color:var(--lz-brand); background:var(--lz-brand-soft); }
-.global-change-choice__options button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
-.global-change-choice__options button>span:nth-child(2) { display:grid; gap:3px; }
-.global-change-choice__options strong { font-size:16px; }
-.global-change-choice__options small { color:var(--lz-text-secondary); font-size:14px; }
-.choice-icon { width:36px; height:36px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.global-change-choice__options button>svg { color:var(--lz-text-muted); }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:720px) {
@@ -620,8 +583,5 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
   .workspace-surface-enter-from,.workspace-surface-leave-to { transform:none; }
 }
 @media (max-width:560px) {
-  .global-change-choice { padding:16px; }
-  .global-change-choice__panel { padding:22px; }
-  .global-change-choice__panel h2 { font-size:21px; }
 }
 </style>

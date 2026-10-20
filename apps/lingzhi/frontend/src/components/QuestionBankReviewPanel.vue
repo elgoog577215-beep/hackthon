@@ -436,6 +436,34 @@
                   <li v-for="constraint in questionConstraints(selectedQuestion)" :key="constraint"><MathText :content="constraint" /></li>
                 </ul>
               </div>
+
+              <section
+                class="question-sheet__knowledge"
+                data-testid="question-knowledge-binding"
+                role="status"
+                aria-live="polite"
+                :aria-label="t('questionBank.binding.title', '题目与元知识点')"
+              >
+                <strong>{{ t('questionBank.binding.title', '题目与元知识点') }}</strong>
+                <span class="question-sheet__knowledge-status" :data-status="selectedQuestionBinding.status">
+                  {{ questionKnowledgeStatusLabel(selectedQuestionBinding.status) }}
+                </span>
+                <ul v-if="selectedQuestionBinding.points.length">
+                  <li v-for="point in selectedQuestionBinding.points" :key="point.knowledge_id">
+                    <b>{{ point.name || point.statement }}</b>
+                    <span v-if="point.name && point.statement">{{ point.statement }}</span>
+                  </li>
+                </ul>
+                <span v-else>{{ selectedQuestionBinding.message }}</span>
+                <button
+                  v-if="['unbound', 'pending', 'stale', 'binding_unavailable'].includes(selectedQuestionBinding.status)"
+                  type="button"
+                  class="question-sheet__knowledge-action"
+                  @click="knowledgeSettingsOpen = true"
+                >
+                  {{ t('questionBank.binding.openSettings', '打开绑定面板') }}
+                </button>
+              </section>
             </section>
 
             <section class="question-answer-panel">
@@ -685,140 +713,30 @@
       </div>
 
       <div class="question-generation-flow">
-        <section
-          class="question-generation-step"
-          role="radiogroup"
-          aria-labelledby="question-scope-title"
-        >
-          <h4 id="question-scope-title">{{ t('questionBank.studio.scope', '出题范围') }}</h4>
-          <div class="question-generation-scope-wrap">
-            <div class="question-generation-scope">
-              <label
-                v-if="props.initialNodeIds.length"
-                data-testid="question-scope-current"
-                :class="{ active: generationScope === 'current' }"
-              >
-                <input v-model="generationScope" type="radio" value="current" />
-                <span>
-                  <strong>{{ props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次') }}</strong>
-                  <small>{{ t('questionBank.studio.currentLessonHint', '沿用进入题库时的当前范围') }}</small>
-                </span>
-              </label>
-              <label data-testid="question-scope-course" :class="{ active: generationScope === 'course' }">
-                <input v-model="generationScope" type="radio" value="course" />
-                <span>
-                  <strong>{{ t('questionBank.studio.wholeCourse', '整门课程') }}</strong>
-                  <small>{{ t('questionBank.studio.wholeCourseHint', '为全部章节生成课程练习') }}</small>
-                </span>
-              </label>
-              <label
-                v-if="chapterOptions.length"
-                data-testid="question-scope-range"
-                :class="{ active: generationScope === 'range' }"
-              >
-                <input v-model="generationScope" type="radio" value="range" />
-                <span>
-                  <strong>{{ t('questionBank.studio.chapterRange', '连续讲次') }}</strong>
-                  <small>{{ t('questionBank.studio.chapterRangeHint', '选择开始和结束讲次') }}</small>
-                </span>
-              </label>
-              <label
-                v-if="chapterOptions.length"
-                data-testid="question-scope-custom"
-                :class="{ active: generationScope === 'custom' }"
-              >
-                <input v-model="generationScope" type="radio" value="custom" />
-                <span>
-                  <strong>{{ t('questionBank.studio.selectedChapters', '指定讲次') }}</strong>
-                  <small>{{ t('questionBank.studio.selectedChaptersHint', '逐讲勾选需要出题的范围') }}</small>
-                </span>
-              </label>
-            </div>
-
-          <div v-if="generationScope === 'range'" class="question-generation-range" data-testid="question-scope-range-panel">
-            <label>
-              <span>{{ t('questionBank.studio.rangeStart', '开始讲次') }}</span>
-              <select v-model="rangeStartNodeId" data-testid="question-scope-range-start">
-                <option v-for="chapter in chapterOptions" :key="`start-${chapter.node_id}`" :value="chapter.node_id">
-                  {{ chapterLabel(chapter) }}
-                </option>
-              </select>
-            </label>
-            <ArrowRight :size="16" aria-hidden="true" />
-            <label>
-              <span>{{ t('questionBank.studio.rangeEnd', '结束讲次') }}</span>
-              <select v-model="rangeEndNodeId" data-testid="question-scope-range-end">
-                <option v-for="chapter in chapterOptions" :key="`end-${chapter.node_id}`" :value="chapter.node_id">
-                  {{ chapterLabel(chapter) }}
-                </option>
-              </select>
-            </label>
-            <small>{{ selectedScopeSummary }}</small>
-          </div>
-
-          <div v-else-if="generationScope === 'custom'" class="question-generation-chapters" data-testid="question-scope-custom-panel">
-            <header>
-              <span>{{ selectedScopeSummary }}</span>
-              <div>
-                <button type="button" @click="selectAllChapters">{{ t('questionBank.studio.selectAll', '全选') }}</button>
-                <button type="button" @click="clearSelectedChapters">{{ t('questionBank.studio.clearSelection', '清空') }}</button>
-              </div>
-            </header>
-            <div class="question-generation-chapter-grid">
-              <label v-for="chapter in chapterOptions" :key="chapter.node_id" :class="{ active: selectedChapterNodeIds.includes(chapter.node_id) }">
-                <input
-                  v-model="selectedChapterNodeIds"
-                  type="checkbox"
-                  :value="chapter.node_id"
-                  :data-testid="`question-scope-node-${chapter.node_id}`"
-                />
-                <span><strong>{{ chapterLabel(chapter) }}</strong></span>
-              </label>
-            </div>
-          </div>
-          </div>
-        </section>
+        <div class="question-generation-target" data-testid="question-generation-target" role="status" aria-live="polite">
+          <span>{{ t('questionBank.studio.currentLesson', '当前讲次') }}</span>
+          <strong>{{ generationScopeReady ? generationTargetLabel : t('questionBank.studio.selectChapterHint', '请先选择一个讲次') }}</strong>
+        </div>
 
         <section class="question-generation-step question-quantity-settings" :aria-label="t('questionBank.quantity.title', '生成数量与方式')">
           <h4>{{ t('questionBank.quantity.title', '生成数量与方式') }}</h4>
-          <label class="question-quantity-count"><span>{{ t('questionBank.quantity.count', '每讲生成数量') }}</span><input v-model.number="questionsPerLesson" data-testid="questions-per-lesson" type="number" min="1" max="20" step="1" :disabled="rebuilding" /></label>
+          <label class="question-quantity-count"><span>{{ t('questionBank.quantity.count', '题目数量') }}</span><input v-model.number="questionsPerLesson" data-testid="questions-per-lesson" type="number" min="1" max="20" step="1" :disabled="rebuilding" /></label>
           <div class="question-quantity-mode">
             <label><input v-model="appendOnly" type="radio" :value="true" :disabled="rebuilding" />{{ t('questionBank.quantity.append', '追加生成') }}</label>
             <label><input v-model="appendOnly" type="radio" :value="false" :disabled="rebuilding" />{{ t('questionBank.quantity.fill', '补齐到指定数量') }}</label>
           </div>
-          <p>{{ appendOnly ? t('questionBank.quantity.appendHint', '每个所选讲次新增指定数量，保留全部已有题目，并检查重复。') : t('questionBank.quantity.fillHint', '每个所选讲次只补足数量差额，已有题目保留，不减少现有题目。') }}</p>
+          <p>{{ appendOnly ? t('questionBank.quantity.appendHint', '为当前讲次新增题目，保留已有题目并检查重复。') : t('questionBank.quantity.fillHint', '仅补足当前讲次的数量差额，保留已有题目。') }}</p>
           <small v-if="!quantityValid" role="alert">{{ t('questionBank.quantity.invalid', '请输入 1 到 20 之间的整数。') }}</small>
         </section>
 
-        <section class="question-generation-step" aria-labelledby="question-intelligence-title">
-          <h4 id="question-intelligence-title">{{ t('questionBank.studio.intelligence', '智能编排') }}</h4>
-          <div class="question-intelligence-grid">
-            <article>
-              <SlidersHorizontal :size="16" />
-              <span>
-                <strong>{{ t('questionBank.studio.difficulty', '智能难度') }}</strong>
-              </span>
-              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
-            </article>
-            <article>
-              <Shapes :size="16" />
-              <span>
-                <strong>{{ t('questionBank.studio.questionTypes', '题型组合') }}</strong>
-              </span>
-              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
-            </article>
-          </div>
-        </section>
+        <p class="question-generation-automatic">
+          <SlidersHorizontal :size="15" aria-hidden="true" />
+          {{ t('questionBank.studio.automaticHint', '难度与题型根据本讲内容自动编排') }}
+        </p>
 
         <section class="question-generation-step question-generation-options" aria-labelledby="question-source-title">
           <h4 id="question-source-title">{{ t('questionBank.studio.sources', '生成设置') }}</h4>
           <div class="question-generation-option-list">
-            <label class="question-generation-toggle">
-              <span>
-                <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
-              </span>
-              <input type="checkbox" checked disabled />
-            </label>
             <label class="question-generation-toggle">
               <span>
                 <strong>{{ t('questionBank.studio.retrieval', '联网补充资料') }}</strong>
@@ -831,24 +749,7 @@
 
       <footer>
         <div class="question-bank-panel__header-action">
-          <div v-if="canContinueGeneration" class="question-bank-panel__header-copy">
-            <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
-              已发布新版章节 {{ completedChapters }}/{{ totalChapters }}
-            </span>
-          </div>
           <div class="question-bank-panel__header-buttons">
-            <button
-              v-if="canContinueGeneration && generationScope === 'course'"
-              type="button"
-              data-testid="continue-course-question-bank"
-              :disabled="loading || rebuilding || !generationScopeReady"
-              @click="rebuild(undefined, undefined, false)"
-            >
-              <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-              {{ rebuilding
-                ? t('questionBank.continuingCourse', '正在继续生成')
-                : `继续生成剩余 ${remainingChapters} 章` }}
-            </button>
             <button
               type="button"
               data-testid="generate-question-bank"
@@ -868,9 +769,8 @@
     </section>
 
 
-      <details class="question-settings-binding" v-if="items.length && bundleRevisionId" @toggle="knowledgeSettingsOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ t('questionBank.knowledgeSettings', '知识点绑定') }}</summary>
+      <details class="question-settings-binding" v-if="items.length && bundleRevisionId" :open="knowledgeSettingsOpen" @toggle="knowledgeSettingsOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ t('questionBank.knowledgeSettings', '知识点绑定') }}</summary>
     <QuestionKnowledgeBinding
-      v-if="knowledgeSettingsOpen"
       :course-id="courseId"
       :bundle-revision="bundleRevisionId"
       :generation-active="rebuilding"
@@ -904,7 +804,6 @@ import {
 } from 'vue'
 import {
   ArrowLeft,
-  ArrowRight,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -919,7 +818,6 @@ import {
   ListTree,
   LoaderCircle,
   RefreshCw,
-  Shapes,
   ShieldCheck,
   SlidersHorizontal,
   TriangleAlert,
@@ -972,6 +870,10 @@ interface QuestionBankItem {
   deliverable?: string
   input_materials?: string[]
   constraints?: string[]
+  knowledge_binding_status?: 'bound' | 'pending' | 'unbound' | 'stale' | 'tree_unavailable'
+  knowledge_binding_review_reason?: string
+  knowledge_points?: Array<{ knowledge_id: string; name?: string; statement?: string }>
+  knowledge_binding?: { status?: string; knowledge_ids?: string[] }
   question_spec?: {
     stimulus?: { rendered_text?: string }
     task?: { rendered_text?: string; deliverable?: string }
@@ -1103,7 +1005,6 @@ const generationSummary = ref<Record<string, any>>({})
 const webEnrichment = ref<Record<string, unknown>>({})
 const assessmentProfile = ref<Record<string, any>>({})
 const assessmentObjectives = ref<AssessmentObjective[]>([])
-const chapterRebuild = ref<Record<string, any>>({})
 const items = ref<QuestionBankItem[]>([])
 const examPapers = ref<ExamPaperSummary[]>([])
 const selectedQuestionRevisions = ref<string[]>([])
@@ -1120,12 +1021,6 @@ const selectedQuestionChapterId = ref('')
 const questionPage = ref(1)
 const coveredObjectivesExpanded = ref(false)
 const coveredObjectivePage = ref(1)
-const generationScope = ref<'current' | 'course' | 'range' | 'custom'>(
-  props.initialNodeIds.length ? 'current' : 'course',
-)
-const rangeStartNodeId = ref('')
-const rangeEndNodeId = ref('')
-const selectedChapterNodeIds = ref<string[]>([])
 const retrievalEnabled = ref(false)
 const questionsPerLesson = ref(3)
 const appendOnly = ref(true)
@@ -1157,49 +1052,6 @@ const chapterOptions = computed(() => {
       return true
     })
 })
-const rangeChapterNodeIds = computed(() => {
-  const start = chapterOptions.value.findIndex(
-    chapter => chapter.node_id === rangeStartNodeId.value,
-  )
-  const end = chapterOptions.value.findIndex(
-    chapter => chapter.node_id === rangeEndNodeId.value,
-  )
-  if (start < 0 || end < 0) return []
-  const from = Math.min(start, end)
-  const to = Math.max(start, end)
-  return chapterOptions.value.slice(from, to + 1).map(chapter => chapter.node_id)
-})
-const scopeNodeIds = computed(() => {
-  if (generationScope.value === 'current') return [...props.initialNodeIds]
-  if (generationScope.value === 'range') return rangeChapterNodeIds.value
-  if (generationScope.value === 'custom') {
-    const selected = new Set(selectedChapterNodeIds.value)
-    return chapterOptions.value
-      .filter(chapter => selected.has(chapter.node_id))
-      .map(chapter => chapter.node_id)
-  }
-  return []
-})
-const generationScopeReady = computed(() => (
-  generationScope.value === 'course' || scopeNodeIds.value.length > 0
-))
-// The UI counts/selects lectures; generation consumes their content nodes.
-// Send explicit content IDs so existing workers can serve a newly loaded UI.
-const generationNodeIds = computed(() => {
-  if (generationScope.value === 'current') return scopeNodeIds.value
-  return [...new Set(scopeNodeIds.value.flatMap(nodeId => {
-    const chapter = chapterOptions.value.find(item => item.node_id === nodeId)
-    const sections = chapter?.node_ids.filter(id => id !== nodeId) || []
-    return sections.length ? sections : [nodeId]
-  }))]
-})
-const selectedScopeSummary = computed(() => {
-  const count = scopeNodeIds.value.length
-  return count
-    ? t('questionBank.studio.selectedChapterCount', '已选择 {count} 个讲次')
-      .replace('{count}', String(count))
-    : t('questionBank.studio.selectChapterHint', '请选择至少一个讲次')
-})
 const pendingAiCandidateScopeLabel = computed(() => {
   const candidate = pendingAiCandidate.value
   if (!candidate || candidate.scope === 'course') {
@@ -1207,7 +1059,7 @@ const pendingAiCandidateScopeLabel = computed(() => {
   }
   const selected = new Set(candidate.node_ids)
   const matched = chapterOptions.value.filter(
-    chapter => selected.has(chapter.node_id),
+    chapter => chapter.node_ids.some(nodeId => selected.has(nodeId)),
   )
   if (matched.length === 1) return chapterLabel(matched[0]!)
   if (matched.length > 1) {
@@ -1215,45 +1067,14 @@ const pendingAiCandidateScopeLabel = computed(() => {
       .replace('{count}', String(matched.length))
   }
   return props.initialScopeLabel
-    || t('questionBank.studio.currentLesson', '当前课次')
+    || t('questionBank.studio.currentLesson', '当前讲次')
 })
 
 function chapterLabel(chapter: QuestionBankChapterOption) {
   return t('questionBank.studio.chapterLabel', '第 {number} 讲 · {title}')
     .replace('{number}', String(chapter.number || ''))
-    .replace('{title}', chapter.title)
+    .replace('{title}', chapter.title.replace(/^第\s*\d+\s*讲[\s·:：、.．-]*/, ''))
 }
-
-function selectAllChapters() {
-  selectedChapterNodeIds.value = chapterOptions.value.map(
-    chapter => chapter.node_id,
-  )
-}
-
-function clearSelectedChapters() {
-  selectedChapterNodeIds.value = []
-}
-
-watch(chapterOptions, (chapters) => {
-  const available = new Set(chapters.map(chapter => chapter.node_id))
-  selectedChapterNodeIds.value = selectedChapterNodeIds.value.filter(
-    nodeId => available.has(nodeId),
-  )
-  if (!chapters.length) {
-    rangeStartNodeId.value = ''
-    rangeEndNodeId.value = ''
-    if (['range', 'custom'].includes(generationScope.value)) {
-      generationScope.value = props.initialNodeIds.length ? 'current' : 'course'
-    }
-    return
-  }
-  if (!available.has(rangeStartNodeId.value)) {
-    rangeStartNodeId.value = chapters[0]!.node_id
-  }
-  if (!available.has(rangeEndNodeId.value)) {
-    rangeEndNodeId.value = chapters[chapters.length - 1]!.node_id
-  }
-}, { immediate: true })
 
 const activeItems = computed(() => items.value.filter(
   item => item.lifecycle_status !== 'retired',
@@ -1271,6 +1092,45 @@ const selectedQuestions = computed(() => {
 const publishedCount = computed(() => activeItems.value.filter(
   item => item.lifecycle_status === 'approved',
 ).length)
+const selectedQuestionBinding = computed(() => {
+  const question = selectedQuestion.value
+  const directPoints = question?.knowledge_points || []
+  const storedIds = question?.knowledge_binding?.knowledge_ids || []
+  const points: Array<{ knowledge_id: string; name?: string; statement?: string }> = directPoints.length
+    ? directPoints
+    : storedIds.map(id => ({ knowledge_id: id, name: id, statement: '' }))
+  const status = question?.knowledge_binding_status
+    || question?.knowledge_binding?.status
+    || 'binding_unavailable'
+  const messages: Record<string, string> = {
+    bound: t('questionBank.binding.noBoundPoints', '当前没有已确认的具体元知识点'),
+    pending: t('questionBank.binding.pendingHint', '模型已给出候选，等待确认'),
+    unbound: t('questionBank.binding.noBoundPoints', '当前没有已确认的具体元知识点'),
+    stale: t('questionBank.binding.staleHint', '知识树已更新，请重新绑定'),
+    tree_unavailable: t('questionBank.binding.noTree', '请先生成并采用知识树'),
+    binding_unavailable: t('questionBank.binding.loadFailed', '绑定状态暂未读取，请打开绑定面板刷新'),
+  }
+  const pendingReasons: Record<string, string> = {
+    invalid_evidence: t('questionBank.binding.invalidEvidence', '匹配依据未能定位到题面原文，请核对后重新匹配或手动选择。'),
+    uncertain_match: t('questionBank.binding.uncertainMatch', '匹配结果不够确定，请核对后手动选择知识点。'),
+    no_matching_target: t('questionBank.binding.noMatchingTarget', '当前讲次没有找到确定匹配的知识点，请核对知识树与题目范围。'),
+    matching_unavailable: t('questionBank.binding.matchingUnavailable', '自动匹配服务暂不可用，题目已保留，可稍后重试或手动绑定。'),
+  }
+  const pendingReason = pendingReasons[question?.knowledge_binding_review_reason || '']
+  return { status, points, message: status === 'pending' && pendingReason
+    ? pendingReason : messages[status] || messages.binding_unavailable }
+})
+function questionKnowledgeStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    bound: t('questionBank.binding.bound', '已绑定'),
+    pending: t('questionBank.binding.pending', '待确认'),
+    unbound: t('questionBank.binding.unbound', '待绑定'),
+    stale: t('questionBank.binding.stale', '知识树已更新'),
+    tree_unavailable: t('questionBank.binding.treeUnavailable', '知识树未就绪'),
+    binding_unavailable: t('questionBank.binding.unavailable', '绑定状态未读取'),
+  }
+  return labels[status] || status
+}
 const workspaceTitle = computed(() => {
   if (workspaceMode.value === 'import') return t('questionBank.workspace.importTitle', '导入与校对')
   if (workspaceMode.value === 'generate') return t('questionBank.workspace.generateTitle', 'AI 生成题目')
@@ -1283,26 +1143,6 @@ const workspaceStatus = computed(() => {
   if (items.value.length) return t('questionBank.workspace.publishedStatus', '{count} 道已发布').replace('{count}', String(publishedCount.value))
   return t('questionBank.workspace.emptyStatus', '尚无题目')
 })
-const totalChapters = computed(() => Number(
-  chapterRebuild.value.total_chapters || 0,
-))
-const completedChapters = computed(() => Number(
-  chapterRebuild.value.completed_chapters
-  ?? chapterRebuild.value.published_node_ids?.length
-  ?? 0,
-))
-const remainingChapters = computed(() => Math.max(
-  0,
-  Number(
-    chapterRebuild.value.remaining_chapters
-    ?? totalChapters.value - completedChapters.value,
-  ),
-))
-const canContinueGeneration = computed(() => Boolean(
-  chapterRebuild.value.can_resume
-  && completedChapters.value > 0
-  && remainingChapters.value > 0,
-))
 const mappedQuestionCount = computed(() => activeItems.value.filter(item => (
   chapterOptions.value.some(chapter => (
     chapter.node_ids.includes(String(item.node_id || ''))
@@ -1355,6 +1195,9 @@ const activeQuestionChapter = computed(() => (
   visibleQuestionChapterGroups.value.find(
     chapter => chapter.node_id === selectedQuestionChapterId.value,
   )
+  || visibleQuestionChapterGroups.value.find(chapter => (
+    props.initialNodeIds.some(nodeId => chapter.node_ids.includes(nodeId))
+  ))
   || visibleQuestionChapterGroups.value.find(chapter => chapter.item_count > 0)
   || visibleQuestionChapterGroups.value[0]
   || null
@@ -1366,6 +1209,23 @@ const activeQuestionChapterLabel = computed(() => (
     ? chapterLabel(activeQuestionChapter.value)
     : t('questionBank.allChapters', '全部讲次')
 ))
+// One selection drives both browsing and generation. Expand only this lecture's
+// content nodes for compatibility with workers that predate lecture IDs.
+const generationNodeIds = computed(() => {
+  if (!chapterOptions.value.length && selectedQuestionChapterId.value !== '__unassigned__') {
+    return [...new Set(props.initialNodeIds.filter(Boolean))]
+  }
+  const chapter = activeQuestionChapter.value
+  if (chapter?.node_id === '__unassigned__') return []
+  if (!chapter) return []
+  const sections = chapter.node_ids.filter(nodeId => nodeId !== chapter.node_id)
+  return sections.length ? sections : [chapter.node_id]
+})
+const generationScopeReady = computed(() => generationNodeIds.value.length > 0)
+const generationTargetLabel = computed(() => chapterOptions.value.length && activeQuestionChapter.value
+  ? activeQuestionChapterLabel.value
+  : props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前讲次'),
+)
 const chapterScopedItems = computed(() => {
   if (!questionChapterGroupingEnabled.value) return activeItems.value
   const chapterId = activeQuestionChapter.value?.node_id
@@ -1656,8 +1516,9 @@ watch(workspaceMode, mode => {
 watch(questionReferences, references => {
   emit('references-change', references)
 }, { deep: true, immediate: true })
-watch(() => props.initialNodeIds, value => {
-  generationScope.value = value.length ? 'current' : 'course'
+watch(() => props.initialNodeIds, () => {
+  selectedQuestionChapterId.value = ''
+  setQuestionPage(1)
 }, { deep: true })
 watch(coveredObjectivePageCount, pageCount => {
   if (coveredObjectivePage.value > pageCount) {
@@ -1888,7 +1749,6 @@ async function load() {
     generationSummary.value = data.generation_summary || {}
     webEnrichment.value = data.web_enrichment || {}
     assessmentProfile.value = data.assessment_profile || {}
-    chapterRebuild.value = data.chapter_rebuild || {}
     assessmentObjectives.value = Array.isArray(data.assessment_objectives)
       ? data.assessment_objectives
       : []
@@ -1954,10 +1814,7 @@ function handlePaperCreated() {
 
 function startGeneration() {
   if (!generationScopeReady.value || !quantityValid.value) return
-  const nodeIds = generationScope.value === 'course'
-    ? undefined
-    : generationNodeIds.value
-  return rebuild(nodeIds)
+  return rebuild([...generationNodeIds.value])
 }
 
 function aiCandidateStorageKey() {
@@ -1998,12 +1855,11 @@ function restoreAiCandidate() {
 async function requestAiCandidate(value: string) {
   const instruction = value.trim()
   if (!instruction || rebuilding.value || !generationScopeReady.value) return null
-  const scope = generationScope.value === 'course' ? 'course' : 'nodes'
   pendingAiCandidate.value = {
     candidate_id: createUuid(),
     base_bundle_revision_id: bundleRevisionId.value,
-    scope,
-    node_ids: scope === 'nodes' ? [...generationNodeIds.value] : [],
+    scope: 'nodes',
+    node_ids: [...generationNodeIds.value],
     material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
     questions_per_lesson: questionsPerLesson.value,
@@ -2432,41 +2288,9 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-generation-flow { padding:0 20px; }
 .question-generation-step { min-width:0; display:grid; grid-template-columns:132px minmax(0,1fr); align-items:start; gap:24px; margin:0; padding:18px 0; border:0; border-top:1px solid #edf0f4; }
 .question-generation-step h4 { margin:0; padding:2px 0 0; color:#334155; font-size:12px; font-weight:750; line-height:1.5; }
-.question-generation-scope-wrap { min-width:0; display:grid; gap:12px; }
-.question-generation-scope { min-width:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px; }
-.question-generation-scope label { min-width:0; min-height:58px; display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid #dfe4ec; border-radius:10px; background:#fff; cursor:pointer; transition:border-color .15s ease,background-color .15s ease; }
-.question-generation-scope label:hover { border-color:#c7d2fe; background:#fafaff; }
-.question-generation-scope label.active { border-color:#a5b4fc; background:#f4f5ff; }
-.question-generation-scope label:only-child { max-width:300px; }
-.question-generation-scope input { width:15px; height:15px; flex:0 0 auto; accent-color:#4f46e5; }
-.question-generation-range { min-width:0; display:grid; grid-template-columns:minmax(180px,1fr) 20px minmax(180px,1fr) auto; align-items:end; gap:10px; padding:13px; border:1px solid #e0e5ee; border-radius:10px; background:#fafbfe; }
-.question-generation-range>label { min-width:0; display:grid; gap:6px; }
-.question-generation-range>label>span { color:#64748b; font-size:10px; font-weight:700; }
-.question-generation-range select { width:100%; height:38px; padding:0 30px 0 10px; border:1px solid #d7dde7; border-radius:8px; color:#334155; background:#fff; font-size:11px; }
-.question-generation-range select:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
-.question-generation-range>svg { align-self:center; margin-top:17px; color:#818cf8; }
-.question-generation-range>small { align-self:center; min-width:max-content; margin-top:17px; color:#4f46e5; font-size:10px; font-weight:720; }
-.question-generation-chapters { min-width:0; overflow:hidden; border:1px solid #e0e5ee; border-radius:10px; background:#fafbfe; }
-.question-generation-chapters>header { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 12px; border-bottom:1px solid #e6eaf1; }
-.question-generation-chapters>header>span { color:#4f46e5; font-size:10px; font-weight:720; }
-.question-generation-chapters>header>div { display:flex; align-items:center; gap:4px; }
-.question-generation-chapters>header button { min-height:28px; padding:0 8px; border:0; border-radius:6px; color:#5b62c9; background:transparent; font-size:10px; font-weight:700; cursor:pointer; }
-.question-generation-chapters>header button:hover { background:#eef0ff; }
-.question-generation-chapters>header button:focus-visible { outline:2px solid #6366f1; outline-offset:1px; }
-.question-generation-chapter-grid { max-height:240px; display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:7px; overflow:auto; padding:10px; scrollbar-width:thin; scrollbar-color:#cbd3df transparent; }
-.question-generation-chapter-grid label { min-width:0; min-height:42px; display:flex; align-items:center; gap:9px; padding:8px 10px; border:1px solid #dfe4ec; border-radius:8px; color:#475569; background:#fff; cursor:pointer; }
-.question-generation-chapter-grid label:hover { border-color:#c7d2fe; background:#f8f9ff; }
-.question-generation-chapter-grid label.active { border-color:#a5b4fc; color:#3730a3; background:#eef0ff; }
-.question-generation-chapter-grid input { width:15px; height:15px; flex:0 0 auto; accent-color:#4f46e5; }
-.question-generation-chapter-grid label:has(input:focus-visible) { outline:2px solid #6366f1; outline-offset:1px; }
-.question-generation-step label>span,.question-intelligence-grid article>span { min-width:0; display:grid; gap:2px; }
-.question-generation-step label strong,.question-intelligence-grid strong { color:#334155; font-size:12px; line-height:1.4; }
-.question-generation-step label small,.question-intelligence-grid small { overflow:hidden; color:#64748b; font-size:11px; line-height:1.45; text-overflow:ellipsis; }
-.question-intelligence-grid { min-width:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
-.question-intelligence-grid article { min-width:0; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:9px; padding:3px 20px; color:#6366f1; }
-.question-intelligence-grid article:first-child { padding-left:0; }
-.question-intelligence-grid article+article { border-left:1px solid #edf0f4; }
-.question-intelligence-grid em { color:#4f46e5; font-size:10px; font-style:normal; font-weight:750; }
+.question-generation-step label>span { min-width:0; display:grid; gap:2px; }
+.question-generation-step label strong { color:#334155; font-size:12px; line-height:1.4; }
+.question-generation-step label small { overflow:hidden; color:#64748b; font-size:11px; line-height:1.45; text-overflow:ellipsis; }
 .question-generation-option-list { min-width:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
 .question-generation-toggle { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:3px 20px; cursor:pointer; }
 .question-generation-toggle:first-child { padding-left:0; }
@@ -2474,13 +2298,12 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-generation-toggle input { width:16px; height:16px; flex:0 0 auto; accent-color:#4f46e5; }
 .question-generation-studio>footer { display:flex; align-items:center; min-height:66px; padding:13px 20px; border-top:1px solid #edf0f4; background:#fafbfc; }
 .question-bank-panel__header-action { width:100%; display:flex; align-items:center; justify-content:space-between; gap:18px; }
-.question-bank-panel__header-copy { min-width:0; display:grid; gap:3px; text-align:left; }
 .question-bank-panel__header-action small,.question-bank-panel__header-action span { color:#64748b; font-size:11px; line-height:1.45; }
 .question-bank-panel__header-action span { color:#047857; font-weight:700; }
 .question-bank-panel__header-buttons { flex:0 0 auto; display:flex; align-items:center; gap:8px; }
 .question-bank-panel__header-buttons button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 12px; border:1px solid #d7dde7; border-radius:8px; color:#475569; background:#fff; font-size:12px; font-weight:700; cursor:pointer; transition:border-color .15s ease,background-color .15s ease; }
 .question-bank-panel__header-buttons button:hover:not(:disabled) { border-color:#a5b4fc; background:#f8f9ff; }
-.question-bank-panel__header-buttons button:focus-visible,.question-generation-scope label:has(input:focus-visible),.question-generation-toggle:has(input:focus-visible) { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-panel__header-buttons button:focus-visible,.question-generation-toggle:has(input:focus-visible) { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-panel__header-buttons button:disabled { opacity:.5; cursor:not-allowed; }
 .question-bank-panel__header-buttons .question-generation-primary { border-color:var(--lz-action-border); color:var(--lz-action-text); background:var(--lz-action-bg); border:1px solid var(--lz-action-border); border-radius:var(--lz-action-radius); box-shadow:var(--lz-action-shadow); }
 .question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:var(--lz-action-border-hover); background:var(--lz-action-bg); }
@@ -2646,6 +2469,16 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-sheet__requirements strong { color:#344054; font-size:11px; }
 .question-sheet__requirements p,.question-sheet__requirements ul { max-width:72ch; margin:0; }
 .question-sheet__requirements ul { display:grid; gap:3px; padding-left:18px; }
+.question-sheet__knowledge { display:grid; grid-template-columns:auto auto; align-items:center; justify-content:start; gap:8px 12px; padding:14px 24px 18px; border-top:1px solid #edf0f4; color:#667085; background:#fff; font-size:15px; line-height:1.55; }
+.question-sheet__knowledge>strong { color:#344054; }
+.question-sheet__knowledge-status { color:#7b5b00; }
+.question-sheet__knowledge-status[data-status="bound"] { color:#087443; }
+.question-sheet__knowledge-status[data-status="stale"] { color:#a33b35; }
+.question-sheet__knowledge ul { grid-column:1 / -1; display:grid; gap:6px; margin:0; padding-left:20px; }
+.question-sheet__knowledge li>span { display:block; color:#667085; }
+.question-sheet__knowledge>span:last-child { grid-column:1 / -1; }
+.question-sheet__knowledge-action { grid-column:1 / -1; justify-self:start; min-height:32px; padding:5px 10px; border:1px solid #c6c0e4; border-radius:7px; color:#51418f; background:#fff; font:inherit; cursor:pointer; }
+.question-sheet__knowledge-action:focus-visible { outline:2px solid #7562c8; outline-offset:3px; }
 .question-answer-panel { display:grid; gap:13px; margin-top:16px; padding:18px 20px; border:1px solid #dfe5ed; border-radius:12px; background:#fff; }
 .question-answer-panel>header { display:flex; align-items:center; justify-content:space-between; gap:14px; }
 .question-answer-panel>header>div { display:flex; align-items:baseline; gap:8px; }
@@ -2731,7 +2564,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
   .question-bank-workspace-side { min-height:260px; overflow:visible; border-top:1px solid #e4e9f1; border-left:0; }
 }
 
-@media (max-width: 720px) { .question-bank-page-heading { min-height:44px; align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-page-identity { width:100%; }.question-bank-workspace-status { margin-left:auto; font-size:0; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list,.question-generation-range,.question-generation-chapter-grid { grid-template-columns:1fr; }.question-generation-range>svg { display:none; }.question-generation-range>small { margin-top:0; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
+@media (max-width: 720px) { .question-bank-page-heading { min-height:44px; align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-page-identity { width:100%; }.question-bank-workspace-status { margin-left:auto; font-size:0; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-option-list { grid-template-columns:1fr; }.question-generation-toggle { padding:8px 0; }.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
 </style>
 
@@ -2807,19 +2640,14 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel .question-generation-flow { padding:0 16px; }
 .question-bank-panel .question-generation-step { grid-template-columns:1fr; gap:10px; padding:16px 0; }
 .question-bank-panel .question-generation-step h4 { font-size:15px; }
-.question-bank-panel .question-generation-scope { grid-template-columns:1fr 1fr; gap:6px; }
-.question-bank-panel .question-generation-scope label { min-height:52px; padding:10px 8px; gap:6px; }
-.question-bank-panel .question-generation-scope label strong { font-size:15px; }
-.question-bank-panel .question-generation-scope label small { display:none; }
-.question-bank-panel .question-generation-range,.question-bank-panel .question-generation-chapter-grid { grid-template-columns:1fr; }
-.question-bank-panel .question-generation-range>svg { display:none; }
-.question-bank-panel .question-generation-chapter-grid { max-height:260px; overflow:auto; }
-.question-bank-panel .question-generation-chapter-grid label { min-height:50px; padding:8px; }
-.question-bank-panel .question-generation-chapter-grid strong { font-size:14px; }
-.question-bank-panel .question-intelligence-grid,.question-bank-panel .question-generation-option-list { grid-template-columns:1fr; }
-.question-bank-panel .question-intelligence-grid article,.question-bank-panel .question-generation-toggle { padding:10px 0; border:0; }
-.question-bank-panel .question-intelligence-grid strong,.question-bank-panel .question-generation-toggle strong { font-size:15px; }
-.question-bank-panel .question-intelligence-grid em { font-size:14px; }
+.question-generation-target { display:grid; gap:5px; padding:12px 0 16px; font-size:15px; line-height:1.5; }
+.question-generation-target>span { color:#64748b; }
+.question-generation-target>strong { color:#4338ca; overflow-wrap:anywhere; }
+.question-generation-automatic { display:flex; align-items:flex-start; gap:8px; margin:0; padding:0 0 16px; color:#64748b; font-size:15px; line-height:1.6; }
+.question-generation-automatic>svg { flex:none; margin-top:4px; color:#6366f1; }
+.question-bank-panel .question-generation-option-list { grid-template-columns:1fr; }
+.question-bank-panel .question-generation-toggle { padding:10px 0; border:0; }
+.question-bank-panel .question-generation-toggle strong { font-size:15px; }
 .question-bank-panel .question-generation-studio>footer { padding:16px; border-top:1px solid #e4e9f1; }
 .question-bank-panel .question-bank-panel__header-action,.question-bank-panel .question-bank-panel__header-buttons { width:100%; flex-direction:column; align-items:stretch; }
 .question-bank-panel .question-bank-panel__header-buttons button { min-height:42px; font-size:15px; justify-content:center; }

@@ -10,9 +10,14 @@
         </p>
         <p v-else>{{ t('questionBank.binding.noTree', '请先生成并采用知识树，题库将自动匹配元知识点。') }}</p>
       </div>
+      <div class="binding-actions">
+      <button type="button" data-testid="auto-bind-knowledge" :disabled="!view.tree_ready || !view.can_edit || busy || !(view.counts.unbound || view.counts.pending)" @click="runBinding('auto', true)">
+        <ListTree :size="17" />{{ t('questionBank.binding.adapt', '一键适配元知识点') }}
+      </button>
       <button type="button" data-testid="open-knowledge-binding" :disabled="!view.tree_ready || !view.can_edit" :aria-expanded="opened" @click="opened = !opened">
         <ListTree :size="17" />{{ t('questionBank.binding.bind', '绑定知识点') }}
       </button>
+      </div>
     </div>
     <p v-if="busy" class="binding-notice" role="status"><LoaderCircle class="binding-spin" :size="16" />{{ t('questionBank.binding.working', '正在绑定元知识点…') }}</p>
     <p v-if="error" class="binding-error" role="alert">{{ error }}</p>
@@ -57,7 +62,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ListTree, LoaderCircle, RefreshCw } from 'lucide-vue-next'
-import http, { teacherReadRequestConfig } from '@/utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 
 interface BindingItem { revision_id: string; item_id?: string; prompt: string; status: string; knowledge_ids: string[] }
@@ -136,7 +141,7 @@ async function runBinding(mode: 'auto' | 'manual', retryPending = false) {
         mode, expected_bundle_revision_id: previousRevision,
         knowledge_baseline_revision: view.value.knowledge_baseline_revision,
         ...(mode === 'manual' ? { revision_id: selectedRevision.value, knowledge_ids: selectedIds.value } : { retry_pending: retryPending, revision_ids: remaining.slice(0, 8) }),
-      }, { signal: controller.signal, timeout: 60000, silentError: true })
+      }, teacherRequestConfig({ signal: controller.signal, timeout: 60000, silentError: true }))
       if (!current()) return
       applyView(response.data || {})
       remaining.splice(0, 8)
@@ -175,6 +180,7 @@ onBeforeUnmount(() => { disposed = true; sequence++; controller?.abort(); window
 .knowledge-binding { margin: 16px 24px; padding: 16px 20px; border: 1px solid #dedcf2; border-radius: 14px; background: #faf9ff; color: #302e49; font-size: 15px; }
 .knowledge-binding:focus-visible { outline:2px solid #7562c8; outline-offset:-2px; }
 .binding-summary, .binding-controls, .binding-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.binding-actions { display: flex; align-items: center; gap: 8px; }
 p { margin: 6px 0; line-height: 1.6; color: #605d76; }
 button { display: inline-flex; gap: 7px; align-items: center; justify-content: center; min-height: 38px; padding: 7px 12px; border: 1px solid #c6c0e4; border-radius: 8px; color: #51418f; background: white; font: inherit; white-space: nowrap; cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
@@ -195,5 +201,5 @@ legend { padding: 0 6px; }
 .binding-spin { animation: binding-rotate 1s linear infinite; }
 @keyframes binding-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .binding-spin { animation: none; } }
-@media (max-width: 1000px) { .binding-summary, .binding-controls { flex-wrap: wrap; } }
+@media (max-width: 1000px) { .binding-summary, .binding-controls, .binding-actions { flex-wrap: wrap; } }
 </style>

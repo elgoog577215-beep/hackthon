@@ -3,6 +3,7 @@ import { createPinia, type Pinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseEvolutionWorkspace from '@/components/CourseEvolutionWorkspace.vue'
 import zhMessages from '@/../public/locales/zh/translation.json'
+import enMessages from '@/../public/locales/en/translation.json'
 import { setLocale } from '@/shared/i18n'
 import {
   useCourseEvolutionStore,
@@ -95,19 +96,109 @@ function plan(overrides: Partial<CourseEvolutionPlan> = {}): CourseEvolutionPlan
   }
 }
 
-function mountWorkspace(pinia: Pinia) {
+function mountWorkspace(pinia: Pinia, initialMode: 'structure' | 'replace' = 'structure') {
   const store = useCourseEvolutionStore(pinia)
   store.courseContext = store.courseContext || context()
   vi.spyOn(store, 'refreshProgress').mockResolvedValue({} as any)
   vi.spyOn(store, 'loadCourseContext').mockResolvedValue(store.courseContext)
   return mount(CourseEvolutionWorkspace, {
     attachTo: document.body,
-    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理' },
+    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理', initialMode },
     global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
   })
 }
 
 describe('CourseEvolutionWorkspace', () => {
+  function structureFixture() {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      teacher_change_planning: planning({ execution_strategies: ['structural_regeneration'] }),
+      impact_summary: {
+        analysis_mode: 'deterministic_structure',
+        current_outline: [
+          { node_id: 'a', node_name: '功与能', parent_node_id: 'root', node_level: 1 },
+          { node_id: 'b', node_name: '动量与碰撞', parent_node_id: 'root', node_level: 1 },
+        ],
+        proposed_outline: [
+          { provisional_id: 'new-b', title: '动量与碰撞', parent_ref: 'root', source_node_ids: ['b'] },
+          { provisional_id: 'new-a', title: '功与能', parent_ref: 'root', source_node_ids: ['a'] },
+        ],
+        affected_units: [],
+      },
+    })]
+    const apply = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    return { store, apply, review, wrapper: mountWorkspace(pinia) }
+  }
+
+  it('reorders and renames only the proposal, then restores the saved proposal', async () => {
+    const { wrapper, apply, review } = structureFixture()
+    expect(wrapper.findAll('.structure-edit-row.is-changed')).toHaveLength(2)
+    await wrapper.get('.structure-row-actions > button[aria-label="下移 动量与碰撞"]').trigger('click')
+    expect((wrapper.get('.structure-edit-row input').element as HTMLInputElement).value).toBe('功与能')
+    await wrapper.get('.structure-edit-row input').setValue('功与动能')
+    expect(wrapper.get('.current-tree').text()).toContain('功与能')
+    expect(wrapper.get('.current-tree').text()).not.toContain('功与动能')
+    expect(apply).not.toHaveBeenCalled()
+    expect(review).not.toHaveBeenCalled()
+    await wrapper.get('.proposed-tree header button').trigger('click')
+    expect((wrapper.get('.structure-edit-row input').element as HTMLInputElement).value).toBe('动量与碰撞')
+    wrapper.unmount()
+  })
+
+  it('splits, merges and removes proposal rows without writing the current course', async () => {
+    const { wrapper, apply, review } = structureFixture()
+    await wrapper.get('.structure-menu-content > button').trigger('click')
+    expect(wrapper.findAll('.structure-edit-row')).toHaveLength(3)
+    expect(wrapper.findAll('.current-tree tbody tr')).toHaveLength(2)
+    await wrapper.findAll('.merge-control')[1]!.setValue('new-b')
+    expect(wrapper.findAll('.structure-edit-row')).toHaveLength(2)
+    await wrapper.get('.structure-menu-content .danger-action').trigger('click')
+    expect(wrapper.findAll('.structure-edit-row')).toHaveLength(1)
+    expect(wrapper.findAll('.current-tree tbody tr')).toHaveLength(2)
+    expect(apply).not.toHaveBeenCalled()
+    expect(review).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('blocks invalid proposals and locks draft controls during an in-flight action', async () => {
+    const { wrapper, store } = structureFixture()
+    await wrapper.get('.structure-edit-row input').setValue('')
+    expect(wrapper.get('.structure-actionbar .button-primary').attributes('disabled')).toBeDefined()
+    await wrapper.get('.proposed-tree header button').trigger('click')
+    store.actingId = 'change-1'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.structure-edit-row input').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.add-node').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.proposed-tree header button').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.structure-actionbar .button-primary').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('submits semantic changes through the existing form and excludes missing files', async () => {
+    const pinia = createPinia(), store = useCourseEvolutionStore(pinia)
+    store.courseContext = context()
+    store.courseContext.assets.find(asset => asset.asset_type === 'script')!.state = 'missing'
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia, 'replace')
+    expect(wrapper.find('.request-outline').exists()).toBe(false)
+    await wrapper.get('.literal-replacement textarea').setValue('统一课程中的术语，保留原有公式。')
+    await wrapper.get('#' + wrapper.get('form').attributes('id')).trigger('submit')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ instruction: '统一课程中的术语，保留原有公式。', assetTypes: ['outline', 'lesson_plan', 'ppt'] }))
+    expect(wrapper.get('.request-actionbar .button-primary').attributes('form')).toBe(wrapper.get('form').attributes('id'))
+    wrapper.unmount()
+  })
+
+  it('renders the redesigned controls in English without untranslated keys', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => enMessages })))
+    await setLocale('en')
+    const { wrapper } = structureFixture()
+    expect(wrapper.get('.workspace-title').text()).toBe('Adjust structure')
+    expect(wrapper.get('.structure-actionbar .button-primary').text()).toContain('Confirm structure and generate proposals')
+    expect(wrapper.text()).not.toContain('courseChangeUi.')
+    expect(wrapper.text()).not.toContain('courseEvolution.')
+    wrapper.unmount()
+  })
   it('saves waiting selections without generating or applying them', async () => {
     const { store, wrapper } = retryFixture()
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
@@ -216,9 +307,9 @@ describe('CourseEvolutionWorkspace', () => {
   it('首屏同时给出自然语言入口、贯通流程和真实课程索引', async () => {
     const wrapper = mountWorkspace(createPinia())
 
-    expect(wrapper.findAll('.journey li')).toHaveLength(4)
-    expect(wrapper.get('.journey li.active').text()).toContain('输入想法')
-    expect(wrapper.get('.request-composer').text()).toContain('这次想让课程怎么变')
+    expect(wrapper.findAll('.journey li')).toHaveLength(3)
+    expect(wrapper.get('.journey li.active').text()).toContain('填写需求')
+    expect(wrapper.get('.request-composer').text()).toContain('调整要求')
     expect(wrapper.get('.readiness-strip').text()).toContain('课程准备情况')
     expect(wrapper.get('.readiness-strip').text()).toContain('部分完成')
     expect(wrapper.get('.readiness-strip').text()).toContain('尚未生成')
@@ -235,7 +326,7 @@ describe('CourseEvolutionWorkspace', () => {
     store.generating = true
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('选择影响范围')
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改方案')
     expect(wrapper.get('.scan-main').text()).toContain('索引召回')
     expect(wrapper.get('.scan-main').text()).toContain('AI 判断')
     expect(wrapper.findAll('.scanning-state aside li')).toHaveLength(4)
@@ -326,8 +417,8 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('选择影响范围')
-    expect(wrapper.get('.request-context').text()).toContain('本次目标')
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改方案')
+    expect(wrapper.get('.request-context').text()).toContain('本次要求')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
     await wrapper.get('.impact-expand').trigger('click')
     expect(wrapper.get('[data-testid="course-change-detail"]').text()).toContain('原讲稿只介绍方法')
@@ -705,7 +796,7 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('选择影响范围')
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改方案')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
     expect(review).toHaveBeenCalledWith('change-1', ['m1'], {
       migrationDispositions: { m1: 'regenerate' },
@@ -723,10 +814,10 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.tree-comparison').text()).toContain('第四章 项目实践')
     expect(wrapper.get('.migration-panel').text()).toContain('重新生成')
     expect(wrapper.get('.migration-panel').text()).toContain('需要按新结构重组')
-    await wrapper.findAll('.structure-edit-row>input')[0]!.setValue('第三章 基础原理')
-    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('确认方案并生成建议')
-    expect(wrapper.get('.migration-panel .button-primary').attributes('disabled')).toBeUndefined()
-    await wrapper.get('.migration-panel .button-primary').trigger('click')
+    await wrapper.findAll('.structure-edit-row .node-name input')[0]!.setValue('第三章 基础原理')
+    expect(wrapper.get('.structure-actionbar .button-primary').text()).toContain('确认结构并生成联动建议')
+    expect(wrapper.get('.structure-actionbar .button-primary').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.structure-actionbar .button-primary').trigger('click')
     expect(review).toHaveBeenCalledWith('change-1', ['m1'], {
       confirmStructure: true,
       migrationDispositions: { m1: 'regenerate' },
@@ -760,8 +851,8 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('生成联动建议')
-    await wrapper.get('.migration-panel .button-primary').trigger('click')
+    expect(wrapper.get('.structure-actionbar .button-primary').text()).toContain('生成联动建议')
+    await wrapper.get('.structure-actionbar .button-primary').trigger('click')
     expect(generate).toHaveBeenCalledWith('change-1')
     expect(accept).not.toHaveBeenCalled()
     wrapper.unmount()

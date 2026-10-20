@@ -120,6 +120,8 @@ describe('QuestionBankReviewPanel', () => {
           risk_flags: ['comprehensive_task'],
           quality_report: { passed: true, status: 'passed' },
           source_records: [{ source_type: 'course_knowledge_base' }],
+          knowledge_binding_status: 'bound',
+          knowledge_points: [{ knowledge_id: 'k-stack', name: '栈的后进先出规则', statement: '最后入栈的元素先出栈' }],
           node_id: 'node-1',
           objective_id: 'objective-1',
           archetype_id: 'integrated_performance',
@@ -191,6 +193,42 @@ describe('QuestionBankReviewPanel', () => {
     wrapper.unmount()
   })
 
+  it('shows the exact atomic knowledge binding on the selected question', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(wrapper.get('[data-testid="question-knowledge-binding"]').text()).toContain('栈的后进先出规则')
+    expect(wrapper.get('[data-testid="question-knowledge-binding"]').text()).toContain('已绑定')
+    wrapper.unmount()
+  })
+
+  it('loads binding automation even while the knowledge settings are collapsed', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
+    expect(wrapper.get('.question-settings-binding').attributes('open')).toBeUndefined()
+    expect(get.mock.calls.some(([url]) => url.endsWith('/question-bank/knowledge-bindings'))).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['invalid_evidence', '匹配依据未能定位到题面原文'],
+    ['matching_unavailable', '自动匹配服务暂不可用，题目已保留'],
+  ])('explains a pending binding instead of hiding the cause: %s', async (reason, expected) => {
+    const read = get.getMockImplementation()!
+    get.mockImplementation(async (...args) => {
+      const response = await read(...args)
+      if (response.data?.items?.[0]) Object.assign(response.data.items[0], {
+        knowledge_binding_status: 'pending', knowledge_points: [], knowledge_binding_review_reason: reason,
+      })
+      return response
+    })
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
+    expect(wrapper.get('[data-testid="question-knowledge-binding"]').text()).toContain(expected)
+    wrapper.unmount()
+  })
+
   it('opens a question as the full center page and returns to its list without changing settings', async () => {
     const wrapper = mount(QuestionBankReviewPanel, { attachTo: document.body, props: { courseId: 'course-1' } })
     await flushPromises()
@@ -213,7 +251,7 @@ describe('QuestionBankReviewPanel', () => {
   })
 
   it('submits per-lecture additions while preserving existing questions and bounds the count', async () => {
-    const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate'}})
+    const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate',initialNodeIds:['node-1']}})
     await flushPromises()
     await wrapper.get('[data-testid="questions-per-lesson"]').setValue('5')
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
@@ -221,7 +259,15 @@ describe('QuestionBankReviewPanel', () => {
     expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1',expect.objectContaining({
       questions_per_lesson:5,append_only:true,mode:'incremental',resume_existing:true,
     }),expect.any(Object))
+    await wrapper.get('.question-quantity-mode input[value="false"]').setValue(true)
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenLastCalledWith('course-1',expect.objectContaining({
+      scope:'nodes',node_ids:['node-1'],questions_per_lesson:5,append_only:false,
+    }),expect.any(Object))
     await wrapper.get('[data-testid="questions-per-lesson"]').setValue('0')
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('21')
     expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
@@ -284,7 +330,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('展示覆盖矩阵并允许浏览全部题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -465,7 +511,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -563,7 +609,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -599,7 +645,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('携带题库版本批准高风险题并保留在浏览列表', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
     await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
@@ -615,7 +661,7 @@ describe('QuestionBankReviewPanel', () => {
       },
       { identityScope: 'teacher' },
     )
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(get.mock.calls.filter(([url]) => !url.endsWith('/knowledge-bindings'))).toHaveLength(2)
     await wrapper.get('[data-testid="back-to-question-list"]').trigger('click')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('已发布')
@@ -659,7 +705,7 @@ describe('QuestionBankReviewPanel', () => {
     })
 
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -697,7 +743,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -724,7 +770,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('支持按节点异步重建并展示真实阶段', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -812,33 +858,31 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).not.toContain('Request failed with status code 422')
   })
 
-  it.each(['custom', 'range'])('expands %s lectures to content IDs for existing servers without changing the lecture count', async (scope) => {
-    const wrapper = mount(QuestionBankReviewPanel, {
-      props: {
-        courseId: 'course-1', initialWorkspaceMode: 'generate',
-        chapterOptions: [
-          { node_id: 'L1-1', node_ids: ['L1-1', 'L2-1-1'], number: 1, title: '第一讲' },
-          { node_id: 'L1-2', node_ids: ['L1-2', 'L2-2-1', 'L2-2-2'], number: 2, title: '第二讲' },
-          { node_id: 'L1-3', node_ids: ['L1-3', 'L2-3-1'], number: 3, title: '第三讲' },
-        ],
-      },
-    })
+  it('uses the selected lecture content and freezes AI candidates before later navigation', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: {
+      courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['L2-1-1'],
+      chapterOptions: [
+        { node_id: 'L1-1', node_ids: ['L2-1-1'], number: 1, title: '第一讲' },
+        { node_id: 'L1-2', node_ids: ['L2-2-1', 'L2-2-2'], number: 2, title: '第二讲' },
+        { node_id: 'L1-3', node_ids: ['L2-3-1'], number: 3, title: '第三讲' },
+      ],
+    } })
     await flushPromises()
-    await wrapper.get(`[data-testid="question-scope-${scope}"] input`).setValue(true)
-    if (scope === 'custom') {
-      await wrapper.get('[data-testid="question-scope-node-L1-2"]').setValue(true)
-      expect(wrapper.text()).toContain('已选择 1 个讲次')
-    } else {
-      await wrapper.get('[data-testid="question-scope-range-start"]').setValue('L1-2')
-      await wrapper.get('[data-testid="question-scope-range-end"]').setValue('L1-3')
-    }
-    const expected = scope === 'custom' ? ['L2-2-1', 'L2-2-2'] : ['L2-2-1', 'L2-2-2', 'L2-3-1']
-    const candidate = await (wrapper.vm as any).requestAiCandidate('按所选讲次生成')
-    expect(candidate.node_ids).toEqual(expected)
+    expect(wrapper.find('[data-testid="question-scope-course"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-scope-range"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="question-scope-custom"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="question-chapter-L1-2"]').trigger('click')
+    expect(wrapper.get('[data-testid="question-generation-target"]').text()).toContain('第 2 讲 · 第二讲')
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    const candidate = await (wrapper.vm as any).requestAiCandidate('按当前讲次生成')
+    expect(candidate).toMatchObject({ scope: 'nodes', node_ids: ['L2-2-1', 'L2-2-2'] })
+    await wrapper.get('[data-testid="question-chapter-L1-3"]').trigger('click')
+    expect(candidate.node_ids).toEqual(['L2-2-1', 'L2-2-2'])
+    expect(wrapper.get('.question-ai-candidate').text()).toContain('第 2 讲 · 第二讲')
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
     expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1', expect.objectContaining({
-      scope: 'nodes', node_ids: expected,
+      scope: 'nodes', node_ids: ['L2-3-1'], questions_per_lesson: 3,
     }), expect.any(Object))
   })
 
@@ -872,84 +916,64 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).not.toContain('没有符合条件的题目')
   })
 
-  it('按连续章节范围生成题目', async () => {
-    const wrapper = mount(QuestionBankReviewPanel, {
-      props: {
-        courseId: 'course-1',
-        initialWorkspaceMode: 'generate',
-        chapterOptions: [
-          { node_id: 'lesson-1', number: 1, title: '课程导论' },
-          { node_id: 'lesson-2', number: 2, title: '核心概念' },
-          { node_id: 'lesson-3', number: 3, title: '综合应用' },
-          { node_id: 'lesson-4', number: 4, title: '课程总结' },
-        ],
-      },
-    })
+  it.each(['zh', 'en'] as const)('shows concise lecture settings in %s', async locale => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
+    await setLocale(locale)
+    const wrapper = mount(QuestionBankReviewPanel, { props: {
+      courseId: 'course-1', initialNodeIds: ['lesson-2'],
+      chapterOptions: [{ node_id: 'lesson-2', number: 2, title: '第2讲 栈、队列与递归' }],
+    } })
     await flushPromises()
-
-    await wrapper.get('[data-testid="question-scope-range"] input').setValue(true)
-    await wrapper.get('[data-testid="question-scope-range-start"]').setValue('lesson-2')
-    await wrapper.get('[data-testid="question-scope-range-end"]').setValue('lesson-3')
-    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
-    await flushPromises()
-
-    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
-      'course-1',
-      expect.objectContaining({
-        scope: 'nodes',
-        node_ids: ['lesson-2', 'lesson-3'],
-        mode: 'incremental',
-      }),
-      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    const settings = wrapper.get('[data-testid="question-settings-pane"]')
+    expect(wrapper.get('[data-testid="question-generation-target"]').text()).toContain(
+      locale === 'zh' ? '第 2 讲 · 栈、队列与递归' : 'Lesson 2 · 栈、队列与递归',
     )
+    expect(settings.text()).toContain(locale === 'zh' ? '难度与题型根据本讲内容自动编排' : 'Difficulty and question types follow this lecture’s content')
+    expect(settings.text()).not.toContain(locale === 'zh' ? '连续讲次' : 'Chapter range')
+    expect(settings.find('input[type="checkbox"][disabled]').exists()).toBe(false)
   })
 
-  it('按指定章节生成并在未选择时禁用开始按钮', async () => {
-    const wrapper = mount(QuestionBankReviewPanel, {
-      props: {
-        courseId: 'course-1',
-        initialWorkspaceMode: 'generate',
-        chapterOptions: [
-          { node_id: 'lesson-1', number: 1, title: '课程导论' },
-          { node_id: 'lesson-2', number: 2, title: '核心概念' },
-          { node_id: 'lesson-3', number: 3, title: '综合应用' },
-        ],
-      },
-    })
+  it('follows the selected empty lecture and subsequent entry lecture changes', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: {
+      courseId: 'course-1', initialNodeIds: ['lesson-1'], chapterOptions: [
+        { node_id: 'lesson-1', number: 1, title: '课程导论' },
+        { node_id: 'lesson-2', number: 2, title: '核心概念' },
+        { node_id: 'lesson-3', number: 3, title: '综合应用' },
+      ],
+    } })
     await flushPromises()
+    await wrapper.get('[data-testid="question-chapter-lesson-2"]').trigger('click')
+    await wrapper.get('[data-testid="questions-per-lesson"]').setValue('5')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenLastCalledWith('course-1', expect.objectContaining({
+      scope: 'nodes', node_ids: ['lesson-2'], questions_per_lesson: 5,
+    }), expect.any(Object))
+    await wrapper.setProps({ initialNodeIds: ['lesson-3'] })
+    expect(wrapper.get('[data-testid="question-generation-target"]').text()).toContain('第 3 讲 · 综合应用')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenLastCalledWith('course-1', expect.objectContaining({
+      scope: 'nodes', node_ids: ['lesson-3'], questions_per_lesson: 5,
+    }), expect.any(Object))
+  })
 
-    await wrapper.get('[data-testid="question-scope-custom"] input').setValue(true)
+  it('disables generation and AI candidates without a lecture or for unassigned questions', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1' } })
+    await flushPromises()
     expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('第 1 讲 · 课程导论')
-    expect(wrapper.text()).toContain('第 3 讲 · 综合应用')
-
-    await wrapper.get('[data-testid="question-scope-node-lesson-1"]').setValue(true)
-    await wrapper.get('[data-testid="question-scope-node-lesson-3"]').setValue(true)
-    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeUndefined()
-
-    const candidate = await (wrapper.vm as any).requestAiCandidate('强化所选章节的应用题')
-    expect(candidate).toEqual(expect.objectContaining({
-      scope: 'nodes',
-      node_ids: ['lesson-1', 'lesson-3'],
-    }))
-
+    expect(await (wrapper.vm as any).requestAiCandidate('出题')).toBeNull()
+    await wrapper.setProps({ chapterOptions: [{ node_id: 'lesson-1', title: '课程导论' }] })
+    await wrapper.get('[data-testid="question-chapter-__unassigned__"]').trigger('click')
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
+    expect(await (wrapper.vm as any).requestAiCandidate('出题')).toBeNull()
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
-    await flushPromises()
-
-    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
-      'course-1',
-      expect.objectContaining({
-        scope: 'nodes',
-        node_ids: ['lesson-1', 'lesson-3'],
-        mode: 'incremental',
-      }),
-      expect.objectContaining({ onUpdate: expect.any(Function) }),
-    )
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
   })
 
-  it('通过智能出题工作台生成整门课程题目并展示真实进度', async () => {
+  it('通过智能出题工作台生成当前讲次题目并展示真实进度', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -964,8 +988,8 @@ describe('QuestionBankReviewPanel', () => {
       'course-1',
       {
         request_id: expect.any(String),
-        scope: 'course',
-        node_ids: [],
+        scope: 'nodes',
+        node_ids: ['node-1'],
         mode: 'incremental',
         resume_existing: true,
         retrieval_enabled: false,
@@ -987,7 +1011,7 @@ describe('QuestionBankReviewPanel', () => {
       response: { status: 404 },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -1008,8 +1032,8 @@ describe('QuestionBankReviewPanel', () => {
       'course-1',
       {
         request_id: expect.any(String),
-        scope: 'course',
-        node_ids: [],
+        scope: 'nodes',
+        node_ids: ['node-1'],
         mode: 'incremental',
         resume_existing: true,
         retrieval_enabled: false,
@@ -1020,58 +1044,25 @@ describe('QuestionBankReviewPanel', () => {
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
-    expect(get).toHaveBeenCalledTimes(3)
+    expect(get.mock.calls.filter(([url]) => !url.endsWith('/knowledge-bindings'))).toHaveLength(3)
   })
 
-  it('识别已发布新版章节并从剩余章节继续生成', async () => {
-    get.mockResolvedValueOnce({
-      data: {
-        bundle_revision_id: 'qbb-partial',
-        assessment_profile: {},
-        assessment_objectives: [],
-        coverage: {},
-        review_queue: {},
-        web_enrichment: {},
-        chapter_rebuild: {
-          status: 'partial',
-          assessment_generation_profile: 'complete',
-          total_chapters: 63,
-          completed_chapters: 9,
-          remaining_chapters: 54,
-          can_resume: true,
-        },
-        items: [],
-      },
-    })
-    const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
-    })
+  it('does not offer a whole-course continuation while generating the current lecture', async () => {
+    get.mockResolvedValueOnce({ data: {
+      bundle_revision_id: 'qbb-partial', items: [],
+      chapter_rebuild: { status: 'partial', total_chapters: 63, completed_chapters: 9, remaining_chapters: 54, can_resume: true },
+    } })
+    const wrapper = mount(QuestionBankReviewPanel, { props: {
+      courseId: 'course-1', initialWorkspaceMode: 'generate',
+      chapterOptions: [{ node_id: 'lesson-2', number: 2, title: '核心概念' }],
+    } })
     await flushPromises()
-
-    expect(
-      wrapper.get('[data-testid="chapter-generation-checkpoint"]').text(),
-    ).toContain('已发布新版章节 9/63')
-    const button = wrapper.get(
-      '[data-testid="continue-course-question-bank"]',
-    )
-    expect(button.text()).toContain('继续生成剩余 54 章')
-    await button.trigger('click')
+    expect(wrapper.find('[data-testid="continue-course-question-bank"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
-
-    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
-      'course-1',
-      {
-        request_id: expect.any(String),
-        scope: 'course',
-        node_ids: [],
-        mode: 'full',
-        resume_existing: true,
-        retrieval_enabled: false,
-        material_asset_ids: [],
-        teacher_instruction: '',
-      },
-      expect.objectContaining({ onUpdate: expect.any(Function) }),
-    )
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      scope: 'nodes', node_ids: ['lesson-2'], mode: 'incremental',
+    }), expect.any(Object))
   })
 
   it('重新打开面板时恢复后台任务并继续展示进度', async () => {
@@ -1100,7 +1091,7 @@ describe('QuestionBankReviewPanel', () => {
       return new Promise(() => {})
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -1150,7 +1141,7 @@ describe('QuestionBankReviewPanel', () => {
     )
     runQuestionBankRebuild.mockRejectedValueOnce(failure)
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 
@@ -1211,7 +1202,7 @@ describe('QuestionBankReviewPanel', () => {
       options.onUpdate(job)
       return job
     })
-    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', initialWorkspaceMode: 'generate' } })
+    const wrapper = mount(QuestionBankReviewPanel, { props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] } })
     await flushPromises()
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
@@ -1224,7 +1215,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('教师可按需读取私有答案与独立验证差异', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate', initialNodeIds: ['node-1'] },
     })
     await flushPromises()
 

@@ -3,10 +3,10 @@
     <Transition name="course-change-layer">
       <div v-if="modelValue" class="course-change-layer" :class="{ 'is-standalone': standalone, 'is-update-center': embeddedInCenter }" @keydown="handleKeydown">
         <button v-if="!standalone" type="button" class="course-change-backdrop" :aria-label="t('courseEvolution.workspace.close', '关闭课程修改工作台')" @click="close" />
-        <section ref="workspaceRef" class="course-change-workspace" :class="{ 'is-review-workspace': workspaceState === 'content' }" :role="standalone ? 'region' : 'dialog'" :aria-modal="standalone ? undefined : 'true'" :aria-labelledby="titleId" tabindex="-1">
+        <section ref="workspaceRef" class="course-change-workspace" :class="{ 'is-review-workspace': workspaceState === 'content', 'is-structure-workspace': workspaceState === 'structure', 'is-semantic-workspace': requestMode === 'replace' }" :role="standalone ? 'region' : 'dialog'" :aria-modal="standalone ? undefined : 'true'" :aria-labelledby="titleId" tabindex="-1">
           <header class="workspace-header">
             <span class="workspace-mark"><GitBranchPlus :size="19" /></span>
-            <div class="workspace-title"><small>{{ t('courseEvolution.workspace.kicker', '课程发布后维护') }}</small><h2 :id="titleId">{{ t('courseEvolution.workspace.title', '全课联动修改') }}</h2></div>
+            <div class="workspace-title"><h2 :id="titleId">{{ t(requestMode === 'replace' ? 'courseChangeUi.semanticTitle' : 'courseChangeUi.structureTitle') }}</h2></div>
             <div class="course-identity" :title="courseLabel"><BookOpenText :size="15" /><span>{{ courseLabel }}</span></div>
             <button type="button" class="icon-action" :title="t('courseEvolution.workspace.refresh', '重新读取课程文件')" :aria-label="t('courseEvolution.workspace.refresh', '重新读取课程文件')" :disabled="store.loading || store.contextLoading" @click="reloadWorkspace"><RefreshCw :size="17" :class="{ spinning: store.loading || store.contextLoading }" /></button>
             <button type="button" class="icon-action" :title="standalone ? t('courseEvolution.workspace.backToCourse', '返回课程工作台') : t('courseEvolution.workspace.close', '关闭课程修改工作台')" :aria-label="standalone ? t('courseEvolution.workspace.backToCourse', '返回课程工作台') : t('courseEvolution.workspace.close', '关闭课程修改工作台')" @click="close"><ArrowLeft v-if="standalone" :size="19" /><X v-else :size="19" /></button>
@@ -22,9 +22,8 @@
 
           <div v-if="workspaceState !== 'request' && workspaceState !== 'scanning'" class="workspace-context-stack">
             <section class="request-context">
-              <div><small>{{ t('courseEvolution.workspace.currentGoal', '本次目标') }}</small><p :title="rawRequest">{{ rawRequest }}</p></div>
-              <span>{{ changeKindLabel }}</span>
-              <button v-if="workspaceState !== 'applied'" type="button" @click="openCorrection"><PencilLine :size="14" />{{ t('courseEvolution.workspace.adjustUnderstanding', '修正理解') }}</button>
+              <div><small>{{ t('courseChangeUi.currentRequest') }}</small><p :title="rawRequest">{{ rawRequest }}</p></div>
+              <button v-if="workspaceState !== 'applied'" type="button" @click="openCorrection"><PencilLine :size="14" />{{ t('courseChangeUi.editRequest') }}</button>
             </section>
 
             <form v-if="correctionOpen" class="correction-bar" @submit.prevent="submitCorrection">
@@ -64,7 +63,7 @@
               <details><summary>{{ t('courseEvolution.workspace.viewOriginalQuestions') }} ({{ planning?.intent.blocking_questions.length || 0 }})</summary><ul><li v-for="question in planning?.intent.blocking_questions" :key="question">{{ question }}</li></ul></details>
               <footer><button type="button" class="button-secondary" @click="decisionResolutionOpen = false">{{ t('common.cancel') }}</button><button type="submit" class="button-primary" :disabled="store.generating || !decisionResolutionText.trim()">{{ t('courseEvolution.workspace.confirmResolution') }}</button></footer>
             </form>
-            <main v-if="workspaceState === 'request'" class="request-state">
+            <main v-if="workspaceState === 'request'" class="request-state" :class="{ 'has-outline-preview': requestMode === 'structure' }">
               <details class="readiness-strip">
                 <summary>
                   <span :data-ready="Boolean(context?.ready)"><LoaderCircle v-if="store.contextLoading" :size="16" class="spinning" /><CircleCheckBig v-else-if="context?.ready" :size="16" /><TriangleAlert v-else :size="16" /></span>
@@ -73,10 +72,18 @@
                 </summary>
                 <ul><li v-for="asset in contextAssets" :key="asset.asset_type" :data-state="asset.state"><i /><span>{{ assetLabel(asset.asset_type) }}</span><small>{{ assetStateLabel(asset.state) }}</small></li></ul>
               </details>
+              <section v-if="requestMode === 'structure'" class="request-outline" :aria-label="t('courseChangeUi.currentStructure')">
+                <header class="request-heading"><h3>{{ t('courseChangeUi.currentStructure') }}</h3><p>{{ t('courseChangeUi.currentStructureHint') }}</p></header>
+                <table class="structure-table">
+                  <thead><tr><th scope="col" class="row-number">{{ t('courseChangeUi.order') }}</th><th scope="col">{{ t('courseChangeUi.lessonName') }}</th></tr></thead>
+                  <tbody><tr v-for="(node, index) in currentLectureOutline" :key="node.node_id"><td class="row-number">{{ index + 1 }}</td><td :style="{ paddingInlineStart: `${20 + Math.max(0, Number(node.node_level || 1) - 1) * 18}px` }">{{ node.node_name }}</td></tr></tbody>
+                </table>
+                <p v-if="!currentLectureOutline.length" class="structure-empty">{{ t('courseChangeUi.noOutline') }}</p>
+              </section>
               <section class="request-composer">
-                <div class="request-heading"><h3>{{ t('courseEvolution.workspace.requestTitle', '这次想让课程怎么变？') }}</h3></div>
-                <form @submit.prevent="submitRequest">
-                  <UiSegmentedControl v-if="initialMode !== 'replace'" class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
+                <div class="request-heading"><h3>{{ t(requestMode === 'replace' ? 'courseChangeUi.changeRequest' : 'courseChangeUi.structureRequest') }}</h3><p>{{ t(requestMode === 'replace' ? 'courseChangeUi.semanticHint' : 'courseChangeUi.structureHint') }}</p></div>
+                <form :id="`${titleId}-request`" @submit.prevent="submitRequest">
+                  <UiSegmentedControl class="request-modes" style="--ui-segment-font-size:15px" :model-value="requestMode" :options="requestModeOptions" :accessibility-label="t('courseEvolution.workspace.changeMode')" @update:model-value="requestMode = $event as typeof requestMode" />
                   <div v-if="requestMode === 'replace'" class="literal-replacement">
                     <div class="semantic-presets" role="group" :aria-label="t('courseEvolution.workspace.semanticPresets', '常用语义修改')">
                       <button v-for="preset in semanticPresets" :key="preset.id" type="button" :disabled="store.generating" @click="appendPreset(preset.prompt)">{{ preset.label }}</button>
@@ -84,8 +91,10 @@
                     <textarea ref="requestInputRef" v-model="requestText" rows="5" :aria-label="t('courseEvolution.workspace.mode_replace')" :placeholder="t('courseEvolution.workspace.semanticPlaceholder', '例如：统一术语、优化表达或调整逻辑，并说明哪些内容必须保持不变。')" :disabled="store.generating || contextUnavailable" />
                     <details class="literal-advanced">
                       <summary>{{ t('courseEvolution.workspace.exactReplaceAdvanced', '需要精确替换时展开') }}</summary>
-                      <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
-                      <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
+                      <div class="literal-advanced-fields">
+                        <label>{{ t('courseEvolution.workspace.findText') }}<input v-model="findText" type="text" maxlength="2000" /></label>
+                        <label>{{ t('courseEvolution.workspace.replaceWith') }}<input v-model="replacementText" type="text" maxlength="2000" /></label>
+                      </div>
                     </details>
                     <fieldset><legend>{{ t('courseEvolution.workspace.replaceScope') }}</legend><label v-for="asset in contextAssets.filter(a => ['outline', 'lesson_plan', 'script', 'course_content', 'ppt'].includes(a.asset_type))" :key="asset.asset_type"><input v-model="requestAssetTypes" type="checkbox" :value="asset.asset_type" :disabled="asset.state === 'missing' || store.generating" />{{ assetLabel(asset.asset_type) }}</label></fieldset>
                   </div>
@@ -96,7 +105,7 @@
                     <dl><div><dt>{{ t('courseEvolution.workspace.failureStage', '失败阶段') }}</dt><dd>{{ analysisFailureDetails.failure_stage || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.errorCode', '错误代码') }}</dt><dd>{{ analysisFailureDetails.code || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.exceptionType', '异常类型') }}</dt><dd>{{ analysisFailureDetails.exception_type || '-' }}</dd></div><div><dt>{{ t('courseEvolution.workspace.taskId', '任务 ID') }}</dt><dd>{{ store.analysisTask?.id || '-' }}</dd></div></dl>
                     <p v-if="analysisFailureDetails.technical_message">{{ analysisFailureDetails.technical_message }}</p>
                   </details>
-                  <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><RefreshCw v-if="analysisRetryAvailable" :size="16" /><Sparkles v-else :size="16" />{{ analysisRetryAvailable ? t('courseEvolution.workspace.retryOriginalAnalysis', '按原要求重试分析') : t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
+
                 </form>
               </section>
               <section ref="historyRef" class="recent-changes">
@@ -104,6 +113,7 @@
                 <ol v-if="recentPlans.length"><li v-for="plan in recentPlans" :key="plan.change_set_id"><span :data-status="plan.status">{{ recentPlanStatus(plan) }}</span><button type="button" @click="openPlan(plan.change_set_id)"><b>{{ plan.request_text }}</b><small>{{ formatPlanTime(plan) }}</small></button></li></ol>
                 <p v-else>{{ t('courseEvolution.workspace.noRecentChanges', '还没有课程修改记录') }}</p>
               </section>
+
             </main>
 
             <main v-else-if="workspaceState === 'scanning'" class="scanning-state" aria-live="polite">
@@ -249,16 +259,70 @@
             </div>
 
             <div v-else-if="workspaceState === 'structure'" class="structure-layout">
-              <section class="structure-review">
-                <header class="review-header"><div><small>{{ t('courseEvolution.workspace.structureKicker', '结构变化') }}</small><h3>{{ t('courseEvolution.workspace.compareCourseTree', '先核对新旧课程树，再决定内容迁移') }}</h3></div><span><TriangleAlert :size="13" />{{ t('courseEvolution.workspace.structureFirst', '结构优先') }}</span></header>
-                <div class="tree-comparison"><section><header><BookOpenText :size="16" /><b>{{ t('courseEvolution.workspace.currentTree', '当前课程树') }}</b></header><ol><li v-for="node in currentOutline" :key="node.node_id" :style="{ '--tree-level': Math.max(0, Number(node.node_level || 1) - 1) }"><span />{{ node.node_name }}</li></ol></section><ArrowRight :size="19" /><section class="proposed-tree structure-editor"><header><GitMerge :size="16" /><b>{{ t('courseEvolution.workspace.proposedTree', '调整后课程树') }}</b><button type="button" class="button-quiet compact-action" @click="resetOutlineDraft"><RotateCcw :size="13" />{{ t('courseEvolution.workspace.resetStructure', '恢复 AI 方案') }}</button></header><ol v-if="proposedOutline.length"><li v-for="(node, index) in proposedOutline" :key="node.provisional_id" :style="{ '--tree-level': treeLevel(node) }" class="structure-edit-row"><input v-model="node.title" :aria-label="t('courseEvolution.workspace.nodeTitle', '节点名称')" /><select v-model="node.parent_ref" :aria-label="t('courseEvolution.workspace.parentNode', '上级节点')"><option value="root">{{ t('courseEvolution.workspace.topLevel', '顶层') }}</option><option v-for="parent in proposedOutline.filter(item => !subtreeIds(node).has(item.provisional_id))" :key="parent.provisional_id" :value="parent.provisional_id">{{ parent.title }}</option></select><div><button type="button" :disabled="!siblingTarget(index, -1)" :title="t('courseEvolution.workspace.moveUp', '上移')" @click="moveOutlineNode(index, -1)"><ChevronUp :size="14" /></button><button type="button" :disabled="!siblingTarget(index, 1)" :title="t('courseEvolution.workspace.moveDown', '下移')" @click="moveOutlineNode(index, 1)"><ChevronDown :size="14" /></button><button type="button" :title="t('courseEvolution.workspace.splitNode', '拆分一个新节点')" @click="splitOutlineNode(index)"><CopyPlus :size="14" /></button><select class="merge-control" :aria-label="t('courseEvolution.workspace.mergeNode', '合并到其他节点')" @change="mergeOutlineNode(index, ($event.target as HTMLSelectElement))"><option value="">{{ t('courseEvolution.workspace.mergeInto', '合并到…') }}</option><option v-for="target in proposedOutline.filter(item => !subtreeIds(node).has(item.provisional_id))" :key="target.provisional_id" :value="target.provisional_id">{{ target.title }}</option></select><button type="button" :title="t('common.delete', '删除')" @click="removeOutlineNode(index)"><Trash2 :size="14" /></button></div></li></ol><p v-else>{{ t('courseEvolution.workspace.proposedTreePending', 'AI 已识别结构影响，但还需要你的补充才能形成可靠的新课程树。') }}</p><button type="button" class="button-secondary add-node" @click="addOutlineNode"><Plus :size="14" />{{ t('courseEvolution.workspace.addNode', '新增节点') }}</button></section></div>
+              <section class="structure-review" :aria-label="t('courseChangeUi.compareStructures')">
+                <div class="tree-comparison">
+                  <section class="current-tree">
+                    <header><h3>{{ t('courseChangeUi.currentStructure') }}</h3></header>
+                    <table class="structure-table">
+                      <thead><tr><th scope="col" class="row-number">{{ t('courseChangeUi.order') }}</th><th scope="col">{{ t('courseChangeUi.lessonName') }}</th></tr></thead>
+                      <tbody><tr v-for="(node, index) in currentLectureOutline" :key="node.node_id"><td class="row-number">{{ index + 1 }}</td><td :style="{ paddingInlineStart: `${20 + Math.max(0, Number(node.node_level || 1) - 1) * 18}px` }">{{ node.node_name }}</td></tr></tbody>
+                    </table>
+                    <p v-if="!currentLectureOutline.length" class="structure-empty">{{ t('courseChangeUi.noOutline') }}</p>
+                  </section>
+                  <section class="proposed-tree structure-editor">
+                    <header><h3>{{ t('courseChangeUi.proposedStructure') }}</h3><button type="button" class="button-quiet compact-action" :disabled="structureBusy" @click="resetOutlineDraft"><RotateCcw :size="16" />{{ t('courseChangeUi.resetProposal') }}</button></header>
+                    <table v-if="proposedOutline.length" class="structure-table">
+                      <thead><tr><th scope="col" class="row-number">{{ t('courseChangeUi.order') }}</th><th scope="col">{{ t('courseChangeUi.lessonName') }}</th><th scope="col" class="row-actions">{{ t('courseChangeUi.actions') }}</th></tr></thead>
+                      <tbody>
+                        <tr v-for="(node, index) in proposedOutline" :key="node.provisional_id" class="structure-edit-row" :class="{ 'is-changed': outlineNodeChanged(node, index) }" :style="{ '--tree-level': treeLevel(node) }">
+                          <td class="row-number">{{ index + 1 }}</td>
+                          <td class="node-name"><input v-model="node.title" :disabled="structureBusy" :aria-label="`${t('courseChangeUi.lessonName')} ${index + 1}`" /><small v-if="outlineSourcePosition(node) >= 0 && outlineSourcePosition(node) !== index">{{ t('courseChangeUi.movedFrom').replace('{number}', String(outlineSourcePosition(node) + 1)) }}</small></td>
+                          <td class="row-actions"><div class="structure-row-actions">
+                            <button type="button" :disabled="structureBusy || !siblingTarget(index, -1)" :aria-label="`${t('courseEvolution.workspace.moveUp')} ${node.title}`" @click="moveOutlineNode(index, -1)"><ChevronUp :size="17" /></button>
+                            <button type="button" :disabled="structureBusy || !siblingTarget(index, 1)" :aria-label="`${t('courseEvolution.workspace.moveDown')} ${node.title}`" @click="moveOutlineNode(index, 1)"><ChevronDown :size="17" /></button>
+                            <details class="structure-row-menu" @keydown.esc.stop="closeStructureMenu($event)" @focusout="closeStructureMenuOnBlur">
+                              <summary :aria-label="`${t('courseChangeUi.moreActions')} ${node.title}`"><MoreVertical :size="18" /></summary>
+                              <div class="structure-menu-content">
+                                <button type="button" :disabled="structureBusy" @click="splitOutlineNode(index); closeStructureMenu($event)"><CopyPlus :size="16" />{{ t('courseEvolution.workspace.splitNode') }}</button>
+                                <label v-if="hasNestedOutline"><span>{{ t('courseEvolution.workspace.parentNode') }}</span><select v-model="node.parent_ref" :disabled="structureBusy"><option value="root">{{ t('courseEvolution.workspace.topLevel') }}</option><option v-for="parent in proposedOutline.filter(item => !subtreeIds(node).has(item.provisional_id))" :key="parent.provisional_id" :value="parent.provisional_id">{{ parent.title }}</option></select></label>
+                                <label><span>{{ t('courseEvolution.workspace.mergeInto') }}</span><select class="merge-control" :disabled="structureBusy || proposedOutline.length < 2" :aria-label="`${t('courseEvolution.workspace.mergeNode')} ${node.title}`" @change="mergeOutlineNode(index, ($event.target as HTMLSelectElement)); closeStructureMenu($event)"><option value="">{{ t('courseChangeUi.selectTarget') }}</option><option v-for="target in proposedOutline.filter(item => !subtreeIds(node).has(item.provisional_id))" :key="target.provisional_id" :value="target.provisional_id">{{ target.title }}</option></select></label>
+                                <button type="button" class="danger-action" :disabled="structureBusy" @click="removeOutlineNode(index)"><Trash2 :size="16" />{{ t('common.delete') }}</button>
+                              </div>
+                            </details>
+                          </div></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-else class="structure-empty">{{ t('courseEvolution.workspace.proposedTreePending') }}</p>
+                    <button type="button" class="button-secondary add-node" :disabled="structureBusy" @click="addOutlineNode"><Plus :size="17" />{{ t('courseChangeUi.addLesson') }}</button>
+                  </section>
+                </div>
                 <details v-for="item in affectedUnits" :key="item.migration_id" class="source-preview"><summary>{{ item.title }} · {{ dispositionLabel(item.disposition) }}</summary><p v-if="item.candidate_error" class="candidate-error">{{ item.candidate_error }}</p><div v-if="item.after_content || item.after_preview" class="candidate-diff"><section><strong>{{ t('courseEvolution.workspace.beforeChange') }}</strong><p>{{ item.before_content || item.before_preview }}</p></section><section><strong>{{ t('courseEvolution.workspace.afterChange') }}</strong><p>{{ item.after_content || item.after_preview }}</p></section></div></details>
               </section>
-              <aside class="migration-panel"><header><small>{{ t('courseEvolution.workspace.migrationKicker', '迁移判断') }}</small><strong>{{ t('courseEvolution.workspace.migrationTitle', '原内容如何处理') }}</strong></header><dl><div v-for="item in migrationSummary" :key="item.key"><dt>{{ item.label }}</dt><dd>{{ item.count }}</dd></div></dl><section v-if="migrationReviewItems.length"><header><TriangleAlert :size="15" /><b>{{ t('courseEvolution.workspace.needsReview', '需要老师判断') }}</b></header><ul><li v-for="item in migrationReviewItems.slice(0, 8)" :key="item.migration_id">{{ item.title }}: {{ item.reason }}</li></ul></section><p><ShieldCheck :size="15" />{{ structureConfirmed ? (candidateReviewReady ? t('courseEvolution.workspace.structureApplyHint', '课程结构与联动修改建议已就绪；应用时会保留各课程文件的更新记录，并可撤销本次修改。') : t('courseEvolution.workspace.structureGenerateHint', '课程结构已经确定，正在原修改计划内生成相关课程文件的修改建议。')) : t('courseEvolution.workspace.structureReviewHint', '先审阅具体的新结构和原内容处理方案，确认后再生成联动修改建议。') }}</p><div class="migration-actions"><button type="button" class="button-danger" :disabled="store.actingId === focusedPlan?.change_set_id" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard', '再次点击确认放弃') : t('courseEvolution.workspace.discardPlan', '放弃方案') }}</button><button v-if="structureConfirmed && candidateReviewReady" type="button" class="button-primary" :disabled="candidatesGenerating || store.actingId === focusedPlan?.change_set_id || structureApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ structureApplicableCount ? applyStructureLabel : t('courseEvolution.workspace.structureCandidatePending', '等待稳定结构建议') }}</button><button v-else-if="structureConfirmed" type="button" class="button-primary" :disabled="store.actingId === focusedPlan?.change_set_id" @click="generateReviewedCandidates"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Sparkles v-else :size="15" />{{ t('courseEvolution.workspace.generateLinkedCandidates', '生成联动建议') }}</button><button v-else type="button" class="button-primary" :disabled="candidatesGenerating || store.actingId === focusedPlan?.change_set_id || !proposedOutline.length || !validOutlineDraft" @click="confirmStructure"><LoaderCircle v-if="store.actingId === focusedPlan?.change_set_id" :size="15" class="spinning" /><Check v-else :size="15" />{{ t('courseEvolution.workspace.confirmPlanAndGenerate', '确认方案并生成建议') }}</button></div></aside>
+              <section class="migration-panel">
+                <header><h3>{{ t('courseChangeUi.contentHandling') }}</h3></header>
+                <div class="migration-overview">
+                  <div><span class="handling-icon"><BookOpenText :size="20" /></span><div><h4>{{ t('courseChangeUi.migrationDecisions') }}</h4><dl><div v-for="item in migrationSummary.filter(entry => entry.count)" :key="item.key"><dt>{{ item.label }}</dt><dd>{{ item.count }}</dd></div></dl><p v-if="!affectedUnits.length">{{ t('courseChangeUi.noContentChanges') }}</p></div></div>
+                  <div><span class="handling-icon"><PencilLine :size="20" /></span><div><h4>{{ t('courseChangeUi.structureDraft') }}</h4><p>{{ t('courseChangeUi.structureDraftHint') }}</p></div></div>
+                  <div><span class="handling-icon"><Files :size="20" /></span><div><h4>{{ t('courseChangeUi.linkedFiles') }}</h4><p>{{ t('courseChangeUi.linkedFilesHint') }}</p></div></div>
+                </div>
+                <section v-if="migrationReviewItems.length" class="migration-decisions"><header><TriangleAlert :size="17" /><b>{{ t('courseEvolution.workspace.needsReview') }}</b></header><ul><li v-for="item in migrationReviewItems" :key="item.migration_id"><strong>{{ item.title }}</strong><span>{{ dispositionLabel(effectiveDisposition(item)) }} · {{ item.reason }}</span></li></ul></section>
+              </section>
+              <footer class="structure-actionbar">
+                <div class="structure-action-status"><strong>{{ t('courseChangeUi.structureItemCount').replace('{count}', String(proposedOutline.length)) }}</strong><span>{{ t('courseChangeUi.notApplied') }}</span><p>{{ structureConfirmed ? (candidateReviewReady ? t('courseEvolution.workspace.structureApplyHint') : t('courseChangeUi.generatingLinkedHint')) : t('courseChangeUi.confirmHint') }}</p></div>
+                <div class="structure-action-buttons">
+                  <button type="button" class="button-quiet discard-structure" :disabled="structureBusy" @click="discardPlan">{{ discardConfirm ? t('courseEvolution.workspace.confirmDiscard') : t('courseEvolution.workspace.discardPlan') }}</button>
+                  <button type="button" class="button-secondary" :disabled="structureBusy" @click="openCorrection">{{ t('courseChangeUi.editRequest') }}</button>
+                  <button v-if="structureConfirmed && candidateReviewReady" type="button" class="button-primary" :disabled="structureBusy || structureApplicableCount === 0" @click="applyCourseChange"><LoaderCircle v-if="structureBusy" :size="16" class="spinning" /><Check v-else :size="16" />{{ structureApplicableCount ? applyStructureLabel : t('courseEvolution.workspace.structureCandidatePending') }}</button>
+                  <button v-else-if="structureConfirmed" type="button" class="button-primary" :disabled="structureBusy" @click="generateReviewedCandidates"><LoaderCircle v-if="structureBusy" :size="16" class="spinning" />{{ t('courseChangeUi.generateLinkedCandidates') }}<ArrowRight v-if="!structureBusy" :size="17" /></button>
+                  <button v-else type="button" class="button-primary" :disabled="structureBusy || !proposedOutline.length || !validOutlineDraft" @click="confirmStructure"><LoaderCircle v-if="structureBusy" :size="16" class="spinning" />{{ t('courseChangeUi.confirmStructure') }}<ArrowRight v-if="!structureBusy" :size="17" /></button>
+                </div>
+              </footer>
             </div>
 
             <main v-else class="receipt-state" :class="{ 'is-partial-undo': focusedPlan?.status === 'undo_partial' || applicationPartial }"><section><TriangleAlert v-if="focusedPlan?.status === 'undo_partial' || applicationPartial" :size="26" /><CircleCheckBig v-else :size="26" /><small>{{ receiptKicker }}</small><h3>{{ applicationTitle }}</h3><p>{{ rawRequest }}</p><dl><div><dt>{{ receiptPrimaryLabel }}</dt><dd>{{ receiptSummary.applied }}</dd></div><div><dt>{{ t('courseEvolution.workspace.failedItems', '失败') }}</dt><dd>{{ receiptSummary.failed }}</dd></div><div><dt>{{ t('courseEvolution.workspace.unchangedItems', '未变化') }}</dt><dd>{{ receiptSummary.unchanged }}</dd></div></dl><ul v-if="receiptItems.length" class="receipt-items"><li v-for="item in receiptItems" :key="item.migration_id || item.operation_id" :data-status="item.status"><span>{{ receiptStatusLabel(item.status) }}</span><b>{{ item.title || item.unit_id || assetLabel(item.domain || '') }}</b><small>{{ item.detail }}</small></li></ul><div class="receipt-actions"><button v-if="focusedPlan?.status === 'applied' && retryableFailedOperationIds.length" type="button" class="button-secondary" :disabled="store.actingId === focusedPlan?.change_set_id" @click="retryApplicationFailures"><RefreshCw :size="15" />{{ t('courseEvolution.workspace.retryFailedOnly', '只重试失败项') }}</button><button v-if="['applied', 'undo_partial'].includes(focusedPlan?.status || '')" type="button" class="button-secondary" :disabled="store.actingId === focusedPlan?.change_set_id" @click="undoCourseChange"><History :size="15" />{{ focusedPlan?.status === 'undo_partial' ? t('courseEvolution.workspace.retryUndo', '重试未完成的撤销') : t('courseEvolution.workspace.undoChange', '撤销本次修改') }}</button><button v-if="focusedPlan?.status !== 'undo_partial'" type="button" class="button-primary" @click="startNewRequest"><Sparkles :size="15" />{{ t('courseEvolution.workspace.newChange', '继续修改课程') }}</button></div></section></main>
           </div>
+          <footer v-if="workspaceState === 'request'" class="request-actionbar"><p><ShieldCheck :size="17" />{{ t('courseChangeUi.reviewBeforeApply') }}</p><button type="submit" :form="`${titleId}-request`" class="button-primary button-submit" :disabled="store.generating || !requestCanSubmit || contextUnavailable"><RefreshCw v-if="analysisRetryAvailable" :size="16" />{{ analysisRetryAvailable ? t('courseEvolution.workspace.retryOriginalAnalysis', '按原要求重试分析') : t(requestMode === 'replace' ? 'courseEvolution.workspace.startAnalysis' : 'courseChangeUi.analyzeStructure') }}<ArrowRight :size="17" /></button></footer>
         </section>
       </div>
     </Transition>
@@ -267,7 +331,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type Component } from 'vue'
-import { ArrowLeft, ArrowRight, BookOpenText, BookText, BrainCircuit, Check, ChevronDown, ChevronUp, CircleCheckBig, ClipboardList, CopyPlus, FileQuestion, GitBranchPlus, GitMerge, History, LoaderCircle, PencilLine, Plus, Presentation, RefreshCw, RotateCcw, ScanSearch, ScrollText, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpenText, BookText, BrainCircuit, Check, ChevronDown, ChevronUp, CircleCheckBig, ClipboardList, CopyPlus, FileQuestion, GitBranchPlus,  History, LoaderCircle, MoreVertical, Files, PencilLine, Plus, Presentation, RefreshCw, RotateCcw, ScanSearch, ScrollText, Search, ShieldCheck, Sparkles, Trash2, TriangleAlert, X } from 'lucide-vue-next'
 import { createUuid } from '../utils/client-id'
 import { activeLocale, t } from '../shared/i18n'
 import UiSegmentedControl from './UiSegmentedControl.vue'
@@ -289,7 +353,11 @@ const requestInputRef = ref<HTMLTextAreaElement | null>(null)
 const previousFocus = ref<HTMLElement | null>(null)
 const requestText = ref('')
 const requestMode = ref<'replace' | 'structure'>(props.initialMode)
-const requestModeOptions = computed(() => ['structure', 'replace'].map(value => ({value, label:t(`courseEvolution.workspace.mode_${value}`), disabled:store.generating})))
+const requestModeOptions = computed(() => [
+  { value: 'structure', label: t('courseChangeUi.structureTitle'), disabled: store.generating },
+  { value: 'replace', label: t('courseChangeUi.semanticTitle'), disabled: store.generating },
+])
+watch(() => props.initialMode, mode => { requestMode.value = mode })
 const findText = ref('')
 const replacementText = ref('')
 const semanticPresets = computed(() => [
@@ -426,9 +494,11 @@ const workspaceState = computed<WorkspaceState>(() => {
   if (structuralPlan.value && (scopeAlreadyReviewed.value || !focusedPlan.value?.impact_summary?.affected_units?.length || focusedPlan.value?.impact_summary?.analysis_mode === 'deterministic_structure')) return 'structure'
   return 'content'
 })
-const journeySteps = computed(() => props.initialMode === 'replace'
-  ? [{ index: 1, label: t('courseEvolution.workspace.journeyRequest') }, { index: 2, label: t('courseEvolution.workspace.journeyReview') }, { index: 3, label: t('courseEvolution.workspace.journeyApply') }]
-  : [{ index: 1, label: t('courseEvolution.workspace.journeyRequest', '输入想法') }, { index: 2, label: t('courseEvolution.workspace.journeyAnalyze', '选择影响范围') }, { index: 3, label: t('courseEvolution.workspace.journeyReview', '审阅修改方案') }, { index: 4, label: t('courseEvolution.workspace.journeyApply', '确认应用') }])
+const journeySteps = computed(() => [
+  { index: 1, label: t('courseChangeUi.stepRequest') },
+  { index: 2, label: t('courseChangeUi.stepReview') },
+  { index: 3, label: t('courseChangeUi.stepApply') },
+])
 const candidateOperationCount = computed(() => Number(focusedPlan.value?.impact_summary?.candidate_bundle?.operation_count || 0))
 const hasGeneratedCandidates = computed(() => (planning.value?.status === 'candidate_ready' || partialActive.value) && candidateOperationCount.value > 0)
 const rawRequest = computed(() => planning.value?.intent.raw_request || focusedPlan.value?.request_text || '')
@@ -481,23 +551,47 @@ const dispositionDirty = computed(() => affectedUnits.value.some(item => canUseM
 const reviewDirty = computed(() => selectionDirty.value || dispositionDirty.value)
 const candidateReviewReady = computed(() => hasGeneratedCandidates.value && !reviewDirty.value && (!partialActive.value || scopeSaved.value))
 const currentJourneyStep = computed(() => {
-  if (props.initialMode === 'replace') return workspaceState.value === 'applied' ? 3 : workspaceState.value === 'request' ? 1 : 2
-  if (workspaceState.value === 'content') return candidateReviewReady.value ? 4 : scopeSaved.value ? 3 : 2
-  if (workspaceState.value === 'structure') return candidateReviewReady.value ? 4 : 3
-  return ({ request: 1, scanning: 2, interpreting: 2, applied: 4 })[workspaceState.value]
+  if (workspaceState.value === 'request') return 1
+  if (workspaceState.value === 'applied' || candidateReviewReady.value) return 3
+  return 2
 })
 const hasRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => isUnitSelected(item.migration_id) && canUseMigration(item.migration_id) && (item.candidate_status === 'failed' || Boolean(item.candidate_error)) && item.candidate_error_detail?.retryable !== false))
 const hasNonRetryableCandidateFailures = computed(() => affectedUnits.value.some(item => isUnitSelected(item.migration_id) && canUseMigration(item.migration_id) && item.candidate_status === 'failed' && item.candidate_error_detail?.retryable === false))
-const changeKindLabel = computed(() => {
-  const kind = planning.value?.execution_strategies.includes('structural_regeneration') ? t('courseEvolution.workspace.structureChange', '结构变化') : t('courseEvolution.workspace.contentChange', '内容变化')
-  return planning.value?.supersedes_plan_id ? `${kind} · ${t('courseEvolution.workspace.revisedPlan', '新版本')}` : kind
-})
 const currentOutline = computed(() => Array.isArray(focusedPlan.value?.impact_summary?.current_outline) ? focusedPlan.value?.impact_summary?.current_outline : context.value?.outline || [])
+const currentLectureOutline = computed(() => {
+  // The source tree also contains sections. Only its top-level lessons belong
+  // in this read-only lesson list; retain the complete tree for review/actions.
+  const nodes = currentOutline.value as TeacherCourseChangeContext['outline']
+  const nodeIds = new Set(nodes.map(node => node.node_id))
+  const lessons = nodes.filter(node => !node.parent_node_id || node.parent_node_id === 'root' || !nodeIds.has(node.parent_node_id))
+  return lessons.length ? lessons : nodes
+})
 const storedProposedOutline = computed<TeacherCourseOutlineReviewNode[]>(() => normalizeOutline(focusedPlan.value?.impact_summary?.proposed_outline))
 const proposedOutline = computed(() => outlineDraft.value)
 const structureDraftDirty = computed(() => JSON.stringify(outlineDraft.value) !== JSON.stringify(storedProposedOutline.value))
 const validOutlineDraft = computed(() => validateOutlineDraft(outlineDraft.value))
 const structureConfirmed = computed(() => planning.value?.structure_review_status === 'confirmed' && !structureDraftDirty.value)
+const structureBusy = computed(() => store.generating || candidatesGenerating.value || Boolean(store.actingId))
+const hasNestedOutline = computed(() => proposedOutline.value.some(node => node.parent_ref !== 'root'))
+function outlineSourcePosition(node: TeacherCourseOutlineReviewNode) {
+  const sourceIds = new Set([...node.source_node_ids, node.provisional_id])
+  return currentOutline.value.findIndex((source: { node_id: string }) => sourceIds.has(source.node_id))
+}
+function outlineNodeChanged(node: TeacherCourseOutlineReviewNode, index: number) {
+  const position = outlineSourcePosition(node)
+  if (position < 0) return node.provisional_id.startsWith('teacher-node-')
+  const source = currentOutline.value[position]
+  return position !== index || source.node_name !== node.title
+}
+function closeStructureMenu(event: Event) {
+  const target = event.target
+  if (target instanceof Element) target.closest('details')?.removeAttribute('open')
+}
+function closeStructureMenuOnBlur(event: FocusEvent) {
+  const menu = event.currentTarget
+  if (menu instanceof HTMLDetailsElement && !menu.contains(event.relatedTarget as Node | null)) menu.open = false
+}
+
 const migrationSummary = computed(() => ([['reuse_exact', 'migrationReuse', '原样保留'], ['reuse_rebind', 'migrationRebind', '迁移重绑'], ['rewrite_partial', 'migrationRewrite', '局部改写'], ['regenerate', 'migrationRegenerate', '重新生成'], ['retire', 'migrationRetire', '停用'], ['blocked', 'migrationBlocked', '阻断']] as string[][]).map(([key, localeKey, fallback]) => ({ key, label: t(`courseEvolution.workspace.${localeKey}`, fallback), count: affectedUnits.value.filter(item => effectiveDisposition(item) === key).length })))
 const migrationReviewItems = computed(() => affectedUnits.value.filter(item => ['blocked', 'regenerate', 'retire'].includes(effectiveDisposition(item))))
 const recentPlans = computed(() => [...store.plans].reverse().filter(item => item.teacher_change_planning))
@@ -1108,3 +1202,5 @@ defineExpose({ reloadWorkspace, openPlan, startNewRequest, showHistory })
 .detail-field-changes{margin:18px 0;font-size:15px}.detail-field-changes summary{cursor:pointer}.detail-field-changes p{white-space:pre-wrap}
 @media(max-width:900px){.partial-review-banner{align-items:flex-start;gap:10px;flex-wrap:wrap}.partial-status-actions{flex-wrap:wrap}}
 </style>
+
+<style scoped src="./course-change-layout.css"></style>

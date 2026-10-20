@@ -6,6 +6,7 @@ mistake. Existing atomic assessment admission remains independently checked.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -19,15 +20,23 @@ from question_bank import (
 
 BINDING_SCHEMA = "question_knowledge_binding_v2"
 BATCH_SIZE = 8
+logger = logging.getLogger(__name__)
 
 
 def _baseline(course: dict) -> tuple[dict, dict]:
     base = normalize_adopted_baseline(course.get("course_knowledge_base") or {})
     ready = (base.get("lifecycle_status") == "active" or base.get("status") == "accepted") and base.get("revision_id")
+    # Generic authoring keeps `candidate` granularity on its leaves even after
+    # owner adoption. They are valid association targets, not independently
+    # verified atomic assessments. Do not rewrite that semantic qualification.
+    adopted_generic = base.get("tree_schema") == "knowledge_first_generic_v1" and base.get("status") == "accepted"
     points = {
         str(p["knowledge_id"]): p for p in base.get("knowledge_points") or []
         if ready and p.get("knowledge_id") and p.get("revision_id")
-        and p.get("status") == "active" and p.get("granularity_status") == "atomic"
+        and p.get("status", "active" if adopted_generic else "") == "active"
+        and (p.get("granularity_status") == "atomic" or (
+            adopted_generic and p.get("granularity_status") == "candidate"
+        ))
     }
     return base, points
 
@@ -71,6 +80,7 @@ def binding_view(course: dict, bundle: dict) -> dict:
             "revision_id": item["revision_id"], "item_id": item.get("item_id"),
             "prompt": str(item.get("prompt") or ""), "status": status,
             "knowledge_ids": ids, "method": record.get("method", ""),
+            "review_reason": record.get("review_reason", ""),
         })
     return {
         "schema_version": BINDING_SCHEMA,
@@ -85,6 +95,24 @@ def binding_view(course: dict, bundle: dict) -> dict:
     }
 
 
+def question_binding_projection(course: dict, bundle: dict, items: list[dict]) -> dict[str, dict]:
+    """Project current binding status and atomic point labels onto read-only items."""
+    view = binding_view(course, bundle)
+    rows = {row["revision_id"]: row for row in view["items"]}
+    points = {point["knowledge_id"]: point for point in view["points"]}
+    projection = {}
+    for item in items:
+        revision_id = str(item.get("revision_id") or "")
+        row = rows.get(revision_id) or {}
+        ids = row.get("knowledge_ids") or []
+        projection[revision_id] = {
+            "knowledge_binding_status": row.get("status") if view["tree_ready"] else "tree_unavailable",
+            "knowledge_binding_review_reason": row.get("review_reason", ""),
+            "knowledge_points": [points[kid] for kid in ids if kid in points],
+        }
+    return projection
+
+
 def _question_text(item: dict) -> str:
     spec = item.get("question_spec") or {}
     return "\n".join(str(s or "") for s in (
@@ -93,6 +121,29 @@ def _question_text(item: dict) -> str:
         json.dumps(spec.get("options") or item.get("options") or [], ensure_ascii=False),
         json.dumps({k: item.get(k) for k in ("subquestions", "input_materials", "constraints", "deliverable")}, ensure_ascii=False),
     ))
+
+
+def _question_evidence_units(item: dict) -> list[dict]:
+    """Number exact public-text spans so the model need not copy quotations."""
+    # Keep multiline operations and code together. Numbering every short line
+    # makes one small question require more references than the model may select.
+    text = _question_text(item)
+    spans = [text[start:start + 400] for start in range(0, len(text), 400)]
+    return [{"id": f"E{index}", "text": span} for index, span in enumerate(spans, 1)]
+
+
+def _binding_evidence(item: dict, row: dict) -> tuple[str, list[dict], bool]:
+    if "evidence_ids" in row:
+        ids = row["evidence_ids"]
+        units = {unit["id"]: unit["text"] for unit in _question_evidence_units(item)}
+        if (not isinstance(ids, list) or not 1 <= len(ids) <= 5
+                or any(not isinstance(key, str) or key not in units for key in ids)
+                or len(ids) != len(set(ids))):
+            return "", [], False
+        refs = [{"evidence_id": key, "quote": units[key]} for key in ids]
+        return "\n".join(ref["quote"] for ref in refs), refs, True
+    evidence = str(row.get("evidence") or "").strip()
+    return evidence, [], bool(evidence) and evidence in _question_text(item)
 
 
 def _scope_points(course: dict, item: dict, points: dict) -> set[str]:
@@ -121,7 +172,7 @@ async def match_questions(items: list[dict], points: list[dict]) -> list[dict]:
     from ai_base import AIBase
 
     prompt = json.dumps({
-        "questions": [{"revision_id": i["revision_id"], "text": _question_text(i),
+        "questions": [{"revision_id": i["revision_id"], "evidence_units": _question_evidence_units(i),
                        "allowed_knowledge_ids": i.get("_binding_candidate_ids") or [p["knowledge_id"] for p in points]} for i in items],
         "atomic_knowledge": [{k: p.get(k) for k in (
             "knowledge_id", "name", "statement", "conditions", "meta_question",
@@ -140,7 +191,9 @@ async def match_questions(items: list[dict], points: list[dict]) -> list[dict]:
                 "不得创造ID，不改写题目，不把关联视为诊断或掌握证据。"
                 "输出JSON对象{\"bindings\":[{\"revision_id\":\"原题修订ID\","
                 "\"knowledge_ids\":[\"知识ID\"],\"confidence\":0.0,"
-                "\"reason\":\"为何实际考查该点\",\"evidence\":\"题目原文中的直接引文\"}]}。"
+                "\"reason\":\"为何实际考查该点\",\"evidence_ids\":[\"E1\"]}]}。"
+                "每题evidence_units按顺序给出了完整公开题面。evidence_ids只选该题中直接支持匹配的1至5个编号，"
+                "程序会保存对应的原文；不要抄写、改写或用省略号拼接引文，不引用其他题的编号。"
                 "每道输入题必须且只能输出一条，最多5个主知识点。不确定或不在知识树范围内时返回空knowledge_ids。"
             ),
             json_mode=True, max_tokens=4096, max_input_chars=84000,
@@ -209,13 +262,20 @@ async def bind_questions(course: dict, bundle: dict, *, mode: str = "auto",
         item = targets[row["revision_id"]]
         ids = row["knowledge_ids"]
         reason = str(row.get("reason") or "").strip()
-        evidence = str(row.get("evidence") or "").strip()
+        evidence, evidence_refs, evidence_valid = _binding_evidence(item, row)
         confidence = row.get("confidence")
         reliable = mode == "manual" or (
             isinstance(confidence, (int, float)) and not isinstance(confidence, bool)
             and math.isfinite(confidence) and .85 <= confidence <= 1
-            and bool(reason) and bool(evidence) and evidence in _question_text(item)
+            and bool(reason) and evidence_valid
         )
+        review_reason = ""
+        if reason == "knowledge_binding_unavailable":
+            review_reason = "matching_unavailable"
+        elif not ids:
+            review_reason = "no_matching_target"
+        elif not reliable:
+            review_reason = "invalid_evidence" if not evidence_valid else "uncertain_match"
         ids = ids if reliable else []
         record = {
             "schema_version": BINDING_SCHEMA, "status": "bound" if ids else "pending",
@@ -224,9 +284,13 @@ async def bind_questions(course: dict, bundle: dict, *, mode: str = "auto",
             "knowledge_baseline_revision": base["revision_id"],
             "source_question_revision": row["revision_id"],
             "reason": reason[:1200], "evidence": evidence[:1200],
+            "evidence_refs": evidence_refs, "review_reason": review_reason,
         }
+        if not evidence_valid and isinstance(row.get("evidence_ids"), list):
+            record["rejected_evidence_ids"] = [str(value)[:40] for value in row["evidence_ids"][:20]]
         old = _record(item)
-        if all(old.get(k) == record[k] for k in ("status", "knowledge_ids", "knowledge_revision_refs", "knowledge_baseline_revision")):
+        if all(old.get(k, "" if k == "review_reason" else None) == record[k]
+               for k in ("status", "knowledge_ids", "knowledge_revision_refs", "knowledge_baseline_revision", "review_reason")):
             continue
         changed = True
         item["knowledge_binding"] = record
@@ -251,3 +315,48 @@ async def bind_questions(course: dict, bundle: dict, *, mode: str = "auto",
         item["formal_task"] = _stored_formal_task_from_item(hydrated)
         item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
     return recalculate_question_bank_coverage(course, result) if changed else bundle
+
+
+async def auto_bind_new_questions(
+    course: dict,
+    bundle: dict,
+    *,
+    revision_ids: list[str] | None = None,
+    matcher: Callable[[list[dict], list[dict]], Awaitable[list[dict]]] | None = None,
+) -> dict:
+    """Bind every currently unbound generated question in bounded batches."""
+    selected = set(revision_ids) if revision_ids is not None else None
+    statuses = {
+        row["revision_id"]: row["status"]
+        for row in binding_view(course, bundle)["items"]
+    }
+    candidates = [
+        str(item.get("revision_id") or "")
+        for item in bundle.get("items") or []
+        if item.get("source_type") in {"generated", "variant"}
+        and item.get("revision_id")
+        and statuses.get(str(item["revision_id"])) == "unbound"
+        and (selected is None or item.get("revision_id") in selected)
+    ]
+    result = bundle
+    for offset in range(0, len(candidates), BATCH_SIZE):
+        batch = candidates[offset:offset + BATCH_SIZE]
+        try:
+            result = await bind_questions(
+                course, result, mode="auto", revision_ids=batch, matcher=matcher,
+            )
+        except Exception as exc:
+            # Binding is a separate association step. An outage or invalid
+            # response must not discard an already validated generated question
+            # or endlessly retry it at every publication checkpoint.
+            logger.warning("Question knowledge association deferred (%s)", type(exc).__name__)
+
+            async def unavailable(items: list[dict], _points: list[dict]) -> list[dict]:
+                return [{"revision_id": item["revision_id"], "knowledge_ids": [],
+                         "confidence": 0, "reason": "knowledge_binding_unavailable"}
+                        for item in items]
+
+            result = await bind_questions(
+                course, result, mode="auto", revision_ids=batch, matcher=unavailable,
+            )
+    return result

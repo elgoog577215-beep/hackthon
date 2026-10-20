@@ -27,6 +27,10 @@ class MemoryCourseStorage:
         self.course = deepcopy(course)
         self.save_count = 0
 
+    def load_course(self, course_id):
+        assert course_id == self.course["course_id"]
+        return deepcopy(self.course)
+
     async def save_course(self, course_id, course):
         assert course_id == course["course_id"]
         self.course = deepcopy(course)
@@ -720,6 +724,65 @@ def test_selected_lecture_generates_and_publishes_only_its_sections(monkeypatch,
     assert active["generation_audit"]["published_item_count"] == 3
     assert all(item["lifecycle_status"] == "approved" for item in generated)
     assert all(item["quality_report"]["passed"] for item in generated)
+
+
+@pytest.mark.parametrize('canonical', [False, True])
+def test_generated_questions_bind_generic_adopted_lecture_points_before_publication(monkeypatch, tmp_path, canonical):
+    from backend.tests.test_question_bank_knowledge import generic_adopted_course
+    import question_bank_knowledge as domain
+
+    course = _two_chapter_course()
+    course['owner_id'] = 'teacher-1'
+    for number, node in enumerate(course['nodes'], 1):
+        node['parent_node_id'] = f'lecture-{number}'
+    course['nodes'].extend([
+        {'node_id': f'lecture-{number}', 'node_level': 1, 'node_name': f'Lecture {number}'}
+        for number in (1, 2)
+    ])
+    course['course_knowledge_base'] = generic_adopted_course()['course_knowledge_base']
+    course['course_knowledge_base'].update(categories=[], relations=[], lessons=[],
+        skill_units=[], misconceptions=[], mastery_criteria=[], bindings=[])
+    original_tree = deepcopy(course['course_knowledge_base'])
+    if canonical:
+        from course_document import COURSE_DOCUMENT_SCHEMA, document_from_legacy_course
+        course.update(course_schema_version=COURSE_DOCUMENT_SCHEMA, course_document_authoritative=True,
+                      course_document=document_from_legacy_course(course).model_dump(mode='json'))
+    calls = []
+
+    async def match(items, points):
+        calls.append([item['node_id'] for item in items])
+        assert {point['knowledge_id'] for point in points} == {'k2'}
+        return [{'revision_id': item['revision_id'], 'knowledge_ids': ['k2'], 'confidence': .95,
+                 'reason': 'The generated question directly assesses this lecture target',
+                 'evidence': item['prompt']} for item in items]
+
+    monkeypatch.setattr(domain, 'match_questions', match)
+    client, repository = _client(monkeypatch, tmp_path, course=course)
+    previous = repository.save_bundle('course-api', build_question_bank(course))
+    other = [item for item in previous['items'] if item['node_id'] == 'node-1']
+    created = client.post('/api/courses/course-api/question-bank/rebuild',
+        headers={'X-User-Id': 'teacher-1'}, json={
+            'request_id': 'generic-lecture-bindings', 'scope': 'nodes', 'node_ids': ['lecture-2'],
+            'questions_per_lesson': 2, 'append_only': True,
+        })
+    assert created.status_code == 202, created.text
+    status = client.get(created.json()['status_url'], headers={'X-User-Id': 'teacher-1'})
+    assert status.json()['status'] in {'completed', 'waiting_review'}, status.text
+    active = repository.load_bundle('course-api')
+    assert [item for item in active['items'] if item['node_id'] == 'node-1'] == other
+    new = [item for item in active['items'] if item.get('knowledge_binding')]
+    assert len(new) == 2
+    assert all(item['knowledge_binding']['knowledge_ids'] == ['k2'] for item in new)
+    assert all(item['formal_task']['concept_ids'] == ['k2'] for item in new)
+    assert all(item['knowledge_binding']['knowledge_baseline_revision'] == 'tree1' for item in new)
+    assert calls and all(node_id == 'node-2' for batch in calls for node_id in batch)
+    listed = client.get('/api/courses/course-api/question-bank', headers={'X-User-Id': 'teacher-1'}).json()
+    by_revision = {item['revision_id']: item for item in listed['items']}
+    for item in new:
+        assert by_revision[item['revision_id']]['knowledge_binding_status'] == 'bound'
+        assert by_revision[item['revision_id']]['knowledge_points'][0]['knowledge_id'] == 'k2'
+    assert repository.load_bundle('course-api', previous['bundle_revision_id']) == previous
+    assert question_bank.storage.course['course_knowledge_base'] == original_tree
 
 
 def test_node_rebuild_publishes_each_selected_chapter_atomically(

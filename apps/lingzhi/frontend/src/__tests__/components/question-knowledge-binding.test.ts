@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuestionKnowledgeBinding from '@/components/QuestionKnowledgeBinding.vue'
 
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
-vi.mock('@/utils/http', () => ({ default: { get, post }, teacherReadRequestConfig: (v = {}) => v }))
+vi.mock('@/utils/http', () => ({ default: { get, post }, teacherReadRequestConfig: (v = {}) => v,
+  teacherRequestConfig: (v = {}) => ({ ...v, identityScope: 'teacher' }) }))
 vi.mock('@/shared/i18n', () => ({ t: (_key: string, fallback: string) => fallback }))
 const view = (ready = true) => ({
   tree_ready: ready, can_edit: true, knowledge_baseline_revision: 'tree1', bundle_revision_id: 'b1',
@@ -22,6 +23,7 @@ describe('question knowledge binding', () => {
     await flushPromises()
     expect(post).toHaveBeenCalledTimes(1)
     expect(post.mock.calls[0]?.[1]).toMatchObject({ mode: 'auto', expected_bundle_revision_id: 'b1', knowledge_baseline_revision: 'tree1' })
+    expect(post.mock.calls[0]?.[2]).toMatchObject({ identityScope: 'teacher' })
     expect(wrapper.emitted('updated')).toHaveLength(1)
     wrapper.unmount()
   })
@@ -32,6 +34,16 @@ describe('question knowledge binding', () => {
     expect(post).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('绑定知识点')
     expect(wrapper.text()).toContain('请先生成并采用知识树')
+    wrapper.unmount()
+  })
+  it('keeps an explicit one-click adaptation action for unbound questions', async () => {
+    get.mockResolvedValue({ data: { ...view(), auto_revision_ids: [] } })
+    post.mockResolvedValue({ data: { ...view(), auto_revision_ids: [], counts: { bound: 1 } } })
+    const wrapper = mount(QuestionKnowledgeBinding, { props: { courseId: 'c1', bundleRevision: 'b1' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="auto-bind-knowledge"]').trigger('click')
+    await flushPromises()
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ mode: 'auto', retry_pending: true, revision_ids: ['r1'] })
     wrapper.unmount()
   })
   it('lets users explicitly save selected atomic points', async () => {

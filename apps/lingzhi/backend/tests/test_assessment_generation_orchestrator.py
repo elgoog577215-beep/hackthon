@@ -521,7 +521,7 @@ async def test_orchestrator_uses_bounded_repair_and_isolates_solver():
     ).prepare_course(_course())
 
     assert model.generate_calls == 3
-    assert model.solve_calls == 4
+    assert model.solve_calls == 3
     assert model.repair_calls == 1
     assert all(
         "canonical_answer" not in repr(payload)
@@ -573,7 +573,7 @@ async def test_one_correction_disagreement_discards_only_failed_slot():
     contracts = prepared['_assessment_generated_contracts']['thermo-1']
     assert model.generate_calls == 3
     assert model.repair_calls == 1
-    assert model.solve_calls == 4
+    assert model.solve_calls == 3
     assert contracts['objective_practice']['generation_status'] == 'discarded'
     assert contracts['concept_check']['generation_status'] == 'ready'
     assert contracts['mastery_check']['generation_status'] == 'ready'
@@ -717,7 +717,7 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(("mode", "budget"), [("choice", 2048), ("structured_fields", 16384), ("rich_text", 16384), ("code", 12288)])
+@pytest.mark.parametrize(("mode", "budget"), [("choice", 6144), ("structured_fields", 16384), ("rich_text", 16384), ("code", 12288)])
 async def test_independent_solver_reserves_full_explanation_budget_without_thinking(monkeypatch, mode, budget):
     monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
     monkeypatch.setenv("AI_THINKING_ENABLED", "false")
@@ -968,7 +968,7 @@ async def test_task_length_preflight_repairs_before_independent_solving():
     assert mastery["attempts"][0]["issue_codes"] == ["TASK_TOO_LONG"]
     assert mastery["attempts"][0]["next_action"] == "repair"
     assert model.repair_calls == 2
-    assert model.solve_calls == 4
+    assert model.solve_calls == 3
     assert mastery["final_decision"] == "teacher_review"
 
 
@@ -1533,7 +1533,7 @@ async def test_final_author_attempt_can_finish_one_grading_only_correction():
     prepared = await AssessmentGenerationOrchestrator(model=model).prepare_course(
         _course(), node_ids=["thermo-1"], practice_levels_by_node={"thermo-1": ["mastery_check"]})
     row = prepared["_assessment_generation_audit"]["items"][0]
-    assert model.solve_calls == 2, "grading-only completion must not consume another solve"
+    assert model.solve_calls == 1, "private corrections and grading-only completion must reuse the blind solve"
     assert model.generate_calls == 2
     assert model.repair_calls == 1
     assert row["attempts"][1]["next_action"] == "rubric"

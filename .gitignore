@@ -27,3 +27,5 @@ test-results/
 # Local runtime state left by legacy root-level test invocations.
 /backend/data/
 /backend/tasks.json
+/data/
+.vite/
