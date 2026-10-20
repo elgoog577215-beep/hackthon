@@ -521,7 +521,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         structure = response_schema(list(payload['pairs']))
     elif stage == 'extract_repair' and '\nINPUT_JSON:\n' in prompt:
         payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
-        if payload.get('repair_contract') == 'knowledge_correction_plan_v4':
+        if payload.get('repair_contract') in {'knowledge_correction_plan_v4','knowledge_correction_plan_v5'}:
             from knowledge_correction_protocol import envelope_schema
             structure = envelope_schema(payload['targets'],expression_contract=payload.get('expression_contract'))
         elif payload.get('repair_contract') == 'knowledge_correction_plan_v3' and all(
@@ -639,7 +639,7 @@ async def run_atomic(svc, course_id, job_id):
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
             **({'source_unit_contract':context['source_unit_contract']} if context.get('source_unit_contract') else {}),
-            **({'granularity_contract': GRANULARITY_CONTRACT,'correction_contract':'knowledge_correction_plan_v4'} if fast else {}),
+            **({'granularity_contract': GRANULARITY_CONTRACT,'correction_contract':'knowledge_correction_plan_v5','relation_binding_contract':'knowledge_relation_binding_v1'} if fast else {}),
             **({'expression_contract': EXPRESSION_CONTRACT} if fast else {}),
             **({'content_review_contract': 'knowledge_content_review_v3', 'semantic_equivalence_contract': 'knowledge_equivalence_v4'} if fast else {}),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
@@ -652,8 +652,9 @@ async def run_atomic(svc, course_id, job_id):
             if pipeline.get('granularity_contract'):
                 context['granularity_contract'] = pipeline['granularity_contract']
             context['knowledge_validation_contract'] = pipeline.get('processing_contract')
-            require(pipeline.get('correction_contract') in {None,'knowledge_correction_plan_v4'},'未知定点修正协议')
+            require(pipeline.get('correction_contract') in {None,'knowledge_correction_plan_v4','knowledge_correction_plan_v5'},'未知定点修正协议')
             context['knowledge_correction_contract'] = pipeline.get('correction_contract')
+            if pipeline.get('relation_binding_contract'):context['relation_binding_contract']=pipeline['relation_binding_contract']
             context['knowledge_correction_attempts'] = 2 if pipeline.get('processing_contract') in {
                 'knowledge_validation_pipeline_v3', 'knowledge_validation_pipeline_v4'} else 1
         pipeline['organize_hierarchy'] = bool(job.get('organize_hierarchy', pipeline.get('organize_hierarchy', False)))

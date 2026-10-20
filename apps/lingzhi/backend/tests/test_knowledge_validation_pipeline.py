@@ -183,7 +183,7 @@ async def test_explicit_continue_reuses_review_and_upgrades_only_the_incomplete_
     job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
     failed = svc.authoring.get_job('c-pilot', job['id'])
     assert failed['status'] == 'failed'
-    assert calls == ['extract','content_review','extract_repair','extract_repair']
+    assert calls == ['extract','content_review','extract_repair']  # An unchanged invalid name stops immediately.
     # Reproduce the already-persisted v3 failure without changing its source.
     cp = deepcopy(failed['checkpoint']); cp['atomic_pipeline']['processing_contract'] = 'knowledge_validation_pipeline_v3'
     svc.authoring.update_job('c-pilot', job['id'], checkpoint=cp)

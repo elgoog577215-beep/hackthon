@@ -5,6 +5,7 @@ from generic_knowledge import normalized, require
 from knowledge_extraction_repair import correct_points
 from knowledge_extract import compile_extraction
 from knowledge_semantic_contract import quality_point
+from knowledge_relation_binding import with_bindings,relation_kwargs
 
 
 def frozen_response(batch):
@@ -18,10 +19,11 @@ async def reconcile(svc, course_id, job_id, provider, raw, context, pipeline, sa
     batches = pipeline['inventory_batches']; questions = {}; responses = {}
     for index, batch in enumerate(batches, 1):
         response = frozen_response(batch); responses[index] = response
+        context=with_bindings(context,response)
         passages = {p['key']: p for p in passage_catalog(context, batch['source_keys'])}
         for key, entry in response['passages'].items():
             for point in entry['points']:
-                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(context.get('expression_contract')), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(context.get('expression_contract')), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,point,passages[key]['text']))
                 questions.setdefault(normalized(compiled['question']), []).append((index, key, normalized(compiled['claim'])))
     collisions = [group for group in questions.values() if len({v[2] for v in group}) > 1]
     if not collisions: return

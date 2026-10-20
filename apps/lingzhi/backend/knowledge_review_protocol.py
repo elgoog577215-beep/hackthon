@@ -55,7 +55,7 @@ def build_prompt(payload, example):
         item['literal_subject_options'] = subject_options(content, contract='knowledge_extract_v9')
         try:
             quality_point(item['point'], content, allow_literal_slash=True, general_knowledge=True,
-                          semantic_roles=payload.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                          semantic_roles=payload.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',relation_binding_contract=payload.get('relation_binding_contract'))
             item['compiler_diagnostics'] = []
         except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
             item['compiler_diagnostics'] = getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}])
@@ -64,6 +64,7 @@ def build_prompt(payload, example):
         '这是跨学科核对：不把原文引文或程序校验当成学科正确性证明。'
         '逐点检查：一般知识、一个检查目标、完整含义、真实成立条件、原文依据。'
         'compiler_diagnostics是程序已发现的问题，必须处理；literal_subject_options仅提供逐字片段，不保证是合适名词。'
+        'relation_binding_required表示关系角色尚未结构化，由后续绑定步骤处理，不是原文缺失；不得因此改写正确的关系表述或删掉知识。'
         'subject/left_subject/right_subject须逐字来自当前块。可以选择选项之外的连续原文名词片段，不能拼接或编造主体。'
         '具体对象名作主体，把行为、属性、真假条件或转换方法放入其余槽位；不要用整句结论或残缺谓语作主体。'
         '修正主体时不能把谓语截成半句塞入主体；若选择更短的原文对象名，须在property和value保留原关系与方法的完整含义。'

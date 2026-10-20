@@ -87,4 +87,5 @@ async def test_new_jobs_freeze_the_correction_protocol(svc,monkeypatch):
     job=start(svc,extraction_mode='single_pass_v1');await svc.run('c-pilot',job['id'])
     saved=svc.authoring.get_job('c-pilot',job['id'])
     assert saved['status']=='completed',saved.get('error')
-    assert saved['checkpoint']['atomic_pipeline']['correction_contract']==CONTRACT
+    assert saved['checkpoint']['atomic_pipeline']['correction_contract']=='knowledge_correction_plan_v5'
+    assert saved['checkpoint']['atomic_pipeline']['relation_binding_contract']=='knowledge_relation_binding_v1'

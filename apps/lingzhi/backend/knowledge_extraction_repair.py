@@ -10,6 +10,12 @@ from generic_knowledge import require, normalized
 from knowledge_compact import passage_catalog, parse_complete_json, obj, array, string
 from knowledge_semantic_contract import quality_point, quality_prompt, point_variants, subject_options
 from knowledge_correction_plan import correction_plan
+from knowledge_correction_plan import KnowledgePointValidationError
+from knowledge_relation_binding import with_bindings,relation_kwargs,needs_binding,binding_schema,seal_binding
+
+
+class KnowledgeRepairNoProgress(KnowledgePointValidationError):
+    """An unchanged failed field must not consume another model attempt."""
 
 
 class KnowledgeCorrectionNotApplicable(CourseDocumentConflict):
@@ -41,6 +47,9 @@ def specialize_schema(schema, value):
 def repair_schema(targets, passages, *, expression_contract=None, semantic_roles=False):
     repairs = {}
     for key, target in targets.items():
+        if target.get('correction_plan',{}).get('binding_only'):
+            repairs[key]=obj({'handling':{'const':'bind_relation'},'bindings':array(binding_schema(),1,1),'reason':string(600)})
+            continue
         if target.get('correction_plan', {}).get('expression_only'):
             repairs[key] = obj({'handling': {'const': 'rename'}, 'reason': string(600)})
             continue
@@ -90,6 +99,10 @@ def repair_schema(targets, passages, *, expression_contract=None, semantic_roles
             shapes = [deepcopy(c) for c in choices if c['properties']['form']['const'] in allowed_forms]
             replacement['properties']['points']['items'] = {'anyOf': shapes}
         repairs[key] = {'anyOf': alternatives} if len(alternatives)>1 else replacement
+        if plan.get('binding_required'):
+            for choice in repairs[key].get('anyOf',[repairs[key]]):
+                choice['properties']['bindings']=array(binding_schema(),8)
+                choice['required'].append('bindings')
     issue = obj({'passage_key': {'enum': list(dict.fromkeys(v['passage_key'] for v in targets.values()))},
                  'kind': {'enum': ['suspected_error', 'contradiction']}, 'detail': string(1000)})
     result = obj({'repairs': obj(repairs), 'source_issues': array(issue, 16)})
@@ -105,18 +118,20 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     from knowledge_expression import check_contract, named_traces, bound_name, KnowledgeNameValidationError, VALIDATION_CONTRACT
     expression_contract = check_contract(context.get('expression_contract'))
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
+    context=with_bindings(context,response)
     passages = {p['key']: p for p in passage_catalog(context, keys)}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(passages), '片段结构错误不可按知识点修正')
     targets = {}; questions = {}; duplicate_groups = []; duplicate_resolutions = []; expression_cursor = 0
     inspect_names = context.get('knowledge_validation_contract') == VALIDATION_CONTRACT
     from knowledge_correction_protocol import CONTRACT as CORRECTION_CONTRACT
-    compact = context.get('knowledge_correction_contract') == CORRECTION_CONTRACT
+    compact = context.get('knowledge_correction_contract') in {CORRECTION_CONTRACT,'knowledge_correction_plan_v5'}
+    strict_effect=context.get('knowledge_correction_contract')=='knowledge_correction_plan_v5'
     for key, entry in response['passages'].items():
         require(isinstance(entry, dict) and isinstance(entry.get('points'), list), '片段结构错误不可按知识点修正')
         for ordinal, point in enumerate(entry['points']):
             diagnostics = []
             try:
-                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,point,passages[key]['text']))
                 questions.setdefault(normalized(compiled['question']), []).append((key, ordinal, point, normalized(compiled['claim'])))
             except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
                 diagnostics.extend(getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}]))
@@ -138,8 +153,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         group_keys = [f'{key}:{ordinal}' for key, ordinal, _, _ in group]
         duplicate_groups.append(group_keys)
         duplicate_resolutions.append({'target_keys': group_keys,
-            'question': quality_point(group[0][2], passages[group[0][0]]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')[0]['question'],
-            'answers': [quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')[0]['claim'] for key, _, point, _ in group],
+            'question': quality_point(group[0][2], passages[group[0][0]]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,group[0][2],passages[group[0][0]]['text']))[0]['question'],
+            'answers': [quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,point,passages[key]['text']))[0]['claim'] for key, _, point, _ in group],
             'allowed_resolutions': ['merge_equivalent', 'different_questions']})
         for key, ordinal, point, _ in group:
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
@@ -150,6 +165,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     for target in targets.values():
         if 'correction_plan' not in target:
             target['correction_plan'] = correction_plan(target['point'], [{'code': 'duplicate_question', 'message': target['error']}])
+        if context.get('relation_binding_contract') and needs_binding(target['point']) and not target['correction_plan']['expression_only']:
+            target['correction_plan']['binding_required']=True
         conditions = target['point'].get('conditions', [])
         # Preserve unaffected scope exactly; diagnosed scope errors may be corrected.
         target['required_conditions'] = deepcopy(conditions) if isinstance(conditions, list) and (target.get('duplicate_group') or not re.search(
@@ -237,9 +254,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         from knowledge_correction_protocol import build_prompt
         for target in targets.values(): target.pop('literal_subjects',None)
         payload = {k:payload[k] for k in ('stage','targets','source_passages','duplicate_question_groups','duplicate_resolution_required','scope_evidence','expression_contract','correction_feedback') if k in payload}
-        payload['repair_contract'] = CORRECTION_CONTRACT
+        payload['repair_contract'] = context.get('knowledge_correction_contract')
         prompt = build_prompt(payload)
-    record.update(status='requested', contract=CORRECTION_CONTRACT if compact else 'knowledge_correction_plan_v3' if inspect_names else 'knowledge_correction_plan_v2', target_keys=list(targets), targets=deepcopy(targets))
+    record.update(status='requested', contract=context.get('knowledge_correction_contract') if compact else 'knowledge_correction_plan_v3' if inspect_names else 'knowledge_correction_plan_v2', target_keys=list(targets), targets=deepcopy(targets))
     text = await call_stage(svc, course_id, job_id, provider, prompt, 'extract_repair')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
@@ -270,6 +287,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     resolved = {}
     for key, repair in parsed['repairs'].items():
         if repair['handling'] == 'merge': continue
+        if repair['handling']=='bind_relation':
+            resolved[key]={'handling':'replace','points':[deepcopy(targets[key]['point'])],'reason':repair['reason'],'action':'binding_only'}
+            continue
         if repair['handling'] == 'rename':
             require(targets[key]['correction_plan']['expression_only'], '只有表达错误可使用名称修正')
             resolved[key] = {'handling':'replace','points':[deepcopy(targets[key]['point'])],
@@ -295,6 +315,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             resolved[key] = {'handling': 'replace', 'points': [point],
                              'reason': repair['reason'], 'action': 'field_patch'}
         else: resolved[key] = deepcopy(repair)
+        resolved[key].pop('bindings',None)
     for key, repair in parsed['repairs'].items():
         if repair['handling'] != 'merge': continue
         canonical = resolved.get(repair['merge_into'])
@@ -318,6 +339,16 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 if trace is not None: repaired_traces.append(trace)
                 continue
             repair = resolved[target]
+            if strict_effect:
+                changed=sorted(k for p in repair['points'] for k in set(original)|set(p) if original.get(k)!=p.get(k)) if repair['points'] else ['handling']
+                plan=targets[target]['correction_plan'];name_changed=bool(plan['expression_only'] and parsed.get('short_statements',{}).get(target)!=[targets[target].get('current_name')])
+                previous_binding=(trace or {}).get('relation_binding') or {}
+                previous_declaration={k:previous_binding.get(k) for k in ('kind','target','relation_type')}
+                binding_changed=bool(plan.get('binding_required') and parsed['repairs'][target].get('bindings')!=[previous_declaration])
+                record.setdefault('effects',{})[target]={'changed_fields':changed,'name_changed':name_changed,'binding_submitted':binding_changed}
+                if not changed and not name_changed and not binding_changed:
+                    raise KnowledgeRepairNoProgress([{'code':'repair_no_effect','target_key':target,'fields':plan['editable_fields'],
+                        'actual':parsed['repairs'][target],'message':target+'：修复没有改变出错字段，已停止重复请求'}])
             require(isinstance(repair, dict) and not set(repair) - {'points', 'handling', 'reason', 'action', 'merge_into'}
                     and isinstance(repair['points'], list) and len(repair['points']) <= 8
                     and isinstance(repair['reason'], str) and repair['reason'].strip(), '修正结构无效')
@@ -326,14 +357,22 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 fixed = targets[target]['fixed_fields']
                 require(len(repair['points']) == 1 and all(repair['points'][0].get(k) == v for k,v in fixed.items()),
                         '定点修正违反冻结字段：主体或前提以外的正确内容不得改变或拆分')
-            for point in repair['points']:
-                if repair.get('action') == 'expression_only':
+            new_bindings=[]
+            if targets[target]['correction_plan'].get('binding_required'):
+                require(len(parsed['repairs'][target].get('bindings',[]))==len(repair['points']),'关系绑定须逐一对应修正点')
+            for point_index,point in enumerate(repair['points']):
+                if repair.get('action') in {'expression_only','binding_only'}:
                     require(point == targets[target]['point'], '表达修正不得改变冻结知识字段')
                 else:
                     point['conditions'] = list(dict.fromkeys([*targets[target]['required_conditions'], *point.get('conditions', [])]))
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
-                try: quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                kwargs=relation_kwargs(context,point,passages[key]['text'])
+                if targets[target]['correction_plan'].get('binding_required'):
+                    binding=seal_binding(point,passages[key]['text'],parsed['repairs'][target]['bindings'][point_index]);kwargs['relation_binding']=binding
+                else:binding=kwargs.get('relation_binding')
+                new_bindings.append(binding)
+                try: quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**kwargs)
                 except CourseDocumentConflict as error:
                     point_errors.append({'target_key': target, 'message': str(error),
                         'diagnostics': deepcopy(getattr(error, 'diagnostics', []))})
@@ -342,9 +381,14 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 repaired_trace = {**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False}
                 if expression_contract:
                     names = parsed['short_statements'][target]
+                    if repair.get('action')=='binding_only' and not any(d['code']=='invalid_short_statement' for d in targets[target]['correction_plan']['diagnostics']):
+                        require(names==[targets[target]['current_name']],'只补关系绑定时不得改写原名称')
                     if repair.get('merge_into'):
                         require(names == parsed['short_statements'][repair['merge_into']], '等价知识的短陈述须使用规范目标')
-                    repaired_traces.extend(named_traces(names, repair['points'], passages[key]['text'], repaired_trace,defer_invalid=compact))
+                    bound=named_traces(names, repair['points'], passages[key]['text'], repaired_trace,defer_invalid=compact)
+                    for item,binding in zip(bound,new_bindings):
+                        if binding:item['relation_binding']=deepcopy(binding)
+                    repaired_traces.extend(bound)
                 else:
                     repaired_traces.extend(deepcopy(repaired_trace) for _ in repair['points'])
             decisions.append({'target_key': target, **deepcopy(repair),
@@ -352,13 +396,23 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         entry['points'] = points
         if not points and any(target.startswith(key + ':') for target in targets):
             entry['note'] = {'handling': 'context', 'reason': '；'.join(d['reason'] for d in decisions if d['target_key'].startswith(key + ':'))}
-    require(not point_errors, '；'.join(v['target_key'] + '：' + v['message'] for v in point_errors))
+    if point_errors:
+        error=KnowledgePointValidationError([{**d,'target_key':e['target_key']} for e in point_errors for d in (e['diagnostics'] or [{'code':'invalid_point','message':e['message']}])])
+        if (strict_effect and all(r.get('action')=='binding_only' for r in resolved.values())
+                and output['passages']==response['passages']
+                and not any(d['code'].startswith('relation_') for d in error.diagnostics)):
+            staged=deepcopy(response)
+            for old,new in zip(staged.get('_content_review_trace',[]),repaired_traces):
+                if new.get('relation_binding'):old['relation_binding']=deepcopy(new['relation_binding'])
+            error.validated_binding_response=staged
+        raise error
+    context=with_bindings(context,{'_content_review_trace':repaired_traces})
     for group in duplicate_groups:
         remaining = {}
         for target in group:
             require(bool(resolved[target]['points']), '重复元问题不能通过丢弃有效知识规避：' + target)
             for point in resolved[target]['points']:
-                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,point,passages[targets[target]['passage_key']]['text']))
                 remaining.setdefault(normalized(compiled['question']), []).append((target, compiled['claim']))
         for question, entries in remaining.items():
             require(len({normalized(claim) for _, claim in entries}) <= 1,
@@ -393,15 +447,20 @@ async def correct_points(svc, course_id, job_id, provider, raw, context, keys, i
             return corrected, compiled
         except Exception as error:
             from knowledge_expression import KnowledgeNameValidationError
-            if (context.get('knowledge_correction_contract') == 'knowledge_correction_plan_v4'
+            if getattr(error,'validated_binding_response',None) is not None:
+                attempt['validated_binding_response']=deepcopy(error.validated_binding_response)
+                response=deepcopy(error.validated_binding_response)
+            if (context.get('knowledge_correction_contract') in {'knowledge_correction_plan_v4','knowledge_correction_plan_v5'}
                     and isinstance(error,KnowledgeNameValidationError) and corrected is not None):
                 attempt['validated_semantics_response'] = deepcopy(corrected)
                 response = deepcopy(corrected)
             if hasattr(error, 'partial_response'):
                 attempt.update(raw_response=error.partial_response, response_complete=False)
-            attempt.update(status='failed', validation_error={'code': type(error).__name__, 'message': str(error)})
+            attempt.update(status='failed', validation_error={'code': type(error).__name__, 'message': str(error),
+                **({'diagnostics':deepcopy(error.diagnostics)} if hasattr(error,'diagnostics') else {})})
             attempts.append(deepcopy(attempt)); record.update(**attempt, attempts=attempts)
             validate_source()  # ownership/source changes always stop immediately
+            if isinstance(error,KnowledgeRepairNoProgress) or any(d.get('code')=='relation_binding_uncertain' for d in getattr(error,'diagnostics',[])):raise
             if not isinstance(error, (CourseDocumentConflict, ValueError, TypeError, KeyError)): raise
             if ordinal == max_attempts or not attempt.get('target_keys'): raise
-            feedback = {'diagnostic': str(error), 'failed_correction_response': attempt.get('raw_response', '')}
+            feedback = {'diagnostic': str(error),'diagnostics':deepcopy(getattr(error,'diagnostics',[])), 'failed_correction_response': attempt.get('raw_response', '')}

@@ -198,7 +198,7 @@ def extraction_prompt(raw, context, keys, *, contract=CONTRACT):
     ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
 
 
-def build_point(point, options, *, allow_relation_property=False, allow_named_operation_cost=False, allow_implicit_relation=False):
+def build_point(point, options, *, allow_relation_property=False, allow_named_operation_cost=False, allow_implicit_relation=False,typed_relation=None):
     form = point.get('form')
     fields = {'fact': {'subject', 'property', 'value'}, 'definition': {'subject', 'meaning', 'constraints'},
               'comparison': {'left_subject', 'right_subject', 'property', 'left_value', 'right_value'},
@@ -219,7 +219,16 @@ def build_point(point, options, *, allow_relation_property=False, allow_named_op
         single_relation = allow_relation_property and bool(re.fullmatch(
             r'[^、;；，,与和及]+[与和及][^、;；，,与和及]+?(?:的)?(?:关系|对应方式|一致性)', prop)) and all(
                 re.fullmatch(relation_value, str(value)) if form == 'fact' else re.fullmatch(r'[^;；。]*' + relation_value, str(value)) for value in values)
-        if allow_implicit_relation:
+        if typed_relation is not None:
+            if typed_relation['kind'] in {'relation','unresolved'}:
+                single_relation=True
+                if typed_relation['kind']=='relation':
+                    audit['relation_target']=typed_relation['target']
+                    remainder=prop.replace(typed_relation['target'],'对象').removeprefix('与')
+                    if re.search(r'[、;；，,]|以及|与|和|及',remainder):
+                        from knowledge_correction_plan import KnowledgePointValidationError
+                        raise KnowledgePointValidationError([{'code':'compound_property','fields':['property'],'message':'关系对象之外仍包含多个独立属性'}])
+        elif allow_implicit_relation:
             from knowledge_notation_roles import relation_target
             counterpart = relation_target(prop)
             if counterpart:
@@ -296,7 +305,8 @@ def expand_scalar(point):
     return expand_wire(wire)
 
 
-def quality_point(point, source_text, *, allow_literal_slash=False, general_knowledge=False, semantic_roles=False):
+def quality_point(point, source_text, *, allow_literal_slash=False, general_knowledge=False, semantic_roles=False,
+                  relation_binding_contract=None,relation_binding=None):
     from knowledge_correction_plan import KnowledgePointValidationError
     from knowledge_compact import source_literal
     require(isinstance(point, dict), '知识点必须是对象')
@@ -312,7 +322,8 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
         check(not any(isinstance(s, str) and re.search(r'(?:转换为|变换为|表示为|定义为|记为|称为|写为|视为|变为|改为|设为|取为|插入到|存入到|将|把|使|让)$', s) for s in options),
               '知识主体不能是等待补语的残缺谓语，应选择原文对象，并在属性和值中保留完整关系', code='source_subject_fragment')
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and binding for s, binding in zip(options, bindings)),
-            '知识主体必须逐字来自当前原文块', code='source_subject')
+            '知识主体必须逐字来自当前原文块', code='source_subject',fields=list(fields),
+            actual={field:point.get(field) for field in fields},expected='当前冻结原文中可定位的对象片段')
     check(not any(re.search(r'、|以及' if allow_literal_slash else r'[/、]|以及', s)
                   for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
     if point.get('form') in {'fact', 'definition'}:
@@ -325,7 +336,14 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
     if point.get('form') == 'fact' and '定义' in prop and len(re.findall(r'\breturn\b', value)) > 1:
         check(False, '联合定义应使用definition，保留基本情况与递归关系，不拆成多个没有条件的同题事实', code='joint_definition')
     notation_roles = []
-    if semantic_roles and isinstance(point.get('property'), str):
+    typed_relation=None
+    if relation_binding_contract:
+        from knowledge_relation_binding import check_binding,CONTRACT as RELATION_BINDING
+        require(relation_binding_contract==RELATION_BINDING,'未知关系绑定合同')
+        try:typed_relation=check_binding(point,source_text,relation_binding)
+        except KnowledgePointValidationError as error:
+            errors.extend(error.diagnostics);typed_relation={'kind':'unresolved'}
+    elif semantic_roles and isinstance(point.get('property'), str):
         from knowledge_notation_roles import relation_target
         counterpart = relation_target(point['property'])
         if counterpart:
@@ -403,11 +421,12 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
         and re.search(re.escape(call.group()) + r'\s*(?:效率|性能|复杂度|开销|代价)', source_text))
     try:
         result, audit = build_point(point, options, allow_relation_property=True, allow_named_operation_cost=named_cost,
-                                    allow_implicit_relation=semantic_roles)
+                                    allow_implicit_relation=semantic_roles,typed_relation=typed_relation)
     except CourseDocumentConflict as error:
         errors.extend(getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}]))
     if errors: raise KnowledgePointValidationError(errors)
     audit['source_subject_bindings'] = bindings
+    if typed_relation:audit['relation_binding']=typed_relation
     if notation_roles: audit['quantity_notation_roles'] = notation_roles
     if allow_literal_slash and any('/' in subject for subject in options):
         audit['subject_notation_review'] = [subject for subject in options if '/' in subject]
@@ -418,6 +437,8 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
     from knowledge_expression import check_contract, bound_name, symbolic_name, KnowledgeNameValidationError
+    from knowledge_relation_binding import with_bindings,relation_kwargs
+    context=with_bindings(context,response)
     expression_contract = check_contract(context.get('expression_contract'))
     require(response.get('_expression_contract') == expression_contract, '短陈述合同与冻结任务不一致或缺失')
     expressions = response.get('_content_review_trace')
@@ -437,7 +458,7 @@ def compile_extraction(raw, context, keys, index, response):
             if response['response_contract'] == QUALITY_CONTRACT:
                 normalized_point, audit = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract),
                     general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3',
-                    semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
+                    semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4',**relation_kwargs(context,point,passages[key]['text']))
             else:
                 normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
             audit['schema_version'] = response['response_contract']

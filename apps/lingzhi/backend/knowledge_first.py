@@ -394,7 +394,7 @@ class KnowledgeFirstService:
                         prior['semantic_equivalence_contract']='knowledge_equivalence_v4'
                         prior['equivalence_protocol_upgrade']={'from':'knowledge_equivalence_v3','to':'knowledge_equivalence_v4','origin_job_id':resume_job_id}
                         for field in ('semantic_equivalence','hierarchy','relations'):prior.pop(field,None)
-                    require(prior.get('correction_contract') in {None,'knowledge_correction_plan_v4'},'未知定点修正协议')
+                    require(prior.get('correction_contract') in {None,'knowledge_correction_plan_v4','knowledge_correction_plan_v5'},'未知定点修正协议')
                     if not prior.get('correction_contract'):
                         prior['correction_contract']='knowledge_correction_plan_v4'
                         prior['correction_protocol_upgrade']={'from':'knowledge_correction_plan_v3','to':'knowledge_correction_plan_v4','origin_job_id':resume_job_id,'scope':'new_attempt_only'}
