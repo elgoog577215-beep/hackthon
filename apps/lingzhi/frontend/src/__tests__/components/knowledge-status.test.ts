@@ -30,6 +30,56 @@ beforeEach(async () => {
 })
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
+it('honors Retry-After for automatic status reads and explains throttling', async () => {
+  let polls = 0
+  const get = vi.spyOn(http, 'get').mockImplementation(async url => {
+    if (!String(url).endsWith('/status')) return { data: state() }
+    if (++polls === 1) throw { response: { status: 429, headers: { 'retry-after': '60' } } }
+    return { data: status() }
+  })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  try {
+    await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+    expect(w.get('[data-testid="knowledge-observation-notice"]').text()).toContain('状态查询暂时受限')
+    window.dispatchEvent(new Event('focus')); await flushPromises()
+    await vi.advanceTimersByTimeAsync(59000); await flushPromises()
+    expect(polls).toBe(1)
+    await vi.advanceTimersByTimeAsync(1000); await flushPromises()
+    expect(polls).toBe(2)
+    expect(w.find('[data-testid="knowledge-observation-notice"]').exists()).toBe(false)
+    expect(get.mock.calls.filter(([url]) => !String(url).endsWith('/status'))).toHaveLength(1)
+    expect(http.post).not.toHaveBeenCalled()
+  } finally { w.unmount() }
+})
+
+it('keeps manual status refresh available during a pending command and reports the read', async () => {
+  let resolveRead!: (value: any) => void
+  let resolveCommand!: (value: any) => void
+  let polls = 0
+  const get = vi.spyOn(http, 'get').mockImplementation(async url => {
+    if (!String(url).endsWith('/status')) return { data: state() }
+    if (++polls === 1) throw new Error('offline')
+    return new Promise(resolve => { resolveRead = resolve })
+  })
+  vi.mocked(http.post).mockImplementationOnce(() => new Promise(resolve => { resolveCommand = resolve }))
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  try {
+    await vi.advanceTimersByTimeAsync(2000); await flushPromises()
+    await w.get('[data-testid="knowledge-generation-progress"] button').trigger('click')
+    const refresh = w.get('[data-testid="knowledge-observation-notice"] button')
+    expect(refresh.attributes('disabled')).toBeUndefined()
+    await refresh.trigger('click'); await flushPromises()
+    expect(polls).toBe(2)
+    expect(refresh.text()).toContain('正在刷新')
+    expect(refresh.attributes('disabled')).toBeDefined()
+    await refresh.trigger('click'); expect(polls).toBe(2)
+    resolveRead({ data: status() }); await flushPromises()
+    expect(w.find('[data-testid="knowledge-observation-notice"]').exists()).toBe(false)
+    expect(http.post).toHaveBeenCalledTimes(1)
+    expect(get.mock.calls.filter(([url]) => !String(url).endsWith('/status'))).toHaveLength(1)
+  } finally { resolveCommand({ data: {} }); await flushPromises(); w.unmount() }
+})
+
 it('hides the ready-for-adoption progress notice after the generated version is adopted', async () => {
   const v: any = state()
   v.jobs = [{ id: 'adopted-job', type: 'course_knowledge_tree_generation', knowledge_lesson_id: 'cpu', status: 'completed', progress: 100 }]
