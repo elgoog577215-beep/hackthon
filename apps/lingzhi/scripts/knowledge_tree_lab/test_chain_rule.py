@@ -69,6 +69,7 @@ def test_multiple_gaps_and_contradicting_checks_are_not_forced_to_one_cause():
     {'support_level': 1}, {'answer_revealed': True},
     {'knowledge_revision': 'old-revision'}, {'user_id': 'someone-else'},
     {'course_id': 'other-course'}, {'check_id': 'unknown-check'},
+    {'teacher_preview': True},
 ])
 def test_help_exposure_and_wrong_scope_cannot_supply_independent_evidence(change):
     events = [dict(item, **change) for item in wrong('structure-1', 'structure-2')]
@@ -84,7 +85,8 @@ def test_duplicate_source_corrections_and_conflicting_copies_preserve_history():
     assert result['independent_activity_count'] == 1
     assert result['candidate_ids'] == []
     correction = {**first, 'event_id': 'grading-correction', 'passed': True,
-                  'supersedes': first['event_id'], 'response': '内层x^2，外层sin(u)'}
+                  'supersedes': first['event_id'], 'response': '内层x^2，外层sin(u)',
+                  'correction_reason': '复核发现先前转录了另一份答案，保留原记录并更正解释'}
     result = module.replay([first, correction, *wrong('structure-2')])
     assert result['check_states']['structure-1'] == 'pass'
     assert result['history_event_count'] == 3
@@ -119,3 +121,22 @@ def test_guided_success_and_unobserved_time_do_not_prove_help_effect():
     bad = [dict(item, phase='verification', help_id='help-1')
            for item in wrong('verify-1', 'verify-2')]
     assert module.help_effect(bad, help_id='help-1')['status'] == 'no_clear_improvement'
+
+
+def test_conflicting_verification_does_not_become_success_by_input_order():
+    module = lab()
+    good = [dict(item, phase='verification', help_id='help-1')
+            for item in correct('verify-1', 'verify-2')]
+    bad = dict(wrong('verify-1')[0], event_id='later-fail', activity_id='later-fail',
+               phase='verification', help_id='help-1')
+    for events in [good + [bad], [bad] + good]:
+        assert module.help_effect(events, help_id='help-1')['status'] == 'pending'
+
+
+@pytest.mark.parametrize('target', ['missing-event', 'correction', 'structure-1'])
+def test_unexplained_or_invalid_correction_cannot_erase_evidence(target):
+    first = wrong('structure-1')[0]
+    correction = {**first, 'event_id': 'correction', 'passed': True, 'supersedes': target}
+    result = lab().replay([first, correction, *wrong('structure-2')])
+    assert result['candidate_ids'] == ['structure']
+    assert any(item['reason'] == 'invalid_correction' for item in result['excluded'])
