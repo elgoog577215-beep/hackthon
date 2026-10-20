@@ -901,6 +901,9 @@ def project_preview(job, course_id):
         for i, point in enumerate(points, 1):
             point['key'] = f'K{i}'
             point['parent_id'] = point['primary_concept_group_id'] = parents[point['knowledge_id']]
+    if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4':
+        from knowledge_expression import qualify_formula_display
+        for point in points: qualify_formula_display(point)
     hierarchy = pipeline.get('hierarchy') or {}
     if hierarchy.get('categories'):
         from knowledge_hierarchy import apply_hierarchy
