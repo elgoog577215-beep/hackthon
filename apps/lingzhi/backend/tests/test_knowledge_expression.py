@@ -143,3 +143,15 @@ def test_unsupported_contract_and_missing_name_rows_are_explicit_errors():
     from knowledge_expression import check_contract, named_traces
     with pytest.raises(CourseDocumentConflict): check_contract('future-expression')
     with pytest.raises(CourseDocumentConflict): named_traces([], [point()], '入栈将元素插入栈顶。', {})
+
+
+def test_literal_joint_notation_is_not_split_by_punctuation_in_new_contract():
+    from knowledge_semantic_contract import quality_point
+    source = 'C17中，if/else分支根据条件选择执行其中一个分支。'
+    rule = point('if/else分支', property='执行逻辑', value='根据条件选择执行其中一个分支', conditions=['C17'])
+    with pytest.raises(CourseDocumentConflict, match='独立操作'):
+        quality_point(rule, source)  # Preserve the frozen old contract.
+    compiled, audit = quality_point(rule, source, allow_literal_slash=True)
+    assert 'if/else分支' in compiled['claim']
+    assert audit['subject_notation_review'] == ['if/else分支']
+    assert audit['semantics_verified'] is False
