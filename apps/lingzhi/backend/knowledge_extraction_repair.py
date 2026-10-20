@@ -171,7 +171,9 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     if expression_contract:
         payload['expression_contract'] = expression_contract
     if inspect_names: payload['repair_contract'] = 'knowledge_correction_plan_v3'
-    if feedback: payload['correction_feedback'] = deepcopy(feedback)
+    if feedback:
+        payload['correction_feedback'] = deepcopy(feedback)
+        record['correction_feedback'] = deepcopy(feedback)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
         '\n只修正targets，修正合同knowledge_correction_plan_v2，一轮请求。每个目标恰好回应一次。'
         'correction_plan.single_point=true时只返回handling="patch",patch={仅需修改的字段},reason；'
@@ -216,6 +218,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             '对应short_statements恰好一项，其他知识字段由程序完整保留。\nINPUT_JSON:\n', 1)
     if inspect_names and all(t['correction_plan']['expression_only'] for t in targets.values()):
         payload = {k: payload[k] for k in ('stage','repair_contract','targets','source_passages','expression_contract')}
+        if feedback: payload['correction_feedback'] = deepcopy(feedback)
         example = {'repairs': {key: {'handling':'rename','reason':'只修正名称表达'} for key in targets},
                    'short_statements': {key:['根据冻结知识写完整短陈述'] for key in targets}, 'source_issues':[]}
         prompt = ('只修正冻结知识的学生可见名称，不重新提取、审核、拆分、合并或改写任何知识。'
@@ -355,10 +358,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
 
 
 async def correct_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record,
-                         *, compile_result, validate_source, max_attempts=1):
+                         *, compile_result, validate_source, max_attempts=1, initial_feedback=None):
     """A finite correction transaction; never repeats extraction or retries transport."""
     require(max_attempts in {1, 2}, '定点修正预算无效')
-    attempts = []; feedback = None
+    attempts = []; feedback = deepcopy(initial_feedback)
     for ordinal in range(1, max_attempts + 1):
         attempt = {'ordinal': ordinal, 'status': 'pending'}
         try:

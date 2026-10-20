@@ -1,5 +1,6 @@
 """Small generic review envelope; semantic forms remain locally validated."""
 import json
+from copy import deepcopy
 
 from course_repository import CourseDocumentConflict
 from knowledge_compact import obj, array, string
@@ -30,6 +31,7 @@ def freeze_review(record, extraction, context, keys, *, origin_job_id):
     except (CourseDocumentConflict, ValueError, TypeError, KeyError, AttributeError): return None
     return {'contract': CONTRACT, 'raw_response': record['raw_response'], 'input_signature': signature,
             'origin_job_id': record.get('review_origin_job_id') or origin_job_id,
+            'review_context': {k:deepcopy(record[k]) for k in ('previous_attempt_feedback','earlier_frozen_questions') if k in record},
             'semantics_verified': False}
 
 

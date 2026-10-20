@@ -120,9 +120,9 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     record.update(contract=GENERIC_REVIEW if generic_review else REVIEW_CONTRACT if expression_contract else CONTRACT, status='requested', original_point_count=len(originals), semantics_verified=False,
                   evidence_kind='separate_request_same_model', source_cautions=cautions,
                   scope_evidence=deepcopy(payload['scope_evidence']))
-    if feedback:
+    if feedback and frozen is None:
         record['previous_attempt_feedback'] = deepcopy(feedback)
-    if reference_points:
+    if reference_points and frozen is None:
         record['earlier_frozen_questions'] = deepcopy(reference_points)
     if frozen is not None:
         from knowledge_review_protocol import review_input_signature
@@ -131,6 +131,7 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
                 '冻结核对与当前提取或来源不一致，不能复用')
         text = frozen['raw_response']
         record['review_origin_job_id'] = frozen['origin_job_id']
+        record.update(deepcopy(frozen.get('review_context', {})))
     else:
         text = await call_stage(svc, course_id, job_id, provider, prompt, 'content_review')
     record['raw_response'] = text

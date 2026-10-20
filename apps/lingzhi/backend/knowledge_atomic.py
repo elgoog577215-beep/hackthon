@@ -716,7 +716,8 @@ async def run_atomic(svc, course_id, job_id):
                                 return result
                             corrected, result = await correct_points(svc, course_id, job_id, provider, raw, context,
                                 batch['source_keys'], i, parsed, batch['repair'], compile_result=compile_corrected,
-                                validate_source=validate_source, max_attempts=context['knowledge_correction_attempts'])
+                                validate_source=validate_source, max_attempts=context['knowledge_correction_attempts'],
+                                initial_feedback=batch.get('retry_feedback') if batch.get('frozen_content_review') else None)
                             batch['repair']['corrected_response'] = corrected
                             batch['repair']['status'] = 'completed'
                         except KnowledgeCorrectionNotApplicable:
