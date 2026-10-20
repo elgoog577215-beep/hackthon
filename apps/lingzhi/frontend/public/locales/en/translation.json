@@ -8010,6 +8010,8 @@
     "sourcePositionDisclaimer": "A matched location confirms that the quotation exists. The knowledge claim and its conditions still need review.",
     "sourceSnapshotDisclaimer": "The quotation snapshot retains the recorded source. Its original location has not been checked again.",
     "refreshStatus": "Refresh status",
+    "refreshingStatus": "Refreshing…",
+    "rateLimitedStatus": "Status checks are temporarily rate limited and will resume shortly. Generation continues and the displayed content is kept.",
     "reconnectingStatus": "The status connection was interrupted. Reconnecting while keeping the displayed tree. The generation task will not be restarted.",
     "observationUnavailable": "Task status is unavailable for this course. Check your sign-in and access, then refresh status.",
     "phase_pending": "Waiting to start",

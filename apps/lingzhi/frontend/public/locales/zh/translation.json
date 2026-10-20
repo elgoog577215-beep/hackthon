@@ -8010,6 +8010,8 @@
     "sourcePositionDisclaimer": "位置匹配仅说明引文存在，知识命题及适用条件仍需核对。",
     "sourceSnapshotDisclaimer": "引用快照保留当时记录的出处，当前尚未重新核对原文位置。",
     "refreshStatus": "刷新状态",
+    "refreshingStatus": "正在刷新…",
+    "rateLimitedStatus": "状态查询暂时受限，将稍后自动更新。后台生成继续，已显示的内容保留。",
     "reconnectingStatus": "状态连接暂时中断，正在重新连接。已显示的知识树保留，生成任务不会重复启动。",
     "observationUnavailable": "暂时无法读取此课程的任务状态，请核对登录与访问权限后刷新状态。",
     "phase_pending": "任务等待开始",

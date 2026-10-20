@@ -4,7 +4,7 @@
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
     <p v-if="observationNotice" class="notice observation-notice" role="status" data-testid="knowledge-observation-notice">
       {{ t(`knowledgeFirst.${observationNotice}`) }}
-      <button type="button" :disabled="busy" @click="retryObservation">{{ t('knowledgeFirst.refreshStatus') }}</button>
+      <button type="button" :disabled="refreshingStatus" :aria-busy="refreshingStatus" @click="retryObservation">{{ t(refreshingStatus ? 'knowledgeFirst.refreshingStatus' : 'knowledgeFirst.refreshStatus') }}</button>
     </p>
     <p v-if="!data && !error" role="status">{{ t('knowledgeFirst.loading') }}</p>
     <template v-if="data">
@@ -220,6 +220,7 @@ const courseId = computed(() => props.courseId)
 const knowledgeLessonId = ref(props.initialLessonId)
 const data = ref<any>(null), error = ref(''), busy = ref(false)
 const observationNotice = ref('')
+const refreshingStatus = ref(false)
 const confirmIdentityChanges = ref(false), confirmAtomicReview = ref(false)
 const confirmRelations = ref(false)
 const selectedRelationIds = ref<string[]>([])
@@ -243,6 +244,7 @@ async function closePoint() { selectedId.value = ''; await nextTick(); pointTrig
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
 let retryCount = 0, observationStopped = false
+let retryAfterAt = 0
 let readController: AbortController | undefined
 let readInFlight = false
 let streamController: AbortController | undefined
@@ -535,7 +537,7 @@ function scheduleObservation() {
   clearTimeout(timer)
   if (disposed || observationStopped || (data.value && !data.value.can_edit)) return
   const delay = retryCount ? Math.min(10000, 2000 * 2 ** Math.min(retryCount, 3)) : activeJobs.value.length ? 2000 : 10000
-  timer = setTimeout(data.value ? pollStatus : refresh, delay)
+  timer = setTimeout(data.value ? () => pollStatus() : refresh, Math.max(delay, retryAfterAt - Date.now()))
 }
 function observationFailed(e: any) {
   const status = e?.response?.status
@@ -543,15 +545,25 @@ function observationFailed(e: any) {
     if (data.value) data.value.can_edit = false
     observationStopped = true
     observationNotice.value = 'observationUnavailable'
+  } else if (status === 429) {
+    retryCount++
+    const headers = e.response.headers
+    const hint = headers?.get?.('retry-after') ?? headers?.['retry-after']
+    const seconds = Number(hint)
+    const date = typeof hint === 'string' ? Date.parse(hint) : NaN
+    const wait = hint != null && Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000
+      : Number.isFinite(date) ? Math.max(0, date - Date.now()) : 60000
+    retryAfterAt = Date.now() + wait
+    observationNotice.value = 'rateLimitedStatus'
   } else {
     retryCount++
     observationNotice.value = 'reconnectingStatus'
   }
 }
-async function pollStatus() {
+async function pollStatus(manual = false) {
   clearTimeout(timer)
   if (disposed || observationStopped) return
-  if (busy.value) { scheduleObservation(); return }
+  if (!manual && (busy.value || readInFlight || Date.now() < retryAfterAt)) { scheduleObservation(); return }
   const seq = ++requestSequence
   readController?.abort()
   readController = new AbortController()
@@ -560,7 +572,7 @@ async function pollStatus() {
     const { data: snapshot } = await http.get(`${base.value}/status`, { params: { source_mode: 'handouts' }, timeout: 10000, silentError: true, signal: readController.signal })
     if (disposed || seq !== requestSequence) return
     if (snapshot.can_edit === false) { data.value.can_edit = false; observationStopped = true; observationNotice.value = 'observationUnavailable'; return }
-    retryCount = 0; observationNotice.value = ''
+    retryCount = 0; retryAfterAt = 0; observationNotice.value = ''
     if (snapshot.result_version !== data.value?.result_version) { await refresh(); return }
     const updates = new Map<string, any>((snapshot.jobs || []).map((job: any) => [job.id, job]))
     data.value = { ...data.value, can_edit: snapshot.can_edit ?? data.value.can_edit, active_jobs: snapshot.active_jobs || [],
@@ -581,7 +593,7 @@ async function refresh() {
     const response = await http.get(base.value, { params: { source_mode: 'handouts' }, timeout: 10000, silentError: true, signal: readController.signal })
     if (disposed || seq !== requestSequence) return
     const followLatest = !handoutChoice.value || handoutChoice.value === currentLesson.value?.current_revision_id
-    data.value = response.data; error.value = ''; observationNotice.value = ''; retryCount = 0
+    data.value = response.data; error.value = ''; observationNotice.value = ''; retryCount = 0; retryAfterAt = 0
     if (perLesson.value && !selectedLesson.value) knowledgeLessonId.value = lessonOptions.value[0]?.lesson_id || ''
     if (generic.value && !inputDirty.value && data.value.inputs) Object.assign(inputs, data.value.inputs)
     if (generic.value && !data.value.handouts.some((h: any) => h.topic === lesson.value)) lesson.value = data.value.handouts[0]?.topic || ''
@@ -591,8 +603,13 @@ async function refresh() {
   } catch (e) { if (!disposed && seq === requestSequence) { if (!data.value) error.value = message(e); observationFailed(e) } }
   finally { if (!disposed && seq === requestSequence) { readInFlight = false; scheduleObservation() } }
 }
-function retryObservation() { observationStopped = false; retryCount = 0; void (data.value ? pollStatus() : refresh()) }
-function resumeObservation() { if (!observationStopped && !busy.value && !disposed && !readInFlight) void (data.value ? pollStatus() : refresh()) }
+async function retryObservation() {
+  if (refreshingStatus.value || disposed) return
+  observationStopped = false; refreshingStatus.value = true
+  try { await (data.value ? pollStatus(true) : refresh()) }
+  finally { refreshingStatus.value = false }
+}
+function resumeObservation() { if (!observationStopped && !busy.value && !disposed && !readInFlight && Date.now() >= retryAfterAt) void (data.value ? pollStatus() : refresh()) }
 async function mutate(path: string, extra = {}) {
   busy.value = true; error.value = ''
   try { await http.post(`${base.value}/${path}`, { document_revision: data.value.document_revision, knowledge_revision: data.value.knowledge_revision, ...extra }); await refresh(); if (path === 'initialize') emit('updated') }
@@ -655,7 +672,7 @@ async function uploadMaterials(event: Event) {
 async function showSource(revision: string, id = '') { treeChoice.value = revision; selectedId.value = id; tab.value = 'tree'; await nextTick(); document.querySelector('.point-card')?.scrollIntoView({ block: 'start' }) }
 watch(lesson, () => { handoutChoice.value = currentLesson.value?.current_revision_id || '' })
 watch(displayTree, tree => { if (tree && !tree.knowledge_points.some((p: any) => p.knowledge_id === selectedId.value)) selectedId.value = props.treeOnly ? '' : tree.knowledge_points[0]?.knowledge_id || '' })
-watch(courseId, () => { observationStopped = false; retryCount = 0; observationNotice.value = ''; knowledgeLessonId.value = props.initialLessonId; data.value = null; inputDirty.value = false; materials.value = []; treeChoice.value = ''; selectedId.value = ''; handoutChoice.value = ''; void refresh() })
+watch(courseId, () => { observationStopped = false; retryCount = 0; retryAfterAt = 0; observationNotice.value = ''; knowledgeLessonId.value = props.initialLessonId; data.value = null; inputDirty.value = false; materials.value = []; treeChoice.value = ''; selectedId.value = ''; handoutChoice.value = ''; void refresh() })
 watch(() => [generic.value, data.value?.enabled], () => { void loadMaterials() })
 onMounted(() => { void refresh(); window.addEventListener('online', resumeObservation); window.addEventListener('focus', resumeObservation) })
 onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abort(); streamController?.abort(); clearTimeout(timer); window.removeEventListener('online', resumeObservation); window.removeEventListener('focus', resumeObservation) })

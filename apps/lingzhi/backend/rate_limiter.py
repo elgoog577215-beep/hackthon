@@ -72,6 +72,9 @@ RATE_LIMITS = {
 QUESTION_BANK_REBUILD_STATUS_RE = re.compile(
     r"^/api/courses/[^/]+/question-bank/rebuilds/[^/]+$"
 )
+KNOWLEDGE_OBSERVATION_RE = re.compile(
+    r"^/api/courses/[^/]+/knowledge-first/(?:status|events/[^/]+)$"
+)
 
 
 def _get_client_ip(request: Request) -> str:
@@ -97,7 +100,7 @@ def _match_rate_limit(
         return 5, 60
     if (
         method.upper() == "GET"
-        and QUESTION_BANK_REBUILD_STATUS_RE.fullmatch(path)
+        and (QUESTION_BANK_REBUILD_STATUS_RE.fullmatch(path) or KNOWLEDGE_OBSERVATION_RE.fullmatch(path))
     ):
         return 120, 60
     # 实时审阅工作台只读取已经落盘的生成检查点。它需要短间隔轮询，
