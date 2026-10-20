@@ -1,0 +1,109 @@
+"""Short statements are bound presentation of complete, source-backed facts."""
+from copy import deepcopy
+import json
+
+import pytest
+
+from backend.tests.test_knowledge_first import svc
+from backend.tests.test_knowledge_atomic import setup_course, start
+from backend.tests.test_knowledge_extraction_repair import point, value
+from course_repository import CourseDocumentConflict
+
+
+CONTRACT = 'knowledge_expression_v1'
+
+
+def current(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot')
+    context = svc._context(raw, 'handouts', 'cpu')
+    return raw, {**context, 'expression_contract': CONTRACT}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('decision', ['keep', 'replace', 'context'])
+async def test_review_aligns_names_with_final_points_without_an_extra_model_call(svc, monkeypatch, decision):
+    from knowledge_content_review import review_content
+    raw, context = current(svc, monkeypatch)
+    original = value([point()]); before = deepcopy(original); calls = []
+    chosen = [] if decision != 'replace' else [point(), point('出栈', value='移除并返回栈顶元素')]
+    names = {'keep': ['入栈把元素加入栈顶'], 'replace': ['入栈把元素加入栈顶', '出栈移除栈顶元素'], 'context': []}[decision]
+
+    async def call(*args):
+        data = json.loads(args[-2].split('\nINPUT_JSON:\n', 1)[1]); calls.append(data)
+        assert data['review_contract'] == 'knowledge_content_review_v2'
+        assert data['expression_contract'] == CONTRACT
+        return json.dumps({'point_reviews': {'S1.1:0': {'decision': decision, 'points': chosen,
+            'reason': '冻结来源支持对应规则', 'names': names}}, 'additions': {'S1.1': []},
+            'addition_names': {'S1.1': []}, 'source_issues': []})
+
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    record = {}
+    reviewed = await review_content(svc, 'c-pilot', 'j', None, raw, context, ['S1'], original, record)
+    assert original == before and len(calls) == 1
+    assert len(reviewed['_content_review_trace']) == len(names)
+    assert [trace['expression']['text'] for trace in reviewed['_content_review_trace']] == names
+    assert record['expression_contract'] == CONTRACT
+
+
+def test_compiler_changes_only_name_and_keeps_full_fact_conditions_sources_and_identity(svc, monkeypatch):
+    from knowledge_extract import compile_extraction
+    from knowledge_expression import bind_name
+    from knowledge_compact import passage_catalog
+    raw, context = current(svc, monkeypatch)
+    response = value([point()]); before = deepcopy(response)
+    passage = passage_catalog({**context, 'knowledge_passage_mode': 'source_blocks_v1'}, ['S1'])[0]
+    legacy = compile_extraction(raw, {k: v for k, v in context.items() if k != 'expression_contract'}, ['S1'], 1, response)
+    response['_expression_contract'] = CONTRACT
+    response['_content_review_trace'] = [{'expression': bind_name('入栈把元素加入栈顶', point(), passage['text'])}]
+    result = compile_extraction(raw, context, ['S1'], 1, response)
+    actual, old = result['tree']['knowledge_points'][0], legacy['tree']['knowledge_points'][0]
+    assert actual['name'] == '入栈把元素加入栈顶'
+    for field in ('statement', 'conditions', 'meta_question', 'meta_answer', 'source_quotes', 'source_refs'):
+        assert actual[field] == old[field], field
+    assert actual['atomic_contract']['expression']['contract'] == CONTRACT
+    assert result['report']['ready_for_adoption']
+    assert before['passages'] == response['passages']
+
+
+@pytest.mark.parametrize('label', ['', '入栈是什么？', '如何入栈', '入栈的操作效果', '甲' * 201])
+def test_invalid_short_names_are_not_silently_accepted(label):
+    from knowledge_expression import bind_name
+    with pytest.raises(CourseDocumentConflict):
+        bind_name(label, point(), '入栈将元素插入栈顶。')
+
+
+@pytest.mark.parametrize('mutation', ['claim', 'conditions', 'source'])
+def test_name_binding_is_invalidated_when_semantics_or_source_change(mutation):
+    from knowledge_expression import bind_name, bound_name
+    raw = point(); source = '入栈将元素插入栈顶。'
+    expression = bind_name('入栈把元素加入栈顶', raw, source)
+    if mutation == 'claim': raw['value'] = '移除栈顶'
+    elif mutation == 'conditions': raw['conditions'] = ['只在非满栈时']
+    else: source += '新的来源版本。'
+    with pytest.raises(CourseDocumentConflict, match='短陈述'):
+        bound_name(expression, raw, source)
+
+
+def test_new_context_cannot_compile_without_names_but_legacy_contract_still_works(svc, monkeypatch):
+    from knowledge_extract import compile_extraction
+    raw, context = current(svc, monkeypatch)
+    response = value([point()])
+    with pytest.raises(CourseDocumentConflict, match='短陈述'):
+        compile_extraction(raw, context, ['S1'], 1, response)
+    legacy = {key: val for key, val in context.items() if key != 'expression_contract'}
+    assert compile_extraction(raw, legacy, ['S1'], 1, response)['tree']['knowledge_points'][0]['name'] == '入栈的操作效果'
+
+
+@pytest.mark.asyncio
+async def test_new_job_freezes_expression_contract(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    from backend.tests.test_knowledge_tree_relations import fake_provider
+    fake_provider(svc)
+    job = start(svc, extraction_mode='single_pass_v1')
+    await svc.run('c-pilot', job['id'])
+    saved = svc.authoring.get_job('c-pilot', job['id'])
+    assert saved['status'] == 'completed', saved.get('error')
+    assert saved['checkpoint']['atomic_pipeline']['expression_contract'] == CONTRACT
+    assert saved['checkpoint']['candidate']['expression_contract'] == CONTRACT
+    assert all('expression' in p['atomic_contract'] for p in saved['checkpoint']['candidate']['knowledge_points'])
