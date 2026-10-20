@@ -111,6 +111,20 @@ def test_public_checks_do_not_disclose_answers_or_remediation():
     assert 'hypotheses' not in public and 'help' not in public
 
 
+def test_help_verification_is_specific_to_the_observed_difficulty():
+    module = lab()
+    bundle = module.build_bundle()
+    pairs = set()
+    for cause, rule in bundle['hypotheses'].items():
+        result = module.replay(wrong(*rule['fail_checks']) + correct(*rule['controls']))
+        checks = result['help']['verify_with']
+        assert len(checks) == 2
+        assert not set(checks) & set(rule['fail_checks'])
+        assert all(bundle['checks'][key].get('verification_target') == cause for key in checks)
+        pairs.add(tuple(checks))
+    assert len(pairs) == 6
+
+
 def test_guided_success_and_unobserved_time_do_not_prove_help_effect():
     module = lab()
     guided = [dict(item, phase='verification', help_id='help-1', support_level=1)
