@@ -51,6 +51,9 @@ def test_original_error_alone_and_unknown_answer_are_insufficient():
     assert result['next_checks'] == ['structure-1']
     assert module.grade_fixture('power-1', '这段话不能可靠判分') is None
     assert module.replay([observation('power-1', '不知道')])['status'] == 'insufficient'
+    assert module.grade_fixture('combination-1', '5') is None
+    assert module.grade_fixture('combination-2', '2') is None
+    assert module.grade_fixture('combination-1', '我认为最终式子就是5，不需要其他因子') is False
 
 
 def test_multiple_gaps_and_contradicting_checks_are_not_forced_to_one_cause():
