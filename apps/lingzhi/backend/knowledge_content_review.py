@@ -39,6 +39,8 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
     payload = {'stage': 'content_review', 'review_contract': CONTRACT,
                'source_passages': passages, 'points': originals, 'source_cautions': cautions,
                'source_issues': response.get('source_issues', []), 'scope_evidence': scope_evidence(context)}
+    if context.get('knowledge_validation_contract'):
+        payload['knowledge_validation_contract'] = context['knowledge_validation_contract']
     if expression_contract:
         payload.update(review_contract=REVIEW_CONTRACT, expression_contract=expression_contract)
     if feedback:

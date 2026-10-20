@@ -12,7 +12,8 @@ class KnowledgePointValidationError(CourseDocumentConflict):
 
 
 def correction_plan(point, diagnostics):
-    narrow = {'source_subject': ('subject', 'left_subject', 'right_subject', 'conditions'), 'undefined_quantity': ('conditions',)}
+    narrow = {'source_subject': ('subject', 'left_subject', 'right_subject', 'conditions'), 'undefined_quantity': ('conditions',),
+              'source_relation': ('property',)}
     codes = {d['code'] for d in diagnostics if d['code'] != 'invalid_short_statement'}
     expression_only = not codes and any(d['code'] == 'invalid_short_statement' for d in diagnostics)
     editable = sorted({field for code in codes for field in narrow.get(code, ()) if field in point})

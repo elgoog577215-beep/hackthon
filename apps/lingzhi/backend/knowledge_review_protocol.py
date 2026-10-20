@@ -54,7 +54,8 @@ def build_prompt(payload, example):
         content = passages[item['passage_key']]
         item['literal_subject_options'] = subject_options(content, contract='knowledge_extract_v9')
         try:
-            quality_point(item['point'], content, allow_literal_slash=True, general_knowledge=True)
+            quality_point(item['point'], content, allow_literal_slash=True, general_knowledge=True,
+                          semantic_roles=payload.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
             item['compiler_diagnostics'] = []
         except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
             item['compiler_diagnostics'] = getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}])

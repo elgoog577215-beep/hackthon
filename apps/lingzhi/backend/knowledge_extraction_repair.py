@@ -38,13 +38,13 @@ def specialize_schema(schema, value):
     return schema
 
 
-def repair_schema(targets, passages, *, expression_contract=None):
+def repair_schema(targets, passages, *, expression_contract=None, semantic_roles=False):
     repairs = {}
     for key, target in targets.items():
         if target.get('correction_plan', {}).get('expression_only'):
             repairs[key] = obj({'handling': {'const': 'rename'}, 'reason': string(600)})
             continue
-        choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'), contract='knowledge_extract_v9')['anyOf']
+        choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'), contract='knowledge_extract_v9', semantic_roles=semantic_roles)['anyOf']
         plan = target.get('correction_plan', {})
         allowed = plan.get('allowed_forms', [])
         form = (target['point']['form'] if target['point']['form'] in allowed else allowed[0]) if allowed else (
@@ -114,7 +114,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         for ordinal, point in enumerate(entry['points']):
             diagnostics = []
             try:
-                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')
+                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
                 questions.setdefault(normalized(compiled['question']), []).append((key, ordinal, point, normalized(compiled['claim'])))
             except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
                 diagnostics.extend(getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}]))
@@ -136,8 +136,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         group_keys = [f'{key}:{ordinal}' for key, ordinal, _, _ in group]
         duplicate_groups.append(group_keys)
         duplicate_resolutions.append({'target_keys': group_keys,
-            'question': quality_point(group[0][2], passages[group[0][0]]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')[0]['question'],
-            'answers': [quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')[0]['claim'] for key, _, point, _ in group],
+            'question': quality_point(group[0][2], passages[group[0][0]]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')[0]['question'],
+            'answers': [quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')[0]['claim'] for key, _, point, _ in group],
             'allowed_resolutions': ['merge_equivalent', 'different_questions']})
         for key, ordinal, point, _ in group:
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
@@ -239,7 +239,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == required
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
-    schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()}, expression_contract=expression_contract)
+    schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()}, expression_contract=expression_contract, semantic_roles=inspect_names)
     schema = specialize_schema(schema, clean)
     for key, decision in parsed['repairs'].items():
         shape = schema['properties']['repairs']['properties'][key]
@@ -316,7 +316,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                     point['conditions'] = list(dict.fromkeys([*targets[target]['required_conditions'], *point.get('conditions', [])]))
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
-                try: quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')
+                try: quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
                 except CourseDocumentConflict as error:
                     point_errors.append({'target_key': target, 'message': str(error),
                         'diagnostics': deepcopy(getattr(error, 'diagnostics', []))})
@@ -341,7 +341,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         for target in group:
             require(bool(resolved[target]['points']), '重复元问题不能通过丢弃有效知识规避：' + target)
             for point in resolved[target]['points']:
-                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')
+                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'], allow_literal_slash=bool(expression_contract), general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3', semantic_roles=context.get('knowledge_validation_contract') == 'knowledge_validation_pipeline_v4')
                 remaining.setdefault(normalized(compiled['question']), []).append((target, compiled['claim']))
         for question, entries in remaining.items():
             require(len({normalized(claim) for _, claim in entries}) <= 1,
