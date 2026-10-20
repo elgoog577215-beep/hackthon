@@ -53,8 +53,8 @@ async def test_same_question_different_wording_requires_resolved_group_not_bulk_
 
 
 def keep_review(payload):
-    return {'point_reviews': {key: {'decision': 'keep', 'points': [], 'reason': '隔离夹具保留原点'} for key in payload['points']},
-            'additions': {p['key']: [] for p in payload['source_passages']}, 'source_issues': []}
+    from backend.tests.test_knowledge_extract import review_response
+    return review_response(payload)
 
 
 @pytest.mark.asyncio
@@ -219,7 +219,9 @@ async def test_extraction_repair_is_bounded_to_two_requests_and_preserves_failur
             feedbacks.append(payload.get('previous_attempt_feedback'))
             return json.dumps(keep_review(payload))
         if payload['stage'] == 'extract': return json.dumps(value([point(property='效果和端点')]))
-        return json.dumps({'repairs': {'S1.1:0': {'points': [point(property='仍然和无效')], 'handling': 'replace', 'reason': '修复失败'}}, 'source_issues': []})
+        result = {'repairs': {'S1.1:0': {'points': [point(property='仍然和无效')], 'handling': 'replace', 'reason': '修复失败'}}, 'source_issues': []}
+        if payload.get('expression_contract'): result['short_statements'] = {'S1.1:0': ['入栈把元素加入栈顶']}
+        return json.dumps(result)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     job = start(svc, extraction_mode='single_pass_v1')
     await svc.run('c-pilot', job['id'])
@@ -255,8 +257,11 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
         if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
         if payload['stage'] == 'extract':
             return json.dumps(value([point('判空', property='检查对象', value='栈是否为空'), point('判空', property='检查对象', value='队列是否为空')]))
-        return json.dumps({'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],
-                    'handling': 'replace', 'reason': '明确操作所属结构'} for i, subject in enumerate(['栈', '队列'])}, 'source_issues': []})
+        result = {'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],
+                    'handling': 'replace', 'reason': '明确操作所属结构'} for i, subject in enumerate(['栈', '队列'])}, 'source_issues': []}
+        if payload.get('expression_contract'):
+            result['short_statements'] = {f'S1.1:{i}': [subject+'判空检查'+subject+'是否为空'] for i, subject in enumerate(['栈', '队列'])}
+        return json.dumps(result)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     job = start(svc, extraction_mode='single_pass_v1'); await svc.run('c-pilot', job['id'])
     saved = svc.authoring.get_job('c-pilot', job['id'])

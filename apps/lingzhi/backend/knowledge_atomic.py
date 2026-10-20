@@ -403,7 +403,7 @@ def assemble(raw, context, pipeline, hierarchy=None):
     if pipeline.get('prompt_contract') == 'knowledge_extract_v9':
         reviewed = [batch for batch in pipeline['inventory_batches'] if batch.get('content_review', {}).get('status') == 'completed']
         missing = [batch['id'] for batch in pipeline['inventory_batches'] if batch not in reviewed]
-        content_review = {'contract': 'knowledge_content_review_v1', 'completed_batches': len(reviewed),
+        content_review = {'contract': 'knowledge_content_review_v2' if pipeline.get('expression_contract') else 'knowledge_content_review_v1', 'completed_batches': len(reviewed),
             'missing_batches': len(missing), 'evidence_kind': 'separate_request_same_model', 'semantics_verified': False,
             'decision_count': sum(len(batch['content_review'].get('decisions', {})) for batch in reviewed),
             'program_contextualized_candidates': sum(record.get('status') == 'context_only' for batch in reviewed

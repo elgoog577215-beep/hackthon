@@ -38,7 +38,7 @@ def specialize_schema(schema, value):
     return schema
 
 
-def repair_schema(targets, passages):
+def repair_schema(targets, passages, *, expression_contract=None):
     repairs = {}
     for key, target in targets.items():
         choices = point_variants(subject_options(passages[target['passage_key']], contract='knowledge_extract_v9'), contract='knowledge_extract_v9')['anyOf']
@@ -89,11 +89,17 @@ def repair_schema(targets, passages):
         repairs[key] = {'anyOf': alternatives} if len(alternatives)>1 else replacement
     issue = obj({'passage_key': {'enum': list(dict.fromkeys(v['passage_key'] for v in targets.values()))},
                  'kind': {'enum': ['suspected_error', 'contradiction']}, 'detail': string(1000)})
-    return obj({'repairs': obj(repairs), 'source_issues': array(issue, 16)})
+    result = obj({'repairs': obj(repairs), 'source_issues': array(issue, 16)})
+    if expression_contract:
+        result['properties']['short_statements'] = obj({key: array(string(200), 8) for key in targets})
+        result['required'].append('short_statements')
+    return result
 
 
 async def repair_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record, *, feedback=None):
     from knowledge_atomic import call_stage
+    from knowledge_expression import check_contract, named_traces
+    expression_contract = check_contract(context.get('expression_contract'))
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
     passages = {p['key']: p for p in passage_catalog(context, keys)}
     require(isinstance(response.get('passages'), dict) and set(response['passages']) == set(passages), '片段结构错误不可按知识点修正')
@@ -145,6 +151,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
     payload = json.loads(quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[1])
     payload.update(stage='extract_repair', targets=targets, duplicate_question_groups=duplicate_groups,
                    duplicate_resolution_required=duplicate_resolutions)
+    if expression_contract:
+        payload['expression_contract'] = expression_contract
     if feedback: payload['correction_feedback'] = deepcopy(feedback)
     prompt = quality_prompt(raw, context, keys).split('\nINPUT_JSON:\n')[0] + (
         '\n只修正targets，修正合同knowledge_correction_plan_v2，一轮请求。每个目标恰好回应一次。'
@@ -177,14 +185,22 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         '只输出{"repairs":{"目标键":{"handling":"patch","patch":{"subject":"原文主体"},"reason":"具体修改"}},"source_issues":[]}。'
         '\nINPUT_JSON:\n'
     ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    if expression_contract:
+        prompt = prompt.replace('\nINPUT_JSON:\n',
+            '本任务还冻结knowledge_expression_v1。顶层另给short_statements对象，键为全部targets；'
+            '每个值是该目标修正后的短陈述数组，与最终点逐项同序：patch为1项，replace与points同数，context/source_issue为[]。'
+            '名称使用简短陈述句，与修正后完整命题、继承的条件及当前来源一致；不沿用已失效旧名称。'
+            'merge与其规范目标的名称数组完全相同。只修正已授权语义字段，不为短名改写其他命题。\nINPUT_JSON:\n', 1)
+        record['expression_contract'] = expression_contract
     record.update(status='requested', contract='knowledge_correction_plan_v2', target_keys=list(targets), targets=deepcopy(targets))
     text = await call_stage(svc, course_id, job_id, provider, prompt, 'extract_repair')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
-    require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == {'repairs', 'source_issues'}
+    required = {'repairs', 'source_issues'} | ({'short_statements'} if expression_contract else set())
+    require(isinstance(parsed, dict) and set(parsed) - {'_format_normalizations'} == required
             and isinstance(parsed['repairs'], dict) and set(parsed['repairs']) == set(targets), '修正越界或未完整回应目标')
     clean = {k: v for k, v in parsed.items() if k != '_format_normalizations'}
-    schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()})
+    schema = repair_schema(targets, {k: p['text'] for k, p in passages.items()}, expression_contract=expression_contract)
     schema = specialize_schema(schema, clean)
     for key, decision in parsed['repairs'].items():
         shape = schema['properties']['repairs']['properties'][key]
@@ -259,7 +275,14 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                         'diagnostics': deepcopy(getattr(error, 'diagnostics', []))})
             points.extend(deepcopy(repair['points']))
             if trace is not None:
-                repaired_traces.extend({**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False} for _ in repair['points'])
+                repaired_trace = {**deepcopy(trace), 'structural_repair_target': target, 'semantics_verified': False}
+                if expression_contract:
+                    names = parsed['short_statements'][target]
+                    if repair.get('merge_into'):
+                        require(names == parsed['short_statements'][repair['merge_into']], '等价知识的短陈述须使用规范目标')
+                    repaired_traces.extend(named_traces(names, repair['points'], passages[key]['text'], repaired_trace))
+                else:
+                    repaired_traces.extend(deepcopy(repaired_trace) for _ in repair['points'])
             decisions.append({'target_key': target, **deepcopy(repair),
                               'program_preserved_conditions': deepcopy(targets[target]['required_conditions'])})
         entry['points'] = points
