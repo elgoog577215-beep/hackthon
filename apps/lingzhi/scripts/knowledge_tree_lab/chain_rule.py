@@ -8,15 +8,15 @@ from .pipeline import digest
 
 def build_bundle():
     knowledge = [
-        {'id': 'K-COMP', 'name': '函数复合', 'claim': '(f∘g)(x)=f(g(x))，先g后f。',
+        {'id': 'K-COMP', 'name': '复合函数：先算里面，再算外面', 'claim': '先算出g(x)，再把这个结果放进f，就得到f(g(x))。例如sin(x²)要先平方，再取正弦。',
          'conditions': ['x在g的定义域且g(x)在f的定义域'], 'prerequisites': []},
-        {'id': 'K-POWER', 'name': '正整数幂函数求导', 'claim': '(x^n)′=n*x^(n-1)。',
+        {'id': 'K-POWER', 'name': 'x²、x³这类函数怎样求导', 'claim': '求导时，先把原来的指数乘到前面，再把指数减1。例如(x²)′=2x、(x³)′=3x²；一般写成(x^n)′=n*x^(n-1)。',
          'conditions': ['自变量x为实数；n为固定正整数'], 'prerequisites': []},
-        {'id': 'K-SIN', 'name': '正弦函数求导', 'claim': '(sin u)′=cos u。',
+        {'id': 'K-SIN', 'name': 'sin 的导数', 'claim': '(sin u)′=cos u。',
          'conditions': ['对实变量u求导，角度采用弧度'], 'prerequisites': []},
-        {'id': 'K-COS', 'name': '余弦函数求导', 'claim': '(cos u)′=-sin u。',
+        {'id': 'K-COS', 'name': 'cos 的导数', 'claim': '(cos u)′=-sin u。',
          'conditions': ['对实变量u求导，角度采用弧度'], 'prerequisites': []},
-        {'id': 'K-CHAIN', 'name': '链式求导', 'claim': '(f∘g)′(x0)=f′(g(x0))*g′(x0)。',
+        {'id': 'K-CHAIN', 'name': '链式法则：别漏乘里面的导数', 'claim': '函数一层套一层时，先对外面求导，里面的式子先保留，再乘上里面的导数。在x0处写成公式就是(f(g(x)))′(x0)=f′(g(x0))*g′(x0)。',
          'conditions': ['x0为被求导的实数点', 'g在x0可导', 'f在g(x0)可导', '复合在x0邻域内有定义'],
          'prerequisites': ['K-COMP']},
     ]
@@ -27,77 +27,77 @@ def build_bundle():
                        'wrong_answers': wrong, 'knowledge_ids': knowledge_ids,
                        'dimension': dimension, 'context': context, 'role': role}
 
-    check('trigger', '对sin(x^2)求导。', ['2*x*cos(x^2)'], ['cos(x^2)'],
+    check('trigger', '试着求 sin(x²) 的导数。', ['2*x*cos(x^2)'], ['cos(x^2)'],
           ['K-COMP', 'K-POWER', 'K-SIN', 'K-CHAIN'], '综合表现', '共同错题', 'symptom')
-    check('structure-1', '只辨认sin(x^2)的内外层：指定外层为sin(u)，写出内层并说明顺序，不求导。',
-          ['内层x^2，外层sin(u)'], ['内层sin(x)，外层u^2'], ['K-COMP'], '结构理解', '指定分解')
-    check('structure-2', '将(3x+1)^2写成先计算u再计算y的两步，指定外层为u^2，不求导。',
-          ['u=3x+1，y=u^2'], ['u=x^2，y=3u+1'], ['K-COMP'], '结构理解', '指定分解变式')
-    check('power-1', '只求x^2对x的导数。', ['2*x'], ['x', '2'], ['K-POWER'], '基础求导', '平方')
-    check('power-2', '只求x^3对x的导数。', ['3*x^2'], ['x^2', '3*x'], ['K-POWER'], '基础求导', '立方')
-    check('trig-1', '只求sin(u)对u的导数，采用弧度。', ['cos(u)'], ['sin(u)'],
+    check('structure-1', '先不求导。sin(x²)要先算里面、再算外面。外面是sin(u)，里面的u是什么？请按这个顺序写出来。',
+          ['内层x^2，外层sin(u)'], ['内层sin(x)，外层u^2'], ['K-COMP'], '看清里面和外面', '先不求导，认一认')
+    check('structure-2', '先不求导。计算(3x+1)²时，先算哪一部分，再做平方？用u表示先算出的结果，写出这两步。',
+          ['u=3x+1，y=u^2'], ['u=x^2，y=3u+1'], ['K-COMP'], '看清里面和外面', '换个式子认一认')
+    check('power-1', '先单独做这一小步：x²的导数是多少？', ['2*x'], ['x', '2'], ['K-POWER'], '基础求导', '平方')
+    check('power-2', '再试一个：x³的导数是多少？', ['3*x^2'], ['x^2', '3*x'], ['K-POWER'], '基础求导', '立方')
+    check('trig-1', '先只看sin(u)：它对u的导数是什么？这里的角度都用弧度。', ['cos(u)'], ['sin(u)'],
           ['K-SIN'], '基础求导', '正弦')
-    check('trig-2', '只求cos(u)对u的导数，采用弧度。', ['-sin(u)'], ['sin(u)'],
+    check('trig-2', '再看cos(u)：它对u的导数是什么？这里的角度都用弧度。', ['-sin(u)'], ['sin(u)'],
           ['K-COS'], '基础求导', '余弦')
-    check('arithmetic', '只计算3乘5，不涉及函数。', ['15'], ['5', '8'], [], '控制项', '算术控制')
-    check('evaluation-1', "已知g(1)=9、g'(1)=3、f'(9)=7、f'(1)=2，且满足链式可导条件。求(f∘g)'(1)。",
-          ['21'], ['6'], ['K-CHAIN'], '外层求值位置', '提供基础导数的数值点')
-    check('evaluation-2', "已知g(2)=4、g'(2)=2、f'(4)=5、f'(2)=11，且满足链式可导条件。求(f∘g)'(2)。",
-          ['10'], ['22'], ['K-CHAIN'], '外层求值位置', '提供基础导数的另一数值点')
-    check('combination-1', "已知f'(g(x0))=5、g'(x0)=3，且满足链式可导条件。写出你认为最终应采用的完整运算式，先不求值；若认为只需一个数，请说明是否还需其他因子。",
-          ['5*3', '3*5'], ['我认为最终式子就是5，不需要其他因子'], ['K-CHAIN'], '规则组合', '已提供对应位置的两部分导数')
-    check('combination-2', "已知f'(g(x0))=2、g'(x0)=4，且满足链式可导条件。写出你认为最终应采用的完整运算式，先不求值；若认为只需一个数，请说明是否还需其他因子。",
-          ['2*4', '4*2'], ['我认为最终式子就是2，不需要其他因子'], ['K-CHAIN'], '规则组合', '另一组已知导数')
+    check('arithmetic', '先算一道乘法：3 × 5等于多少？', ['15'], ['5', '8'], [], '先算一道乘法', '先不管函数')
+    check('evaluation-1', "有一个函数y=f(g(x))。已知g(1)=9、g'(1)=3、f'(9)=7、f'(1)=2。这里可以用链式法则。当x=1时，y的导数是多少？",
+          ['21'], ['6'], ['K-CHAIN'], '外面要代哪个数', '需要的导数已经给出')
+    check('evaluation-2', "还是y=f(g(x))。这次已知g(2)=4、g'(2)=2、f'(4)=5、f'(2)=11。这里可以用链式法则。当x=2时，y的导数是多少？",
+          ['10'], ['22'], ['K-CHAIN'], '外面要代哪个数', '换一组已知的数')
+    check('combination-1', "要求y=f(g(x))在x0处的导数。已经算出f'(g(x0))=5、g'(x0)=3，而且可以用链式法则。你最后会怎样写？请写完整算式，不用算出结果；如果只写一个数，请说说另一个数要不要用上。",
+          ['5*3', '3*5'], ['我认为最终式子就是5，不需要其他因子'], ['K-CHAIN'], '两部分怎样合起来', '两部分的导数已经给出')
+    check('combination-2', "再试一次：要求y=f(g(x))在x0处的导数，已知f'(g(x0))=2、g'(x0)=4，而且可以用链式法则。请写最后的完整算式，不用算出结果；如果只写一个数，请说说另一个数要不要用上。",
+          ['2*4', '4*2'], ['我认为最终式子就是2，不需要其他因子'], ['K-CHAIN'], '两部分怎样合起来', '换一组已知的导数')
     check('familiar-1', '对sin(2x)求导。', ['2*cos(2*x)'], ['cos(2*x)'],
-          ['K-SIN', 'K-CHAIN'], '显式函数应用', '熟悉表示')
+          ['K-SIN', 'K-CHAIN'], '用熟悉的函数试一试', '平常见过的写法')
     check('familiar-2', '对cos(3x)求导。', ['-3*sin(3*x)'], ['-sin(3*x)'],
-          ['K-COS', 'K-CHAIN'], '显式函数应用', '熟悉表示变式')
-    check('transfer-1', "已知F'(u)=2u、(3x+1)'=3，求F(3x+1)对x的导数；各函数满足链式条件。",
-          ['6*(3*x+1)'], ['2*(3*x+1)'], ['K-CHAIN'], '表示变化', '抽象函数记号，已提供基础导数')
-    check('transfer-2', "已知A'(z)=cos(z)、(2t)'=2，求A(2t)对t的导数；各函数满足链式条件。",
-          ['2*cos(2*t)'], ['cos(2*t)'], ['K-CHAIN'], '表示变化', '另一抽象记号及自变量')
+          ['K-COS', 'K-CHAIN'], '用熟悉的函数试一试', '另一种熟悉的写法')
+    check('transfer-1', "F和sin一样，都是函数的名字。已知F'(u)=2u，里面的3x+1的导数是3。请对F(3x+1)求导；这里可以用链式法则。",
+          ['6*(3*x+1)'], ['2*(3*x+1)'], ['K-CHAIN'], '换个函数名字试一试', 'F是函数的名字，导数已经给出')
+    check('transfer-2', "这次把函数名字换成A。已知A'(z)=cos(z)，里面的2t的导数是2。请对A(2t)求导；这里可以用链式法则。",
+          ['2*cos(2*t)'], ['cos(2*t)'], ['K-CHAIN'], '换个函数名字试一试', '换个函数名和字母')
     verification = {
         'structure': [
-            ('指定外层为sqrt(u)，把sqrt(1+x^2)写为先u后y的两步，不求导。', 'u=1+x^2，y=sqrt(u)', 'u=sqrt(x)，y=1+u^2', ['K-COMP']),
-            ('指定外层为sin(u)，把sin(4x-1)写为先u后y的两步，不求导。', 'u=4x-1，y=sin(u)', 'u=sin(x)，y=4u-1', ['K-COMP'])],
+            ('先不求导。看√(1+x²)：用u表示根号里的整块，再写y=√u。请把先算u、再算y的两步写出来。', 'u=1+x^2，y=sqrt(u)', 'u=sqrt(x)，y=1+u^2', ['K-COMP']),
+            ('先不求导。看sin(4x−1)：外面是sin(u)，里面的u是什么？请把先算u、再算y的两步写出来。', 'u=4x-1，y=sin(u)', 'u=sin(x)，y=4u-1', ['K-COMP'])],
         'power': [('求x^4对x的导数。', '4*x^3', 'x^3', ['K-POWER']), ('求x^5对x的导数。', '5*x^4', 'x^4', ['K-POWER'])],
         'trig': [('求sin(v)对v的导数，采用弧度。', 'cos(v)', 'sin(v)', ['K-SIN']), ('求cos(v)对v的导数，采用弧度。', '-sin(v)', 'sin(v)', ['K-COS'])],
         'evaluation': [
-            ("已知g(0)=2、g'(0)=4、f'(2)=3、f'(0)=5；满足链式条件，求(f∘g)'(0)。", '12', '20', ['K-CHAIN']),
-            ("已知g(3)=1、g'(3)=5、f'(1)=4、f'(3)=7；满足链式条件，求(f∘g)'(3)。", '20', '35', ['K-CHAIN'])],
+            ("有函数y=f(g(x))。已知g(0)=2、g'(0)=4、f'(2)=3、f'(0)=5。这里可以用链式法则。请算出x=0时y的导数。", '12', '20', ['K-CHAIN']),
+            ("再试一题y=f(g(x))。已知g(3)=1、g'(3)=5、f'(1)=4、f'(3)=7。这里可以用链式法则。请算出x=3时y的导数。", '20', '35', ['K-CHAIN'])],
         'combination': [
-            ("已知f'(g(x0))=7、g'(x0)=2；满足链式条件，写出最终完整运算式，不求值。", '7*2', '我认为最终式子就是7，不需要其他因子', ['K-CHAIN']),
-            ("已知f'(g(x0))=3、g'(x0)=6；满足链式条件，写出最终完整运算式，不求值。", '3*6', '我认为最终式子就是3，不需要其他因子', ['K-CHAIN'])],
+            ("要求y=f(g(x))在x0处的导数。已知f'(g(x0))=7、g'(x0)=2，而且可以用链式法则。请写最后的完整算式，不用算出结果。", '7*2', '我认为最终式子就是7，不需要其他因子', ['K-CHAIN']),
+            ("再试一次：要求y=f(g(x))在x0处的导数，已知f'(g(x0))=3、g'(x0)=6，而且可以用链式法则。请写最后的完整算式，不用算出结果。", '3*6', '我认为最终式子就是3，不需要其他因子', ['K-CHAIN'])],
         'transfer': [
-            ("已知D'(u)=3u^2、(2s-1)'=2，满足链式条件，求D(2s-1)对s的导数。", '6*(2*s-1)^2', '3*(2*s-1)^2', ['K-CHAIN']),
-            ("已知H'(v)=-sin(v)、(4s)'=4，满足链式条件，求H(4s)对s的导数。", '-4*sin(4*s)', '-sin(4*s)', ['K-CHAIN'])],
+            ("D是一个函数的名字。已知D'(u)=3u²，里面的2s−1的导数是2。请对D(2s−1)求导；这里可以用链式法则。", '6*(2*s-1)^2', '3*(2*s-1)^2', ['K-CHAIN']),
+            ("H是一个函数的名字。已知H'(v)=−sin(v)，里面的4s的导数是4。请对H(4s)求导；这里可以用链式法则。", '-4*sin(4*s)', '-sin(4*s)', ['K-CHAIN'])],
     }
     verify_keys = {}
     for target, tasks in verification.items():
         verify_keys[target] = []
         for index, (prompt, answer, wrong, refs) in enumerate(tasks, 1):
             key = f'verify-{index}' if target == 'combination' else f'verify-{target}-{index}'
-            check(key, prompt, [answer], [wrong], refs, '针对性后续验证', '未展示答案的新检查', 'verification')
+            check(key, prompt, [answer], [wrong], refs, '换一道题自己试试', '这道题还没有看过答案', 'verification')
             checks[key]['verification_target'] = target
             verify_keys[target].append(key)
     components = ['structure-1', 'structure-2', 'power-1', 'power-2', 'trig-1', 'trig-2',
                   'arithmetic', 'evaluation-1', 'evaluation-2']
     rules = {
-        'structure': ('复合结构辨认待补', ['K-COMP'], 'concept_gap', ['structure-1', 'structure-2'], [],
-                      '先画输入输出顺序，分清先计算内层、再把结果送入外层；换表达式重新辨认。'),
-        'power': ('幂函数基本求导待补', ['K-POWER'], 'concept_gap', ['power-1', 'power-2'], [],
-                  '回到正整数幂求导规则，用平方与立方说明指数与系数的变化，再做新题。'),
-        'trig': ('三角函数基本求导待核对', ['K-SIN', 'K-COS'], 'concept_gap', ['trig-1', 'trig-2'], [],
-                 '分别核对正弦与余弦的基本导数及余弦求导负号；不先重复整套链式公式。'),
-        'evaluation': ('外层导数求值位置待核对', ['K-CHAIN'], 'boundary_confusion',
+        'structure': ('先看看里面和外面的函数有没有分清', ['K-COMP'], 'concept_gap', ['structure-1', 'structure-2'], [],
+                      '先不求导。看sin(x²)：先把x平方，再把得到的数放进sin。先用这种两步写法，把里面和外面的函数分清。'),
+        'power': ('先练x²、x³这些基本求导', ['K-POWER'], 'concept_gap', ['power-1', 'power-2'], [],
+                  '先练平方和立方：x²的导数是2x，x³的导数是3x²。注意先把原来的指数乘到前面，再把指数减1。'),
+        'trig': ('先熟悉sin、cos的导数', ['K-SIN', 'K-COS'], 'concept_gap', ['trig-1', 'trig-2'], [],
+                 '先把这两条分开记：sin x的导数是cos x；cos x的导数是−sin x。第二条前面的负号别漏掉。这里的角度用弧度。'),
+        'evaluation': ('再看看外面要代哪个数', ['K-CHAIN'], 'boundary_confusion',
                        ['evaluation-1', 'evaluation-2'], ['structure-1', 'structure-2', 'arithmetic'],
-                       '沿x0到g(x0)再到外层导数的代入路径标记求值位置，用已给数值核对。'),
-        'combination': ('链式规则组合仍不稳定', ['K-CHAIN'], 'process_error',
+                       '外面的函数要用里面算出的结果。例如y=f(g(x))，在x=1时，如果g(1)=9，就要看f在9处的导数f′(9)，而不是直接看f′(1)。'),
+        'combination': ('再练一步：乘上里面的导数', ['K-CHAIN'], 'process_error',
                         ['combination-1', 'combination-2'], components,
-                        '先标记外层导数与内层导数这两个整体，再连接运算；随后撤去步骤提示做新题。'),
-        'transfer': ('抽象函数记号下的应用待补', ['K-CHAIN'], 'transfer_gap',
+                        '对sin(x²)求导时，先得到外面的cos(x²)，再乘里面x²的导数2x。所以要写成cos(x²) × 2x；里面这一步不能漏。'),
+        'transfer': ('换个函数名字，再试一试', ['K-CHAIN'], 'transfer_gap',
                      ['transfer-1', 'transfer-2'], [*components, 'combination-1', 'combination-2', 'familiar-1', 'familiar-2'],
-                     '对照sin(2x)与F(3x+1)中的相同复合结构，再换未见的函数记号独立作答。'),
+                     'F只是函数的名字，和sin一样。看到F(3x+1)，先把3x+1当作一整块：先对外面的F求导，再乘里面的导数。换个函数名字，做法仍然一样。'),
     }
     hypotheses = {key: {'hypothesis_id': key, 'label': label, 'knowledge_ids': refs, 'category': category,
                         'fail_checks': fails, 'controls': controls, 'help': explanation, 'verify_checks': verify_keys[key]}
