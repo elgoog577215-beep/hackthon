@@ -243,7 +243,7 @@ async def test_extraction_repair_is_bounded_to_two_requests_and_preserves_failur
     # An explicit continuation reuses the structurally complete review;
     # only the failed field correction receives a new bounded budget.
     assert calls == ['extract', 'content_review', 'extract_repair', 'extract_repair', 'extract_repair', 'extract_repair']
-    assert feedbacks == [None, copied['retry_feedback']]
+    assert feedbacks == [None]  # New failure feedback belongs to correction, not the frozen review.
     assert svc.authoring.get_job('c-pilot', job['id']) == original
 
 

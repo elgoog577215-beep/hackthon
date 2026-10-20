@@ -122,13 +122,14 @@ async def test_invalid_review_structure_cannot_be_reused_as_an_accepted_artifact
 
 @pytest.mark.asyncio
 async def test_explicit_continue_reuses_review_and_upgrades_only_the_incomplete_v3_batch(svc, monkeypatch):
-    setup_course(svc, monkeypatch); calls = []; correcting = False
+    setup_course(svc, monkeypatch); calls = []; correction_payloads = []; correcting = False
     async def model(prompt, **kwargs):
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); stage = data['stage']; calls.append(stage)
         if stage == 'extract': return json.dumps(value([point()]))
         if stage == 'content_review':
             out = review_response(data); out['point_reviews']['S1.1:0']['names'] = ['入栈的操作效果']; return json.dumps(out)
         if stage == 'extract_repair':
+            correction_payloads.append(deepcopy(data))
             return json.dumps({'repairs': {'S1.1:0': {'handling':'rename','reason':'只修表达'}},
                 'short_statements': {'S1.1:0': ['入栈把元素加入栈顶' if correcting else '入栈的操作效果']}, 'source_issues':[]})
         raise AssertionError(stage)
@@ -141,7 +142,7 @@ async def test_explicit_continue_reuses_review_and_upgrades_only_the_incomplete_
     cp = deepcopy(failed['checkpoint']); cp['atomic_pipeline']['processing_contract'] = 'knowledge_validation_pipeline_v3'
     svc.authoring.update_job('c-pilot', job['id'], checkpoint=cp)
     original = deepcopy(svc.authoring.get_job('c-pilot', job['id']))
-    calls.clear(); correcting = True
+    calls.clear(); correction_payloads.clear(); correcting = True
     resumed = start(svc, 'continue-only-invalid-expression', resume_job_id=job['id'])
     assert resumed['checkpoint']['atomic_pipeline']['processing_contract'] == PROCESSING
     await svc.run('c-pilot', resumed['id']); saved = svc.authoring.get_job('c-pilot', resumed['id'])
@@ -150,4 +151,6 @@ async def test_explicit_continue_reuses_review_and_upgrades_only_the_incomplete_
     assert svc.authoring.get_job('c-pilot', job['id']) == original
     batch = saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['content_review']['review_origin_job_id'] == job['id']
+    assert 'previous_attempt_feedback' not in batch['content_review']
+    assert correction_payloads[0]['correction_feedback']['previous_batch_error']
     assert saved['checkpoint']['candidate']['knowledge_points'][0]['name'] == '入栈把元素加入栈顶'
