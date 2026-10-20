@@ -287,7 +287,7 @@ def expand_scalar(point):
     return expand_wire(wire)
 
 
-def quality_point(point, source_text, *, allow_literal_slash=False):
+def quality_point(point, source_text, *, allow_literal_slash=False, general_knowledge=False):
     from knowledge_correction_plan import KnowledgePointValidationError
     from knowledge_compact import source_literal
     require(isinstance(point, dict), '知识点必须是对象')
@@ -297,6 +297,9 @@ def quality_point(point, source_text, *, allow_literal_slash=False):
     fields = ('left_subject', 'right_subject') if point.get('form') == 'comparison' else ('subject',)
     options = [point.get(field) for field in fields]
     bindings = [source_literal(s, source_text) for s in options]
+    if general_knowledge:
+        check(not any(isinstance(s, str) and re.search(r'=\s*[-+]?\d|(?<![A-Za-z0-9_])\d+\s*[+*/-]\s*\d+(?![A-Za-z_])', s) for s in options),
+              '具体算例的表达式或运行结果不能作一般知识主体，应保留为例题或提取原文支持的一般规则', code='concrete_instance')
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and binding for s, binding in zip(options, bindings)),
             '知识主体必须逐字来自当前原文块', code='source_subject')
     check(not any(re.search(r'、|以及' if allow_literal_slash else r'[/、]|以及', s)
@@ -408,7 +411,8 @@ def compile_extraction(raw, context, keys, index, response):
             if response['response_contract'] == WIRE_CONTRACT: point = expand_wire(point)
             elif response['response_contract'] == CONTRACT: point = expand_scalar(point)
             if response['response_contract'] == QUALITY_CONTRACT:
-                normalized_point, audit = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract))
+                normalized_point, audit = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract),
+                    general_knowledge=context.get('content_review_contract') == 'knowledge_content_review_v3')
             else:
                 normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
             audit['schema_version'] = response['response_contract']

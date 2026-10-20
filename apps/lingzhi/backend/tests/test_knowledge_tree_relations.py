@@ -44,7 +44,7 @@ def fake_provider(svc, *, relation_fails=False):
         elif stage == 'content_review':
             value = review_response(data)
         elif stage == 'semantic_equivalence':
-            value = {'groups': []}
+            value = {'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '独立检查不同操作', 'reverse_reason': ''} for p in data['points']}}
         elif stage == 'tree_relations':
             started.set()
             if relation_fails: raise TimeoutError('isolated relationship failure')

@@ -68,9 +68,9 @@ def named_traces(names, points, source_text, trace):
             for name, point in zip(names, points)]
 
 
-def review_instruction():
+def review_instruction(review_contract=REVIEW_CONTRACT):
     return (
-        '本次使用knowledge_expression_v1和knowledge_content_review_v2。'
+        f'本次使用knowledge_expression_v1和{review_contract}。'
         '在原内容核对中，为每个最终保留的知识点同时写一个学生能读懂的短陈述名称。'
         '每个point_reviews对象增加names数组：keep对应原点，names恰好1项；replace对应points的原顺序，逐点各1项；context/source_issue的names=[]。'
         '顶层增加addition_names对象，与additions具有完全相同的块号；每个数组与该块新增points顺序和数量完全对应，无新增填[]。'

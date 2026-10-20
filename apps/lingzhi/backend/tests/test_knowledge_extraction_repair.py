@@ -255,7 +255,8 @@ async def test_ambiguous_repeated_question_is_repaired_without_rewriting_other_p
     async def model(prompt, **kwargs):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
         if payload['stage'] == 'content_review': return json.dumps(keep_review(payload))
-        if payload['stage'] == 'semantic_equivalence': return json.dumps({'groups': []})
+        if payload['stage'] == 'semantic_equivalence':
+            return json.dumps({'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '不同结构的操作', 'reverse_reason': ''} for p in payload['points']}})
         if payload['stage'] == 'extract':
             return json.dumps(value([point('判空', property='检查对象', value='栈是否为空'), point('判空', property='检查对象', value='队列是否为空')]))
         result = {'repairs': {f'S1.1:{i}': {'points': [point(subject, property='判空检查对象', value=subject+'是否为空')],

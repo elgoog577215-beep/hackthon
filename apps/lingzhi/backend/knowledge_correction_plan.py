@@ -23,6 +23,6 @@ def correction_plan(point, diagnostics):
             'fixed_fields': {k: deepcopy(v) for k, v in point.items() if restricted and k not in editable},
             'required_symbols': sorted({s for d in diagnostics for s in d.get('symbols', [])}),
             'allowed_forms': forms,
-            'context_allowed': bool(re.search(r'\b[nmd]\s*=\s*\d+', str(point.get('property', '')))),
+            'context_allowed': 'concrete_instance' in codes or bool(re.search(r'\b[nmd]\s*=\s*\d+', str(point.get('property', '')))),
             'source_issue_allowed': 'source_subject' in codes,
             'single_point': restricted}

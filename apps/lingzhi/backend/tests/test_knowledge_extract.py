@@ -253,7 +253,8 @@ async def test_failed_single_pass_continues_only_missing_source_group(svc, monke
     fail = True; calls = []
     async def call(prompt, **kwargs):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1])
-        if payload['stage'] == 'semantic_equivalence': return json.dumps({'groups': []})
+        if payload['stage'] == 'semantic_equivalence':
+            return json.dumps({'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '不同操作', 'reverse_reason': ''} for p in payload['points']}})
         source = payload['source_passages'][0]['source_key']
         if payload['stage'] == 'content_review': return json.dumps(review_response(payload), ensure_ascii=False)
         calls.append(source)
@@ -286,7 +287,7 @@ async def test_single_pass_job_calls_extraction_and_whole_hierarchy_only(svc, mo
     setup_course(svc, monkeypatch); calls = []
     async def call(prompt, **kwargs):
         data = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(data['stage'])
-        result = for_contract(data, response()) if data['stage'] == 'extract' else review_response(data) if data['stage'] == 'content_review' else {'groups': []} if data['stage'] == 'semantic_equivalence' else {
+        result = for_contract(data, response()) if data['stage'] == 'extract' else review_response(data) if data['stage'] == 'content_review' else {'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '不同操作', 'reverse_reason': ''} for p in data['points']}} if data['stage'] == 'semantic_equivalence' else {
             'response_contract': 'knowledge_partition_v1', 'groups': [],
             'point_groups': {p['key']: '__direct__' for p in data['points']}, 'stop_reason': '两个栈操作自然并列'}
         return json.dumps(result, ensure_ascii=False)
