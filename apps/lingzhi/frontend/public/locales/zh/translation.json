@@ -1263,6 +1263,13 @@
       "generateStepDetail": "按对应内容直接生成",
       "mappingTitle": "本讲讲义将按以下教案生成",
       "mappingReady": "教案提供教学依据，讲义将按本讲目标灵活编排。",
+      "typeGuide": {
+        "close": "收起类型说明",
+        "example": "示例",
+        "boundary": "按学习目标选择类型，不必凑齐或照固定顺序排列。练习和提问先作答，再展开参考解答。",
+        "selectType": "教学类型",
+        "originalType": "保留原类型"
+      },
       "contentGroups": {
         "explanation": "讲解",
         "practice": "练习",
@@ -1277,8 +1284,10 @@
         "background": "背景",
         "case": "实战案例",
         "question": "思考提问",
-        "review_question": "复习提问",
-        "guiding_question": "启发提问",
+        "review_question": "复习性提问",
+        "guiding_question": "启发性提问",
+        "counterexample": "反例",
+        "method": "方法步骤",
         "rule": "规则",
         "diagram": "图解",
         "flowchart": "流程图",

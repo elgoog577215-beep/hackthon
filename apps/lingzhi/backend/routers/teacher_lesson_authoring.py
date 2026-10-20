@@ -6137,8 +6137,8 @@ def save_lesson_script_draft(
                 previous = previous_blocks.get(str(block.get("block_id") or "")) or {}
                 block["generation_source"] = (
                     str(previous.get("generation_source") or "")
-                    if str(previous.get("content") or "").strip()
-                    == str(block.get("content") or "").strip()
+                    if all(str(previous.get(field) or "").strip() == str(block.get(field) or "").strip()
+                           for field in ("content", "content_type", "type_label", "role"))
                     else "teacher_edit"
                 ) or "teacher_edit"
             normalized["quality_report"] = validate_teacher_script_section(

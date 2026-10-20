@@ -30,6 +30,33 @@ const lesson: TeacherLessonProjection = {
 }
 
 describe('统一讲义页面', () => {
+  it('教学类型与正文一起撤销重做，保存失败保留草稿，保存时保留原块和解答关联', async () => {
+    const current = structuredClone(lesson)
+    current.script.sections[0]!.blocks = [
+      { block_id: 'task', module_id: 'handout_content', role: 'activity', content_type: 'exercise', type_label: '练习', title: '运用规则', content: '独立完成任务。' },
+      { block_id: 'response', module_id: 'handout_content', role: 'feedback', content_type: 'answer', title: '参考思路', content: '完整参考内容。', answer_to: 'task' },
+    ]
+    const save = vi.spyOn(useTeacherLessonAuthoringStore(), 'saveScriptDraft').mockRejectedValueOnce(new Error('暂时无法保存')).mockResolvedValue(current as any)
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: current } })
+    const editor = wrapper.vm as any
+    editor.beginEditing(); await flushPromises()
+    expect(wrapper.findAll('.handout-type-select select')).toHaveLength(1)
+    await wrapper.get('select').setValue('case'); await flushPromises()
+    expect(wrapper.text()).toContain('交付物')
+    editor.undoEdit(); await flushPromises()
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('exercise')
+    editor.redoEdit(); await flushPromises()
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('case')
+    expect(await editor.saveDraft()).toBe(false)
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('case')
+    expect(await editor.saveDraft()).toBe(true)
+    const saved = save.mock.calls[1]![3][0]!.blocks!
+    expect(saved[0]).toMatchObject({ block_id: 'task', content_type: 'case', type_label: '实战案例', role: 'activity', content: '独立完成任务。' })
+    expect(saved[1]).toMatchObject({ block_id: 'response', answer_to: 'task', content_type: 'answer' })
+    expect(current.script.sections[0]!.blocks[0]!.content_type).toBe('exercise')
+    wrapper.unmount()
+  })
+
   it.each(['zh', 'en'] as const)('常见扩展内容块在 %s 界面显示可读名称', async locale => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zhMessages : enMessages })))
     await setLocale(locale)

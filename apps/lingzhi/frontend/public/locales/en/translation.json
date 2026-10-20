@@ -1263,6 +1263,13 @@
       "generateStepDetail": "Generate directly from the mapping",
       "mappingTitle": "This handout will follow the lesson plan below",
       "mappingReady": "The lesson plan guides the handout. Content blocks follow the learning goals, with a flexible sequence.",
+      "typeGuide": {
+        "close": "Close type guide",
+        "example": "Example",
+        "boundary": "Choose types for the learning goal, without a required checklist or order. Attempt practice tasks and questions before opening reference answers.",
+        "selectType": "Teaching type",
+        "originalType": "Keep original type"
+      },
       "contentGroups": {
         "explanation": "Explanation",
         "practice": "Practice",
@@ -1279,6 +1286,8 @@
         "question": "Reflection question",
         "review_question": "Review question",
         "guiding_question": "Guiding question",
+        "counterexample": "Counterexample",
+        "method": "Method",
         "rule": "Rule",
         "diagram": "Diagram",
         "flowchart": "Flowchart",

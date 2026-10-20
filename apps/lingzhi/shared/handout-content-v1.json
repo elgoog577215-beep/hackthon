@@ -1,0 +1,582 @@
+{
+  "version": "handout_content_catalog_v1",
+  "groups": [
+    {
+      "id": "explanation",
+      "label": {
+        "zh": "讲解",
+        "en": "Explanation"
+      },
+      "purpose": {
+        "zh": "把知识讲清楚：从情境、概念到依据、示范和适用边界。",
+        "en": "Build understanding through context, concepts, reasoning, demonstrations and limits."
+      }
+    },
+    {
+      "id": "practice",
+      "label": {
+        "zh": "练习",
+        "en": "Practice"
+      },
+      "purpose": {
+        "zh": "让学习者独立完成任务：理论型 Exercise 与实战型 Case 分别组织。",
+        "en": "Support independent work through theoretical exercises and practical cases."
+      }
+    },
+    {
+      "id": "question",
+      "label": {
+        "zh": "提问",
+        "en": "Question"
+      },
+      "purpose": {
+        "zh": "复习性提问回顾已有知识，启发性提问引导新的推理。",
+        "en": "Use review questions to revisit prior knowledge and guiding questions to develop new reasoning."
+      }
+    }
+  ],
+  "types": [
+    {
+      "id": "background",
+      "group": "explanation",
+      "role": "orientation",
+      "label": {
+        "zh": "背景",
+        "en": "Background"
+      },
+      "purpose": {
+        "zh": "交代知识出现的情境与学习意义。",
+        "en": "Explain the context and why the topic matters."
+      },
+      "checkpoints": {
+        "zh": [
+          "问题与情境",
+          "必要前置知识",
+          "本段要解决什么"
+        ],
+        "en": [
+          "Problem and context",
+          "Prior knowledge",
+          "Question to resolve"
+        ]
+      }
+    },
+    {
+      "id": "introduction",
+      "group": "explanation",
+      "role": "orientation",
+      "label": {
+        "zh": "引入",
+        "en": "Introduction"
+      },
+      "purpose": {
+        "zh": "从熟悉的问题或现象进入当前知识。",
+        "en": "Connect a familiar observation to the topic."
+      },
+      "checkpoints": {
+        "zh": [
+          "具体问题或现象",
+          "与本讲目标的联系",
+          "要探究的疑问"
+        ],
+        "en": [
+          "Concrete observation",
+          "Connection to the learning goal",
+          "Question for further study"
+        ]
+      }
+    },
+    {
+      "id": "definition",
+      "group": "explanation",
+      "role": "concept",
+      "label": {
+        "zh": "定义",
+        "en": "Definition"
+      },
+      "purpose": {
+        "zh": "明确概念是什么，以及什么不属于它。",
+        "en": "Define the concept and its boundary."
+      },
+      "checkpoints": {
+        "zh": [
+          "对象、术语与符号",
+          "准确表述与成立条件",
+          "适用范围与边界"
+        ],
+        "en": [
+          "Object, terms and notation",
+          "Precise statement and conditions",
+          "Scope and boundaries"
+        ]
+      }
+    },
+    {
+      "id": "explanation",
+      "group": "explanation",
+      "role": "concept",
+      "label": {
+        "zh": "解释",
+        "en": "Explanation"
+      },
+      "purpose": {
+        "zh": "连接直观理解与机制，回答为什么、如何发生。",
+        "en": "Connect intuition to why and how a mechanism works."
+      },
+      "checkpoints": {
+        "zh": [
+          "直观含义",
+          "机制或因果依据",
+          "解释支持的结论"
+        ],
+        "en": [
+          "Intuitive meaning",
+          "Mechanism or causal basis",
+          "Supported conclusion"
+        ]
+      }
+    },
+    {
+      "id": "theorem",
+      "group": "explanation",
+      "role": "reasoning",
+      "label": {
+        "zh": "定理",
+        "en": "Theorem"
+      },
+      "purpose": {
+        "zh": "表达何种条件下可以得到什么结论。",
+        "en": "State what follows under explicit assumptions."
+      },
+      "checkpoints": {
+        "zh": [
+          "前提与假设",
+          "完整命题",
+          "适用范围及不能推出的结论"
+        ],
+        "en": [
+          "Assumptions",
+          "Complete statement",
+          "Scope and unsupported inferences"
+        ]
+      }
+    },
+    {
+      "id": "derivation",
+      "group": "explanation",
+      "role": "reasoning",
+      "label": {
+        "zh": "推导",
+        "en": "Derivation"
+      },
+      "purpose": {
+        "zh": "从已知条件走到结论，保留中间依据。",
+        "en": "Derive a result without skipping intermediate reasoning."
+      },
+      "checkpoints": {
+        "zh": [
+          "起点与已知条件",
+          "每步变换及依据",
+          "结果核验与适用条件"
+        ],
+        "en": [
+          "Starting point and known conditions",
+          "Each transformation and justification",
+          "Result check and conditions"
+        ]
+      }
+    },
+    {
+      "id": "example",
+      "group": "explanation",
+      "role": "example",
+      "label": {
+        "zh": "举例",
+        "en": "Worked example"
+      },
+      "purpose": {
+        "zh": "用完整示范说明怎样使用知识，过程直接可见。",
+        "en": "Demonstrate the method with the full solution visible."
+      },
+      "checkpoints": {
+        "zh": [
+          "问题或情境及条件",
+          "选法、思路和完整过程",
+          "结果核验与可迁移方法"
+        ],
+        "en": [
+          "Problem or context and conditions",
+          "Method, reasoning and complete steps",
+          "Result check and transferable method"
+        ]
+      }
+    },
+    {
+      "id": "comparison",
+      "group": "explanation",
+      "role": "reasoning",
+      "label": {
+        "zh": "对比",
+        "en": "Comparison"
+      },
+      "purpose": {
+        "zh": "区分相近概念或方法，说明如何选择。",
+        "en": "Distinguish related concepts or methods using shared criteria."
+      },
+      "checkpoints": {
+        "zh": [
+          "比较对象与共同维度",
+          "相同点和关键差异",
+          "适用条件及选择依据"
+        ],
+        "en": [
+          "Objects and shared criteria",
+          "Similarities and key differences",
+          "Conditions and basis for choosing"
+        ]
+      }
+    },
+    {
+      "id": "counterexample",
+      "group": "explanation",
+      "role": "counterexample",
+      "label": {
+        "zh": "反例",
+        "en": "Counterexample"
+      },
+      "purpose": {
+        "zh": "用具体反例检查命题边界或推理漏洞。",
+        "en": "Use a concrete counterexample to test a claim."
+      },
+      "checkpoints": {
+        "zh": [
+          "被检查的命题",
+          "满足条件的反例",
+          "否定了什么、没有否定什么"
+        ],
+        "en": [
+          "Claim under examination",
+          "Counterexample meeting the conditions",
+          "What it disproves and what it does not"
+        ]
+      }
+    },
+    {
+      "id": "method",
+      "group": "explanation",
+      "role": "application",
+      "label": {
+        "zh": "方法步骤",
+        "en": "Method"
+      },
+      "purpose": {
+        "zh": "把可复用的方法写成有输入、操作和检验的步骤。",
+        "en": "Present a reusable method with inputs, actions and checks."
+      },
+      "checkpoints": {
+        "zh": [
+          "适用问题与输入",
+          "操作顺序及判断点",
+          "输出、检验和失败条件"
+        ],
+        "en": [
+          "Applicable problem and inputs",
+          "Actions and decision points",
+          "Output, checks and failure conditions"
+        ]
+      }
+    },
+    {
+      "id": "misconception",
+      "group": "explanation",
+      "role": "misconception",
+      "label": {
+        "zh": "辨析",
+        "en": "Misconception"
+      },
+      "purpose": {
+        "zh": "说明常见错误来自哪里，以及怎样修正。",
+        "en": "Explain a common mistake and how to correct it."
+      },
+      "checkpoints": {
+        "zh": [
+          "具体误解或错误做法",
+          "出错原因及反证",
+          "正确理解与修正办法"
+        ],
+        "en": [
+          "Specific misconception",
+          "Cause and contrary evidence",
+          "Correct understanding and correction"
+        ]
+      }
+    },
+    {
+      "id": "result",
+      "group": "explanation",
+      "role": "summary",
+      "label": {
+        "zh": "结论",
+        "en": "Result"
+      },
+      "purpose": {
+        "zh": "收束论证，保留结论所依赖的条件。",
+        "en": "Conclude the reasoning while retaining its conditions."
+      },
+      "checkpoints": {
+        "zh": [
+          "得到的结论",
+          "依赖的条件与依据",
+          "怎样使用"
+        ],
+        "en": [
+          "Result",
+          "Conditions and supporting basis",
+          "How to use it"
+        ]
+      }
+    },
+    {
+      "id": "summary",
+      "group": "explanation",
+      "role": "summary",
+      "label": {
+        "zh": "总结",
+        "en": "Summary"
+      },
+      "purpose": {
+        "zh": "整理主线与知识关系，帮助迁移使用。",
+        "en": "Connect the main ideas and support transfer."
+      },
+      "checkpoints": {
+        "zh": [
+          "核心问题与关键关系",
+          "方法及使用条件",
+          "下一步应用或衔接"
+        ],
+        "en": [
+          "Central question and key relationships",
+          "Methods and conditions",
+          "Next application or connection"
+        ]
+      }
+    },
+    {
+      "id": "warning",
+      "group": "explanation",
+      "role": "misconception",
+      "label": {
+        "zh": "易错点",
+        "en": "Common pitfall"
+      },
+      "purpose": {
+        "zh": "提醒容易忽略的条件，并说明怎样检查。",
+        "en": "Highlight easily missed conditions and how to check them."
+      },
+      "checkpoints": {
+        "zh": [
+          "容易忽略的条件",
+          "错误导致什么",
+          "具体检查办法"
+        ],
+        "en": [
+          "Condition often overlooked",
+          "Consequence of the mistake",
+          "Concrete check"
+        ]
+      }
+    },
+    {
+      "id": "exercise",
+      "group": "practice",
+      "role": "activity",
+      "label": {
+        "zh": "理论练习",
+        "en": "Theoretical exercise"
+      },
+      "purpose": {
+        "zh": "独立运用知识完成辨析、计算、证明、解释或迁移。",
+        "en": "Apply knowledge independently through discrimination, calculation, proof, explanation or transfer."
+      },
+      "checkpoints": {
+        "zh": [
+          "练习目标与已知条件",
+          "明确题面和作答要求",
+          "独立解答、关键依据与核对标准"
+        ],
+        "en": [
+          "Goal and given conditions",
+          "Clear task and response requirements",
+          "Separate solution, reasoning and checking criteria"
+        ]
+      },
+      "example": {
+        "zh": "改变一个条件后，判断原结论是否仍成立，并写出依据。",
+        "en": "Change one assumption, decide whether the result still holds, and justify your answer."
+      }
+    },
+    {
+      "id": "case",
+      "group": "practice",
+      "role": "activity",
+      "label": {
+        "zh": "实战案例",
+        "en": "Practical case"
+      },
+      "purpose": {
+        "zh": "在具体情境与约束下形成方案、作品或分析成果。",
+        "en": "Produce a proposal, artifact or analysis within a context and constraints."
+      },
+      "checkpoints": {
+        "zh": [
+          "真实或假设情境、角色与问题",
+          "资源、约束与任务",
+          "交付物、评价标准和独立参考方案"
+        ],
+        "en": [
+          "Real or hypothetical context, role and problem",
+          "Resources, constraints and task",
+          "Deliverable, evaluation criteria and separate reference approach"
+        ]
+      },
+      "example": {
+        "zh": "根据已有观察记录设计调研方案，提交问题定义、证据清单与验证步骤。",
+        "en": "Use the available observations to propose a study with a problem definition, evidence checklist and validation steps."
+      }
+    },
+    {
+      "id": "review_question",
+      "group": "question",
+      "role": "checkpoint",
+      "label": {
+        "zh": "复习性提问",
+        "en": "Review question"
+      },
+      "purpose": {
+        "zh": "回顾已经学过的概念、条件、步骤与边界。",
+        "en": "Revisit previously taught concepts, conditions, steps and boundaries."
+      },
+      "checkpoints": {
+        "zh": [
+          "明确回顾哪项已有知识",
+          "可回答的具体问题",
+          "独立参考要点与常见遗漏"
+        ],
+        "en": [
+          "Specific prior knowledge",
+          "Concrete, answerable question",
+          "Separate reference points and common omissions"
+        ]
+      },
+      "example": {
+        "zh": "这条规则成立需要哪些条件？缺少其中一个会怎样？",
+        "en": "What conditions does this rule require? What changes if one is missing?"
+      }
+    },
+    {
+      "id": "guiding_question",
+      "group": "question",
+      "role": "checkpoint",
+      "label": {
+        "zh": "启发性提问",
+        "en": "Guiding question"
+      },
+      "purpose": {
+        "zh": "引导观察、比较、猜想、因果解释、条件变式或迁移判断。",
+        "en": "Guide observation, comparison, conjecture, causal explanation, changed assumptions or transfer."
+      },
+      "checkpoints": {
+        "zh": [
+          "承接当前现象或认知矛盾",
+          "要求推理、证据或验证方法",
+          "独立参考思路，开放问题允许多种有依据的回答"
+        ],
+        "en": [
+          "Current observation or conceptual tension",
+          "Reasoning, evidence or a validation method",
+          "Separate reasoning guide, accepting supported alternatives for open questions"
+        ]
+      },
+      "example": {
+        "zh": "如果约束改变，你会怎样调整方法？还需要什么证据来判断？",
+        "en": "If the constraint changed, how would you adapt the method? What evidence would help you decide?"
+      }
+    },
+    {
+      "id": "rule",
+      "group": "explanation",
+      "role": "concept",
+      "label": {
+        "zh": "规则",
+        "en": "Rule"
+      },
+      "legacy": true
+    },
+    {
+      "id": "diagram",
+      "group": "explanation",
+      "role": "concept",
+      "label": {
+        "zh": "图解",
+        "en": "Diagram"
+      },
+      "legacy": true
+    },
+    {
+      "id": "flowchart",
+      "group": "explanation",
+      "role": "reasoning",
+      "label": {
+        "zh": "流程图",
+        "en": "Flowchart"
+      },
+      "legacy": true
+    },
+    {
+      "id": "checklist",
+      "group": "explanation",
+      "role": "summary",
+      "label": {
+        "zh": "自检清单",
+        "en": "Checklist"
+      },
+      "legacy": true
+    },
+    {
+      "id": "question",
+      "group": "question",
+      "role": "checkpoint",
+      "label": {
+        "zh": "思考提问",
+        "en": "Reflection question"
+      },
+      "legacy": true
+    },
+    {
+      "id": "answer",
+      "group": null,
+      "role": "feedback",
+      "label": {
+        "zh": "解答",
+        "en": "Solution"
+      },
+      "legacy": true
+    }
+  ],
+  "aliases": {
+    "讲解": "explanation",
+    "例题": "example",
+    "练习": "exercise",
+    "理论型练习": "exercise",
+    "theoretical_exercise": "exercise",
+    "excercise": "exercise",
+    "实战型案例": "case",
+    "practical_case": "case",
+    "提问": "question",
+    "复习提问": "review_question",
+    "recall_question": "review_question",
+    "启发提问": "guiding_question",
+    "heuristic_question": "guiding_question",
+    "操作步骤": "method"
+  }
+}

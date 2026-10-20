@@ -88,6 +88,7 @@
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
+                  <HandoutReadingGuide v-if="material.revisions[0]?.sections.length" :target="readingTarget" :title="material.title" />
 
                   <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
 
@@ -122,6 +123,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Plus, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
+import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'

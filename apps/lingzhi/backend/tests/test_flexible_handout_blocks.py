@@ -15,6 +15,23 @@ def marker(kind, title, body, **metadata):
     return '<!-- block:' + json.dumps({'type': kind, 'title': title, **metadata}, ensure_ascii=False) + ' -->\n' + body
 
 
+def test_catalog_keeps_task_purposes_distinct_and_preserves_historical_names():
+    from handout_content import HANDOUT_CONTENT_CATALOG, HANDOUT_CONTENT_ALIASES, handout_writing_guide
+    types = HANDOUT_CONTENT_CATALOG['types']
+    assert [item['id'] for item in types if item['group'] == 'practice' and not item.get('legacy')] == ['exercise', 'case']
+    assert [item['id'] for item in types if item['group'] == 'question' and not item.get('legacy')] == ['review_question', 'guiding_question']
+    assert HANDOUT_CONTENT_ALIASES['练习'] == 'exercise'
+    assert HANDOUT_CONTENT_ALIASES['例题'] == 'example'
+    assert HANDOUT_CONTENT_ALIASES['启发提问'] == 'guiding_question'
+    for item in types:
+        assert item['label']['zh'] and item['label']['en']
+        if not item.get('legacy'):
+            assert len(item['checkpoints']['zh']) == len(item['checkpoints']['en']) == 3
+    guide = handout_writing_guide()
+    assert '每步变换及依据' in guide and '交付物、评价标准' in guide and '要求推理、证据或验证方法' in guide
+    assert '不要求凑齐' in guide
+
+
 TEXT = '\n'.join([
     marker('思想实验', '先尝试反推', '假设只能观察末尾元素，怎样组织访问？', key='story'),
     marker('推导', '从操作得到规则', '由末尾插入与删除，得到后进先出的访问顺序。', key='derive'),

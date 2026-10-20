@@ -5,7 +5,7 @@
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
         <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
-        <span v-if="displayLabel" class="handout-block__label">{{ displayLabel }}</span>
+        <span v-if="displayLabel" class="handout-block__label" :title="definition?.purpose?.[activeLocale]">{{ displayLabel }}</span>
         <span v-if="displayLabel && title" class="handout-block__separator" aria-hidden="true">·</span>
         <h5 v-if="title"><MathText :content="displayTitle" /></h5>
       </div>
@@ -24,8 +24,8 @@
 import { computed } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import MathText from './MathText.vue'
-import { t } from '../shared/i18n'
-import { handoutContentGroup, handoutContentType } from '../utils/handout-content'
+import { activeLocale, t } from '../shared/i18n'
+import { handoutContentGroup, handoutContentType, handoutTypeDefinition } from '../utils/handout-content'
 import '../styles/handout-document.css'
 
 const props = withDefaults(defineProps<{
@@ -41,6 +41,7 @@ const props = withDefaults(defineProps<{
 // Keep streaming and interrupted drafts visible; only settled linked answers collapse.
 const isAnswerDisclosure = computed(() => Boolean(props.answerTo && props.collapseAnswer && !props.streaming && props.showHeader))
 const normalizedType = computed(() => handoutContentType(props.contentType))
+const definition = computed(() => handoutTypeDefinition(normalizedType.value))
 const group = computed(() => props.answerTo ? undefined : handoutContentGroup(normalizedType.value))
 const tone = computed(() => {
   const tones: Record<string, string> = {
@@ -52,7 +53,7 @@ const tone = computed(() => {
   return tones[normalizedType.value] || 'prose'
 })
 const displayLabel = computed(() => {
-  const label = normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label
+  const label = definition.value?.label[activeLocale.value] || (normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label)
   return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
 })
 const displayTitle = computed(() => {

@@ -25,6 +25,40 @@ def snapshot(root):
             for p in root.rglob("*") if p.is_file()}
 
 
+def test_type_only_edit_creates_owner_revision_and_preserves_answer_identity(tmp_path):
+    from routers import teacher_lesson_authoring as authoring_router
+    from teacher_script import parse_handout_blocks, normalize_teacher_script_section
+    repo, _, kwargs = fixture(tmp_path / 'authoring')
+    sections = []
+    for outline in kwargs['outline_sections']:
+        sid = outline['node_id']
+        parsed = parse_handout_blocks(marker('exercise', '运用规则', '根据给定条件完成分析。', key='q') + '\n' + marker('answer', '参考思路', '先核对条件，再给出推理依据。', key='a', answer_to='q'), sid, identity='original', complete=True)
+        sections.append(normalize_teacher_script_section({'section_node_id': sid, 'title': sid, 'blocks': parsed['blocks']}))
+    repo.save_script_revision('course-1', 'L1-1', sections, source_lesson_plan_revision_id=kwargs['source_plan_revision_id'], generation_source='model')
+    original = deepcopy(repo.lesson('course-1', 'L1-1')['script_revisions'][-1])
+    source = {**course_data(), 'blueprint_revision_id': 'outline-v1'}
+    tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _: source),
+                         get_generation_workspace_course=lambda _: None, get_generation_preview=lambda _: None)
+    app = FastAPI(); app.include_router(authoring_router.router, prefix='/api')
+    app.dependency_overrides[require_task_manager] = lambda: tm
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repo
+    edited = deepcopy(sections)
+    edited[0]['blocks'][0].update(content_type='guiding_question', type_label='启发性提问', role='checkpoint')
+    with TestClient(app) as client:
+        response = client.put('/api/teacher/courses/course-1/lessons/L1-1/script/draft',
+                              json={'base_revision_id': original['revision_id'], 'sections': edited}, headers={'X-User-Id': 'teacher-1'})
+    assert response.status_code == 200, response.text
+    saved = repo.lesson('course-1', 'L1-1')['script_revisions'][-1]
+    assert saved['revision_id'] != original['revision_id']
+    blocks = saved['sections'][0]['blocks']
+    assert blocks[0]['content_type'] == 'guiding_question'
+    assert blocks[0]['generation_source'] == 'teacher_edit'
+    assert blocks[0]['block_id'] == original['sections'][0]['blocks'][0]['block_id']
+    assert blocks[0]['content'] == original['sections'][0]['blocks'][0]['content']
+    assert blocks[1]['answer_to'] == blocks[0]['block_id']
+    assert repo.lesson('course-1', 'L1-1')['script_revisions'][0] == original
+
+
 @pytest.mark.asyncio
 async def test_generated_handout_survives_owner_reload_and_both_preview_apis(tmp_path, monkeypatch):
     repo, service, kwargs = fixture(tmp_path / "authoring")

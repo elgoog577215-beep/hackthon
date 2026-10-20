@@ -29,8 +29,9 @@ from teaching_design import (
     format_generation_teaching_guidance,
 )
 from teaching_diagrams import teaching_diagram_prompt
+from handout_content import handout_writing_guide
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v41"
+PROMPT_CONTRACT_VERSION = "course_prompt_v42"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
@@ -135,11 +136,8 @@ def build_handout_prompt(
         + "\n\n按以下顺序直接输出 Markdown，替换方括号内的说明为正文。"
         "每个内容块先输出独占行 <!-- block:{\"type\":\"类型\",\"title\":\"具体标题\",\"key\":\"本节内唯一键\"} -->，随后写该块 Markdown 正文。"
         "下一块标记、小节标记或响应结束即结束当前块，不另写块结束标记。"
-        "内容块按教学用途组织为三类。讲解：background（背景）、introduction（引入）、definition（定义）、explanation（解释）、"
-        "derivation（推导）、example（举例，完整展示思路与解法）、comparison（对比），以及 theorem、result、misconception、summary 等；"
-        "练习：exercise（理论练习，给出明确条件和作答要求）、case（实战案例，给出情境、约束、待交付成果及验收标准）；"
-        "提问：review_question（复习提问，回顾已讲知识及其条件）、guiding_question（启发提问，引导比较、推理、预测或迁移，不在题面泄露结论）。"
-        "确有需要时可用 theorem、result、warning 或自定义典故、思想实验、实验等类型。"
+        + handout_writing_guide()
+        + "确有需要时可用自定义典故、思想实验、实验等类型。例子、图表、代码和公式服务当前块的教学目的，不为表达形式另造固定教学顺序。"
         "这不是必选清单：按学习起点、目标、学科、资料和要求自由决定块类型、数量、顺序；允许先推导后定义，不凑齐、不为变化而变化。"
         "一个块承担一个连贯的学习作用，可含多个段落、代码、公式或表格；不要每个自然段都拆块。"
         "解答或自定义反馈块用 answer_to 引用本小节需要回应的练习、思想实验或任务块的 key。"

@@ -14,6 +14,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_pedagogy import MODULES, module_block_role
+from handout_content import HANDOUT_CONTENT_TYPES, HANDOUT_CONTENT_ALIASES
 from teacher_visible_language import has_unnatural_system_language
 
 
@@ -23,37 +24,6 @@ SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v9"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v13"
 
 HANDOUT_CONTRACT_VERSION = "handout_lecture_v3"
-
-# Writing guidance, not a closed vocabulary or a mandatory lesson sequence.
-HANDOUT_CONTENT_TYPES = {
-    "background": ("背景", "orientation"),
-    "introduction": ("引入", "orientation"),
-    "definition": ("定义", "concept"),
-    "explanation": ("解释", "concept"),
-    "comparison": ("对比", "reasoning"),
-    "derivation": ("推导", "reasoning"),
-    "example": ("例题", "example"),
-    "exercise": ("练习", "activity"),
-    "case": ("实战案例", "activity"),
-    "question": ("思考提问", "checkpoint"),
-    "review_question": ("复习提问", "checkpoint"),
-    "guiding_question": ("启发提问", "checkpoint"),
-    "answer": ("解答", "feedback"),
-    "misconception": ("辨析", "misconception"),
-    "summary": ("总结", "summary"),
-    "theorem": ("定理", "reasoning"),
-    "result": ("结论", "summary"),
-    "warning": ("易错点", "misconception"),
-}
-
-# Preserve earlier Chinese labels and common aliases without closing custom types.
-HANDOUT_CONTENT_ALIASES = {
-    "举例": "example", "理论练习": "exercise", "理论型练习": "exercise",
-    "theoretical_exercise": "exercise", "实战型案例": "case", "practical_case": "case",
-    "复习性提问": "review_question", "recall_question": "review_question",
-    "启发性提问": "guiding_question", "heuristic_question": "guiding_question",
-}
-
 
 def handout_visible_draft(text: str) -> str:
     """Hide protocol metadata while retaining prose and literal code samples."""

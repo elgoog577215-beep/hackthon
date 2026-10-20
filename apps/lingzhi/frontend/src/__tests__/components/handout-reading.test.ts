@@ -14,6 +14,21 @@ beforeEach(async () => {
 })
 
 describe('Handout reading actions', () => {
+  it.each(['zh', 'en'] as const)('从颜色图例展开具体教学职责，%s 两类练习与两类提问保持区分', async locale => {
+    await setLocale(locale)
+    const wrapper = mount(HandoutReadingGuide, { props: { target: null } })
+    expect(wrapper.find('.handout-type-reference').exists()).toBe(false)
+    await wrapper.get('.handout-reading-guide__legend .practice').trigger('click')
+    expect(wrapper.findAll('.handout-type-reference h5').map(item => item.text())).toEqual(locale === 'zh' ? ['理论练习', '实战案例'] : ['Theoretical exercise', 'Practical case'])
+    expect(wrapper.text()).toContain(locale === 'zh' ? '交付物' : 'Deliverable')
+    await wrapper.get('.handout-reading-guide__legend .question').trigger('click')
+    expect(wrapper.findAll('.handout-type-reference h5').map(item => item.text())).toEqual(locale === 'zh' ? ['复习性提问', '启发性提问'] : ['Review question', 'Guiding question'])
+    expect(wrapper.text()).toContain(locale === 'zh' ? '验证方法' : 'validation method')
+    await wrapper.get('.handout-type-reference button').trigger('click')
+    expect(wrapper.find('.handout-type-reference').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('目录点击在当前阅读器内定位并通知编辑范围，不触发路由跳转', async () => {
     const target = document.createElement('section')
     target.id = 'reading-target'
@@ -59,14 +74,14 @@ describe('Handout reading actions', () => {
     root.innerHTML = '<details class="handout-block--answer"><summary>A</summary>Answer A</details><details class="handout-block--answer" open><summary>B</summary>Answer B</details><details><summary>资料</summary>Source</details>'
     const wrapper = mount(HandoutReadingGuide, { props: { target: root } })
     const answers = root.querySelectorAll<HTMLDetailsElement>('.handout-block--answer')
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('.handout-reading-guide__actions button').trigger('click')
     expect(Array.from(answers).every(node => node.open)).toBe(true)
     expect(root.querySelector('details:not(.handout-block--answer)')?.hasAttribute('open')).toBe(false)
-    expect(wrapper.get('button').text()).toBe('收起全部解答')
+    expect(wrapper.get('.handout-reading-guide__actions button').text()).toBe('收起全部解答')
     answers[0]!.open = false
     answers[0]!.dispatchEvent(new Event('toggle'))
     await nextTick()
-    expect(wrapper.get('button').text()).toBe('展开全部解答')
+    expect(wrapper.get('.handout-reading-guide__actions button').text()).toBe('展开全部解答')
     wrapper.unmount()
   })
 

@@ -213,9 +213,16 @@
         <div v-if="editing && node.blocks?.length" class="script-block-editor">
           <section v-for="block in node.blocks" :key="block.block_id">
             <header>
-              <div v-if="block.module_id !== 'handout_prose'"><span>{{ contentTypeLabel(block) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
+              <div v-if="block.module_id !== 'handout_prose'"><span v-if="block.answer_to || !block.content_type">{{ contentTypeLabel(block) }}</span><h5><MathText :content="teacherFacingTeachingLabel(block.title, block.module_id)" /></h5></div>
               <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
             </header>
+            <HandoutTypeSelect
+              v-if="block.content_type && !block.answer_to"
+              :model-value="blockTypeDrafts[block.block_id] ?? block.content_type"
+              :original-type="block.content_type"
+              :current-label="contentTypeLabel(block)"
+              @update:model-value="changeBlockType(block.block_id, $event)"
+            />
             <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="teacherFacingTeachingLabel(block.title, block.module_id)" @input="recordEditSnapshot" />
           </section>
         </div>
@@ -272,6 +279,8 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import HandoutContentBlock from './HandoutContentBlock.vue'
 import HandoutReadingGuide from './HandoutReadingGuide.vue'
 import HandoutTableOfContents from './HandoutTableOfContents.vue'
+import HandoutTypeSelect from './HandoutTypeSelect.vue'
+import { handoutTypeDefinition } from '../utils/handout-content'
 import MathText from './MathText.vue'
 import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
@@ -336,11 +345,12 @@ const editing = ref(false)
 const editBaseline = ref('')
 const editBaseRevisionId = ref('')
 const editSections = ref<ScriptSection[]>([])
-const dirty = computed(() => editing.value && JSON.stringify({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } }) !== editBaseline.value)
+const dirty = computed(() => editing.value && JSON.stringify(readEditSnapshot()) !== editBaseline.value)
 const saving = ref(false)
 const saveError = ref<unknown>(null)
 const drafts = reactive<Record<string, string>>({})
 const blockDrafts = reactive<Record<string, string>>({})
+const blockTypeDrafts = reactive<Record<string, string>>({})
 const aiBusy = ref(false)
 const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
@@ -357,12 +367,15 @@ const handoutContents = computed(() => scriptSections.value.flatMap(node => [
   ...(node.blocks || []).filter(block => block.title && !block.answer_to && block.module_id !== 'handout_prose').map(block => ({ id: `script-block-${block.block_id}`, title: teacherFacingTeachingLabel(block.title, block.module_id), child: true })),
 ]))
 const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
-type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
+type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string>; blockTypes: Record<string, string> }
+function readEditSnapshot(): ScriptEditSnapshot { return { drafts: { ...drafts }, blockDrafts: { ...blockDrafts }, blockTypes: { ...blockTypeDrafts } } }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
   Object.keys(drafts).forEach(key => { delete drafts[key] })
   Object.keys(blockDrafts).forEach(key => { delete blockDrafts[key] })
+  Object.keys(blockTypeDrafts).forEach(key => { delete blockTypeDrafts[key] })
   Object.assign(drafts, snapshot.drafts)
   Object.assign(blockDrafts, snapshot.blockDrafts)
+  Object.assign(blockTypeDrafts, snapshot.blockTypes)
 })
 
 const documentError = computed(() => {
@@ -649,10 +662,13 @@ function beginEditing() {
   editBaseRevisionId.value = props.lesson.script.current_revision_id
   scriptSections.value.forEach(node => {
     drafts[node.section_node_id] = node.content || ''
-    node.blocks?.forEach(block => { blockDrafts[block.block_id] = block.content || '' })
+    node.blocks?.forEach(block => {
+      blockDrafts[block.block_id] = block.content || ''
+      blockTypeDrafts[block.block_id] = block.content_type || ''
+    })
   })
-  editBaseline.value = JSON.stringify({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
-  editHistory.reset({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
+  editBaseline.value = JSON.stringify(readEditSnapshot())
+  editHistory.reset(readEditSnapshot())
   editing.value = true
   saveError.value = null
 }
@@ -662,13 +678,26 @@ function cancelEditing() {
   saveError.value = null
   Object.keys(drafts).forEach(key => { delete drafts[key] })
   Object.keys(blockDrafts).forEach(key => { delete blockDrafts[key] })
+  Object.keys(blockTypeDrafts).forEach(key => { delete blockTypeDrafts[key] })
   editHistory.clear()
 }
 
 function recordEditSnapshot() {
   queueMicrotask(() => {
-    if (editing.value) editHistory.record({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
+    if (editing.value) editHistory.record(readEditSnapshot())
   })
+}
+
+function changeBlockType(blockId: string, type: string) {
+  blockTypeDrafts[blockId] = type
+  recordEditSnapshot()
+}
+
+function editedTypeMetadata(block: TeacherLessonScriptBlock) {
+  const type = blockTypeDrafts[block.block_id]
+  if (!type || type === block.content_type || block.answer_to) return {}
+  const definition = handoutTypeDefinition(type)
+  return { content_type: type, type_label: definition?.label.zh || type, role: definition?.role || block.role }
 }
 
 async function saveDraft(): Promise<boolean> {
@@ -684,6 +713,7 @@ async function saveDraft(): Promise<boolean> {
             ...node,
             blocks: node.blocks.map(block => ({
               ...block,
+              ...editedTypeMetadata(block),
               content: blockDrafts[block.block_id] ?? block.content ?? '',
             })),
           }

@@ -17,8 +17,8 @@ describe('HandoutContentBlock', () => {
       ['例题', 'explanation', locale === 'zh' ? '举例' : 'Worked example'],
       ['exercise', 'practice', locale === 'zh' ? '理论练习' : 'Theoretical exercise'],
       ['case', 'practice', locale === 'zh' ? '实战案例' : 'Practical case'],
-      ['复习性提问', 'question', locale === 'zh' ? '复习提问' : 'Review question'],
-      ['guiding_question', 'question', locale === 'zh' ? '启发提问' : 'Guiding question'],
+      ['复习性提问', 'question', locale === 'zh' ? '复习性提问' : 'Review question'],
+      ['guiding_question', 'question', locale === 'zh' ? '启发性提问' : 'Guiding question'],
     ]
     for (const [contentType, group, label] of cases) {
       const wrapper = mount(HandoutContentBlock, { props: { contentType, label: '历史标签', title: '独立内容' }, slots: { default: '完整内容' } })
