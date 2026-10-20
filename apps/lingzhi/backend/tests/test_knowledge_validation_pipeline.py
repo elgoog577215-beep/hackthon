@@ -28,6 +28,20 @@ def test_formula_display_preserves_the_object_and_legacy_rendering():
     assert rows[0]['conditions'] != rows[1]['conditions']
 
 
+def test_completed_batch_formula_projection_preserves_facts_and_original_checkpoint():
+    from knowledge_expression import qualify_formula_display
+    row = {'name':'$x=a$', 'statement':'法线的方程为$x=a$。', 'conditions':["f′(a)=0"],
+           'knowledge_id':'fixed-id', 'atomic_contract':{'subjects':['法线'], 'form':'fact', 'property':'方程',
+           'expression':{'name_origin':'frozen_formula', 'display_name':'$x=a$', 'text':'零导数时法线为垂直线x=a'}}}
+    original = deepcopy(row)
+    qualify_formula_display(row)
+    assert row['name'] == '法线：$x=a$'
+    assert row['atomic_contract']['expression']['name_origin'] == 'qualified_frozen_formula'
+    for field in ('statement','conditions','knowledge_id'): assert row[field] == original[field]
+    assert row['atomic_contract']['expression']['text'] == original['atomic_contract']['expression']['text']
+    before = deepcopy(row); qualify_formula_display(row); assert row == before
+
+
 def context_for(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     raw = svc.repository.load_raw('c-pilot')
