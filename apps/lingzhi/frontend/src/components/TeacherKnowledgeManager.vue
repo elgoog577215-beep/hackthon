@@ -324,17 +324,21 @@ const progressPercent = computed(() => {
   }
   return job.phase === 'structure_check' ? 95 : job.phase === 'preparing' ? 5 : 0
 })
+function pendingEquivalence(pipeline: any) {
+  return Boolean(pipeline?.semantic_equivalence_contract && pipeline.semantic_equivalence?.status !== 'completed')
+}
 const atomicCanContinue = computed(() => {
   const run = atomicRun.value, pipeline = run?.pipeline
   return Boolean(!activeJob.value && run && !run.adopted
     && ['failed', 'paused', 'cancelled'].includes(run.status)
     && (!pipeline?.batches?.length || [...(pipeline?.inventory_batches || []), ...(pipeline?.batches || [])].some((batch: any) => batch.status !== 'completed')
+      || pendingEquivalence(pipeline)
       || pipeline?.organize_hierarchy && pipeline.hierarchy?.status !== 'completed'
       || pipeline?.include_relations && pipeline.relations?.status !== 'completed'))
 })
 const relationOnlyContinue = computed(() => {
   const pipeline = atomicRun.value?.pipeline
-  return Boolean(pipeline?.include_relations && pipeline.relations?.status !== 'completed'
+  return Boolean(!pendingEquivalence(pipeline) && pipeline?.include_relations && pipeline.relations?.status !== 'completed'
     && [...(pipeline.inventory_batches || []), ...(pipeline.batches || [])].length
     && [...(pipeline.inventory_batches || []), ...(pipeline.batches || [])].every((batch: any) => batch.status === 'completed')
     && (!pipeline.organize_hierarchy || pipeline.hierarchy?.status === 'completed'))
@@ -343,7 +347,7 @@ const atomicCanOrganize = computed(() => {
   const run = atomicRun.value, pipeline = run?.pipeline
   return Boolean(!activeJob.value && run && !run.adopted
     && ['completed', 'failed', 'paused', 'cancelled'].includes(run.status)
-    && pipeline?.batches?.length
+    && !pendingEquivalence(pipeline) && pipeline?.batches?.length
     && pipeline.batches.every((batch: any) => batch.status === 'completed')
     && (pipeline?.hierarchy?.status !== 'completed' || pipeline.hierarchy.result?.schema_version !== 'knowledge_hierarchy_v5'))
 })
@@ -400,7 +404,7 @@ function jobPhase(job: any) {
     && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
   const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
     : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
-  return stage ? `${t(['relations','tree_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return stage ? `${t(['relations','tree_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null
