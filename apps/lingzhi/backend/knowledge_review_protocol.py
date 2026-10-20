@@ -39,6 +39,7 @@ def build_prompt(payload, example):
         'compiler_diagnostics是程序已发现的问题，必须处理；literal_subject_options仅提供逐字片段，不保证是合适名词。'
         'subject/left_subject/right_subject须逐字来自当前块。可以选择选项之外的连续原文名词片段，不能拼接或编造主体。'
         '具体对象名作主体，把行为、属性、真假条件或转换方法放入其余槽位；不要用整句结论或残缺谓语作主体。'
+        '修正主体时不能把谓语截成半句塞入主体；若选择更短的原文对象名，须在property和value保留原关系与方法的完整含义。'
         '有效点keep，不为润色重写。replace给完整修正点；context仅用于背景、具体例题或重复演示；'
         'source_issue用于原文自身疑点，同时登记source_issues，不把可修正的抽取错误归成来源错误。'
         '独立操作、属性或量分别保留；完整定义、单一属性的完整枚举和完整方法不按标点拆碎。'

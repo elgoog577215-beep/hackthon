@@ -300,6 +300,8 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
     if general_knowledge:
         check(not any(isinstance(s, str) and re.search(r'=\s*[-+]?\d|(?<![A-Za-z0-9_])\d+\s*[+*/-]\s*\d+(?![A-Za-z_])', s) for s in options),
               '具体算例的表达式或运行结果不能作一般知识主体，应保留为例题或提取原文支持的一般规则', code='concrete_instance')
+        check(not any(isinstance(s, str) and re.search(r'(?:转换为|变换为|表示为|定义为|记为|称为|写为|视为|变为|改为|设为|取为|插入到|存入到|将|把|使|让)$', s) for s in options),
+              '知识主体不能是等待补语的残缺谓语，应选择原文对象，并在属性和值中保留完整关系', code='source_subject_fragment')
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and binding for s, binding in zip(options, bindings)),
             '知识主体必须逐字来自当前原文块', code='source_subject')
     check(not any(re.search(r'、|以及' if allow_literal_slash else r'[/、]|以及', s)
