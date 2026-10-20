@@ -284,3 +284,19 @@ async def test_discovery_cycles_are_only_pair_proposals_and_cannot_merge_complem
     assert state['semantic_equivalence']['status'] == 'completed'
     assert state['semantic_equivalence']['groups'] == []
     assert state['semantic_equivalence']['proposed_edges']
+
+
+@pytest.mark.asyncio
+async def test_opposite_boolean_targets_stay_separate_even_if_a_model_calls_them_equivalent(monkeypatch):
+    from knowledge_equivalence_pairs import confirm_pairs
+    from knowledge_equivalence import validate_groups
+    rows = points()[:2]
+    for p, truth in zip(rows, ['假', '真']):
+        p['atomic_contract'].update(subjects=['整数值'], property=f'作条件判断为{truth}的条件')
+    async def forbidden(*args): raise AssertionError('明确相反的检查目标不应交给模型合并')
+    monkeypatch.setattr('knowledge_atomic.call_stage', forbidden)
+    record = {'proposed_edges': [['K1', 'K2']]}
+    assert await confirm_pairs(None, 'c', 'j', None, rows, [], record, lambda **kw: None, lambda: None) == []
+    assert record['rejected_complementary_targets'] == [['K1', 'K2']]
+    with pytest.raises(CourseDocumentConflict, match='互补'):
+        validate_groups(response(), rows)
