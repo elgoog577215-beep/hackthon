@@ -42,6 +42,8 @@ describe('MathText', () => {
   })
 
   it.each([
+    String.raw`函数 $f(x)$`,
+    String.raw`复合函数 $f(g(x))$`,
     String.raw`变量 x \in [0,2]`,
     String.raw`勾股关系 x^2+y^2=z^2`,
     String.raw`保留宽松分隔符 $ x^2 + y^2 = z^2 $`,

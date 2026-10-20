@@ -126,25 +126,25 @@
             <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
             <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
-              <h2>{{ selectedPoint.name }}</h2><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
+              <MathText tag="h2" :content="selectedPoint.name" /><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
               <p class="knowledge-extraction-method">{{ t(`knowledgeFirst.method_${selectedPoint.extraction_method || 'unspecified'}`) }}</p>
               <p v-if="selectedPoint.derivation_note">{{ selectedPoint.derivation_note }}</p>
               <KnowledgeTerms :point="selectedPoint" />
               <details v-if="selectedPoint.inventory_attachments?.length"><summary>{{ t('knowledgeFirst.inventoryAttachments') }}</summary><div v-for="item in selectedPoint.inventory_attachments" :key="item.key"><strong>{{ item.name }}</strong><p>{{ item.claim }}</p><blockquote v-for="(source,index) in item.sources" :key="index">{{ source.quote }}</blockquote></div></details>
-              <template v-if="selectedPoint.conditions?.length"><h3>{{ t('knowledgeFirst.conditions') }}</h3><ul><li v-for="c in selectedPoint.conditions" :key="c">{{ c }}</li></ul></template>
+              <template v-if="selectedPoint.conditions?.length"><h3>{{ t('knowledgeFirst.conditions') }}</h3><ul><li v-for="c in selectedPoint.conditions" :key="c"><MathText :content="c" /></li></ul></template>
               <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
               <h3>{{ t('knowledgeFirst.relations') }}</h3>
               <p v-if="!relations.length" class="muted">{{ t('knowledgeFirst.noRelation') }}</p>
               <div v-for="link in relatedLinks" :key="link.edge.id" class="relation">
                 <span v-if="link.crossLesson" class="relation-scope">{{ t('knowledgeFirst.crossLessonLinks') }}</span>
                 <div class="related-point-row">
-                  <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })">{{ link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : '' }}{{ link.point?.name || link.id }}</button>
+                  <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })"><MathText :content="`${link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : ''}${link.point?.name || link.id}`" /></button>
                   <span class="related-point-type" :aria-label="t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming')">{{ link.edge.source_id === selectedId ? '→' : '←' }} {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</span>
                 </div>
                 <details class="related-point-details">
                   <summary>{{ t('knowledgeFirst.relationDetails') }}</summary>
-                  <p class="relation-direction">{{ pointName(link.edge.source_id) }} → {{ pointName(link.edge.target_id) }}</p>
-                  <p v-if="link.edge.reason">{{ link.edge.reason }}</p><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition">{{ condition }}</li></ul>
+                  <p class="relation-direction"><MathText :content="`${pointName(link.edge.source_id)} → ${pointName(link.edge.target_id)}`" /></p>
+                  <MathText v-if="link.edge.reason" tag="p" :content="link.edge.reason" /><ul v-if="link.edge.conditions?.length"><li v-for="condition in link.edge.conditions" :key="condition"><MathText :content="condition" /></li></ul>
                   <KnowledgeRelationEvidence :edge="link.edge" />
                   <MarkdownRenderer v-if="link.point?.statement" class="related-statement" :content="link.point.statement" />
                 </details>
@@ -200,6 +200,7 @@ import { consumeEventStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
 import { createContentKnowledgeTree } from '../utils/knowledge-tree-layout'
 import TeachingCapabilityPanel from './TeachingCapabilityPanel.vue'

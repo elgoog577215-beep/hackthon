@@ -19,14 +19,14 @@
         <div class="tree-stage" :style="{ left: `${stageLeft}px`, top: `${stageTop}px`, width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
           <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
           <template v-for="node in layout.nodes" :key="node.id">
-            <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
+            <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span><MathText tag="strong" :content="node.label" :title="node.label" /><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
             <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded, pending: node.pending }" :style="nodeStyle(node)" :title="node.scope" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim()) || node.pending" @click="toggle(node.id)">
-              <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}<template v-if="showMastery"> · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</template></span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
+              <MathText class="tree-branch-name" :content="node.label" /><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}<template v-if="showMastery"> · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</template></span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
             </button>
             <button v-else type="button" class="tree-leaf" :class="[showMastery ? node.status : '', { selected: selectedId === node.sourceId }]" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" :aria-haspopup="showMastery ? 'dialog' : undefined" :aria-current="selectedId === node.sourceId ? 'true' : undefined"
               :aria-label="showMastery ? `${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}` : node.label" @click="select(node.sourceId, $event)">
               <span class="mastery-orb" :style="showMastery ? { '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` } : undefined"><span class="orb-core"><template v-if="showMastery"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></template><Leaf v-else :size="27" aria-hidden="true" /></span></span>
-              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small></span>
+              <span class="tree-leaf-copy"><MathText tag="strong" :content="node.label" /><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small></span>
             </button>
           </template>
         </div>
@@ -40,6 +40,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowUpRight, BookOpen, Leaf, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import MathText from './MathText.vue'
 import type { KnowledgeProfile } from '../types/knowledge-profile'
 import { createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
 
@@ -194,4 +195,5 @@ button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:
 .content-tree .orb-core{color:#8764ae;background:radial-gradient(circle at 30% 20%,#fff,#f2eafa 70%,#e7dbf4)}
 .content-tree .tree-leaf.selected .mastery-orb{box-shadow:0 0 0 4px #c4afe54d,0 8px 22px #785da629}
 .content-tree .tree-leaf.selected .tree-leaf-copy strong{color:#68468f;font-weight:600}
+.tree-leaf-copy>strong[data-math-rendered]{display:block;-webkit-line-clamp:unset;max-width:100%;max-height:64px;overflow:auto;padding:2px 0}
 </style>

@@ -29,7 +29,7 @@ const hasInlineDollarMath = (text: string) => Array.from(
   const inner = String(match[2] || '').trim()
   if (!inner || /^\d+(?:\.\d+)?$/.test(inner)) return false
   if (/\p{Script=Han}/u.test(inner) && !/[\\=^_{}[\]+\-*/<>]/.test(inner)) return false
-  return /\\[A-Za-z]+|[=^_{}[\]+\-*/<>]|^[A-Za-zΑ-Ωα-ω](?:\d+)?$/.test(inner)
+  return /\\[A-Za-z]+|[=^_{}[\]()+\-*/<>]|^[A-Za-zΑ-Ωα-ω](?:\d+)?$/.test(inner)
 })
 
 // Only content fields opt into this component.  Requiring a balanced delimiter
