@@ -169,7 +169,8 @@ def merge_lesson_tree(existing, candidate, lesson_id):
 
 
 def knowledge_facts(point):
-    return {key: point.get(key) for key in ('knowledge_id', 'name', 'statement', 'conditions', 'knowledge_type', 'meta_question', 'meta_answer')}
+    return {**{key: point.get(key) for key in ('knowledge_id', 'name', 'statement', 'conditions', 'knowledge_type', 'meta_question', 'meta_answer')},
+            **{key: deepcopy(point[key]) for key in ('symbol_definitions', 'teaching_context', 'examples') if key in point}}
 
 
 def lesson_fingerprint(tree, lesson_id):

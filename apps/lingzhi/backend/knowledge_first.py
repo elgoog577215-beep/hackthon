@@ -371,7 +371,26 @@ class KnowledgeFirstService:
             if pipeline == RELATIONS:
                 validate_baseline(raw.get('course_knowledge_base') or {}, lesson_id)
             continued_checkpoint = None
-            if resume_job_id:
+            registry_mode = pipeline == PIPELINE
+            if resume_job_id and registry_mode:
+                from knowledge_registry_contract import CONTRACT as REGISTRY
+                from knowledge_registry_pipeline import continued_pipeline
+                original = existing_jobs.get(resume_job_id) or {}
+                require(original.get('type') == TREE_JOB and original.get('knowledge_pipeline') == pipeline
+                    and original.get('knowledge_lesson_id') == lesson_id and original.get('actor') == raw.get('owner_id')
+                    and original.get('status') in {'failed', 'completed', 'paused', 'cancelled'}, '原知识任务不可继续')
+                require(original.get('source_context_revision') == context['revision_id']
+                    and original.get('source_document_revision') == expected_document
+                    and original.get('source_knowledge_revision') == expected_revision, '课程或知识版本已变化，不能继续旧任务')
+                prior = (original.get('checkpoint') or {}).get('atomic_pipeline') or {}
+                if prior.get('generation_contract') == REGISTRY:
+                    require(original.get('status') != 'completed' or bool(retry_batch_id), '已完成任务请指定重做范围')
+                    continued_checkpoint = continued_pipeline(original['checkpoint'], retry_batch_id)
+                else:
+                    # Historical records remain readable. New attempts never enter their retired source-repair chain.
+                    continued_checkpoint = {'protocol_upgrade': {'from': prior.get('processing_contract'),
+                        'to': REGISTRY, 'origin_job_id': resume_job_id, 'scope': 'fresh_candidates'}}
+            if resume_job_id and not registry_mode:
                 original = existing_jobs.get(resume_job_id) or {}
                 require(original.get('type') == TREE_JOB and original.get('knowledge_pipeline') == pipeline
                     and original.get('knowledge_lesson_id') == lesson_id and original.get('actor') == raw.get('owner_id')
@@ -492,8 +511,7 @@ class KnowledgeFirstService:
                 if pipeline == RELATIONS:
                     from knowledge_relation_generation import validate_source
                     validate_source(self,raw,original)
-            if pipeline==PIPELINE and extraction_mode=='single_pass_v1' and (not resume_job_id or
-                    (existing_jobs[resume_job_id].get('request_snapshot',{}).get('knowledge_generation_context',{}).get('source_unit_contract')=='complete_handout_blocks_v1')):
+            if registry_mode:
                 from knowledge_handout_projection import project_complete_blocks
                 context=project_complete_blocks(raw,state,context,lesson_id)
             require(not derived or bool(context.get("handout_lessons")), "请先在备课工作台生成讲义，资料可选")
@@ -515,6 +533,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
+                    **({'generation_contract': 'knowledge_registry_v1'} if registry_mode else {}),
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
                     include_relations=include_relations if pipeline == PIPELINE else False,
@@ -532,6 +551,9 @@ class KnowledgeFirstService:
             from knowledge_relation_generation import run
             return await run(self,course_id,job_id)
         if pipeline:
+            if self.authoring.get_job(course_id, job_id).get('generation_contract') == 'knowledge_registry_v1':
+                from knowledge_registry_pipeline import run
+                return await run(self, course_id, job_id)
             from knowledge_atomic import run_atomic
             return await run_atomic(self, course_id, job_id)
         provider = None
