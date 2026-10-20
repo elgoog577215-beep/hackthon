@@ -143,6 +143,36 @@ it('shows compact connection recovery while other parallel work reports hierarch
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
 
+it('continues equivalence review before pending relations and names the actual failed stage',async()=>{
+  const v:any=view();const p=v.atomic_runs[0].pipeline
+  p.batches[1].status='completed';p.inventory_batches=[{status:'completed'}]
+  p.organize_hierarchy=true;p.hierarchy={status:'completed',result:{schema_version:'knowledge_hierarchy_v5'}}
+  p.semantic_equivalence_contract='knowledge_equivalence_v3';p.semantic_equivalence={status:'failed'}
+  p.include_relations=true;p.relations={status:'pending',batches:[]}
+  v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',phase:'failed',progress:85,
+    error:{code:'CourseDocumentConflict',stage:'semantic_equivalence_pairs'}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('核对同义知识')
+  expect(http.post).not.toHaveBeenCalled()
+  await w.get('[data-testid="continue-knowledge-batches"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({
+    resume_job_id:'atomic-job',retry_batch_id:''}))
+  expect(http.post).toHaveBeenCalledTimes(1);w.unmount()
+})
+
+it('keeps the continue action when only required equivalence review remains incomplete',async()=>{
+  const v:any=view();const p=v.atomic_runs[0].pipeline
+  p.batches[1].status='completed';p.inventory_batches=[{status:'completed'}]
+  p.organize_hierarchy=true;p.hierarchy={status:'completed',result:{schema_version:'knowledge_hierarchy_v5'}}
+  p.include_relations=true;p.relations={status:'completed'}
+  p.semantic_equivalence_contract='knowledge_equivalence_v3'
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.find('[data-testid="continue-knowledge-batches"]').exists()).toBe(true)
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
+
 it('uses unrecovered failed observations for a historical job with a stale hierarchy label',async()=>{
   const v:any=view();v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',phase:'failed',pipeline_stage:'hierarchy',progress:93,
     stage_observations:[{stage:'tree_relations',status:'failed',request_fingerprint:'r7'},{stage:'hierarchy_subtree',status:'completed',request_fingerprint:'h1'}]}]
