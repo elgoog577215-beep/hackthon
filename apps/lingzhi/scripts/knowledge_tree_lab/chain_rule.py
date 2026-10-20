@@ -8,15 +8,15 @@ from .pipeline import digest
 
 def build_bundle():
     knowledge = [
-        {'id': 'K-COMP', 'name': '复合函数：先算里面，再算外面', 'claim': '先算出g(x)，再把这个结果放进f，就得到f(g(x))。例如sin(x²)要先平方，再取正弦。',
+        {'id': 'K-COMP', 'name': '复合函数先算里面，再算外面', 'claim': '先算出g(x)，再把这个结果放进f，就得到f(g(x))。例如sin(x²)要先平方，再取正弦。',
          'conditions': ['x在g的定义域且g(x)在f的定义域'], 'prerequisites': []},
-        {'id': 'K-POWER', 'name': 'x²、x³这类函数怎样求导', 'claim': '求导时，先把原来的指数乘到前面，再把指数减1。例如(x²)′=2x、(x³)′=3x²；一般写成(x^n)′=n*x^(n-1)。',
+        {'id': 'K-POWER', 'name': '幂函数求导时，指数乘到前面，再把指数减1', 'claim': '求导时，先把原来的指数乘到前面，再把指数减1。例如(x²)′=2x、(x³)′=3x²；一般写成(x^n)′=n*x^(n-1)。',
          'conditions': ['自变量x为实数；n为固定正整数'], 'prerequisites': []},
-        {'id': 'K-SIN', 'name': 'sin 的导数', 'claim': '(sin u)′=cos u。',
+        {'id': 'K-SIN', 'name': '正弦函数的导数是余弦函数', 'claim': '(sin u)′=cos u。',
          'conditions': ['对实变量u求导，角度采用弧度'], 'prerequisites': []},
-        {'id': 'K-COS', 'name': 'cos 的导数', 'claim': '(cos u)′=-sin u。',
+        {'id': 'K-COS', 'name': '余弦函数的导数是正弦函数的相反数', 'claim': '(cos u)′=-sin u。',
          'conditions': ['对实变量u求导，角度采用弧度'], 'prerequisites': []},
-        {'id': 'K-CHAIN', 'name': '链式法则：别漏乘里面的导数', 'claim': '函数一层套一层时，先对外面求导，里面的式子先保留，再乘上里面的导数。在x0处写成公式就是(f(g(x)))′(x0)=f′(g(x0))*g′(x0)。',
+        {'id': 'K-CHAIN', 'name': '链式求导时，要乘上里面的导数', 'claim': '函数一层套一层时，先对外面求导，里面的式子先保留，再乘上里面的导数。在x0处写成公式就是(f(g(x)))′(x0)=f′(g(x0))*g′(x0)。',
          'conditions': ['x0为被求导的实数点', 'g在x0可导', 'f在g(x0)可导', '复合在x0邻域内有定义'],
          'prerequisites': ['K-COMP']},
     ]
