@@ -300,3 +300,19 @@ async def test_opposite_boolean_targets_stay_separate_even_if_a_model_calls_them
     assert record['rejected_complementary_targets'] == [['K1', 'K2']]
     with pytest.raises(CourseDocumentConflict, match='互补'):
         validate_groups(response(), rows)
+
+
+def test_student_projection_hides_internal_equivalence_history_without_mutating_teacher_tree(svc):
+    from backend.tests.test_handout_knowledge import handouts, answer
+    from handout_knowledge import handout_context, visible_handout_tree
+    from generic_knowledge import compile_tree
+    handouts(svc); raw = svc.repository.load_raw('c-pilot')
+    tree = compile_tree(raw, handout_context(raw, svc.authoring.load('c-pilot')), answer())
+    tree['semantic_equivalence'] = {'groups': [{'reason': '未公布来源的核对记录'}]}
+    tree['knowledge_points'][0]['semantic_equivalents'] = [{'point': deepcopy(tree['knowledge_points'][1])}]
+    before = deepcopy(tree)
+    visible = visible_handout_tree(tree, {'blocks': [{'block_id': 'b-cpu'}]}, {'cpu': {'revision_id': 'r-cpu'}})
+    assert len(visible['knowledge_points']) == 1
+    assert 'semantic_equivalence' not in visible
+    assert 'semantic_equivalents' not in visible['knowledge_points'][0]
+    assert tree == before
