@@ -208,3 +208,22 @@ async def test_complete_case_description_is_compared_as_a_restatement_not_a_conc
         return json.dumps({'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '独立检查目标', 'reverse_reason': ''} for p in points()}})
     monkeypatch.setattr('knowledge_atomic.call_stage', call)
     await review_equivalence(None, 'c', 'j', None, points(), {}, lambda **kw: None, lambda: None)
+
+
+def test_schema_cannot_declare_both_independence_and_reverse_equivalence():
+    from knowledge_equivalence import response_schema
+    from jsonschema import validate, ValidationError
+    schema = response_schema(['K1', 'K2'])
+    value = {'point_reviews': {'K1': {'canonical_key': 'K1', 'forward_reason': '代表', 'reverse_reason': ''},
+                              'K2': {'canonical_key': 'K2', 'forward_reason': '同义', 'reverse_reason': '和K1等价'}}}
+    with pytest.raises(ValidationError): validate(value, schema)
+    value['point_reviews']['K2']['canonical_key'] = 'K1'
+    validate(value, schema)
+
+
+def test_literal_source_subject_must_not_end_at_an_unfinished_predicate():
+    from knowledge_semantic_contract import quality_point
+    from backend.tests.test_knowledge_extraction_repair import point
+    with pytest.raises(CourseDocumentConflict, match='残缺谓语'):
+        quality_point(point('元素插入到', value='栈顶'), '入栈将元素插入到栈顶。', general_knowledge=True)
+    quality_point(point('类型转换', value='在赋值时发生'), '类型转换在赋值时发生。', general_knowledge=True)
