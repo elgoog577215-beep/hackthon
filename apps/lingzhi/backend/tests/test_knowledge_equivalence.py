@@ -137,7 +137,9 @@ async def test_real_pipeline_merges_ids_and_previews_use_the_merged_catalog(svc,
                                      point('栈', property='访问顺序', value='后加入的元素先被移除')]))
         if stage == 'content_review':
             assert kwargs.get('json_schema') is not None
-            return json.dumps(review_response(data))
+            reviewed = review_response(data)
+            for row in reviewed['point_reviews'].values(): row['names'] = ['栈按后进先出访问元素']
+            return json.dumps(reviewed)
         if stage == 'semantic_equivalence':
             return json.dumps({'point_reviews': {'K1': {'canonical_key': 'K2', 'forward_reason': '后进先出即后加入先移除', 'reverse_reason': '后加入先移除即后进先出'},
                                                 'K2': {'canonical_key': 'K2', 'forward_reason': '本组代表', 'reverse_reason': ''}}})
@@ -246,3 +248,39 @@ async def test_pair_confirmation_finds_missed_restatements_and_rejects_derived_e
         groups = await confirm_pairs(None, 'c', 'j', None, rows, [], record, lambda **kw: None, lambda: None)
         assert len(groups) == (1 if relation == 'restatement' else 0)
         assert record['pair_batches'][0]['status'] == 'completed'
+
+
+@pytest.mark.asyncio
+async def test_pair_work_is_bounded_and_nontransitive_votes_do_not_merge_through_a_third_point(monkeypatch):
+    from knowledge_equivalence_pairs import confirm_pairs
+    rows = points()
+    for p in rows: p['conditions'] = []; p['atomic_contract']['subjects'] = ['共同对象']
+    batches = []
+    async def call(*args):
+        data = json.loads(args[-2].split('\nINPUT_JSON:\n')[1]); batches.append(len(data['pairs']))
+        return json.dumps({'pair_reviews': {key: {'relation': 'different' if len(rows) > 3 or {item['a']['key'], item['b']['key']} == {'K1', 'K3'} else 'restatement',
+            'forward_reason': '逐对依据', 'reverse_reason': '逐对反向依据'} for key, item in data['pairs'].items()}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    record = {}
+    assert await confirm_pairs(None, 'c', 'j', None, rows, [], record, lambda **kw: None, lambda: None) == []
+    assert record['nontransitive_group_count'] == 1
+    rows = [{**deepcopy(rows[0]), 'key': f'K{i}'} for i in range(1, 14)]; batches.clear(); record = {}
+    assert await confirm_pairs(None, 'c', 'j', None, rows, [], record, lambda **kw: None, lambda: None) == []
+    assert batches == [16, 16, 16, 16] and record['unreviewed_pair_count'] == 14
+
+
+@pytest.mark.asyncio
+async def test_discovery_cycles_are_only_pair_proposals_and_cannot_merge_complementary_cases(monkeypatch):
+    from knowledge_equivalence import review_equivalence
+    rows = points()[:2]; state = {'semantic_equivalence_contract': 'knowledge_equivalence_v3'}
+    async def call(*args):
+        data = json.loads(args[-2].split('\nINPUT_JSON:\n')[1])
+        if data['stage'] == 'semantic_equivalence':
+            return json.dumps({'point_reviews': {'K1': {'canonical_key': 'K2', 'forward_reason': '候选', 'reverse_reason': '候选'},
+                                                'K2': {'canonical_key': 'K1', 'forward_reason': '候选', 'reverse_reason': '候选'}}})
+        return json.dumps({'pair_reviews': {key: {'relation': 'different', 'forward_reason': '互补情况不等价', 'reverse_reason': '各自只有一部分情况'} for key in data['pairs']}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    await review_equivalence(None, 'c', 'j', None, rows, state, lambda **kw: None, lambda: None)
+    assert state['semantic_equivalence']['status'] == 'completed'
+    assert state['semantic_equivalence']['groups'] == []
+    assert state['semantic_equivalence']['proposed_edges']
