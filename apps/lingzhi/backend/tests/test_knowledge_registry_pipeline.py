@@ -76,6 +76,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     raw=deepcopy(svc.repository.load_raw('c-pilot'));calls=[]
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload)
+        if payload['stage']=='coverage_focus':return json.dumps({'facets':{'concepts':[], 'rules':[{**{k:v for k,v in u.items() if k!='key'},'covers':[u['key']]} for u in payload['draft_units']], 'representations':[],'methods':[],'boundary_cases':[]},'include_existing':[]})
         if payload['stage']=='coverage_review':
             return json.dumps({'decisions':{u['key']:{'action':'keep','reason':'独立知识'} for u in payload['draft_units']},'additions':[]})
         if payload['stage']=='coverage_plan':
@@ -103,7 +104,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==['coverage_plan','coverage_review','coverage_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
+    assert [p['stage'] for p in calls]==['coverage_plan','coverage_review']+(['coverage_focus'] if teaching else [])+['coverage_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
     if full:
         assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
@@ -170,6 +171,7 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
     setup_course(svc,monkeypatch);calls=[];broken=True
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload['stage'])
+        if payload['stage']=='coverage_focus':return json.dumps({'facets':{'concepts':[], 'rules':[{**{k:v for k,v in u.items() if k!='key'},'covers':[u['key']]} for u in payload['draft_units']], 'representations':[],'methods':[],'boundary_cases':[]},'include_existing':[]})
         if payload['stage']=='coverage_review':
             return json.dumps({'decisions':{u['key']:{'action':'keep','reason':'独立知识'} for u in payload['draft_units']},'additions':[]})
         if payload['stage']=='coverage_plan':return json.dumps({'units':[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'','check_intent':'独立描述入栈'}]})
@@ -276,6 +278,7 @@ async def test_profile_failure_resumes_only_profile_and_keeps_frozen_identity(sv
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=payload['stage'];calls.append(stage)
         if stage=='coverage_plan':return json.dumps({'units':[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'基础操作','check_intent':'独立描述入栈'}]})
+        if stage=='coverage_focus':return json.dumps({'facets':{'concepts':[], 'rules':[{**{k:v for k,v in u.items() if k!='key'},'covers':[u['key']]} for u in payload['draft_units']], 'representations':[],'methods':[],'boundary_cases':[]},'include_existing':[]})
         if stage=='coverage_review':return json.dumps({'decisions':{'U1':{'action':'keep','reason':'独立知识'}},'additions':[]})
         if stage=='coverage_extract':return json.dumps({'points':{'U1':[claim()]}})
         if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整'} for p in payload['candidates']}})

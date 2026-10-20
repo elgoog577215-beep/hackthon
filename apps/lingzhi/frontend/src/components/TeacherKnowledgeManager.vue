@@ -429,7 +429,7 @@ function jobPhase(job: any) {
     && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
   const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
     : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
-  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : ['coverage_plan','coverage_review'].includes(stage) ? 'knowledgeFirst.coverageTitle' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : ['coverage_plan','coverage_review','coverage_focus'].includes(stage) ? 'knowledgeFirst.coverageTitle' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null

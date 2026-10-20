@@ -30,6 +30,7 @@ def review_prompt(units, materials, focus):
         '对象定义、数值关系和表示方程应分别考虑；一个综合公式不能替代其中独立可学的基础规则。'
         '同一完整公式内部的因子、符号、操作步骤不拆叶子；同结论的逆否表达、换记号不拆叶子。'
         '每个原项可keep保留、replace纠错或拆分；replace必须保留该项全部有效独立知识，不能吞并其他原项。'
+        '只有原项完全重复一个或多个保留项、没有新增知识且范围相同，才能covered，给出targets和明确布尔声明complete_coverage=true、adds_knowledge=false、same_scope=true；不能仅因主题相近就covered。'
         '再逐段阅读全文，检查尚未登记的对象定义、量的含义、数学表示、规则、方法和特殊情况，填写additions。'
         '特别检查指定teaching_focus的完整教学链：对象是什么、量之间的关系、表达与应用、边界情况。'
         '材料里有明确段落或小标题介绍而清单遗漏的独立知识也要补充。'
@@ -59,13 +60,81 @@ def apply_review(value, units, focus):
         elif decision.get('action')=='replace' and set(decision)=={'action','reason','units'}:
             revised=parse_plan({'units':decision['units']},focus)
             result.extend({k:v for k,v in u.items() if k!='key'} for u in revised)
+        elif decision.get('action')=='covered' and set(decision)=={'action','reason','targets','complete_coverage','adds_knowledge','same_scope'}:
+            targets=decision['targets']
+            if (not isinstance(targets,list) or not targets or len(set(targets))!=len(targets)
+                    or any(not isinstance(k,str) or k==unit['key'] or k not in decisions or decisions[k].get('action') not in {'keep','replace'} for k in targets)
+                    or decision['complete_coverage'] is not True or decision['adds_knowledge'] is not False or decision['same_scope'] is not True):
+                raise ValueError('重复清单项必须完整对应明确保留项，不能部分对应、成链或新增知识')
         else:
-            raise ValueError('清单审阅只允许保留或显式替换，不能删除有效独立知识')
+            raise ValueError('清单审阅须保留、显式替换或完整对应重复项，不能删除有效独立知识')
     additions=value.get('additions')
     if not isinstance(additions,list):
         raise ValueError('清单审阅须显式给出新增知识列表')
     result.extend(additions)
     return parse_plan({'units':result},focus)
+
+
+FOCUS_FACETS = ('concepts','rules','representations','methods','boundary_cases')
+
+
+def focus_prompt(focus, units, materials):
+    return render(
+        '为focus分支建立细颗粒度知识清单，按下面五个视角分别填写，不把整个分支压成几条综合摘要。'
+        'concepts：学习对象是什么，定义和基本含义。rules：量或对象间的独立规律。'
+        'representations：对象或关系的完整表示，例如表达式、方程或数据结构。'
+        'methods：有独立教学价值的完整方法。boundary_cases：必须改变处理方式的特殊情况。'
+        '每组可为空；每条必须是可单独讲解、检查和补学的完整知识。'
+        '同一对象的定义、数值关系与方程是不同学习内容，分别放入合适视角，不把它们粘在一条里。'
+        '同一公式的因子、符号、局部步骤保持整体；适用条件附在对应规则中，不另造条件叶子。'
+        '常见失误、换记号、逆否表达、重复组合不增加知识。不要补一个仅把已有基础规则重新组合的综合叶子。'
+        'draft_units是需保留的有效知识范围，允许重新组织和拆分；各输出条的covers列出其承载的原清单key。'
+        '原清单所有key至少对应一个输出条；遗漏知识covers为空。一个完整公式及其条件必须仍完整保留。'
+        '逐段阅读材料，补齐本分支缺失的对象定义与表示，允许概括与必要背景，不要求原文逐字匹配。'
+        'existing_other_units已有知识不要重复生成，用include_existing引用其key。'
+        '输出{"facets":{"concepts":[{"statement":"完整知识","branch":"主题","knowledge_type":"definition",'
+        '"profile_focus":"分支名","check_intent":"可观察检查目标","covers":["原key"]}],'
+        '"rules":[],"representations":[],"methods":[],"boundary_cases":[]},"include_existing":[]}。'
+        'knowledge_type仅为definition/rule/method/comparison；不写学生画像。',
+        {'stage':'coverage_focus','contract':CONTRACT,'focus':focus,
+         'draft_units':[u for u in units if u['profile_focus']==focus],
+         'existing_other_units':[u for u in units if u['profile_focus']!=focus], 'materials':materials})
+
+
+def parse_focus(value, focus, units):
+    selected={u['key'] for u in units if u['profile_focus']==focus}
+    facets=value.get('facets') if isinstance(value,dict) else None
+    if not isinstance(facets,dict) or set(facets)!=set(FOCUS_FACETS):
+        raise ValueError('分支清单必须逐个填写五个教学视角，允许空组')
+    rows=[];covered=set()
+    for facet in FOCUS_FACETS:
+        if not isinstance(facets[facet],list):raise ValueError('教学视角必须是知识列表')
+        for row in facets[facet]:
+            covers=row.get('covers') if isinstance(row,dict) else None
+            if not isinstance(covers,list) or any(not isinstance(key,str) or key not in selected for key in covers):
+                raise ValueError('分支清单承载了未知原清单ID')
+            covered.update(covers)
+            rows.append({k:v for k,v in row.items() if k!='covers'})
+    if covered!=selected:raise ValueError('分支清单遗漏原有独立知识：'+','.join(sorted(selected-covered)))
+    revised=parse_plan({'units':rows},[focus]) if rows else []
+    included=value.get('include_existing')
+    others={u['key']:u for u in units if not u['profile_focus']}
+    if not isinstance(included,list) or any(not isinstance(k,str) or k not in others for k in included) or len(set(included))!=len(included):
+        raise ValueError('分支审阅只能引用已有且尚未归属其他试点分支的知识ID')
+    for unit in revised:unit['profile_focus']=focus
+    return {'units':revised,'include_existing':included}
+
+
+def combine_focus(units, reviews, focus):
+    included={}
+    for review in reviews:
+        for key in review['result']['include_existing']:
+            if key in included:raise ValueError('同一知识被多个试点分支重复领取')
+            included[key]=review['focus']
+    rows=[{**{k:v for k,v in u.items() if k!='key'},'profile_focus':included.get(u['key'],u['profile_focus'])}
+          for u in units if u['profile_focus'] not in focus]
+    rows.extend({k:v for k,v in u.items() if k!='key'} for review in reviews for u in review['result']['units'])
+    return parse_plan({'units':rows},focus)
 
 
 def parse_plan(value, focus):

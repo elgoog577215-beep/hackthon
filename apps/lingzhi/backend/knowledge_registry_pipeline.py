@@ -50,7 +50,7 @@ def continued_pipeline(checkpoint, retry_batch_id):
 async def run(svc, course_id, job_id):
     from knowledge_first import knowledge_revision, now
     from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
-    from knowledge_coverage import plan_prompt, review_prompt, apply_review, parse_plan, units_prompt, parse_unit_points
+    from knowledge_coverage import plan_prompt, review_prompt, apply_review, focus_prompt, parse_focus, combine_focus, parse_plan, units_prompt, parse_unit_points
     job = svc._active(course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
@@ -82,13 +82,23 @@ async def run(svc, course_id, job_id):
         if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
             pipeline['preview_tree'] = build_tree(raw, context, pipeline, job_id, preview=True)
         complete = sum(b['status'] == 'completed' for b in pipeline['inventory_batches'])
-        progress = int(55 * complete / len(pipeline['inventory_batches'])) if pipeline['inventory_batches'] else 0
+        progress = 8 if pipeline.get('coverage_plan',{}).get('units') else 0
+        if pipeline.get('coverage_review',{}).get('units'):
+            progress = 15
+        reviews=pipeline.get('focus_reviews',[])
+        if reviews:
+            progress = 15 + int(15*sum(b['status']=='completed' for b in reviews)/len(reviews))
+        if pipeline['inventory_batches']:
+            progress = 30 + int(25*complete/len(pipeline['inventory_batches']))
         if pipeline.get('registry'):
             progress = 70
         if pipeline.get('names', {}).get('status') == 'completed':
             progress = 80
         if pipeline.get('hierarchy', {}).get('status') == 'completed':
             progress = 90
+        profiles=pipeline.get('kc_profiles',{}).get('batches',[])
+        if profiles:
+            progress=90+int(9*sum(b['status']=='completed' for b in profiles)/len(profiles))
         svc.authoring.update_job(course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress, **updates)
 
     async def request(prompt, stage, record, compile_result):
@@ -159,15 +169,28 @@ async def run(svc, course_id, job_id):
             review['units']=await request(review_prompt(plan['units'],materials,pipeline['teaching_focus']),
                 'coverage_review',review,lambda value:apply_review(value,plan['units'],pipeline['teaching_focus']))
             save()
+        if 'frozen_units' not in pipeline:
+            if pipeline['teaching_focus']:
+                reviews=pipeline.setdefault('focus_reviews',[{'id':f'focus-{i+1}','focus':focus,'status':'pending'} for i,focus in enumerate(pipeline['teaching_focus'])])
+                async def review_focus(index,batch):
+                    batch['result']=await request(focus_prompt(batch['focus'],review['units'],materials),'coverage_focus',
+                        batch.setdefault('request',{}),lambda value:parse_focus(value,batch['focus'],review['units']))
+                    batch['status']='completed'
+                    save()
+                await run_batches(reviews,review_focus,width=3,stage='coverage_focus')
+                pipeline['frozen_units']=combine_focus(review['units'],reviews,pipeline['teaching_focus'])
+            else:
+                pipeline['frozen_units']=deepcopy(review['units'])
+            save()
         if not pipeline['inventory_batches']:
-            units=review['units']
+            units=pipeline['frozen_units']
             pipeline['inventory_batches']=[{'id':f'inventory-{i//6+1}',
                 'source_keys':list(available),'unit_keys':[u['key'] for u in units[i:i+6]],'status':'pending'}
                 for i in range(0,len(units),6)]
             save()
 
         async def extract(index, batch):
-            units=[u for u in review['units'] if u['key'] in batch['unit_keys']]
+            units=[u for u in pipeline['frozen_units'] if u['key'] in batch['unit_keys']]
             prompt = units_prompt(units,materials,pipeline['catalog'])
             try:
                 batch['points'] = await request(prompt, 'coverage_extract', batch.setdefault('request', {}),
