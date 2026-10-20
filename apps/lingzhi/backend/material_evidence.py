@@ -22,6 +22,7 @@ from material_models import (
 def build_evidence_units(
     document: ParsedDocument,
     binding: MaterialBinding,
+    *, preserve_blocks: bool = False,
 ) -> list[EvidenceUnit]:
     if document.parse_status not in {"parsed", "degraded"}:
         return []
@@ -29,7 +30,8 @@ def build_evidence_units(
     for block in document.blocks:
         if block.kind in {"title", "heading", "picture"} or not block.text.strip():
             continue
-        for part_index, source_text in enumerate(_split_source(block.text)):
+        parts = [block.text.strip()] if preserve_blocks else _split_source(block.text)
+        for part_index, source_text in enumerate(parts):
             digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
             evidence_id = f"ev-{hashlib.sha256(f'{document.asset_id}:{block.block_id}:{part_index}:{digest}'.encode()).hexdigest()[:20]}"
             style_only = binding.purpose in {"style_reference", "weak_context"} or binding.usage_policy == "style_only"

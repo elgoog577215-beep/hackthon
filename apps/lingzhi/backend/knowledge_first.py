@@ -482,6 +482,10 @@ class KnowledgeFirstService:
                 if pipeline == RELATIONS:
                     from knowledge_relation_generation import validate_source
                     validate_source(self,raw,original)
+            if pipeline==PIPELINE and extraction_mode=='single_pass_v1' and (not resume_job_id or
+                    (existing_jobs[resume_job_id].get('request_snapshot',{}).get('knowledge_generation_context',{}).get('source_unit_contract')=='complete_handout_blocks_v1')):
+                from knowledge_handout_projection import project_complete_blocks
+                context=project_complete_blocks(raw,state,context,lesson_id)
             require(not derived or bool(context.get("handout_lessons")), "请先在备课工作台生成讲义，资料可选")
             if topic != "tree" and raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW:
                 from generic_knowledge import input_revision
@@ -733,7 +737,11 @@ class KnowledgeFirstService:
                     from handout_knowledge import handout_input_signature, lesson_fingerprint, slice_lesson_tree, merge_lesson_tree, knowledge_facts
                     require(knowledge_revision(raw) == expected_revision and raw.get('course_document_revision') == expected_document == job['source_document_revision'], '课程版本已变化，请刷新后采用')
                     frozen = job['request_snapshot']['knowledge_generation_context']
-                    require(handout_input_signature(self._context(raw, 'handouts', scope)) == handout_input_signature(frozen), '本讲讲义或课程信息已变化，请重新生成')
+                    current_context=self._context(raw,'handouts',scope)
+                    if frozen.get('source_unit_contract')=='complete_handout_blocks_v1':
+                        from knowledge_handout_projection import project_complete_blocks
+                        current_context=project_complete_blocks(raw,self.authoring.load(course_id),current_context,scope)
+                    require(handout_input_signature(current_context) == handout_input_signature(frozen), '本讲讲义或课程信息已变化，请重新生成')
                     base = (raw.get('course_knowledge_base') or {}) if knowledge_revision(raw) == job['source_knowledge_revision'] else (raw.get('knowledge_first_history') or {}).get(job['source_knowledge_revision'])
                     require(base is not None or not job['source_knowledge_revision'], '候选的历史知识版本缺失')
                     current = raw.get('course_knowledge_base') or {}

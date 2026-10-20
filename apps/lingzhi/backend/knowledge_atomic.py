@@ -638,6 +638,7 @@ async def run_atomic(svc, course_id, job_id):
             'schema_version': PIPELINE, 'processing_contract': 'knowledge_validation_pipeline_v4',
             'prompt_contract':EXTRACT_CONTRACT if fast else 'knowledge_passages_v3', 'revision': 0, 'items': [], 'batches': [],
             'extraction_mode': job.get('extraction_mode', ''),
+            **({'source_unit_contract':context['source_unit_contract']} if context.get('source_unit_contract') else {}),
             **({'granularity_contract': GRANULARITY_CONTRACT,'correction_contract':'knowledge_correction_plan_v4'} if fast else {}),
             **({'expression_contract': EXPRESSION_CONTRACT} if fast else {}),
             **({'content_review_contract': 'knowledge_content_review_v3', 'semantic_equivalence_contract': 'knowledge_equivalence_v3'} if fast else {}),

@@ -284,6 +284,10 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
             patch = deepcopy(repair['patch']); additions = patch.pop('append_conditions', [])
             conditions = patch.pop('conditions', None)
             point = {**deepcopy(targets[key]['point']), **patch}
+            if compact and 'subject' in patch:
+                from knowledge_correction_protocol import subject_scope
+                scopes=subject_scope(targets[key]['point']['subject'],patch['subject'],passages[targets[key]['passage_key']]['text'])
+                targets[key]['required_conditions']=list(dict.fromkeys([*targets[key]['required_conditions'],*scopes]))
             if conditions is not None:
                 if targets[key]['correction_plan']['conditions_mode'] == 'replace': point['conditions'] = conditions
                 else: additions.extend(conditions)

@@ -1,10 +1,20 @@
 """Compact correction transport; full semantic field validation stays local."""
 from copy import deepcopy
 import json
+import re
 
 from knowledge_compact import obj, array, string
 
 CONTRACT = 'knowledge_correction_plan_v4'
+
+
+def subject_scope(original,updated,source):
+    """Retain an explicit, source-bound conditional suffix when shortening a subject."""
+    from knowledge_compact import source_literal
+    binding=source_literal(updated,original)
+    if not binding:return []
+    suffix=original[binding['end']:].strip()
+    return [suffix] if re.match(r'^(?:在|于|当|若)',suffix) and source_literal(suffix,source) else []
 
 
 def envelope_schema(targets, *, expression_contract=None):

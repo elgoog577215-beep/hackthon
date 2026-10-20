@@ -1,5 +1,6 @@
 """Knowledge extraction observes complete saved blocks, not evidence fragments."""
 from copy import deepcopy
+import pytest
 
 from backend.tests.test_knowledge_first import svc
 from backend.tests.test_knowledge_atomic import setup_course, start
@@ -39,3 +40,22 @@ def test_shortening_subject_preserves_only_source_bound_conditional_scope():
     assert subject_scope('函数$f(x)$在$x=a$处不连续','$f(x)$','若$f(x)$在$x=a$处不连续，则导数不存在。')==['在$x=a$处不连续']
     assert subject_scope('函数$f(x)$在$x=a$处不连续','$f(x)$','函数$f(x)$可导。')==[]
     assert subject_scope('导数定义式','定义式','导数的定义式可改写为增量形式。')==[]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('change',[False,True])
+async def test_adoption_compares_the_same_projection_and_still_protects_handout_changes(svc,monkeypatch,change):
+    from backend.tests.test_knowledge_tree_relations import fake_provider
+    setup_course(svc,monkeypatch);fake_provider(svc)
+    job=start(svc,extraction_mode='single_pass_v1');await svc.run('c-pilot',job['id'])
+    view=svc.view('c-pilot',source_mode='handouts')
+    if change:
+        from course_repository import CourseDocumentConflict
+        state=svc.authoring.load('c-pilot')
+        state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks'][0]['content']+='正文变化。'
+        svc.authoring._save(state)
+        with pytest.raises(CourseDocumentConflict,match='变化'):
+            svc.adopt('c-pilot',job['id'],'',view['document_revision'],confirm_atomic_review=True,confirm_relations=True)
+        return
+    svc.adopt('c-pilot',job['id'],'',view['document_revision'],confirm_atomic_review=True,confirm_relations=True)
+    assert svc.repository.load_raw('c-pilot')['course_knowledge_base']['generation_job_id']==job['id']
