@@ -30,7 +30,10 @@ async def test_review_aligns_names_with_final_points_without_an_extra_model_call
     names = {'keep': ['入栈把元素加入栈顶'], 'replace': ['入栈把元素加入栈顶', '出栈移除栈顶元素'], 'context': []}[decision]
 
     async def call(*args):
-        data = json.loads(args[-2].split('\nINPUT_JSON:\n', 1)[1]); calls.append(data)
+        head, encoded = args[-2].split('\nINPUT_JSON:\n', 1)
+        assert '唯一完整响应格式' in head
+        assert '"decision":"keep|replace|context|source_issue"' not in head
+        data = json.loads(encoded); calls.append(data)
         assert data['review_contract'] == 'knowledge_content_review_v2'
         assert data['expression_contract'] == CONTRACT
         return json.dumps({'point_reviews': {'S1.1:0': {'decision': decision, 'points': chosen,
