@@ -287,7 +287,7 @@ def expand_scalar(point):
     return expand_wire(wire)
 
 
-def quality_point(point, source_text):
+def quality_point(point, source_text, *, allow_literal_slash=False):
     from knowledge_correction_plan import KnowledgePointValidationError
     from knowledge_compact import source_literal
     require(isinstance(point, dict), '知识点必须是对象')
@@ -299,7 +299,8 @@ def quality_point(point, source_text):
     bindings = [source_literal(s, source_text) for s in options]
     check(all(isinstance(s, str) and s.strip() and len(s) <= 40 and binding for s, binding in zip(options, bindings)),
             '知识主体必须逐字来自当前原文块', code='source_subject')
-    check(not any(re.search(r'[/、]|以及', s) for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
+    check(not any(re.search(r'、|以及' if allow_literal_slash else r'[/、]|以及', s)
+                  for s in options if isinstance(s, str)), '独立操作不能合并为一个知识主体')
     if point.get('form') in {'fact', 'definition'}:
         check(not any(s in {'算法', '策略', '数据结构'} and not re.search(r'(?:^|[。！？；;\n])\s*(?:\*\*)?' + re.escape(s) + r'(?:[（(][^）)]+[）)])?\s*(?:是|指)', source_text) for s in options),
               '知识主体须为当前块的具体方法或结构，不能用算法、策略、数据结构等栏目名代替实际检查对象')
@@ -381,6 +382,8 @@ def quality_point(point, source_text):
         errors.extend(getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}]))
     if errors: raise KnowledgePointValidationError(errors)
     audit['source_subject_bindings'] = bindings
+    if allow_literal_slash and any('/' in subject for subject in options):
+        audit['subject_notation_review'] = [subject for subject in options if '/' in subject]
     if named_cost: audit['operation_literal'] = call.group()
     return result, audit
 
@@ -405,7 +408,7 @@ def compile_extraction(raw, context, keys, index, response):
             if response['response_contract'] == WIRE_CONTRACT: point = expand_wire(point)
             elif response['response_contract'] == CONTRACT: point = expand_scalar(point)
             if response['response_contract'] == QUALITY_CONTRACT:
-                normalized_point, audit = quality_point(point, passages[key]['text'])
+                normalized_point, audit = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract))
             else:
                 normalized_point, audit = build_point(point, subject_options(passages[key]['text'], contract=response['response_contract']))
             audit['schema_version'] = response['response_contract']
@@ -437,4 +440,8 @@ def compile_extraction(raw, context, keys, index, response):
         report['atomicity_checks'] = checks
         report['resolved_review_issues'] = [i for i in report['issues'] if i['code'] == 'compound_review']
         report['issues'] = [i for i in report['issues'] if i['code'] != 'compound_review']
+        report['issues'].extend({'code': 'subject_notation_review', 'severity': 'review',
+            'point_key': point['key'], 'message': '原文术语含斜杠，需核对是否为一个完整对象'}
+            for point in output['tree']['knowledge_points']
+            if point.get('atomic_contract', {}).get('subject_notation_review'))
     return output

@@ -108,7 +108,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         require(isinstance(entry, dict) and isinstance(entry.get('points'), list), '片段结构错误不可按知识点修正')
         for ordinal, point in enumerate(entry['points']):
             try:
-                compiled, _ = quality_point(point, passages[key]['text'])
+                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract))
                 questions.setdefault(normalized(compiled['question']), []).append((key, ordinal, point, normalized(compiled['claim'])))
             except (CourseDocumentConflict, KeyError, TypeError, ValueError) as error:
                 diagnostics = getattr(error, 'diagnostics', [{'code': 'invalid_point', 'message': str(error)}])
@@ -119,8 +119,8 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         group_keys = [f'{key}:{ordinal}' for key, ordinal, _, _ in group]
         duplicate_groups.append(group_keys)
         duplicate_resolutions.append({'target_keys': group_keys,
-            'question': quality_point(group[0][2], passages[group[0][0]]['text'])[0]['question'],
-            'answers': [quality_point(point, passages[key]['text'])[0]['claim'] for key, _, point, _ in group],
+            'question': quality_point(group[0][2], passages[group[0][0]]['text'], allow_literal_slash=bool(expression_contract))[0]['question'],
+            'answers': [quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract))[0]['claim'] for key, _, point, _ in group],
             'allowed_resolutions': ['merge_equivalent', 'different_questions']})
         for key, ordinal, point, _ in group:
             targets[f'{key}:{ordinal}'] = {'point': point, 'passage_key': key,
@@ -269,7 +269,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
                 point['conditions'] = list(dict.fromkeys([*targets[target]['required_conditions'], *point.get('conditions', [])]))
                 require(all(condition in point.get('conditions', []) for condition in targets[target]['required_conditions']),
                         '定点修正丢失了未被诊断为错误的原有前提，不能删除或移至附件')
-                try: quality_point(point, passages[key]['text'])
+                try: quality_point(point, passages[key]['text'], allow_literal_slash=bool(expression_contract))
                 except CourseDocumentConflict as error:
                     point_errors.append({'target_key': target, 'message': str(error),
                         'diagnostics': deepcopy(getattr(error, 'diagnostics', []))})
@@ -294,7 +294,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         for target in group:
             require(bool(resolved[target]['points']), '重复元问题不能通过丢弃有效知识规避：' + target)
             for point in resolved[target]['points']:
-                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'])
+                compiled, _ = quality_point(point, passages[targets[target]['passage_key']]['text'], allow_literal_slash=bool(expression_contract))
                 remaining.setdefault(normalized(compiled['question']), []).append((target, compiled['claim']))
         for question, entries in remaining.items():
             require(len({normalized(claim) for _, claim in entries}) <= 1,

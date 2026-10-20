@@ -21,7 +21,7 @@ async def reconcile(svc, course_id, job_id, provider, raw, context, pipeline, sa
         passages = {p['key']: p for p in passage_catalog(context, batch['source_keys'])}
         for key, entry in response['passages'].items():
             for point in entry['points']:
-                compiled, _ = quality_point(point, passages[key]['text'])
+                compiled, _ = quality_point(point, passages[key]['text'], allow_literal_slash=bool(context.get('expression_contract')))
                 questions.setdefault(normalized(compiled['question']), []).append((index, key, normalized(compiled['claim'])))
     collisions = [group for group in questions.values() if len({v[2] for v in group}) > 1]
     if not collisions: return
