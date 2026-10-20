@@ -42,12 +42,23 @@ def bind_name(name, point, source_text):
             'semantics_verified': False}
 
 
+def symbolic_name(point):
+    value = point.get('value', '')
+    if (point.get('form') == 'fact' and re.search(r'公式|方程', str(point.get('property', '')))
+            and isinstance(value, str) and 2 <= len(value.strip()) <= 200
+            and value.count('=') == 1 and not re.search(r'[\u3400-\u9fff\n\r？?]|[<>!]=', value)
+            and all(part.strip() for part in value.split('='))):
+        return value.strip()
+    return None
+
+
 def bound_name(expression, point, source_text):
     if (not isinstance(expression, dict) or expression.get('contract') != CONTRACT
             or expression.get('semantic_signature') != semantic_signature(point)
             or expression.get('source_signature') != stable_hash(source_text, prefix='ksrc_')):
         raise CourseDocumentConflict('短陈述与完整知识或来源不匹配，需重新核对')
-    return validate_name(expression.get('text'), point)
+    reviewed = validate_name(expression.get('text'), point)
+    return symbolic_name(point) or reviewed
 
 
 def named_traces(names, points, source_text, trace):

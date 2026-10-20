@@ -390,7 +390,7 @@ def quality_point(point, source_text, *, allow_literal_slash=False):
 
 def compile_extraction(raw, context, keys, index, response):
     from knowledge_extract import compile_extraction as compile_legacy
-    from knowledge_expression import check_contract, bound_name
+    from knowledge_expression import check_contract, bound_name, symbolic_name
     expression_contract = check_contract(context.get('expression_contract'))
     require(response.get('_expression_contract') == expression_contract, '短陈述合同与冻结任务不一致或缺失')
     expressions = response.get('_content_review_trace')
@@ -417,6 +417,8 @@ def compile_extraction(raw, context, keys, index, response):
                 expression = expressions[len(audits)].get('expression')
                 normalized_point['name'] = bound_name(expression, point, passages[key]['text'])
                 audit['expression'] = deepcopy(expression)
+                audit['expression']['display_name'] = normalized_point['name']
+                audit['expression']['name_origin'] = 'frozen_formula' if symbolic_name(point) else 'reviewed_statement'
             normalized.append(normalized_point); audits.append(audit)
         entry['points'] = normalized
     output = compile_legacy(raw, context, keys, index, value)
