@@ -7900,6 +7900,7 @@
     "retryAtomicBatch": "Refine this batch again",
     "relationsNotRun": "This run builds the inventory and refines knowledge. Existing relations with valid endpoints are retained; new relations have not been analyzed.",
     "organizeHierarchy": "Organize lecture hierarchy",
+    "equivalenceReview": "Review equivalent knowledge",
     "streamingPreview": "Generating. Completed parts appear as they are saved; review and adopt when finished.",
     "hierarchySaved": "Lecture categories were organized across all batches. Point text and revisions were preserved.",
     "candidateRelationCount": "candidate relations",
