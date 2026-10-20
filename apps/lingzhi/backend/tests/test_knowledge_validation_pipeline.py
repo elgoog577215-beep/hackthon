@@ -42,6 +42,24 @@ def test_completed_batch_formula_projection_preserves_facts_and_original_checkpo
     before = deepcopy(row); qualify_formula_display(row); assert row == before
 
 
+@pytest.mark.parametrize('processing,equivalent,expected', [(PROCESSING,False,'法线：x=a'),
+    (PROCESSING,True,'法线：x=a'), ('knowledge_validation_pipeline_v3',False,'x=a')])
+def test_progress_preview_uses_the_same_display_projection_without_changing_checkpoints(processing, equivalent, expected):
+    from knowledge_atomic import project_preview
+    from knowledge_equivalence import catalog_signature
+    row = {'key':'K1','knowledge_id':'fixed-id','parent_id':'cat','name':'x=a',
+           'atomic_contract':{'subjects':['法线'],'expression':{'name_origin':'frozen_formula','display_name':'x=a'}}}
+    pipeline = {'processing_contract':processing,'batches':[{'status':'completed','tree':{
+        'knowledge_points':[row], 'categories':[{'id':'cat','name':'几何'}]}}]}
+    if equivalent: pipeline['semantic_equivalence'] = {'status':'completed','contract':'knowledge_equivalence_v3',
+        'input_points':[deepcopy(row)], 'input_signature':catalog_signature([row]), 'groups':[]}
+    job = {'id':'preview-job','status':'running','knowledge_pipeline':'inventory_atomic_v1',
+           'checkpoint':{'atomic_pipeline':pipeline}}
+    original = deepcopy(job)
+    assert project_preview(job,'c')['knowledge_points'][0]['name'] == expected
+    assert job == original
+
+
 def context_for(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     raw = svc.repository.load_raw('c-pilot')
