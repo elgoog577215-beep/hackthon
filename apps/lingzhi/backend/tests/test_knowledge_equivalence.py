@@ -198,3 +198,13 @@ def test_concrete_numeric_program_instance_is_not_a_general_rule_but_symbolic_ru
         quality_point(instance, source, general_knowledge=True)
     symbolic = point('幂函数', property='求导公式', value='(x^2)′=2x')
     quality_point(symbolic, '幂函数的求导公式为(x^2)′=2x。', general_knowledge=True)
+
+
+@pytest.mark.asyncio
+async def test_complete_case_description_is_compared_as_a_restatement_not_a_concrete_example(monkeypatch):
+    from knowledge_equivalence import review_equivalence
+    async def call(*args):
+        assert '穷尽' in args[-2] and '单个' in args[-2]
+        return json.dumps({'point_reviews': {p['key']: {'canonical_key': p['key'], 'forward_reason': '独立检查目标', 'reverse_reason': ''} for p in points()}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', call)
+    await review_equivalence(None, 'c', 'j', None, points(), {}, lambda **kw: None, lambda: None)
