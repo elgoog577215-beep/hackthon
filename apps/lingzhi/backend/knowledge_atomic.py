@@ -512,7 +512,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
             structure = response_schema(list(payload['points']), [p['key'] for p in payload['source_passages']])
     elif stage == 'semantic_equivalence':
         payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
-        if payload.get('contract') in {'knowledge_equivalence_v2', 'knowledge_equivalence_v3'}:
+        if payload.get('contract') in {'knowledge_equivalence_v2', 'knowledge_equivalence_v3','knowledge_equivalence_v4'}:
             from knowledge_equivalence import response_schema
             structure = response_schema([p['key'] for p in payload['points']])
     elif stage == 'semantic_equivalence_pairs':
@@ -641,7 +641,7 @@ async def run_atomic(svc, course_id, job_id):
             **({'source_unit_contract':context['source_unit_contract']} if context.get('source_unit_contract') else {}),
             **({'granularity_contract': GRANULARITY_CONTRACT,'correction_contract':'knowledge_correction_plan_v4'} if fast else {}),
             **({'expression_contract': EXPRESSION_CONTRACT} if fast else {}),
-            **({'content_review_contract': 'knowledge_content_review_v3', 'semantic_equivalence_contract': 'knowledge_equivalence_v3'} if fast else {}),
+            **({'content_review_contract': 'knowledge_content_review_v3', 'semantic_equivalence_contract': 'knowledge_equivalence_v4'} if fast else {}),
             'inventory_batches': [{'id': f'inventory-{i}', 'source_keys': keys, 'status': 'pending'} for i, keys in enumerate(extraction_groups(context) if fast else source_groups(context), 1)]}
         if pipeline['prompt_contract'] == 'knowledge_extract_v9':
             context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
@@ -807,8 +807,8 @@ async def run_atomic(svc, course_id, job_id):
             require(not any(i['code'] == 'duplicate_meta_question' for i in assemble(raw, context, pipeline)['atomic_assessment']['issues']),
                     '全讲核对后元问题仍有不同答案，保留诊断与全部批次')
             if pipeline.get('semantic_equivalence_contract'):
-                from knowledge_equivalence import CONTRACT as EQUIVALENCE, PARTITION_CONTRACT, LEGACY_CONTRACT, review_equivalence
-                require(pipeline['semantic_equivalence_contract'] in {EQUIVALENCE, PARTITION_CONTRACT, LEGACY_CONTRACT}, '不支持的等价核对合同')
+                from knowledge_equivalence import CONTRACT as EQUIVALENCE, SCOPED_CONTRACT, PARTITION_CONTRACT, LEGACY_CONTRACT, review_equivalence
+                require(pipeline['semantic_equivalence_contract'] in {SCOPED_CONTRACT,EQUIVALENCE, PARTITION_CONTRACT, LEGACY_CONTRACT}, '不支持的等价核对合同')
                 # Gather the pre-merge catalog even when resuming a completed review.
                 frozen = {k: v for k, v in pipeline.items() if k != 'semantic_equivalence'}
                 points = [p for p in assemble(raw, context, frozen)['knowledge_points']

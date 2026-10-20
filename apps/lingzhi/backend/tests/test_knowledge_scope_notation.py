@@ -38,7 +38,7 @@ async def test_aligned_scopes_still_require_explicit_bidirectional_pair_confirma
     async def call(*args):
         payload=json.loads(args[-2].split('\nINPUT_JSON:\n')[1]);calls.append(payload)
         return json.dumps({'pair_reviews':{key:{'relation':decision,'forward_reason':'同一公式与符号含义' if decision=='restatement' else '不同检查内容',
-            'reverse_reason':'符号说明只是同一速度函数的记号' if decision=='restatement' else ''} for key in payload['pairs']}})
+            'reverse_reason':'符号说明只是同一速度函数的记号' if decision=='restatement' else '反向不能表达另一检查内容'} for key in payload['pairs']}})
     monkeypatch.setattr('knowledge_atomic.call_stage',call)
     groups=await confirm_pairs(None,'c','j',None,points,[],record,lambda **k:None,lambda:None)
     assert len(calls)==1 and len(groups)==(1 if decision=='restatement' else 0)

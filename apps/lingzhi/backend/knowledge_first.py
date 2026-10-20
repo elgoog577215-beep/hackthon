@@ -384,6 +384,10 @@ class KnowledgeFirstService:
                 require(bool(prior), '原任务没有可继续的知识清单')
                 review_only = pipeline == PIPELINE and prior.get('prompt_contract') == 'knowledge_extract_v9'
                 if review_only:
+                    if prior.get('source_unit_contract')=='complete_handout_blocks_v1' and prior.get('semantic_equivalence_contract')=='knowledge_equivalence_v3':
+                        prior['semantic_equivalence_contract']='knowledge_equivalence_v4'
+                        prior['equivalence_protocol_upgrade']={'from':'knowledge_equivalence_v3','to':'knowledge_equivalence_v4','origin_job_id':resume_job_id}
+                        for field in ('semantic_equivalence','hierarchy','relations'):prior.pop(field,None)
                     require(prior.get('correction_contract') in {None,'knowledge_correction_plan_v4'},'未知定点修正协议')
                     if not prior.get('correction_contract'):
                         prior['correction_contract']='knowledge_correction_plan_v4'
