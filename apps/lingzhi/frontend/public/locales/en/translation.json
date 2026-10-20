@@ -8207,7 +8207,8 @@
       "assessment_format": "Practice formats",
       "common_mistakes": "Mistakes to watch for",
       "difficulty_cues": "Difficulty variations"
-    }
+    },
+    "providedPlanNotice": "This version uses a specified knowledge checklist. Regenerating from the same handout reuses it."
   },
   "companionWorkspace": {
     "title": "Lingzhi Companion",

@@ -127,7 +127,7 @@ it.each(['zh', 'en'] as const)('shows coverage and revision-bound teaching draft
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zh : en })))
   await setLocale(locale)
   const v: any = view()
-  v.tree.knowledge_coverage = { unit_count: 1, covered_unit_count: 1, units: [{key:'U1', statement:'势函数将状态映射为实数。'}] }
+  v.tree.knowledge_coverage = { plan_origin:'provided_coverage_plan', unit_count: 1, covered_unit_count: 1, units: [{key:'U1', statement:'势函数将状态映射为实数。'}] }
   Object.assign(v.tree.knowledge_points[0], {
     check_intents: ['独立说明定义'],
     kc_skill_profile: { knowledge_id:'stable-id', knowledge_revision:'stable-rev', basis:'knowledge_draft',
@@ -136,6 +136,7 @@ it.each(['zh', 'en'] as const)('shows coverage and revision-bound teaching draft
   vi.spyOn(http, 'get').mockResolvedValue({ data:v })
   const w = mount(Manager, { props:{courseId:'c', treeOnly:true} }); await flushPromises()
   expect(w.get('[data-testid="knowledge-coverage"]').text()).toContain('1 / 1')
+  expect(w.get('[data-testid="knowledge-provided-plan"]').text()).toContain(locale==='zh'?'指定的知识清单':'specified knowledge checklist')
   await w.get('[data-knowledge-id="stable-id"]').trigger('click')
   const profile=w.get('[data-testid="knowledge-teaching-profile"]')
   expect(profile.text()).toContain(locale==='zh'?'暂无已核验题目样本':'No verified question samples')

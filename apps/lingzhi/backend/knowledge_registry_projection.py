@@ -117,7 +117,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     if frozen_units:
         from knowledge_coverage import coverage_report
         report=coverage_report(frozen_units,points)
-        result['knowledge_coverage']={**report,'units':deepcopy(frozen_units)}
+        result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
         if report['missing_unit_ids'] and not preview:
             result['atomic_assessment']['ready_for_adoption']=False
             result['atomic_assessment']['issues'].append({'code':'knowledge_coverage_gap','severity':'blocking',

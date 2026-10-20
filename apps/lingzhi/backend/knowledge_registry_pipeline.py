@@ -159,29 +159,35 @@ async def run(svc, course_id, job_id):
             provider = AIBase()
         available = sources(context)
         materials=[{'key':key,'text':u['source_text']} for key,u in available.items()]
-        plan=pipeline.setdefault('coverage_plan',{})
-        if 'units' not in plan:
-            plan['units']=await request(plan_prompt(raw,context,materials,pipeline['teaching_focus']),
-                'coverage_plan',plan,lambda value:parse_plan(value,pipeline['teaching_focus']))
-            save()
-        review=pipeline.setdefault('coverage_review',{})
-        if 'units' not in review:
-            review['units']=await request(review_prompt(plan['units'],materials,pipeline['teaching_focus']),
-                'coverage_review',review,lambda value:apply_review(value,plan['units'],pipeline['teaching_focus']))
-            save()
-        if 'frozen_units' not in pipeline:
-            if pipeline['teaching_focus']:
-                reviews=pipeline.setdefault('focus_reviews',[{'id':f'focus-{i+1}','focus':focus,'status':'pending'} for i,focus in enumerate(pipeline['teaching_focus'])])
-                async def review_focus(index,batch):
-                    batch['result']=await request(focus_prompt(batch['focus'],review['units'],materials),'coverage_focus',
-                        batch.setdefault('request',{}),lambda value:parse_focus(value,batch['focus'],review['units']))
-                    batch['status']='completed'
-                    save()
-                await run_batches(reviews,review_focus,width=3,stage='coverage_focus')
-                pipeline['frozen_units']=combine_focus(review['units'],reviews,pipeline['teaching_focus'])
-            else:
-                pipeline['frozen_units']=deepcopy(review['units'])
-            save()
+        if job.get('coverage_units'):
+            if 'frozen_units' not in pipeline:
+                pipeline['frozen_units']=parse_plan({'units':job['coverage_units']},pipeline['teaching_focus'])
+                pipeline['plan_origin']='provided_coverage_plan'
+                save()
+        else:
+            plan=pipeline.setdefault('coverage_plan',{})
+            if 'units' not in plan:
+                plan['units']=await request(plan_prompt(raw,context,materials,pipeline['teaching_focus']),
+                    'coverage_plan',plan,lambda value:parse_plan(value,pipeline['teaching_focus']))
+                save()
+            review=pipeline.setdefault('coverage_review',{})
+            if 'units' not in review:
+                review['units']=await request(review_prompt(plan['units'],materials,pipeline['teaching_focus']),
+                    'coverage_review',review,lambda value:apply_review(value,plan['units'],pipeline['teaching_focus']))
+                save()
+            if 'frozen_units' not in pipeline:
+                if pipeline['teaching_focus']:
+                    reviews=pipeline.setdefault('focus_reviews',[{'id':f'focus-{i+1}','focus':focus,'status':'pending'} for i,focus in enumerate(pipeline['teaching_focus'])])
+                    async def review_focus(index,batch):
+                        batch['result']=await request(focus_prompt(batch['focus'],review['units'],materials),'coverage_focus',
+                            batch.setdefault('request',{}),lambda value:parse_focus(value,batch['focus'],review['units']))
+                        batch['status']='completed'
+                        save()
+                    await run_batches(reviews,review_focus,width=3,stage='coverage_focus')
+                    pipeline['frozen_units']=combine_focus(review['units'],reviews,pipeline['teaching_focus'])
+                else:
+                    pipeline['frozen_units']=deepcopy(review['units'])
+                save()
         if not pipeline['inventory_batches']:
             units=pipeline['frozen_units']
             pipeline['inventory_batches']=[{'id':f'inventory-{i//6+1}',

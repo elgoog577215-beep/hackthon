@@ -107,10 +107,6 @@ def apply_decisions(candidates, catalog, decisions):
 
     def bind(point, key, decision):
         original = by_key[key]
-        units=original.get('coverage_unit_ids',[])
-        target_units=point.get('coverage_unit_ids',[])
-        if units and target_units and set(units)!=set(target_units):
-            raise ValueError(key+'：不同独立知识清单项不能按主题合并')
         for field in ('coverage_unit_ids','check_intents'):
             if field in original:
                 point[field]=list(dict.fromkeys([*point.get(field,[]),*original[field]]))

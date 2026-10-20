@@ -113,6 +113,7 @@
           <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
             <summary>{{ t('knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
             <p>{{ t('knowledgeFirst.coverageHint') }}</p>
+            <p v-if="displayTree.knowledge_coverage.plan_origin === 'provided_coverage_plan'" data-testid="knowledge-provided-plan">{{ t('knowledgeFirst.providedPlanNotice') }}</p>
             <ul><li v-for="unit in displayTree.knowledge_coverage.units" :key="unit.key"><MathText :content="unit.statement" /></li></ul>
           </details>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">

@@ -8207,7 +8207,8 @@
       "assessment_format": "练习方式",
       "common_mistakes": "需要留意的错误",
       "difficulty_cues": "难度变化"
-    }
+    },
+    "providedPlanNotice": "本版按指定的知识清单生成；相同讲义再次生成时会沿用该清单。"
   },
   "companionWorkspace": {
     "title": "灵知学伴",

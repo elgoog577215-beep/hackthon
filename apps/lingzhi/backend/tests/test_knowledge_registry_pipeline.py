@@ -71,7 +71,8 @@ def test_uncertain_is_a_visible_candidate_and_merge_cycles_are_rejected():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('full',[False,True])
 @pytest.mark.parametrize('teaching',[False,True])
-async def test_default_flow_never_calls_legacy_source_repair_and_preserves_course(svc,monkeypatch,full,teaching):
+@pytest.mark.parametrize('provided',[False,True])
+async def test_default_flow_never_calls_legacy_source_repair_and_preserves_course(svc,monkeypatch,full,teaching,provided):
     setup_course(svc,monkeypatch)
     raw=deepcopy(svc.repository.load_raw('c-pilot'));calls=[]
     async def call(prompt,**kwargs):
@@ -100,16 +101,17 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     view=svc.view('c-pilot',source_mode='handouts')
     job,_=svc.start('c-pilot','tree','registry-new',view['knowledge_revision'],view['document_revision'],
         source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',
-        extraction_mode='single_pass_v1',organize_hierarchy=full,include_relations=full,teaching_focus=['线性法则'] if teaching else [])
+        extraction_mode='single_pass_v1',organize_hierarchy=full,include_relations=full,teaching_focus=['线性法则'] if teaching else [],coverage_units=[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'线性法则' if teaching else '','check_intent':'独立描述入栈'}] if provided else [])
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==['coverage_plan','coverage_review']+(['coverage_focus'] if teaching else [])+['coverage_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
+    assert [p['stage'] for p in calls]==([] if provided else ['coverage_plan','coverage_review']+(['coverage_focus'] if teaching else []))+['coverage_extract','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
     if full:
         assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
     assert tree['knowledge_points'][0]['statement']==claim()['statement']
     assert tree['knowledge_coverage']['missing_unit_ids']==[]
+    assert tree['knowledge_coverage']['plan_origin']==('provided_coverage_plan' if provided else 'model_planned')
     if teaching:
         profile=tree['knowledge_points'][0]['kc_skill_profile']
         assert profile['knowledge_revision']==tree['knowledge_points'][0]['revision_id']
@@ -311,3 +313,25 @@ def test_relation_review_can_include_other_valid_catalog_points_without_retry():
     assert compile_edges({'reviews':{'K1':'无需额外关系','K2':'额外有效说明'},'edges':[]},tree,['K1'],'L1')==[]
     with pytest.raises(ValueError):compile_edges({'reviews':{'K2':'遗漏焦点'},'edges':[]},tree,['K1'],'L1')
     with pytest.raises(ValueError):compile_edges({'reviews':{'K1':'说明','UNKNOWN':'未知ID'},'edges':[]},tree,['K1'],'L1')
+
+
+def test_supplied_plan_inherits_only_with_same_material_version(svc,monkeypatch):
+    setup_course(svc,monkeypatch)
+    view=svc.view('c-pilot',source_mode='handouts')
+    units=[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'','check_intent':'独立描述入栈'}]
+    def start(rid,**kw):return svc.start('c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',**kw)[0]
+    first=start('supplied',coverage_units=units);svc.authoring.update_job('c-pilot',first['id'],status='completed')
+    inherited=start('inherited');assert inherited['coverage_units']==units
+    svc.authoring.update_job('c-pilot',inherited['id'],status='cancelled')
+    cleared=start('cleared',coverage_units=[]);assert cleared['coverage_units']==[]
+    svc.authoring.update_job('c-pilot',cleared['id'],status='completed')
+    after_clear=start('after-clear');assert after_clear['coverage_units']==[]
+    svc.authoring.update_job('c-pilot',after_clear['id'],status='cancelled')
+    provided_again=start('provided-again',coverage_units=units)
+    svc.authoring.update_job('c-pilot',provided_again['id'],status='completed')
+    original=svc._context
+    def changed(*args,**kwargs):
+        context=deepcopy(original(*args,**kwargs));context['evidence_package']['package_revision_id']='new-materials';return context
+    monkeypatch.setattr(svc,'_context',changed)
+    fresh=start('new-materials');assert fresh['coverage_units']==[]
+    assert svc.authoring.get_job('c-pilot',first['id'])['coverage_units']==units

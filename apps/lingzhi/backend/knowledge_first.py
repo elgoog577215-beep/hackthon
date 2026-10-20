@@ -331,7 +331,7 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
@@ -354,6 +354,7 @@ class KnowledgeFirstService:
             require(topic == "tree" or (raw.get("course_knowledge_base") or {}).get("status") == "accepted", "当前知识树尚未采用")
             state = self.authoring.load(course_id)
             existing_jobs = state["jobs"]
+            previous=None
             if teaching_focus is None:
                 previous=existing_jobs.get(resume_job_id) if resume_job_id else next((j for j in existing_jobs.values()
                     if j.get('request_id')==request_id and j.get('knowledge_lesson_id')==lesson_id),None)
@@ -364,12 +365,29 @@ class KnowledgeFirstService:
             require(isinstance(teaching_focus,list) and len(teaching_focus)<=8
                 and all(isinstance(s,str) and s.strip() and len(s)<=80 for s in teaching_focus)
                 and len(set(teaching_focus))==len(teaching_focus),'教学档案分支无效')
+            plan_origin=None
+            if coverage_units is None:
+                plan_origin=existing_jobs.get(resume_job_id) if resume_job_id else next((j for j in existing_jobs.values()
+                    if j.get('request_id')==request_id and j.get('knowledge_lesson_id')==lesson_id),None)
+                if plan_origin is None:
+                    plan_origin=next((j for j in reversed(list(existing_jobs.values()))
+                        if j.get('knowledge_lesson_id')==lesson_id and j.get('status')=='completed' and 'coverage_units' in j),None)
+                coverage_units=deepcopy((plan_origin or {}).get('coverage_units',[]))
+                if not resume_job_id:
+                    for unit in coverage_units:
+                        if unit.get('profile_focus') not in teaching_focus:
+                            unit['profile_focus']=''
+            require(isinstance(coverage_units,list),'知识清单必须为列表')
+            if coverage_units:
+                from knowledge_coverage import parse_plan
+                coverage_units=[{k:v for k,v in u.items() if k!='key'} for u in parse_plan({'units':coverage_units},teaching_focus)]
             if resume_job_id:
                 extraction_mode = (existing_jobs.get(resume_job_id) or {}).get('extraction_mode', '')
                 include_relations = bool((existing_jobs.get(resume_job_id) or {}).get('include_relations', False))
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(duplicate.get('coverage_units',[])==coverage_units,'请求标识对应不同知识清单')
                 require(duplicate.get('teaching_focus',[])==teaching_focus,'请求标识对应不同教学档案分支')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
                 require(pipeline != PIPELINE or duplicate.get('extraction_mode', '') == extraction_mode, '请求标识对应不同提取模式')
@@ -379,6 +397,9 @@ class KnowledgeFirstService:
                 return duplicate, False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
+            if coverage_units and plan_origin and not resume_job_id and plan_origin.get('source_evidence_package_revision')!=context['evidence_package']['package_revision_id']:
+                # A new source version needs a fresh plan; keep the old plan in its historical job.
+                coverage_units=[]
             if pipeline == RELATIONS:
                 validate_baseline(raw.get('course_knowledge_base') or {}, lesson_id)
             continued_checkpoint = None
@@ -395,6 +416,7 @@ class KnowledgeFirstService:
                     and original.get('source_knowledge_revision') == expected_revision, '课程或知识版本已变化，不能继续旧任务')
                 prior = (original.get('checkpoint') or {}).get('atomic_pipeline') or {}
                 if prior.get('generation_contract') == REGISTRY:
+                    require(original.get('coverage_units',[])==coverage_units,'继续任务不能更换冻结知识清单')
                     require(original.get('teaching_focus',[])==teaching_focus,'继续任务不能更换已冻结教学档案分支')
                     require(original.get('status') != 'completed' or bool(retry_batch_id), '已完成任务请指定重做范围')
                     continued_checkpoint = continued_pipeline(original['checkpoint'], retry_batch_id)
@@ -545,7 +567,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
-                    **({'generation_contract': 'knowledge_registry_v2','teaching_focus':teaching_focus} if registry_mode else {}),
+                    **({'generation_contract': 'knowledge_registry_v2','teaching_focus':teaching_focus,'coverage_units':coverage_units,'coverage_plan_origin_job_id':plan_origin.get('id') if plan_origin and coverage_units else None} if registry_mode else {}),
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
                     include_relations=include_relations if pipeline == PIPELINE else False,

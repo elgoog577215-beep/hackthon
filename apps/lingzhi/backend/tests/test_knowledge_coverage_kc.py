@@ -28,9 +28,9 @@ def test_distinct_learning_units_cannot_be_lost_by_equivalence_flags():
     from knowledge_registry_identity import apply_decisions
     rows=[{**point(text),'key':key,'input_material_keys':['S1'],'coverage_unit_ids':[uid]}
           for text,key,uid in [('常数导数为0','P1','U1'),('常数倍求导保持系数','P2','U2')]]
-    with pytest.raises(ValueError,match='独立知识'):
+    with pytest.raises(ValueError,match='命题、范围'):
         apply_decisions(rows,[],{'P1':{'action':'keep','reason':'保留'},
-            'P2':{'action':'match','target':'P1','same_claim':True,'same_scope':True,'same_symbols':True,'reason':'都是线性'}})
+            'P2':{'action':'match','target':'P1','same_claim':False,'same_scope':True,'same_symbols':True,'reason':'都是线性但不同知识'}})
     kept=apply_decisions(rows,[],{key:{'action':'keep','reason':'独立'} for key in ['P1','P2']})
     assert [p['coverage_unit_ids'] for p in kept['points']]==[['U1'],['U2']]
 
@@ -143,3 +143,10 @@ def test_focus_can_carry_an_existing_unassigned_unit_without_duplicating_it():
     result=parse_focus(value,'线性法则',units)
     assert result['replaced_existing']==['U1']
     assert len(combine_focus(units,[{'focus':'线性法则','result':result}],['线性法则']))==2
+
+
+def test_true_synonyms_from_different_units_merge_without_losing_coverage():
+    from knowledge_registry_identity import apply_decisions
+    rows=[{**point(),'key':key,'input_material_keys':['S1'],'coverage_unit_ids':[uid]} for key,uid in [('P1','U1'),('P2','U2')]]
+    result=apply_decisions(rows,[],{'P1':{'action':'keep','reason':'完整知识'},'P2':{'action':'match','target':'P1','same_claim':True,'same_scope':True,'same_symbols':True,'reason':'同一常数求导规则'}})
+    assert len(result['points'])==1 and result['points'][0]['coverage_unit_ids']==['U1','U2']
