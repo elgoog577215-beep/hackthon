@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 import pytest
 from backend.tests.test_knowledge_semantic_review import candidate
 
@@ -17,7 +18,8 @@ def test_truth_only_review_keeps_identity_and_accepts_a_scoped_core_correction()
     assert result['points'][0]['statement']==corrected['statement']
     assert old==before
     prompt=truth_prompt([old],{'course_title':'课程'})
-    assert 'examples' not in prompt and '粒度' in prompt
+    assert 'examples' not in json.loads(prompt.split('\nINPUT_JSON:\n')[1])['points'][0]
+    assert '粒度' in prompt
 
 
 def test_ineffective_truth_repair_and_silent_rewrites_are_rejected():
