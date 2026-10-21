@@ -20,6 +20,24 @@ def handouts(svc):
     svc.authoring._save(state)
 
 
+def test_shared_tree_does_not_expose_generation_audits_or_private_check_origins():
+    from handout_knowledge import visible_handout_tree
+    tree={'knowledge_points':[{'knowledge_id':'k','parent_id':'g','section_refs':['L'],'source_refs':['s'],
+        'source_quotes':[{'handout_ref':{'lesson_id':'L','script_revision_id':'r','block_id':'b'}}],
+        'check_intents':['可公开的检查表现'],'check_records':[{'original':'教师未发布候选'}],
+        'semantic_review':{'private':'生成过程'},'truth_review':{'private':'生成过程'},
+        'identity_members':[{'private':'候选'}],'identity_decisions':[{'private':'身份审阅'}]}],
+        'categories':[{'id':'g','parent_id':None}],'concept_groups':[{'id':'g'}],
+        'relations':[],'lessons':[{'topic':'L','knowledge_ids':['k']}],
+        'sources':[{'evidence_id':'s'}],'source_handouts':[{'lesson_id':'L'}],
+        'knowledge_coverage':{'non_knowledge_records':[{'private':'教师候选'}]},'content_review_summary':{'private':'生成过程'}}
+    shown=visible_handout_tree(tree,{'blocks':[{'block_id':'b'}]},{'L':{'revision_id':'r'}})
+    assert 'knowledge_coverage' not in shown and 'content_review_summary' not in shown
+    point=shown['knowledge_points'][0]
+    assert point['check_intents']==['可公开的检查表现']
+    assert all(key not in point for key in ('check_records','semantic_review','truth_review','identity_members','identity_decisions'))
+
+
 def answer():
     value = response()
     value['points'][1]['sources'][0]['key'] = 'S2'
