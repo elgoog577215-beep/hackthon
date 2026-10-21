@@ -221,3 +221,7 @@ async def test_pipeline_places_a_rule_application_check_before_identity(svc,monk
     tree=out['checkpoint']['candidate']
     assert len(tree['knowledge_points'])==1 and len(tree['knowledge_points'][0]['check_records'])==1
     assert stages.index('candidate_check_placement')<stages.index('identity_review')
+    svc.adopt('c-pilot',job['id'],v['knowledge_revision'],v['document_revision'])
+    saved=svc.repository.load_raw('c-pilot')['course_knowledge_base']
+    assert len(saved['knowledge_points'])==1
+    assert saved['knowledge_points'][0]['check_records'][0]['knowledge_id']==saved['knowledge_points'][0]['knowledge_id']
