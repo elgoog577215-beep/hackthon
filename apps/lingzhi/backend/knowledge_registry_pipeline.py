@@ -43,7 +43,7 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch.pop('request', None)
             batch.pop('discovery_points', None)
             batch.pop('atomization_batches', None)
-        for key in ('registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
+        for key in ('semantic_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
         pipeline.pop('kc_profiles',None)
     return result
@@ -93,6 +93,9 @@ async def run(svc, course_id, job_id):
                 groups=batch.get('atomization_batches',[])
                 done+=0.25+0.75*sum(g['status']=='completed' for g in groups)/max(len(groups),1)
         progress=int(55*done/len(batches)) if batches else 0
+        reviews = pipeline.get('semantic_review', {}).get('batches', [])
+        if reviews:
+            progress = 55 + int(15 * sum(b['status']=='completed' for b in reviews) / len(reviews))
         if pipeline.get('registry'):
             progress = 70
         if pipeline.get('names', {}).get('status') == 'completed':
@@ -224,11 +227,27 @@ async def run(svc, course_id, job_id):
         await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
         candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
+        from knowledge_semantic_review import review_prompt, compile_reviews
+        review = pipeline.setdefault('semantic_review', {'batches': [
+            {'id':f'content-{i//4+1}', 'keys':[p['key'] for p in candidates[i:i+4]], 'status':'pending'}
+            for i in range(0,len(candidates),4)]})
+        async def review_batch(index, batch):
+            originals = [p for p in candidates if p['key'] in batch['keys']]
+            batch['result'] = await request(review_prompt(originals), 'candidate_semantic_review',
+                batch.setdefault('request', {}), lambda value: compile_reviews(value, originals))
+            batch['status'] = 'completed'
+            save()
+        await run_batches(review['batches'], review_batch, width=3, stage='candidate_semantic_review')
+        review['status'] = 'completed'
+        candidates = [p for b in review['batches'] for p in b['result']['points']]
+        require(bool(candidates) and len(candidates) <= 240, '内容核对后没有可保存知识或超过预算')
         if not pipeline.get('registry'):
             def resolve(value):
                 if not isinstance(value, dict) or set(value) != {'decisions'}:
                     raise ValueError('统一核对只返回decisions')
-                return apply_decisions(candidates, pipeline['catalog'], value['decisions'])
+                result = apply_decisions(candidates, pipeline['catalog'], value['decisions'])
+                result['issues'].extend(issue for b in review['batches'] for issue in b['result']['issues'])
+                return result
             pipeline['registry'] = await request(identity_prompt(candidates, pipeline['catalog']), 'identity_review',
                 pipeline.setdefault('identity_review', {}), resolve)
             save()

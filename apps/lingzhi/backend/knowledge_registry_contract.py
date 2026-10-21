@@ -5,7 +5,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-CONTRACT = 'knowledge_registry_v3'
+CONTRACT = 'knowledge_registry_v4'
 FIELDS = ('statement', 'knowledge_type', 'conditions', 'symbol_definitions', 'teaching_context', 'examples')
 
 def parse_json(response):
@@ -85,6 +85,21 @@ def parse_candidates(value, batch_key, material_keys):
 
 
 def identity_prompt(candidates, catalog):
+    locked = bool(candidates) and all(p.get('semantic_review') for p in candidates)
+    if locked:
+        return render(
+            '仅核对已完成内容核对的知识身份，不再修改、拆分或删除正文，不判断例题去向。'
+            '只允许keep保留、match明确匹配、uncertain保留待确认；禁止replace/context/covered。'
+            '对象、完整结论、适用范围和符号含义全部相同才允许match，名称和同属一个主题不能作为等价依据。'
+            '独立结论不能因一起使用而合并。共享semantic_review.independence_group的不同子结论不得重新合并。'
+            'match仅指向本轮keep目标或冻结已有目录E键，禁止链、环或待确认目标。'
+            'match必须声明same_claim、same_scope、same_symbols均为true，并用reason解释完整知识等价。'
+            '不能确认时用uncertain。每个候选key恰好处理一次。'
+            '输出{"decisions":{"候选key":{"action":"keep","reason":"身份依据"}}}；'
+            'keep/uncertain只含action,reason；match只含action,target,same_claim,same_scope,same_symbols,reason。',
+            {'stage':'identity_review','contract':CONTRACT,'allowed_actions':['keep','match','uncertain'],
+             'candidates':[{k:p.get(k) for k in ('key',*FIELDS,'coverage_unit_ids','semantic_review')} for p in candidates],
+             'existing_knowledge':[{k:p.get(k) for k in ('key','name',*FIELDS)} for p in catalog]})
     return render(
         '统一核对本讲候选的完整知识和身份。对象、结论、公式含义与真实适用条件相同才是同一知识。'
         '符号说明的同义表述不是适用范围差异；平均与瞬时、必要与充分、不同物理方向或范围必须区分。'

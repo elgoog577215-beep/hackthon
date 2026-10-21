@@ -59,7 +59,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         for field in ('symbol_definitions', 'teaching_context', 'examples'):
             if not old or field in old:
                 point[field] = deepcopy(candidate.get(field, []))
-        for field in ('coverage_unit_ids','profile_focus','check_intents'):
+        for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review'):
             if field in candidate:
                 point[field]=deepcopy(candidate[field])
         point['source_quotes'] = material_records(context, candidate['input_material_keys'])
@@ -116,8 +116,17 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     frozen_units=pipeline.get('frozen_units',pipeline.get('coverage_review',pipeline.get('coverage_plan',{})).get('units',[]))
     if frozen_units:
         from knowledge_coverage import coverage_report
-        report=coverage_report(frozen_units,points)
+        review_batches = pipeline.get('semantic_review', {}).get('batches', [])
+        resolutions = [r for b in review_batches if b.get('status')=='completed' for r in b['result']['resolutions']]
+        report=coverage_report(frozen_units,points,resolutions if review_batches else None)
         result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
+        if review_batches:
+            records = [r for b in review_batches if b.get('status')=='completed' for r in b['result']['reviews']]
+            result['content_review_summary'] = {'contract':'knowledge_semantic_review_v1',
+                'reviewed_count':len(records), 'non_knowledge_count':len(resolutions),
+                'split_count':sum(len(r['conclusions'])>1 for r in records),
+                'refuted_count':sum(r['challenge']['result']=='refuted' for r in records),
+                'semantics_verified':False}
         if report['missing_unit_ids'] and not preview:
             result['atomic_assessment']['ready_for_adoption']=False
             result['atomic_assessment']['issues'].append({'code':'knowledge_coverage_gap','severity':'blocking',

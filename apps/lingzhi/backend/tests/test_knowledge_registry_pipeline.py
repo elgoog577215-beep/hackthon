@@ -23,6 +23,14 @@ def atomic_reply(payload):
         'points':[{k:v for k,v in p.items() if k in {'statement','knowledge_type','conditions','check_intents'}}]} for p in payload['candidates']}})
 
 
+def semantic_reply(payload):
+    from knowledge_registry_contract import FIELDS
+    return json.dumps({'reviews':{p['key']:{'disposition':'knowledge','reason':'一条完整结论',
+        'challenge':{'case':'改变栈中已有元素的数量','result':'consistent','explanation':'入栈位置仍为栈顶'},
+        'conclusions':[{**{k:p[k] for k in FIELDS},'check':p.get('check_intents',['解释知识'])[0]}]}
+        for p in payload['points']}})
+
+
 def test_extraction_accepts_paraphrase_without_source_binding():
     from knowledge_registry_contract import parse_candidates, extraction_prompt
     context={'scope_lesson_id':'L1', 'evidence_package':{'units':[]}}
@@ -88,6 +96,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload)
         if payload['stage']=='knowledge_discovery':return discovery_reply(payload)
         if payload['stage']=='knowledge_atomize':return atomic_reply(payload)
+        if payload['stage']=='candidate_semantic_review':return semantic_reply(payload)
         if payload['stage']=='coverage_extract':
             return json.dumps({'points':{u['key']:[claim()] for u in payload['units']}})
         if payload['stage']=='identity_review':
@@ -111,7 +120,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==(['coverage_extract'] if provided else ['knowledge_discovery','knowledge_atomize'])+['identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
+    assert [p['stage'] for p in calls]==(['coverage_extract'] if provided else ['knowledge_discovery','knowledge_atomize'])+['candidate_semantic_review','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
     if full:
         assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
@@ -181,6 +190,7 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload['stage'])
         if payload['stage']=='knowledge_discovery':return discovery_reply(payload)
         if payload['stage']=='knowledge_atomize':return atomic_reply(payload)
+        if payload['stage']=='candidate_semantic_review':return semantic_reply(payload)
         if payload['stage']=='coverage_extract':return json.dumps({'points':{u['key']:[claim()] for u in payload['units']}})
         if payload['stage']=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整'} for p in payload['candidates']}})
         if payload['stage']=='candidate_names':
@@ -197,7 +207,7 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
     assert before['status']=='failed'
     from knowledge_atomic import project_preview
     assert project_preview(before,'c-pilot')['knowledge_points']
-    assert calls==['knowledge_discovery','knowledge_atomize','identity_review','candidate_names','candidate_names']
+    assert calls==['knowledge_discovery','knowledge_atomize','candidate_semantic_review','identity_review','candidate_names','candidate_names']
     broken=False;calls.clear()
     resumed=start('second',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     assert svc.authoring.get_job('c-pilot',resumed['id'])['status']=='completed'
@@ -285,6 +295,7 @@ async def test_profile_failure_resumes_only_profile_and_keeps_frozen_identity(sv
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=payload['stage'];calls.append(stage)
         if stage=='knowledge_discovery':return discovery_reply(payload)
         if stage=='knowledge_atomize':return atomic_reply(payload)
+        if stage=='candidate_semantic_review':return semantic_reply(payload)
         if stage=='coverage_extract':return json.dumps({'points':{'U1':[claim()]}})
         if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整'} for p in payload['candidates']}})
         if stage=='candidate_names':return json.dumps({'names':{p['key']:{'name':'压栈把新元素放到栈顶','meta_question':'描述压栈'} for p in payload['points']}})
@@ -352,6 +363,7 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
             value=json.loads(atomic_reply(payload));key=payload['candidates'][0]['key']
             if broken and key.endswith('P2'):value['items'][key]['points']=[]
             return json.dumps(value)
+        if stage=='candidate_semantic_review':return semantic_reply(payload)
         if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'独立'} for p in payload['candidates']}})
         if stage=='candidate_names':return json.dumps({'names':{p['key']:{'name':p['statement'],'meta_question':'解释该规则'} for p in payload['points']}})
         raise AssertionError(stage)
@@ -363,6 +375,6 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
     assert batch['atomization_batches'][0]['status']=='completed'
     broken=False;calls.clear();resumed=start('resume-single',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     out=svc.authoring.get_job('c-pilot',resumed['id']);assert out['status']=='completed',out.get('error')
-    assert calls==['knowledge_atomize','identity_review','candidate_names']
+    assert calls==['knowledge_atomize','candidate_semantic_review','identity_review','candidate_names']
     assert out['checkpoint']['atomic_pipeline']['inventory_batches'][0]['atomization_batches'][0]==batch['atomization_batches'][0]
     assert svc.authoring.get_job('c-pilot',job['id'])==old

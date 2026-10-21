@@ -564,7 +564,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
-                    **({'generation_contract': 'knowledge_registry_v3','teaching_focus':teaching_focus,'coverage_units':coverage_units,'coverage_plan_origin_job_id':plan_origin.get('id') if plan_origin and coverage_units else None} if registry_mode else {}),
+                    **({'generation_contract': 'knowledge_registry_v4','teaching_focus':teaching_focus,'coverage_units':coverage_units,'coverage_plan_origin_job_id':plan_origin.get('id') if plan_origin and coverage_units else None} if registry_mode else {}),
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
                     include_relations=include_relations if pipeline == PIPELINE else False,
@@ -582,7 +582,7 @@ class KnowledgeFirstService:
             from knowledge_relation_generation import run
             return await run(self,course_id,job_id)
         if pipeline:
-            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3'}:
+            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4'}:
                 from knowledge_registry_pipeline import run
                 return await run(self, course_id, job_id)
             from knowledge_atomic import run_atomic
