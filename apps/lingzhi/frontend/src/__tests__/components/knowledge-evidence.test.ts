@@ -193,3 +193,18 @@ it.each(['zh','en'] as const)('labels automatic discovery honestly in %s',async 
   expect(w.find('[data-testid="knowledge-provided-plan"]').exists()).toBe(false)
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
+
+it.each(['zh','en'] as const)('accounts for examples without presenting them as knowledge leaves in %s',async locale=>{
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>locale==='zh'?zh:en})));await setLocale(locale)
+  const v:any=view();v.tree.knowledge_coverage={plan_origin:'material_discovery',unit_count:2,covered_unit_count:1,
+    accounted_unit_count:2,non_knowledge_unit_count:1,units:[],non_knowledge_records:[{
+      candidate_key:'sample',disposition:'example',reason:'只是具体代入，不是新的规律',original:{statement:'数值代入得到12'}}]}
+  v.tree.atomic_assessment={ready_for_adoption:false,issues:[{severity:'blocking',message:'仍需核对一条知识'}]}
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-coverage"] summary').text()).toContain('2 / 2')
+  expect(w.get('[data-testid="knowledge-nonknowledge-count"]').text()).toContain(locale==='zh'?'不计入知识叶子':'not knowledge leaves')
+  expect(w.get('[data-testid="knowledge-nonknowledge-records"]').text()).toContain('数值代入得到12')
+  expect(w.findAll('[data-knowledge-id]').length).toBe(1)
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
