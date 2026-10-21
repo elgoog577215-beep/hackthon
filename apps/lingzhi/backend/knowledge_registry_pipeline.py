@@ -33,6 +33,9 @@ def continued_pipeline(checkpoint, retry_batch_id):
         pipeline.pop('hierarchy', None)
     elif retry_batch_id == 'relations':
         pipeline.pop('registry_relations', None)
+    elif retry_batch_id == 'content':
+        for key in ('semantic_review','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
+            pipeline.pop(key,None)
     elif retry_batch_id:
         selected = pipeline['inventory_batches'] if retry_batch_id == 'all_atoms' else [
             b for i, b in enumerate(pipeline['inventory_batches'], 1) if retry_batch_id in {b['id'], f'atoms-{i}'}]
@@ -227,8 +230,8 @@ async def run(svc, course_id, job_id):
         await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
         candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
-        from knowledge_semantic_review import review_prompt, compile_reviews
-        review = pipeline.setdefault('semantic_review', {'batches': [
+        from knowledge_semantic_review import review_prompt, compile_reviews, CONTRACT as REVIEW_CONTRACT
+        review = pipeline.setdefault('semantic_review', {'contract': REVIEW_CONTRACT, 'batches': [
             {'id':f'content-{i//4+1}', 'keys':[p['key'] for p in candidates[i:i+4]], 'status':'pending'}
             for i in range(0,len(candidates),4)]})
         async def review_batch(index, batch):

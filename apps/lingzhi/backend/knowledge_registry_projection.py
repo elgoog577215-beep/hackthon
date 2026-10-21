@@ -122,7 +122,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
         if review_batches:
             records = [r for b in review_batches if b.get('status')=='completed' for r in b['result']['reviews']]
-            result['content_review_summary'] = {'contract':'knowledge_semantic_review_v1',
+            result['content_review_summary'] = {'contract':pipeline['semantic_review'].get('contract','knowledge_semantic_review_v1'),
                 'reviewed_count':len(records), 'non_knowledge_count':len(resolutions),
                 'split_count':sum(len(r['conclusions'])>1 for r in records),
                 'refuted_count':sum(r['challenge']['result']=='refuted' for r in records),

@@ -7,12 +7,14 @@ from copy import deepcopy
 
 from knowledge_registry_contract import FIELDS, render, validate_point
 
-CONTRACT = 'knowledge_semantic_review_v1'
+CONTRACT = 'knowledge_semantic_review_v2'
+ROLES = {'definition','relation','representation','operation','method','comparison'}
 
 
 def review_prompt(points):
     return render(
         '核对这些候选的知识正确性和独立结论，不做去重、不写名称。不要沿用前一步对粒度或正确性的自评。'
+        'reason只写一句简短结论，最多400字符；不要输出讨论、取舍或推敲过程。'
         '先尝试构造满足前提但不满足结论的反例，检查量词、指定位置、边界、定义域、必要与充分及符号含义。'
         'challenge描述实际检验的具体情形、结果和理由，不以“已核对”“符合教材”代替检验。'
         '若找到反例，result=refuted，随后在conclusions给出准确修正，不能原样保留已被推翻的结论。'
@@ -23,7 +25,9 @@ def review_prompt(points):
         '例如T(αu+βv)保持加法与保持数乘是两个独立性质，应分别表达；只改变加减号不能替代不同基础性质的拆分。'
         '对象定义、量之间的关系、对象的表示方程分别列出；合写多个独立运算性质时分别表达。'
         '能会一个结论而不会另一个结论，即使两者常常连用，也不能留在一个条目。'
-        '同一规律的因子、符号、必要条件、换记号和具体代入不能拆成新知识；完整联合定义或不可分的规律保持完整。'
+        '同一规律的因子、符号、必要条件、换记号和具体代入不能拆成新知识；只表示同一个输出量的完整公式保持完整。'
+        '每条conclusion必须标一个role：definition对象定义，relation量之间的关系，representation对象的表示，operation单种运算保持性质，method通用步骤，comparison辨析。'
+        '一个结论只占一种角色。若同时给出量的关系和对象的表示，分别列出；若包含两种运算保持性质，分别列operation条目。'
         '每条保留自己的适用条件，符号说明、例子及教学情境分别处理，不能继承不适用的例子或结论。'
         '修正须回答原来的知识问题，保留对象、学科领域、版本与研究情境。只能按必要条件收窄，不能换成另一领域的真命题来规避反例。'
         '例如程序运算规则必须说明程序实际行为，不能改成普通数学运算性质；不能通过删除领域限定让错误看起来成立。'
@@ -32,9 +36,9 @@ def review_prompt(points):
         'disposition仅knowledge/example/context/uncertain。knowledge至少一个conclusions条目；其他类型为空。'
         'result仅consistent/refuted/inconclusive；consistent只表示本轮检验未发现反例，不是学科认证。'
         '每个候选key必须有一个reviews条目，不得删除或新增原key。输出'
-        '{"reviews":{"候选key":{"disposition":"knowledge","reason":"核对与拆分理由",'
+        '{"reviews":{"候选key":{"disposition":"knowledge","reason":"简短核对结论",'
         '"challenge":{"case":"具体检验情形","result":"consistent","explanation":"前提与结论比较"},'
-        '"conclusions":[{"statement":"单条完整知识","knowledge_type":"rule","conditions":[],"symbol_definitions":[],"teaching_context":[],"examples":[],"check":"单独检查该结论的可观察表现"}]}}}。',
+        '"conclusions":[{"role":"relation","statement":"单条完整知识","knowledge_type":"rule","conditions":[],"symbol_definitions":[],"teaching_context":[],"examples":[],"check":"单独检查该结论的可观察表现"}]}}}。',
         {'stage': 'candidate_semantic_review', 'contract': CONTRACT,
          'points': [{k: p.get(k) for k in ('key', *FIELDS, 'check_intents')} for p in points]})
 
@@ -50,8 +54,10 @@ def compile_reviews(value, originals):
     result = {'points': [], 'resolutions': [], 'issues': [], 'reviews': []}
     for original in originals:
         key = original['key']; row = reviews[key]
-        if not isinstance(row, dict) or set(row) != {'disposition', 'reason', 'challenge', 'conclusions'} or not _text(row['reason']):
+        if not isinstance(row, dict) or set(row) != {'disposition', 'reason', 'challenge', 'conclusions'}:
             raise ValueError(key + '：内容核对字段或理由不完整')
+        if not _text(row['reason']) or len(row['reason']) > 400:
+            raise ValueError(key + '.reason须为1至400字符的简短核对结论')
         challenge = row['challenge']; disposition = row['disposition']; conclusions = row['conclusions']
         if (not isinstance(challenge, dict) or set(challenge) != {'case', 'result', 'explanation'}
                 or not _text(challenge['case']) or not _text(challenge['explanation'])
@@ -81,12 +87,14 @@ def compile_reviews(value, originals):
             raise ValueError(key + '：未确定的知识不能通过内容核对')
         parsed = []
         for index, conclusion in enumerate(conclusions, 1):
-            if not isinstance(conclusion, dict) or set(conclusion) != {*FIELDS, 'check'} or not _text(conclusion['check']):
+            if (not isinstance(conclusion, dict) or set(conclusion) != {*FIELDS, 'check','role'}
+                    or not _text(conclusion['check']) or not isinstance(conclusion['role'], str) or conclusion['role'] not in ROLES):
                 raise ValueError(key + '：每条独立结论须有完整知识和独立检查')
             facts = validate_point({field: conclusion[field] for field in FIELDS})
             point = {**deepcopy(original), **facts,
                 'key': key if len(conclusions) == 1 else f'{key}R{index}',
                 'check_intents': [conclusion['check']], 'semantic_review': deepcopy(certificate)}
+            point['semantic_review']['conclusion_role'] = conclusion['role']
             point.pop('review_pending', None)
             parsed.append(point)
         if (challenge['result'] == 'refuted' and any(

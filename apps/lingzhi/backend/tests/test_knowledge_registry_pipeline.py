@@ -27,7 +27,7 @@ def semantic_reply(payload):
     from knowledge_registry_contract import FIELDS
     return json.dumps({'reviews':{p['key']:{'disposition':'knowledge','reason':'一条完整结论',
         'challenge':{'case':'改变栈中已有元素的数量','result':'consistent','explanation':'入栈位置仍为栈顶'},
-        'conclusions':[{**{k:p[k] for k in FIELDS},'check':p.get('check_intents',['解释知识'])[0]}]}
+        'conclusions':[{**{k:p[k] for k in FIELDS},'check':p.get('check_intents',['解释知识'])[0],'role':'operation'}]}
         for p in payload['points']}})
 
 
