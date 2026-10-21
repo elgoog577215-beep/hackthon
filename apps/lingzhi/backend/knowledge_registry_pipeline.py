@@ -49,17 +49,26 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch.pop('request', None)
             batch.pop('discovery_points', None)
             batch.pop('atomization_batches', None)
-        for key in ('semantic_review', 'truth_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
+        for key in ('coverage_completion', 'semantic_review', 'truth_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
         pipeline.pop('kc_profiles',None)
     return result
+
+
+def extend_batches(state, points, prefix, width):
+    batches=state.setdefault('batches',[])
+    known={key for b in batches for key in b['keys']}
+    missing=[p['key'] for p in points if p['key'] not in known]
+    for i in range(0,len(missing),width):
+        batches.append({'id':f'{prefix}-{len(batches)+1}','keys':missing[i:i+width],'status':'pending'})
+    return batches
 
 
 async def run(svc, course_id, job_id):
     from knowledge_first import knowledge_revision, now
     from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
     from knowledge_coverage import parse_plan, units_prompt, parse_unit_points
-    from knowledge_discovery import material_batches, discovery_prompt, parse_discovery, coverage_inputs, atomization_prompt, parse_atoms
+    from knowledge_discovery import material_batches, discovery_prompt, completion_prompt, parse_discovery, coverage_inputs, atomization_prompt, parse_atoms
     job = svc._active(course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
@@ -75,6 +84,9 @@ async def run(svc, course_id, job_id):
             'inventory_batches': [], 'identity_job_id':job_id,
             'teaching_focus':deepcopy(job.get('teaching_focus',[])),
             'catalog': existing_catalog(raw)}
+
+    def extraction_batches():
+        return [*pipeline['inventory_batches'],*pipeline.get('coverage_completion',{}).get('inventory_batches',[])]
 
     def validate_version():
         svc._active(course_id, job_id)
@@ -199,8 +211,13 @@ async def run(svc, course_id, job_id):
                 compile_result = lambda value: parse_unit_points(value,units,batch['source_keys'])
             else:
                 local_materials = [m for m in materials if m['key'] in batch['source_keys']]
-                prompt = discovery_prompt(raw,context['handout_lessons'][0]['title'],local_materials,pipeline['teaching_focus'])
-                stage = 'knowledge_discovery'
+                if batch.get('coverage_pass'):
+                    prompt=completion_prompt(raw,context['handout_lessons'][0]['title'],local_materials,
+                        pipeline['teaching_focus'],pipeline['coverage_completion']['catalog'])
+                    stage='candidate_coverage_review'
+                else:
+                    prompt = discovery_prompt(raw,context['handout_lessons'][0]['title'],local_materials,pipeline['teaching_focus'])
+                    stage = 'knowledge_discovery'
                 compile_result = lambda value: parse_discovery(value,batch['id'],batch['source_keys'],pipeline['teaching_focus'])
             try:
                 discovered = await request(prompt,stage,batch.setdefault('request',{}),compile_result)
@@ -219,7 +236,7 @@ async def run(svc, course_id, job_id):
                             group.setdefault('request',{}),lambda value:parse_atoms(value,originals))
                         group['status']='completed'
                         batch['points']=[p for g in groups for p in g.get('result',[])]
-                        pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
+                        pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(extraction_batches())
                         save()
                     batch.setdefault('points',[])
             except (ValueError, CourseDocumentConflict) as error:
@@ -230,18 +247,23 @@ async def run(svc, course_id, job_id):
             batch['status'] = 'completed'
             batch.pop('validation_error',None)
             if not supplied:
-                pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
+                pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(extraction_batches())
             save()
 
         await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
         if not supplied:
-            pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
-        candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
+            completion=pipeline.setdefault('coverage_completion',{'contract':'knowledge_discovery_completion_v1',
+                'catalog':deepcopy([p for b in pipeline['inventory_batches'] for p in b['points']]),
+                'inventory_batches':[{'id':f'completion-{i+1}','source_keys':list(b['source_keys']),
+                    'coverage_pass':True,'status':'pending'} for i,b in enumerate(pipeline['inventory_batches'])]})
+            await run_batches(completion['inventory_batches'],extract,width=3,stage='candidate_coverage_review')
+            completion['status']='completed'
+            pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(extraction_batches())
+        candidates = [p for b in extraction_batches() for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
         from knowledge_semantic_review import review_prompt, compile_reviews, CONTRACT as REVIEW_CONTRACT
-        review = pipeline.setdefault('semantic_review', {'contract': REVIEW_CONTRACT, 'batches': [
-            {'id':f'content-{i//4+1}', 'keys':[p['key'] for p in candidates[i:i+4]], 'status':'pending'}
-            for i in range(0,len(candidates),4)]})
+        review = pipeline.setdefault('semantic_review', {'contract': REVIEW_CONTRACT, 'batches': []})
+        extend_batches(review,candidates,'content',4)
         async def review_batch(index, batch):
             originals = [p for p in candidates if p['key'] in batch['keys']]
             batch['result'] = await request(review_prompt(originals, course_context={'course_title':raw.get('course_name',''),
@@ -254,9 +276,8 @@ async def run(svc, course_id, job_id):
         candidates = [p for b in review['batches'] for p in b['result']['points']]
         require(bool(candidates) and len(candidates) <= 240, '内容核对后没有可保存知识或超过预算')
         from knowledge_truth_review import truth_prompt, compile_audits, CONTRACT as TRUTH_CONTRACT
-        truth=pipeline.setdefault('truth_review',{'contract':TRUTH_CONTRACT,'batches':[
-            {'id':f'truth-{i//4+1}','keys':[p['key'] for p in candidates[i:i+4]],'status':'pending'}
-            for i in range(0,len(candidates),4)]})
+        truth=pipeline.setdefault('truth_review',{'contract':TRUTH_CONTRACT,'batches':[]})
+        extend_batches(truth,candidates,'truth',4)
         domain={'course_title':raw.get('course_name',''),'lesson_title':context['handout_lessons'][0]['title'],
                 'target_audience':raw.get('target_audience','')}
         async def truth_batch(index,batch):
@@ -267,9 +288,15 @@ async def run(svc, course_id, job_id):
         await run_batches(truth['batches'],truth_batch,width=3,stage='candidate_truth_review')
         truth['status']='completed'
         candidates=[p for b in truth['batches'] for p in b['result']['points']]
+        from knowledge_identity_matching import matching_prompt,parse_matches,resolve_matches,CONTRACT as MATCH_CONTRACT
+        identity_signature=stable_hash({'contract':MATCH_CONTRACT,
+            'points':[{k:p.get(k) for k in ('key','statement','conditions','symbol_definitions','semantic_review')} for p in candidates],
+            'catalog':pipeline['catalog']},prefix='kim_')
+        if pipeline.get('identity_review',{}).get('input_signature') != identity_signature:
+            for key in ('identity_review','registry','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
+                pipeline.pop(key,None)
         if not pipeline.get('registry'):
-            from knowledge_identity_matching import matching_prompt,parse_matches,resolve_matches,CONTRACT as MATCH_CONTRACT
-            matching=pipeline.setdefault('identity_review',{'contract':MATCH_CONTRACT,'batches':[
+            matching=pipeline.setdefault('identity_review',{'contract':MATCH_CONTRACT,'input_signature':identity_signature,'batches':[
                 {'id':f'identity-{i//12+1}','keys':[p['key'] for p in candidates[i:i+12]],'status':'pending'}
                 for i in range(0,len(candidates),12)]})
             async def match_batch(index,batch):

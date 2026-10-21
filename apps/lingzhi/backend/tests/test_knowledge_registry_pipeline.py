@@ -393,6 +393,7 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
             return json.dumps(value)
         if stage=='candidate_semantic_review':return semantic_reply(payload)
         if stage=='candidate_truth_review':return truth_reply(payload)
+        if stage=='candidate_coverage_review':return completion_reply()
         if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'独立'} for p in payload['candidates']}})
         if stage=='candidate_names':return json.dumps({'names':{p['key']:{'name':p['statement'],'meta_question':'解释该规则'} for p in payload['points']}})
         raise AssertionError(stage)
