@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 import pytest
+from backend.tests.test_knowledge_first import svc
 
 
 def candidate(statement='独立知识结论', key='P1'):
@@ -96,3 +97,44 @@ def test_review_contract_is_subject_independent_and_contains_no_source_gate():
     assert '反例' in prompt and '独立结论' in prompt
     for retired in ['source_literal','source_span','逐字','偶函数','法线','微积分']:
         assert retired not in prompt
+
+
+@pytest.mark.asyncio
+async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_finished_review(svc, monkeypatch):
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_atomic import setup_course
+    from backend.tests.test_knowledge_registry_pipeline import discovery_reply, atomic_reply
+    setup_course(svc,monkeypatch)
+    calls=[];broken=True
+    async def call(prompt,**kwargs):
+        payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=payload['stage'];calls.append(stage)
+        if stage=='knowledge_discovery':return discovery_reply(payload)
+        if stage=='knowledge_atomize':return atomic_reply(payload)
+        if stage=='candidate_semantic_review':
+            p=payload['points'][0]
+            return json.dumps({'reviews':{p['key']:{**response()['reviews']['P1'],
+                'conclusions':[conclusion('独立结论甲'),conclusion('独立结论乙')]}}})
+        if stage=='identity_review':
+            assert set(payload['allowed_actions'])=={'keep','match','uncertain'}
+            return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'独立结论'} for p in payload['candidates']}})
+        if stage=='candidate_names':
+            return json.dumps({'names':{} if broken else {p['key']:{'name':p['statement'],'meta_question':'解释该结论'} for p in payload['points']}})
+        raise AssertionError(stage)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
+    v=svc.view('c-pilot',source_mode='handouts')
+    def start(rid,**extra):
+        return svc.start('c-pilot','tree',rid,v['knowledge_revision'],v['document_revision'],source_mode='handouts',
+            lesson_id='cpu',pipeline='inventory_atomic_v1',organize_hierarchy=False,include_relations=False,**extra)[0]
+    job=start('review-first');await svc.run('c-pilot',job['id'])
+    old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
+    assert old['status']=='failed'
+    assert calls==['knowledge_discovery','knowledge_atomize','candidate_semantic_review','identity_review','candidate_names','candidate_names']
+    calls.clear();broken=False
+    resumed=start('review-resume',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
+    out=svc.authoring.get_job('c-pilot',resumed['id'])
+    assert out['status']=='completed',out.get('error')
+    assert out['generation_contract']=='knowledge_registry_v4'
+    assert calls==['candidate_names']
+    assert len(out['checkpoint']['candidate']['knowledge_points'])==2
+    assert out['checkpoint']['candidate']['knowledge_coverage']['missing_unit_ids']==[]
+    assert svc.authoring.get_job('c-pilot',job['id'])==old
