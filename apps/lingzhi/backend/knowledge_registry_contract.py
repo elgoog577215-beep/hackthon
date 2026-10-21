@@ -5,7 +5,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-CONTRACT = 'knowledge_registry_v4'
+CONTRACT = 'knowledge_registry_v5'
 FIELDS = ('statement', 'knowledge_type', 'conditions', 'symbol_definitions', 'teaching_context', 'examples')
 
 def parse_json(response):

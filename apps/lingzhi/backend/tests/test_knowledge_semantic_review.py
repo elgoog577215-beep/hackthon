@@ -181,7 +181,7 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
     resumed=start('review-resume',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     out=svc.authoring.get_job('c-pilot',resumed['id'])
     assert out['status']=='completed',out.get('error')
-    assert out['generation_contract']=='knowledge_registry_v4'
+    assert out['generation_contract']=='knowledge_registry_v5'
     assert calls==['candidate_names']
     assert len(out['checkpoint']['candidate']['knowledge_points'])==2
     assert out['checkpoint']['candidate']['knowledge_coverage']['missing_unit_ids']==[]

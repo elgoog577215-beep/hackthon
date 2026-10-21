@@ -59,7 +59,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         for field in ('symbol_definitions', 'teaching_context', 'examples'):
             if not old or field in old:
                 point[field] = deepcopy(candidate.get(field, []))
-        for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review'):
+        for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','truth_review'):
             if field in candidate:
                 point[field]=deepcopy(candidate[field])
         point['source_quotes'] = material_records(context, candidate['input_material_keys'])

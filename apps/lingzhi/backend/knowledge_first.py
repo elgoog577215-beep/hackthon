@@ -412,11 +412,16 @@ class KnowledgeFirstService:
                     and original.get('source_document_revision') == expected_document
                     and original.get('source_knowledge_revision') == expected_revision, '课程或知识版本已变化，不能继续旧任务')
                 prior = (original.get('checkpoint') or {}).get('atomic_pipeline') or {}
-                if prior.get('generation_contract') == REGISTRY:
+                if prior.get('generation_contract') in {REGISTRY,'knowledge_registry_v4'}:
                     require(original.get('coverage_units',[])==coverage_units,'继续任务不能更换冻结知识清单')
                     require(original.get('teaching_focus',[])==teaching_focus,'继续任务不能更换已冻结教学档案分支')
                     require(original.get('status') != 'completed' or bool(retry_batch_id), '已完成任务请指定重做范围')
                     continued_checkpoint = continued_pipeline(original['checkpoint'], retry_batch_id)
+                    upgraded=continued_checkpoint['atomic_pipeline']
+                    if upgraded.get('generation_contract') != REGISTRY:
+                        for field in ('generation_contract','processing_contract','prompt_contract'):
+                            upgraded[field]=REGISTRY
+                        upgraded['protocol_upgrade']={'from':'knowledge_registry_v4','to':REGISTRY,'origin_job_id':resume_job_id}
                 else:
                     # Historical records remain readable. New attempts never enter their retired source-repair chain.
                     continued_checkpoint = {'protocol_upgrade': {'from': prior.get('processing_contract'),
@@ -564,7 +569,7 @@ class KnowledgeFirstService:
                 asset_type="knowledge_tree" if topic == "tree" else "script", message="正在生成知识分类" if topic == "tree" else "正在生成本讲讲义")
             if pipeline:
                 job = self.authoring.update_job(course_id, job['id'], knowledge_pipeline=pipeline,
-                    **({'generation_contract': 'knowledge_registry_v4','teaching_focus':teaching_focus,'coverage_units':coverage_units,'coverage_plan_origin_job_id':plan_origin.get('id') if plan_origin and coverage_units else None} if registry_mode else {}),
+                    **({'generation_contract': 'knowledge_registry_v5','teaching_focus':teaching_focus,'coverage_units':coverage_units,'coverage_plan_origin_job_id':plan_origin.get('id') if plan_origin and coverage_units else None} if registry_mode else {}),
                     organize_hierarchy=bool(organize_hierarchy),
                     extraction_mode=extraction_mode if pipeline == PIPELINE else '',
                     include_relations=include_relations if pipeline == PIPELINE else False,
@@ -582,7 +587,7 @@ class KnowledgeFirstService:
             from knowledge_relation_generation import run
             return await run(self,course_id,job_id)
         if pipeline:
-            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4'}:
+            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5'}:
                 from knowledge_registry_pipeline import run
                 return await run(self, course_id, job_id)
             from knowledge_atomic import run_atomic

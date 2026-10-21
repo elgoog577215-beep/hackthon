@@ -76,7 +76,7 @@ def apply_decisions(candidates, catalog, decisions):
             point = {**validate_point(row), 'key': key if len(rows) == 1 else f'{key}_{i}',
                      'input_material_keys': deepcopy(original['input_material_keys']),
                      'identity_members': [deepcopy(original)], 'identity_decisions': [deepcopy(decision)]}
-            for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','review_pending'):
+            for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','truth_review','review_pending'):
                 if field in original:
                     point[field]=deepcopy(original[field])
             if action == 'uncertain':

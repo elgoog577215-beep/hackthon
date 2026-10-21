@@ -33,8 +33,11 @@ def continued_pipeline(checkpoint, retry_batch_id):
         pipeline.pop('hierarchy', None)
     elif retry_batch_id == 'relations':
         pipeline.pop('registry_relations', None)
+    elif retry_batch_id == 'identity':
+        for key in ('registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
+            pipeline.pop(key,None)
     elif retry_batch_id == 'content':
-        for key in ('semantic_review','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
+        for key in ('semantic_review','truth_review','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
             pipeline.pop(key,None)
     elif retry_batch_id:
         selected = pipeline['inventory_batches'] if retry_batch_id == 'all_atoms' else [
@@ -46,7 +49,7 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch.pop('request', None)
             batch.pop('discovery_points', None)
             batch.pop('atomization_batches', None)
-        for key in ('semantic_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
+        for key in ('semantic_review', 'truth_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
         pipeline.pop('kc_profiles',None)
     return result
@@ -99,8 +102,11 @@ async def run(svc, course_id, job_id):
         reviews = pipeline.get('semantic_review', {}).get('batches', [])
         if reviews:
             progress = 55 + int(15 * sum(b['status']=='completed' for b in reviews) / len(reviews))
+        truth_batches=pipeline.get('truth_review',{}).get('batches',[])
+        if truth_batches:
+            progress=70+int(8*sum(b['status']=='completed' for b in truth_batches)/len(truth_batches))
         if pipeline.get('registry'):
-            progress = 70
+            progress = 78
         if pipeline.get('names', {}).get('status') == 'completed':
             progress = 80
         if pipeline.get('hierarchy', {}).get('status') == 'completed':
@@ -247,15 +253,36 @@ async def run(svc, course_id, job_id):
         review['status'] = 'completed'
         candidates = [p for b in review['batches'] for p in b['result']['points']]
         require(bool(candidates) and len(candidates) <= 240, '内容核对后没有可保存知识或超过预算')
+        from knowledge_truth_review import truth_prompt, compile_audits, CONTRACT as TRUTH_CONTRACT
+        truth=pipeline.setdefault('truth_review',{'contract':TRUTH_CONTRACT,'batches':[
+            {'id':f'truth-{i//4+1}','keys':[p['key'] for p in candidates[i:i+4]],'status':'pending'}
+            for i in range(0,len(candidates),4)]})
+        domain={'course_title':raw.get('course_name',''),'lesson_title':context['handout_lessons'][0]['title'],
+                'target_audience':raw.get('target_audience','')}
+        async def truth_batch(index,batch):
+            originals=[p for p in candidates if p['key'] in batch['keys']]
+            batch['result']=await request(truth_prompt(originals,domain),'candidate_truth_review',batch.setdefault('request',{}),
+                lambda value:compile_audits(value,originals))
+            batch['status']='completed';save()
+        await run_batches(truth['batches'],truth_batch,width=3,stage='candidate_truth_review')
+        truth['status']='completed'
+        candidates=[p for b in truth['batches'] for p in b['result']['points']]
         if not pipeline.get('registry'):
-            def resolve(value):
-                if not isinstance(value, dict) or set(value) != {'decisions'}:
-                    raise ValueError('统一核对只返回decisions')
-                result = apply_decisions(candidates, pipeline['catalog'], value['decisions'])
-                result['issues'].extend(issue for b in review['batches'] for issue in b['result']['issues'])
-                return result
-            pipeline['registry'] = await request(identity_prompt(candidates, pipeline['catalog']), 'identity_review',
-                pipeline.setdefault('identity_review', {}), resolve)
+            from knowledge_identity_matching import matching_prompt,parse_matches,resolve_matches,CONTRACT as MATCH_CONTRACT
+            matching=pipeline.setdefault('identity_review',{'contract':MATCH_CONTRACT,'batches':[
+                {'id':f'identity-{i//12+1}','keys':[p['key'] for p in candidates[i:i+12]],'status':'pending'}
+                for i in range(0,len(candidates),12)]})
+            async def match_batch(index,batch):
+                focus=[p for p in candidates if p['key'] in batch['keys']]
+                batch['result']=await request(matching_prompt(focus,candidates,pipeline['catalog']),'identity_review',
+                    batch.setdefault('request',{}),lambda value:parse_matches(value,focus,candidates,pipeline['catalog']))
+                batch['status']='completed';save()
+            await run_batches(matching['batches'],match_batch,width=3,stage='identity_review')
+            decisions={key:value for b in matching['batches'] for key,value in b['result'].items()}
+            pipeline['registry']=resolve_matches(candidates,pipeline['catalog'],decisions)
+            for stage in (review,truth):
+                pipeline['registry']['issues'].extend(issue for b in stage['batches'] for issue in b['result']['issues'])
+            matching['status']='completed'
             save()
         points = pipeline['registry']['points']
         new_points = [p for p in points if not p.get('_registered_point')]
