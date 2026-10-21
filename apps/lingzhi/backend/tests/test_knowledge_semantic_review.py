@@ -105,6 +105,7 @@ def test_review_contract_is_subject_independent_and_contains_no_source_gate():
     prompt=review_prompt([candidate('普遍命题')])
     payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1])
     assert payload['stage']=='candidate_semantic_review'
+    assert payload['challenge_scope']==['statement','conditions']
     assert '反例' in prompt and '独立结论' in prompt
     for retired in ['source_literal','source_span','逐字','偶函数','法线','微积分']:
         assert retired not in prompt
