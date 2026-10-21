@@ -92,7 +92,7 @@
         </details>
         <p v-if="displayTree?.generation_preview" class="notice" role="status">{{ t('knowledgeFirst.streamingPreview') }}</p>
         <details v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment && !displayTree.generation_preview && (atomicReviewRequired || identityReviewRequired || displayTree.atomic_assessment.ready_for_adoption === false)" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
-          <summary>{{ t(displayTree.atomic_assessment.ready_for_adoption === false ? 'knowledgeFirst.candidateNeedsRevision' : 'knowledgeFirst.adoptionReviewTitle') }} · {{ Number(atomicReviewRequired) + Number(identityReviewRequired) }}</summary>
+          <summary>{{ t(displayTree.atomic_assessment.ready_for_adoption === false ? 'knowledgeFirst.candidateNeedsRevision' : 'knowledgeFirst.adoptionReviewTitle') }} · {{ displayTree.atomic_assessment.ready_for_adoption === false ? (displayTree.atomic_assessment.issues || []).length : Number(atomicReviewRequired) + Number(identityReviewRequired) }}</summary>
           <p v-for="(issue,index) in (displayTree.atomic_assessment.issues || []).filter((item:any) => item.message)" :key="index">{{ issue.message }}</p>
           <label v-if="atomicReviewRequired"><input v-model="confirmAtomicReview" type="checkbox" /> {{ t('knowledgeFirst.confirmAtomicReview') }}</label>
           <template v-if="identityReviewRequired">
@@ -111,8 +111,13 @@
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
           <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
-            <summary>{{ t(displayTree.knowledge_coverage.plan_origin === 'material_discovery' ? 'knowledgeFirst.discoveryCoverageTitle' : 'knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
+            <summary>{{ t(displayTree.knowledge_coverage.plan_origin === 'material_discovery' ? 'knowledgeFirst.discoveryCoverageTitle' : 'knowledgeFirst.coverageTitle') }} · {{ displayTree.knowledge_coverage.accounted_unit_count ?? displayTree.knowledge_coverage.covered_unit_count }} / {{ displayTree.knowledge_coverage.unit_count }}</summary>
             <p>{{ t('knowledgeFirst.coverageHint') }}</p>
+            <p v-if="displayTree.knowledge_coverage.non_knowledge_unit_count" data-testid="knowledge-nonknowledge-count">{{ t('knowledgeFirst.nonKnowledgeCount').replace('{knowledge}',String(displayTree.knowledge_coverage.covered_unit_count)).replace('{other}',String(displayTree.knowledge_coverage.non_knowledge_unit_count)) }}</p>
+            <details v-if="displayTree.knowledge_coverage.non_knowledge_records?.length" data-testid="knowledge-nonknowledge-records">
+              <summary>{{ t('knowledgeFirst.nonKnowledgeRecords') }}</summary>
+              <div v-for="record in displayTree.knowledge_coverage.non_knowledge_records" :key="record.candidate_key"><p><strong>{{ t(`knowledgeFirst.dispositions.${record.disposition}`) }}</strong> · <MathText :content="record.original.statement" /></p><p>{{ record.reason }}</p></div>
+            </details>
             <p v-if="displayTree.knowledge_coverage.plan_origin === 'material_discovery'" data-testid="knowledge-discovery-plan">{{ t('knowledgeFirst.discoveryPlanNotice') }}</p>
             <p v-if="displayTree.knowledge_coverage.plan_origin === 'provided_coverage_plan'" data-testid="knowledge-provided-plan">{{ t('knowledgeFirst.providedPlanNotice') }}</p>
             <ul><li v-for="unit in displayTree.knowledge_coverage.units" :key="unit.key"><MathText :content="unit.statement" /></li></ul>
@@ -442,7 +447,7 @@ function jobPhase(job: any) {
     && !observations.slice(observations.indexOf(o) + 1).some((next: any) => next.request_fingerprint === o.request_fingerprint && next.status === 'completed'))
   const stage = job.status === 'failed' ? job.error?.stage || job.failed_stage || failedObservation?.stage || job.pipeline_stage
     : recovering ? job.transport_retry_stage || job.pipeline_stage : job.pipeline_stage
-  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'knowledge_discovery' ? 'knowledgeFirst.discoverKnowledge' : stage === 'knowledge_atomize' ? 'knowledgeFirst.separateKnowledge' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
+  return stage ? `${t(['relations','tree_relations','candidate_relations'].includes(stage) ? 'knowledgeFirst.relationCandidates' : stage === 'candidate_semantic_review' ? 'knowledgeFirst.reviewKnowledge' : ['semantic_equivalence','semantic_equivalence_pairs','identity_review'].includes(stage) ? 'knowledgeFirst.equivalenceReview' : stage.startsWith('hierarchy') ? 'knowledgeFirst.organizeHierarchy' : stage === 'knowledge_discovery' ? 'knowledgeFirst.discoverKnowledge' : stage === 'knowledge_atomize' ? 'knowledgeFirst.separateKnowledge' : stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile' : stage === 'inventory' ? 'knowledgeFirst.inventoryTitle' : 'knowledgeFirst.atomicCandidates')} · ${label}` : label
 }
 const sourceComparison = computed(() => {
   if (!derived.value || !displayTree.value) return null
