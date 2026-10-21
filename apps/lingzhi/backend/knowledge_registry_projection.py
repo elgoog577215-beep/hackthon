@@ -117,8 +117,9 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     if frozen_units:
         from knowledge_coverage import coverage_report
         review_batches = pipeline.get('semantic_review', {}).get('batches', [])
-        resolutions = [r for b in review_batches if b.get('status')=='completed' for r in b['result']['resolutions']]
-        report=coverage_report(frozen_units,points,resolutions if review_batches else None)
+        resolutions = [*pipeline.get('extraction_resolutions',[]),
+            *[r for b in review_batches if b.get('status')=='completed' for r in b['result']['resolutions']]]
+        report=coverage_report(frozen_units,points,resolutions if review_batches or 'extraction_resolutions' in pipeline else None)
         result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
         if review_batches:
             records = [r for b in review_batches if b.get('status')=='completed' for r in b['result']['reviews']]

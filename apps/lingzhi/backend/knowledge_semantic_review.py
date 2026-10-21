@@ -11,9 +11,10 @@ CONTRACT = 'knowledge_semantic_review_v2'
 ROLES = {'definition','relation','representation','operation','method','comparison'}
 
 
-def review_prompt(points):
+def review_prompt(points, *, course_context=None):
     return render(
         '核对这些候选的知识正确性和独立结论，不做去重、不写名称。不要沿用前一步对粒度或正确性的自评。'
+        '冻结课程上下文限定知识的学科和版本，修正后仍须回答这个领域中的原问题。'
         'reason只写一句简短结论，最多400字符；不要输出讨论、取舍或推敲过程。'
         '先尝试构造满足前提但不满足结论的反例，检查量词、指定位置、边界、定义域、必要与充分及符号含义。'
         'challenge描述实际检验的具体情形、结果和理由，不以“已核对”“符合教材”代替检验。'
@@ -40,6 +41,7 @@ def review_prompt(points):
         '"challenge":{"case":"具体检验情形","result":"consistent","explanation":"前提与结论比较"},'
         '"conclusions":[{"role":"relation","statement":"单条完整知识","knowledge_type":"rule","conditions":[],"symbol_definitions":[],"teaching_context":[],"examples":[],"check":"单独检查该结论的可观察表现"}]}}}。',
         {'stage': 'candidate_semantic_review', 'contract': CONTRACT,
+         'course_context': deepcopy(course_context or {}), 'allowed_conclusion_roles': sorted(ROLES), 'max_reason_chars':400,
          'points': [{k: p.get(k) for k in ('key', *FIELDS, 'check_intents')} for p in points]})
 
 
@@ -66,7 +68,7 @@ def compile_reviews(value, originals):
         if not isinstance(conclusions, list) or len(conclusions) > 12:
             raise ValueError(key + '：独立结论数量无效')
         if disposition not in {'knowledge', 'example', 'context', 'uncertain'}:
-            raise ValueError(key + '：未知内容去向')
+            raise ValueError(key + '.disposition只允许knowledge/example/context/uncertain；反例检验结果应写在challenge.result')
         result['reviews'].append({'candidate_key': key, 'original': deepcopy(original), **deepcopy(row)})
         certificate = {'contract': CONTRACT, 'independence_group': key, 'reason': row['reason'],
                        'challenge': deepcopy(challenge), 'model_reviewed': True, 'semantics_verified': False}
@@ -88,8 +90,10 @@ def compile_reviews(value, originals):
         parsed = []
         for index, conclusion in enumerate(conclusions, 1):
             if (not isinstance(conclusion, dict) or set(conclusion) != {*FIELDS, 'check','role'}
-                    or not _text(conclusion['check']) or not isinstance(conclusion['role'], str) or conclusion['role'] not in ROLES):
+                    or not _text(conclusion['check'])):
                 raise ValueError(key + '：每条独立结论须有完整知识和独立检查')
+            if not isinstance(conclusion['role'], str) or conclusion['role'] not in ROLES:
+                raise ValueError(key + '.conclusions.role只允许' + '/'.join(sorted(ROLES)) + '；不能填写knowledge_type的rule')
             facts = validate_point({field: conclusion[field] for field in FIELDS})
             point = {**deepcopy(original), **facts,
                 'key': key if len(conclusions) == 1 else f'{key}R{index}',

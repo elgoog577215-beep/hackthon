@@ -80,6 +80,26 @@ def discovered_units(points):
     ]
 
 
+def coverage_inputs(batches):
+    """Keep classified examples in the ledger even before semantic review."""
+    points = [p for batch in batches for p in batch.get('points', [])]
+    resolutions = []
+    for batch in batches:
+        originals = {p['key']: p for p in batch.get('discovery_points', [])}
+        for group in batch.get('atomization_batches', []):
+            if group.get('status') != 'completed':
+                continue
+            items = group.get('request', {}).get('response', {}).get('items', {})
+            for key in group['keys']:
+                row = items.get(key, {})
+                if row.get('disposition') in {'example', 'context'}:
+                    original = originals[key]
+                    resolutions.append({'candidate_key':key,'coverage_unit_ids':deepcopy(original['coverage_unit_ids']),
+                        'disposition':row['disposition'],'reason':row['reason'],'original':deepcopy(original)})
+                    points.append(original)
+    return discovered_units(points), resolutions
+
+
 def atomization_prompt(points):
     if len(points) != 1:
         raise ValueError('每次只拆分一个完整候选，不能再次概括一组知识')

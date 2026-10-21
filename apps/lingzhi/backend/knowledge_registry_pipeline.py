@@ -56,7 +56,7 @@ async def run(svc, course_id, job_id):
     from knowledge_first import knowledge_revision, now
     from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
     from knowledge_coverage import parse_plan, units_prompt, parse_unit_points
-    from knowledge_discovery import material_batches, discovery_prompt, parse_discovery, discovered_units, atomization_prompt, parse_atoms
+    from knowledge_discovery import material_batches, discovery_prompt, parse_discovery, coverage_inputs, atomization_prompt, parse_atoms
     job = svc._active(course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
@@ -213,7 +213,7 @@ async def run(svc, course_id, job_id):
                             group.setdefault('request',{}),lambda value:parse_atoms(value,originals))
                         group['status']='completed'
                         batch['points']=[p for g in groups for p in g.get('result',[])]
-                        pipeline['frozen_units']=discovered_units([p for b in pipeline['inventory_batches'] for p in b.get('points',[])])
+                        pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
                         save()
                     batch.setdefault('points',[])
             except (ValueError, CourseDocumentConflict) as error:
@@ -224,10 +224,12 @@ async def run(svc, course_id, job_id):
             batch['status'] = 'completed'
             batch.pop('validation_error',None)
             if not supplied:
-                pipeline['frozen_units'] = discovered_units([p for b in pipeline['inventory_batches'] for p in b.get('points',[])])
+                pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
             save()
 
         await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
+        if not supplied:
+            pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(pipeline['inventory_batches'])
         candidates = [p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates) <= 240, '本讲知识候选为空或超过核对预算')
         from knowledge_semantic_review import review_prompt, compile_reviews, CONTRACT as REVIEW_CONTRACT
@@ -236,7 +238,8 @@ async def run(svc, course_id, job_id):
             for i in range(0,len(candidates),4)]})
         async def review_batch(index, batch):
             originals = [p for p in candidates if p['key'] in batch['keys']]
-            batch['result'] = await request(review_prompt(originals), 'candidate_semantic_review',
+            batch['result'] = await request(review_prompt(originals, course_context={'course_title':raw.get('course_name',''),
+                'lesson_title':context['handout_lessons'][0]['title'],'target_audience':raw.get('target_audience','')}), 'candidate_semantic_review',
                 batch.setdefault('request', {}), lambda value: compile_reviews(value, originals))
             batch['status'] = 'completed'
             save()
