@@ -13,7 +13,7 @@ def candidate(statement='独立知识结论', key='P1'):
 
 def conclusion(statement='独立知识结论', **patch):
     return dict(statement=statement,knowledge_type='rule',conditions=[],symbol_definitions=[],
-                teaching_context=[],examples=[],check='单独说明该结论及其条件',**patch)
+                teaching_context=[],examples=[],check='单独说明该结论及其条件',role='relation',**patch)
 
 
 def response(points=None, disposition='knowledge', result='consistent'):
@@ -108,6 +108,31 @@ def test_review_contract_is_subject_independent_and_contains_no_source_gate():
     assert '反例' in prompt and '独立结论' in prompt
     for retired in ['source_literal','source_span','逐字','偶函数','法线','微积分']:
         assert retired not in prompt
+
+
+def test_conclusions_have_one_role_and_bounded_reasons():
+    from knowledge_semantic_review import compile_reviews
+    value=response()
+    assert compile_reviews(value,[candidate()])['points'][0]['semantic_review']['conclusion_role']=='relation'
+    value['reviews']['P1']['conclusions'][0]['role']=['relation','representation']
+    with pytest.raises(ValueError):compile_reviews(value,[candidate()])
+    value=response();value['reviews']['P1']['reason']='讨论'*500
+    with pytest.raises(ValueError,match='reason'):compile_reviews(value,[candidate()])
+
+
+def test_explicit_content_retry_reuses_extraction_and_drops_only_dependent_stages():
+    from knowledge_registry_pipeline import continued_pipeline
+    original={'candidate':{'revision_id':'old'},'atomic_pipeline':{
+        'inventory_batches':[{'id':'inventory-1','status':'completed','points':[candidate()]}],
+        'identity_job_id':'stable-origin', **{key:{'status':'completed'} for key in (
+            'semantic_review','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles')}}}
+    before=deepcopy(original)
+    next_checkpoint=continued_pipeline(original,'content')
+    pipeline=next_checkpoint['atomic_pipeline']
+    assert pipeline['inventory_batches']==original['atomic_pipeline']['inventory_batches']
+    assert pipeline['identity_job_id']=='stable-origin'
+    assert all(key not in pipeline for key in ('semantic_review','registry','names','hierarchy','kc_profiles'))
+    assert original==before
 
 
 @pytest.mark.asyncio
