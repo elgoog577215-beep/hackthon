@@ -89,8 +89,8 @@ def compile_reviews(value, originals):
                 'check_intents': [conclusion['check']], 'semantic_review': deepcopy(certificate)}
             point.pop('review_pending', None)
             parsed.append(point)
-        if (challenge['result'] == 'refuted' and len(parsed) == 1
-                and all(parsed[0][field] == original[field] for field in FIELDS)):
+        if (challenge['result'] == 'refuted' and any(
+                all(point[field] == original[field] for field in ('statement','conditions')) for point in parsed)):
             raise ValueError(key + '：无效修正，反例已推翻的知识不能原样通过')
         result['points'].extend(parsed)
     return result
