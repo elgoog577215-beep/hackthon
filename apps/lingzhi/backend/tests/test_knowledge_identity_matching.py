@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 import pytest
 from backend.tests.test_knowledge_semantic_review import candidate
 
@@ -42,3 +43,5 @@ def test_focus_batch_needs_complete_explicit_decisions_and_never_rewrites_facts(
     with pytest.raises(ValueError):parse_matches({'decisions':{'A':bad}},rows[:1],rows,[])
     prompt=matching_prompt(rows[:1],rows,[])
     assert 'challenge' not in prompt and 'same_scope' in prompt
+    refs=json.loads(prompt.split('\nINPUT_JSON:\n')[1])['reference_candidates']
+    assert [p['key'] for p in refs]==['B']

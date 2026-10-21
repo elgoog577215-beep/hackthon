@@ -76,3 +76,14 @@ def test_early_example_disposition_stays_in_frozen_coverage_ledger():
     result=coverage_report(units,[],resolutions)
     assert result['accounted_unit_count']==1 and result['covered_unit_count']==0
     assert result['missing_unit_ids']==[]
+
+
+def test_completion_rechecks_full_material_against_knowledge_not_concrete_answers():
+    import json
+    from knowledge_discovery import completion_prompt
+    p=completion_prompt({'course_name':'课程'},'一讲',[{'key':'S1','text':'例题中含可迁移性质'}],[],[{'key':'P1',**point()}])
+    payload=json.loads(p.split('\nINPUT_JSON:\n')[1])
+    assert payload['stage']=='candidate_coverage_review'
+    assert payload['materials'][0]['text']=='例题中含可迁移性质'
+    assert 'examples' not in payload['existing_claims'][0]
+    assert 'source_literal' not in p

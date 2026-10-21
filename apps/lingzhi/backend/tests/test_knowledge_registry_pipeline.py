@@ -240,13 +240,15 @@ def test_relation_proposals_use_ids_and_keep_cyclic_proposals_visible():
     with pytest.raises(ValueError):compile_edges(bad,tree,['K1'],'L1')
 
 
-def test_relation_batches_do_not_expand_into_unfocused_full_lecture_graphs():
+def test_relation_batches_bound_output_without_making_focus_a_domain_boundary():
     from knowledge_registry_relations import compile_edges
     points=[{'key':f'K{i}','knowledge_id':f'kp{i}','revision_id':'r','statement':'完整知识','conditions':[],
              'section_refs':['L1']} for i in range(1,4)]
     value={'reviews':{'K1':'本批核对'},'edges':[{'source':'K2','target':'K3','type':'prerequisite',
         'necessity':'recommended','reason':'建议先学','context':'学习顺序','conditions':[],'steps':[]}]}
-    with pytest.raises(ValueError,match='focus'):
+    assert len(compile_edges(value,{'knowledge_points':points},['K1'],'L1'))==1
+    value['edges']*=4
+    with pytest.raises(ValueError,match='预算'):
         compile_edges(value,{'knowledge_points':points},['K1'],'L1')
 
 
