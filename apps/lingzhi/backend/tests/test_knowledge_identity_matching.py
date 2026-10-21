@@ -91,3 +91,13 @@ def test_projection_binds_check_records_to_real_knowledge_and_revision(svc,monke
     assert check['knowledge_id']==point['knowledge_id'] and check['knowledge_revision']==point['revision_id']
     assert tree['knowledge_coverage']['accounted_unit_count']==2
     assert tree['knowledge_coverage']['covered_unit_count']==1
+
+
+def test_check_placement_is_a_separate_small_pass_over_comparison_candidates():
+    from knowledge_identity_matching import placement_prompt,parse_placements
+    rows=[certified('A'),certified('B')];rows[1]['semantic_review']['conclusion_role']='comparison'
+    p=json.loads(placement_prompt(rows[1:],rows,[]).split('\nINPUT_JSON:\n')[1])
+    assert p['stage']=='candidate_check_placement'
+    assert [r['key'] for r in p['rule_catalog']]==['A']
+    assert parse_placements({'placements':{'B':{'action':'keep','reason':'独立辨析'}}},rows[1:],rows,[])['B']['action']=='keep'
+    with pytest.raises(ValueError):parse_placements({'placements':{'B':match('A')}},rows[1:],rows,[])
