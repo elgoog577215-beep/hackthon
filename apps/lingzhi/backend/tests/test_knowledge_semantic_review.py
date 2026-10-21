@@ -187,3 +187,37 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
     assert len(out['checkpoint']['candidate']['knowledge_points'])==2
     assert out['checkpoint']['candidate']['knowledge_coverage']['missing_unit_ids']==[]
     assert svc.authoring.get_job('c-pilot',job['id'])==old
+
+
+@pytest.mark.asyncio
+async def test_pipeline_places_a_rule_application_check_before_identity(svc,monkeypatch):
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_atomic import setup_course
+    from backend.tests.test_knowledge_registry_pipeline import discovery_reply,atomic_reply,completion_reply,truth_reply
+    setup_course(svc,monkeypatch);stages=[]
+    async def call(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=p['stage'];stages.append(stage)
+        if stage=='knowledge_discovery':return discovery_reply(p)
+        if stage=='knowledge_atomize':return atomic_reply(p)
+        if stage=='candidate_coverage_review':return completion_reply()
+        if stage=='candidate_semantic_review':
+            key=p['points'][0]['key'];value=response([conclusion('完整规则'),conclusion('规则中的操作提醒')])
+            value['reviews']['P1']['conclusions'][0]['role']='operation'
+            value['reviews']['P1']['conclusions'][1]['role']='comparison'
+            return json.dumps({'reviews':{key:value['reviews']['P1']}})
+        if stage=='candidate_truth_review':return truth_reply(p)
+        if stage=='candidate_check_placement':return json.dumps({'placements':{x['key']:{'action':'check',
+            'target':p['rule_catalog'][0]['key'],'same_scope':True,'adds_knowledge':False,'operational_only':True,
+            'check_intent':'检查规则中的操作位置','reason':'完整规则已明示'} for x in p['candidates']}})
+        if stage=='identity_review':return json.dumps({'decisions':{x['key']:{'action':'keep','reason':'完整知识'} for x in p['candidates']}})
+        if stage=='candidate_names':return json.dumps({'names':{x['key']:{'name':'完整规则','meta_question':'解释规则'} for x in p['points']}})
+        raise AssertionError(stage)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
+    v=svc.view('c-pilot',source_mode='handouts')
+    job,_=svc.start('c-pilot','tree','check-placement',v['knowledge_revision'],v['document_revision'],source_mode='handouts',
+        lesson_id='cpu',pipeline='inventory_atomic_v1',organize_hierarchy=False,include_relations=False)
+    await svc.run('c-pilot',job['id']);out=svc.authoring.get_job('c-pilot',job['id'])
+    assert out['status']=='completed',out.get('error')
+    tree=out['checkpoint']['candidate']
+    assert len(tree['knowledge_points'])==1 and len(tree['knowledge_points'][0]['check_records'])==1
+    assert stages.index('candidate_check_placement')<stages.index('identity_review')
