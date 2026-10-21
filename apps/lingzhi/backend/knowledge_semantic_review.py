@@ -17,6 +17,8 @@ def review_prompt(points, *, course_context=None):
         '冻结课程上下文限定知识的学科和版本，修正后仍须回答这个领域中的原问题。'
         'reason只写一句简短结论，最多400字符；不要输出讨论、取舍或推敲过程。'
         '先尝试构造满足前提但不满足结论的反例，检查量词、指定位置、边界、定义域、必要与充分及符号含义。'
+        'challenge.result只评价statement与conditions的真值，粒度不合理不等于知识错误；检查角度、教学情境或例题中的问题也不能作为推翻正文的反例。'
+        '正文正确但需要拆分时result仍为consistent，拆分由conclusions分别列出。'
         'challenge描述实际检验的具体情形、结果和理由，不以“已核对”“符合教材”代替检验。'
         '若找到反例，result=refuted，随后在conclusions给出准确修正，不能原样保留已被推翻的结论。'
         '不能确认时disposition=uncertain、result=inconclusive、conclusions=[]，保留待核对，不能强行通过。'
@@ -42,6 +44,7 @@ def review_prompt(points, *, course_context=None):
         '"conclusions":[{"role":"relation","statement":"单条完整知识","knowledge_type":"rule","conditions":[],"symbol_definitions":[],"teaching_context":[],"examples":[],"check":"单独检查该结论的可观察表现"}]}}}。',
         {'stage': 'candidate_semantic_review', 'contract': CONTRACT,
          'course_context': deepcopy(course_context or {}), 'allowed_conclusion_roles': sorted(ROLES), 'max_reason_chars':400,
+         'challenge_scope':['statement','conditions'],
          'points': [{k: p.get(k) for k in ('key', *FIELDS, 'check_intents')} for p in points]})
 
 
@@ -103,6 +106,6 @@ def compile_reviews(value, originals):
             parsed.append(point)
         if (challenge['result'] == 'refuted' and any(
                 all(point[field] == original[field] for field in ('statement','conditions')) for point in parsed)):
-            raise ValueError(key + '：无效修正，反例已推翻的知识不能原样通过')
+            raise ValueError(key + '：无效修正，已声明反例推翻statement/conditions却未修改知识核心；若实际问题仅是粒度、情境或例题，请核对challenge.result，不要篡改正确正文')
         result['points'].extend(parsed)
     return result
