@@ -38,11 +38,24 @@ def parse_placements(value,focus,candidates,catalog):
     return parsed
 
 
-def matching_prompt(focus, candidates, catalog):
+def matching_prompt(focus, candidates, catalog, *, knowledge_only=False):
     fields = ('key','statement','conditions','knowledge_type','symbol_definitions')
     compact = lambda p: {**{k:p.get(k) for k in fields},
                          'independence_group':p.get('semantic_review',{}).get('independence_group'),
                          'conclusion_role':p.get('semantic_review',{}).get('conclusion_role')}
+    if knowledge_only:
+        return render(
+            '检查归属已经冻结。本阶段只匹配完整知识身份，不再归检查、不改写、不分类、不重新拆分。'
+            '为每个focus候选比较本批其他候选、reference_candidates和已有E目录，寻找完整命题、真实适用范围和量含义相同的知识。'
+            '同义、换记号或变量代换不形成新知识；定义、关系、表示、不同运算性质或条件不同不能仅因同主题而合并。'
+            '同组independence_group的不同独立子结论不能合并。不能指向自身；没有其他等价条目时keep。'
+            '只允许keep/match/uncertain；match给target,same_claim=true,same_scope=true,same_symbols=true,reason；'
+            'keep/uncertain只含action,reason。每个focus key恰好一个决定。显式等价链由程序解析，不需要重复列点。'
+            '输出{"decisions":{"focus key":{"action":"keep","reason":"身份依据"}}}。',
+            {'stage':'identity_review','contract':CONTRACT,'allowed_actions':['keep','match','uncertain'],
+             'candidates':[compact(p) for p in focus],
+             'reference_candidates':[compact(p) for p in candidates if p['key'] not in {f['key'] for f in focus}],
+             'existing_knowledge':[compact(p) for p in catalog]})
     return render(
         '只为focus_candidates逐一匹配完整知识身份，不改写正文、不分类、不重新判断粒度。'
         '在reference_candidates及existing_knowledge中查找同一完整命题。不同记号、文字/公式、变量代换或重述不形成新知识。'
@@ -92,6 +105,13 @@ def parse_matches(value, focus, candidates, catalog):
                 or not all(row[k] is True for k in ('same_claim','same_scope','same_symbols'))):
             raise ValueError(key+'：只允许明确同命题、同范围、同量含义的match或keep/uncertain')
     return deepcopy(decisions)
+
+
+def parse_equivalences(value,focus,candidates,catalog):
+    rows=parse_matches(value,focus,candidates,catalog)
+    if any(row['action']=='check' for row in rows.values()):
+        raise ValueError('检查归属已冻结，身份阶段只允许keep/match/uncertain')
+    return rows
 
 
 def resolve_matches(candidates, catalog, decisions):

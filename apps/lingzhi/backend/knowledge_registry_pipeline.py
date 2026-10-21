@@ -37,7 +37,7 @@ def continued_pipeline(checkpoint, retry_batch_id):
         for key in ('registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
             pipeline.pop(key,None)
     elif retry_batch_id == 'content':
-        for key in ('semantic_review','truth_review','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
+        for key in ('semantic_review','truth_review','check_placement','registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
             pipeline.pop(key,None)
     elif retry_batch_id:
         selected = pipeline['inventory_batches'] if retry_batch_id == 'all_atoms' else [
@@ -49,7 +49,7 @@ def continued_pipeline(checkpoint, retry_batch_id):
             batch.pop('request', None)
             batch.pop('discovery_points', None)
             batch.pop('atomization_batches', None)
-        for key in ('coverage_completion', 'semantic_review', 'truth_review', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
+        for key in ('coverage_completion', 'semantic_review', 'truth_review', 'check_placement', 'registry', 'identity_review', 'names', 'hierarchy', 'registry_relations', 'preview_tree'):
             pipeline.pop(key, None)
         pipeline.pop('kc_profiles',None)
     return result
@@ -288,24 +288,40 @@ async def run(svc, course_id, job_id):
         await run_batches(truth['batches'],truth_batch,width=3,stage='candidate_truth_review')
         truth['status']='completed'
         candidates=[p for b in truth['batches'] for p in b['result']['points']]
-        from knowledge_identity_matching import matching_prompt,parse_matches,resolve_matches,CONTRACT as MATCH_CONTRACT
+        from knowledge_identity_matching import matching_prompt,parse_equivalences,placement_prompt,parse_placements,resolve_matches,CONTRACT as MATCH_CONTRACT
+        placement_signature=stable_hash([{k:p.get(k) for k in ('key','statement','conditions','semantic_review')} for p in candidates],prefix='kplace_')
+        if pipeline.get('check_placement',{}).get('input_signature')!=placement_signature:
+            comparisons=[p for p in candidates if p.get('semantic_review',{}).get('conclusion_role')=='comparison']
+            pipeline['check_placement']={'input_signature':placement_signature,'batches':[
+                {'id':f'checks-{i//8+1}','keys':[p['key'] for p in comparisons[i:i+8]],'status':'pending'}
+                for i in range(0,len(comparisons),8)]}
+        placements=pipeline['check_placement']
+        async def place_batch(index,batch):
+            focus=[p for p in candidates if p['key'] in batch['keys']]
+            batch['result']=await request(placement_prompt(focus,candidates,pipeline['catalog']),'candidate_check_placement',
+                batch.setdefault('request',{}),lambda value:parse_placements(value,focus,candidates,pipeline['catalog']))
+            batch['status']='completed';save()
+        await run_batches(placements['batches'],place_batch,width=3,stage='candidate_check_placement')
+        placements['status']='completed'
+        check_decisions={key:value for b in placements['batches'] for key,value in b['result'].items() if value['action']=='check'}
+        knowledge_candidates=[p for p in candidates if p['key'] not in check_decisions]
         identity_signature=stable_hash({'contract':MATCH_CONTRACT,
             'points':[{k:p.get(k) for k in ('key','statement','conditions','symbol_definitions','semantic_review')} for p in candidates],
-            'catalog':pipeline['catalog']},prefix='kim_')
+            'catalog':pipeline['catalog'],'check_decisions':check_decisions},prefix='kim_')
         if pipeline.get('identity_review',{}).get('input_signature') != identity_signature:
             for key in ('identity_review','registry','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
                 pipeline.pop(key,None)
         if not pipeline.get('registry'):
             matching=pipeline.setdefault('identity_review',{'contract':MATCH_CONTRACT,'input_signature':identity_signature,'batches':[
-                {'id':f'identity-{i//12+1}','keys':[p['key'] for p in candidates[i:i+12]],'status':'pending'}
-                for i in range(0,len(candidates),12)]})
+                {'id':f'identity-{i//12+1}','keys':[p['key'] for p in knowledge_candidates[i:i+12]],'status':'pending'}
+                for i in range(0,len(knowledge_candidates),12)]})
             async def match_batch(index,batch):
-                focus=[p for p in candidates if p['key'] in batch['keys']]
-                batch['result']=await request(matching_prompt(focus,candidates,pipeline['catalog']),'identity_review',
-                    batch.setdefault('request',{}),lambda value:parse_matches(value,focus,candidates,pipeline['catalog']))
+                focus=[p for p in knowledge_candidates if p['key'] in batch['keys']]
+                batch['result']=await request(matching_prompt(focus,knowledge_candidates,pipeline['catalog'],knowledge_only=True),'identity_review',
+                    batch.setdefault('request',{}),lambda value:parse_equivalences(value,focus,knowledge_candidates,pipeline['catalog']))
                 batch['status']='completed';save()
             await run_batches(matching['batches'],match_batch,width=3,stage='identity_review')
-            decisions={key:value for b in matching['batches'] for key,value in b['result'].items()}
+            decisions={**{key:value for b in matching['batches'] for key,value in b['result'].items()},**check_decisions}
             pipeline['registry']=resolve_matches(candidates,pipeline['catalog'],decisions)
             for stage in (review,truth):
                 pipeline['registry']['issues'].extend(issue for b in stage['batches'] for issue in b['result']['issues'])
