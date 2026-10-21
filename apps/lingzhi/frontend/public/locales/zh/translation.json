@@ -7854,7 +7854,7 @@
   "knowledgeProfile": {
     "title": "知识掌握画像",
     "eyebrow": "每一点理解，都有依据",
-    "byKnowledge": "按元知识点",
+    "byKnowledge": "按知识点",
     "preview": "当前为教师预览，不读取或写入任何学生的正式画像。",
     "loading": "正在汇总知识点证据…",
     "error": "画像暂时无法读取，请稍后刷新。未读取不代表掌握度为零。",
@@ -7866,7 +7866,7 @@
     "pointsAssessed": "个知识点已有有效检查",
     "averageHint": "仅描述已有评估的部分，不代表整课能力",
     "courseScope": "全课范围",
-    "points": "个元知识点",
+    "points": "个知识点",
     "unassessed": "未评估",
     "supported_mastery": "有掌握证据",
     "needs_review": "待巩固",
@@ -7874,7 +7874,7 @@
     "tree": "知识树与掌握状态",
     "search": "搜索知识点",
     "noResults": "没有匹配的知识点",
-    "atomicPoint": "元知识点",
+    "atomicPoint": "知识点",
     "estimate": "掌握参考值",
     "confidence": {
       "none": "尚无有效检查",
