@@ -15,10 +15,13 @@ def prompt(tree, focus_keys):
         'conditions只放额外适用条件，reason解释关系，context说明教学场景。'
         'reviews必须覆盖focus_keys，优先只写本批焦点以控制篇幅；额外说明仅可引用当前catalog中的真实知识key。'
         '每个focus_key给关系取舍理由，可以没有关系；取舍关系不代表删除知识。'
+        '以本批focus_keys为重点，不为扩充数量重复输出整讲关系；目录中的额外有效关系仍可保留。'
+        '本批最多返回max_edges条最有教学价值的关系；理由和场景各用一句短说明，推导用简短步骤，不重复正文。'
         '输出{"reviews":{"K1":"取舍理由"},"edges":[{"source":"K1","target":"K2","type":"prerequisite",'
         '"necessity":"recommended","reason":"关系理由","context":"教学场景","conditions":[],"steps":[]}]}。'
         '非先修的necessity填null，非推导steps填[]。不要输出引用或其他内容字段。',
-        {'stage': 'candidate_relations', 'focus_keys': focus_keys,
+        {'stage': 'candidate_relations', 'contract':'knowledge_registry_relations_v2', 'focus_keys': focus_keys,
+         'max_edges':max(3,len(focus_keys)*3),
          'catalog': [{k: p.get(k) for k in ('key', 'name', 'statement', 'conditions', 'symbol_definitions', 'section_refs')}
                      for p in tree['knowledge_points']]})
 
@@ -36,8 +39,8 @@ def compile_edges(value, tree, focus_keys, lesson_id):
                          + '。只调整本批取舍记录，不修改知识目录。')
     if any(not isinstance(r, str) or not r.strip() for r in reviews.values()):
         raise ValueError('每个焦点必须有非空关系取舍理由')
-    if not isinstance(edges, list) or len(edges) > 80:
-        raise ValueError('edges必须是最多80项的列表')
+    if not isinstance(edges, list) or len(edges) > min(80,max(3,len(focus_keys)*3)):
+        raise ValueError('edges超过本批有限关系预算，请仅保留本批重点关系')
     by_key = {p['key']: p for p in tree['knowledge_points']}
     result = []
     for row in edges:

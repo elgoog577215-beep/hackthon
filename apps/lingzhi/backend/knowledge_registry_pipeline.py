@@ -323,8 +323,8 @@ async def run(svc, course_id, job_id):
         if pipeline['include_relations']:
             from knowledge_registry_relations import prompt as relation_prompt, compile_edges, attach
             relation_state = pipeline.setdefault('registry_relations', {'batches': [
-                {'id': f'relations-{i//12+1}', 'focus_keys': [p['key'] for p in local[i:i+12]], 'status': 'pending'}
-                for i in range(0, len(local), 12)]})
+                {'id': f'relations-{i//6+1}', 'focus_keys': [p['key'] for p in local[i:i+6]], 'status': 'pending'}
+                for i in range(0, len(local), 6)]})
             async def relate(index, batch):
                 batch['result'] = await request(relation_prompt(tree, batch['focus_keys']), 'candidate_relations',
                     batch.setdefault('request', {}), lambda value: compile_edges(value, tree, batch['focus_keys'], context['scope_lesson_id']))

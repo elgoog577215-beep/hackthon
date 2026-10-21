@@ -5,7 +5,7 @@ from copy import deepcopy
 from knowledge_registry_contract import render
 from knowledge_registry_identity import apply_decisions
 
-CONTRACT = 'knowledge_identity_matching_v2'
+CONTRACT = 'knowledge_identity_matching_v3'
 
 
 def matching_prompt(focus, candidates, catalog):
@@ -20,11 +20,13 @@ def matching_prompt(focus, candidates, catalog):
         '不能把定义、量的关系、对象表示、不同运算性质或必要/充分条件合并。'
         '共享independence_group的不同子结论不得合并；不能凭名称、同一主题或一起使用判定等价。'
         '没有等价目标才keep；无法判断用uncertain。每个focus key恰好一个决定。'
+        '严禁match指向自身；focus候选之间也可以互相比较，自身不是一条参考命中。'
         'match只填action,target,same_claim=true,same_scope=true,same_symbols=true,reason；'
         'keep/uncertain只填action,reason。reason一句话说明完整知识和范围。'
         '输出{"decisions":{"focus key":{"action":"keep","reason":"身份依据"}}}。',
         {'stage':'identity_review','contract':CONTRACT,'allowed_actions':['keep','match','uncertain'],
-         'candidates':[compact(p) for p in focus], 'reference_candidates':[compact(p) for p in candidates],
+         'candidates':[compact(p) for p in focus],
+         'reference_candidates':[compact(p) for p in candidates if p['key'] not in {f['key'] for f in focus}],
          'existing_knowledge':[compact(p) for p in catalog]})
 
 
@@ -38,6 +40,8 @@ def parse_matches(value, focus, candidates, catalog):
             raise ValueError(key+'：身份匹配须有理由')
         if row.get('action') in {'keep','uncertain'} and set(row)=={'action','reason'}:
             continue
+        if row.get('action')=='match' and row.get('target')==key:
+            raise ValueError(key+'.target不得指向自身；请比较其他候选，没有其他等价知识时用keep')
         if (row.get('action')!='match' or set(row)!={'action','reason','target','same_claim','same_scope','same_symbols'}
                 or row['target'] not in keys or row['target']==key
                 or not all(row[k] is True for k in ('same_claim','same_scope','same_symbols'))):
