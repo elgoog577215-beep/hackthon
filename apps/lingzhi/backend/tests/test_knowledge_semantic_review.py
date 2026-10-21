@@ -118,6 +118,16 @@ def test_conclusions_have_one_role_and_bounded_reasons():
     with pytest.raises(ValueError):compile_reviews(value,[candidate()])
     value=response();value['reviews']['P1']['reason']='讨论'*500
     with pytest.raises(ValueError,match='reason'):compile_reviews(value,[candidate()])
+    value=response();value['reviews']['P1']['conclusions'][0]['role']='rule'
+    with pytest.raises(ValueError,match='role.*relation'):
+        compile_reviews(value,[candidate()])
+
+
+def test_review_receives_frozen_domain_context_without_requiring_source_word_matches():
+    from knowledge_semantic_review import review_prompt
+    context={'course_title':'程序设计','standard':'教学指定版本'}
+    p=review_prompt([candidate()],course_context=context)
+    assert json.loads(p.split('\nINPUT_JSON:\n')[1])['course_context']==context
 
 
 def test_explicit_content_retry_reuses_extraction_and_drops_only_dependent_stages():

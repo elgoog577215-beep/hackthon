@@ -61,3 +61,18 @@ def test_atomicization_keeps_each_complete_claim_and_inherits_only_tracking_meta
 def test_atomization_request_never_regroups_claims_into_a_summary():
     from knowledge_discovery import atomization_prompt
     with pytest.raises(ValueError):atomization_prompt([point(),point()])
+
+
+def test_early_example_disposition_stays_in_frozen_coverage_ledger():
+    from knowledge_discovery import parse_discovery, coverage_inputs
+    from knowledge_coverage import coverage_report
+    original=parse_discovery({'points':[point('具体题目的计算答案')],'context_note':''},'b',['S1'],[])[0]
+    batch={'discovery_points':[original],'points':[],'atomization_batches':[{'status':'completed',
+        'keys':[original['key']],'result':[],'request':{'response':{'items':{original['key']:{
+            'disposition':'example','reason':'具体代入，保留为例题','points':[]}}}}}]}
+    units,resolutions=coverage_inputs([batch])
+    assert [u['key'] for u in units]==original['coverage_unit_ids']
+    assert resolutions[0]['original']==original
+    result=coverage_report(units,[],resolutions)
+    assert result['accounted_unit_count']==1 and result['covered_unit_count']==0
+    assert result['missing_unit_ids']==[]
