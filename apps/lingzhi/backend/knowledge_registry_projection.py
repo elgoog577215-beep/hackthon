@@ -113,7 +113,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     current_by_id = {p['knowledge_id']:p for p in points}
     for point in result['knowledge_points']:
         if point['knowledge_id'] in current_by_id:
-            for field in ('coverage_unit_ids','profile_focus','check_intents'):
+            for field in ('coverage_unit_ids','profile_focus','check_intents','check_records'):
                 if field in current_by_id[point['knowledge_id']]:
                     point[field] = deepcopy(current_by_id[point['knowledge_id']][field])
     frozen_units=pipeline.get('frozen_units',pipeline.get('coverage_review',pipeline.get('coverage_plan',{})).get('units',[]))
