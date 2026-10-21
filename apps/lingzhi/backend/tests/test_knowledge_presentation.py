@@ -122,3 +122,33 @@ def test_second_label_edit_is_versioned_and_retains_search_aliases(svc):
     shown = present_tree(tree(), svc.repository.load_raw('c-pilot')['knowledge_presentation'])
     assert shown['knowledge_points'][0]['display_aliases'] == ['法线斜率']
     assert tree()['knowledge_points'][0]['aliases'] == ['法线倾斜程度']
+
+
+def test_api_owner_boundary_and_strict_payload(svc):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
+    from routers.knowledge_first import router
+    seed(svc)
+    app = FastAPI(); app.include_router(router, prefix='/api')
+    app.dependency_overrides[get_course_document_repository] = lambda: svc.repository
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: svc.authoring
+    body = dict(command_id='api-1', document_revision=svc.repository.load_raw('c-pilot')['course_document_revision'],
+                knowledge_revision='kb-old', tree_revision='kb-old', labels=[{
+                    'knowledge_id': 'k1', 'knowledge_revision': 'kr-old', 'name': '法线斜率'}])
+    with TestClient(app) as client:
+        url = '/api/courses/c-pilot/knowledge-first/presentation'
+        assert client.post(url, json=body, headers={'X-User-Id': 'other'}).status_code == 404
+        assert client.post(url, json={**body, 'statement': '改正文'}, headers={'X-User-Id': 'owner'}).status_code == 422
+        assert client.post(url, json=body, headers={'X-User-Id': 'owner'}).status_code == 200
+        assert client.post(url, json={**body, 'command_id': 'api-2'}, headers={'X-User-Id': 'owner'}).status_code == 409
+
+
+def test_title_changes_invalidate_observation_but_not_semantic_baseline(svc):
+    seed(svc)
+    svc.storage.update_course_data('c-pilot', lambda raw: {**raw, 'authoring_surface': 'student'})
+    before = svc.status('c-pilot')
+    save(svc)
+    after = svc.status('c-pilot')
+    assert before['result_version'] != after['result_version']
+    assert svc.repository.load_raw('c-pilot')['course_knowledge_base']['revision_id'] == 'kb-old'

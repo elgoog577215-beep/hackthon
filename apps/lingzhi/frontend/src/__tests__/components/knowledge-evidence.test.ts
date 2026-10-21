@@ -28,6 +28,38 @@ beforeEach(async () => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+it('keeps the full rule and conditions behind a short, editable title', async () => {
+  const v: any = view()
+  Object.assign(v.tree.knowledge_points[0], { display_name: '势函数', knowledge_type: 'definition',
+    conditions: ['状态属于约定的定义域'], check_intents: ['说明映射的输入与输出'] })
+  v.presentation_revision = 'display-old'
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.get('[data-knowledge-id="stable-id"]').trigger('click'); await flushPromises()
+  expect(w.get('.point-card h2').text()).toBe('势函数')
+  expect(w.get('[data-testid="knowledge-type"]').text()).toBe('概念')
+  expect(w.get('.claim').text()).toContain('势函数将状态映射为实数。')
+  expect(w.get('.point-card').text()).toContain('状态属于约定的定义域')
+  expect(w.get('[data-testid="knowledge-check-intents"]').element.tagName).toBe('DETAILS')
+  await w.get('[data-testid="knowledge-name-input"]').setValue('状态势函数')
+  await w.get('[data-testid="knowledge-name-form"]').trigger('submit'); await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/presentation', expect.objectContaining({
+    document_revision: 'doc', knowledge_revision: 'base', tree_revision: 'base', presentation_revision: 'display-old',
+    labels: [{ knowledge_id: 'stable-id', knowledge_revision: 'stable-rev', name: '状态势函数' }]
+  }))
+  w.unmount()
+})
+
+it('does not offer title writes to a read-only learner', async () => {
+  const v: any = view(); v.can_edit = false
+  vi.spyOn(http, 'get').mockResolvedValue({ data: v })
+  const w = mount(Manager, { props: { courseId: 'c', treeOnly: true } }); await flushPromises()
+  await w.get('[data-knowledge-id="stable-id"]').trigger('click'); await flushPromises()
+  expect(w.find('[data-testid="knowledge-name-form"]').exists()).toBe(false)
+  expect(http.post).not.toHaveBeenCalled()
+  w.unmount()
+})
+
 it.each(['zh', 'en'] as const)('shows input materials and symbol definitions separately in %s', async locale => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => locale === 'zh' ? zh : en })))
   await setLocale(locale)
