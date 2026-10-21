@@ -46,6 +46,17 @@ def test_refuted_claim_must_be_changed_and_original_is_retained():
     assert fixed['reviews'][0]['original']==original
 
 
+@pytest.mark.parametrize('variant',['metadata_only','unchanged_child'])
+def test_refuted_core_cannot_survive_by_changing_examples_or_adding_a_sibling(variant):
+    from knowledge_semantic_review import compile_reviews
+    original=candidate('被反例推翻的结论')
+    rows=[conclusion(original['statement'])]
+    if variant=='metadata_only':rows[0]['examples']=['换一个例子']
+    else:rows.append(conclusion('另一个正确结论'))
+    with pytest.raises(ValueError,match='无效修正'):
+        compile_reviews(response(rows,result='refuted'),[original])
+
+
 def test_uncertainty_is_blocking_and_cannot_be_certified_by_empty_checks():
     from knowledge_semantic_review import compile_reviews
     original=candidate()
