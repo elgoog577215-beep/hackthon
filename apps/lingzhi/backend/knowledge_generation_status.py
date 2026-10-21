@@ -44,6 +44,7 @@ def project_status(state, raw, blockers, *, source_mode=""):
     version = stable_hash({
         "document": raw.get("course_document_revision"),
         "knowledge": (raw.get("course_knowledge_base") or {}).get("revision_id"),
+        "presentation": (raw.get('knowledge_presentation') or {}).get('revision_id'),
         "inputs": raw.get("knowledge_input_revision"),
         "sources": [(lid, lesson.get("working_revision_id"), lesson.get("working_script_revision_id"))
                     for lid, lesson in state.get("lessons", {}).items()],

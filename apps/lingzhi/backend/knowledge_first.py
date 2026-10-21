@@ -861,6 +861,10 @@ class KnowledgeFirstService:
         return self.authoring.read_projection(course_id, lambda state: locate_source(
             raw, state, tree_revision, knowledge_id, evidence_id))
 
+    def update_presentation(self, course_id, **kwargs):
+        from knowledge_presentation import update_presentation
+        return update_presentation(self, course_id, **kwargs)
+
     def view(self, course_id, *, source_mode=""):
         raw = self.repository.load_raw(course_id)
         state = self.authoring.load(course_id)
@@ -906,7 +910,8 @@ class KnowledgeFirstService:
         from knowledge_evidence import project_view
         from knowledge_atomic import project_runs, project_previews
         from knowledge_relation_generation import project_runs as relation_runs
-        return project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
+        from knowledge_presentation import present_view
+        return present_view(project_view({"course_id": course_id, "result_version": status["result_version"], "server_time": server_time,
                 "atomic_runs": project_runs(state, raw),
                 "generation_previews": project_previews(state, course_id),
                 "relation_runs": relation_runs(state, raw),
@@ -925,7 +930,7 @@ class KnowledgeFirstService:
                 "input_revision": raw.get("knowledge_input_revision", ""),
                 "inputs": {"requirements": (raw.get("generation_request") or {}).get("requirements", ""),
                     "target_audience": raw.get("target_audience", ""), "lesson_count": raw.get("knowledge_lesson_count", 3),
-                    "material_asset_ids": raw.get("knowledge_material_asset_ids", [])}})
+                    "material_asset_ids": raw.get("knowledge_material_asset_ids", [])}}), raw.get('knowledge_presentation'))
 
     def configure(self, course_id, expected_document, expected_knowledge, inputs, expected_input_revision=""):
         require(bool(inputs["requirements"].strip()), "请填写课程目标与范围")

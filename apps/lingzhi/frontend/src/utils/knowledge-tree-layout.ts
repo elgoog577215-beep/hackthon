@@ -1,5 +1,5 @@
 import type { KnowledgeProfile } from '../types/knowledge-profile'
-import { knowledgeSearchText, normalizeKnowledgeSearch, type KnowledgeSearchFields } from './knowledge-terms'
+import { knowledgeDisplayName, knowledgeSearchText, normalizeKnowledgeSearch, type KnowledgeSearchFields } from './knowledge-terms'
 
 export interface ProfileTreeItem {
   id: string; sourceId: string; kind: 'course' | 'branch' | 'knowledge'
@@ -27,7 +27,7 @@ export function createContentKnowledgeTree(
     if (placed.has(item.knowledge_id)) return null
     placed.add(item.knowledge_id)
     return { id: `knowledge:${item.knowledge_id}`, sourceId: item.knowledge_id, kind: 'knowledge',
-      label: item.name, searchText: knowledgeSearchText(item), progress: null, count: 1, children: [] }
+      label: knowledgeDisplayName(item), searchText: knowledgeSearchText(item), progress: null, count: 1, children: [] }
   }
   const branch = (id: string): ProfileTreeItem | null => {
     const category = groups.get(id)
@@ -66,7 +66,7 @@ export function createKnowledgeTree(profile: KnowledgeProfile, title: string, qu
   const point = (p: KnowledgeProfile['nodes'][number]): ProfileTreeItem | null => {
     if (placed.has(p.knowledge_id) || (search && !knowledgeSearchText(p).includes(search))) return null
     placed.add(p.knowledge_id)
-    return { id: `knowledge:${p.knowledge_id}`, sourceId: p.knowledge_id, kind: 'knowledge', label: p.name,
+    return { id: `knowledge:${p.knowledge_id}`, sourceId: p.knowledge_id, kind: 'knowledge', label: knowledgeDisplayName(p),
       progress: p.mastery, status: p.status, count: 1, children: [] }
   }
   const branch = (id: string, seen: Set<string>): ProfileTreeItem | null => {

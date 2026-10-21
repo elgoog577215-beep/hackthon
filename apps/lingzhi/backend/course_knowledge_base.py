@@ -86,7 +86,9 @@ def compile_course_knowledge_base(
         from knowledge_first import knowledge_projection
         # Knowledge-first atoms precede prose. Never replace their identities by
         # re-extracting a newly written lecture (including a one-level lecture).
-        return {**knowledge_projection(existing), "course_id": course_data.get("course_id", "")}
+        from knowledge_presentation import present_tree
+        return {**present_tree(knowledge_projection(existing), course_data.get('knowledge_presentation')),
+                "course_id": course_data.get("course_id", "")}
     if isinstance(existing, dict):
         apply_persisted_course_knowledge_base(course_data, existing)
     course_id = str(course_data.get("course_id") or "")

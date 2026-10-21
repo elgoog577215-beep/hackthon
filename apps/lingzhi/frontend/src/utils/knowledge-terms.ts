@@ -10,11 +10,17 @@ export interface KnowledgeTerm {
 
 export interface KnowledgeSearchFields {
   name?: string
+  display_name?: string
+  display_aliases?: string[]
   statement?: string
   aliases?: string[]
   english_name?: string
   abbreviations?: string[]
   terms?: KnowledgeTerm[]
+}
+
+export function knowledgeDisplayName(point?: KnowledgeSearchFields | null): string {
+  return point?.display_name?.trim() || point?.name || ''
 }
 
 export function normalizeKnowledgeSearch(value: string): string {
@@ -23,7 +29,7 @@ export function normalizeKnowledgeSearch(value: string): string {
 
 export function knowledgeSearchText(point: KnowledgeSearchFields): string {
   return normalizeKnowledgeSearch([
-    point.name, point.statement, point.english_name, ...(point.aliases || []), ...(point.abbreviations || []),
+    point.display_name, point.name, point.statement, point.english_name, ...(point.display_aliases || []), ...(point.aliases || []), ...(point.abbreviations || []),
     ...(point.terms || []).flatMap(term => [term.name, term.english_name, ...(term.aliases || []), ...(term.abbreviations || [])]),
   ].filter(Boolean).join(' '))
 }

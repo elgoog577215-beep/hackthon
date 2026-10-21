@@ -113,12 +113,14 @@ def identity_prompt(candidates, catalog):
 
 def names_prompt(points):
     return render(
-        '只为已冻结知识编写学生能读懂的短陈述name和一个直接检查该完整知识的meta_question。'
-        'name用简短陈述或紧凑公式，保留必要对象和否定；不要问句、栏目名或“某某的定义”。'
+        '只为已冻结知识编写学生能辨认的短知识名name和一个直接检查完整知识的meta_question。'
+        'name是导航标题，可用概念名、规则名、方法名或简短辨析名。通常4至16个汉字，清楚可辨比固定字数重要。'
+        '不要问句，不要把完整知识陈述搬到名称；不用长公式、步骤串或多个分号拼接标题。'
+        '保留区分相邻知识所需的对象和范围；不同结论不能统一叫成上级主题，也不要为缩短名称合并或删除知识。'
         '正文、公式、条件均已冻结，不能增删或重新解释知识。名称可以不同于知识中的术语措辞。'
         '公式采用标准LaTeX分隔符。每个key恰好返回一项。'
-        '输出{"names":{"K1":{"name":"简短知识陈述","meta_question":"检查这一知识的问题"}}}。',
-        {'stage': 'candidate_names', 'contract': CONTRACT,
+        '输出{"names":{"K1":{"name":"短知识名","meta_question":"检查这一知识的问题"}}}。',
+        {'stage': 'candidate_names', 'contract': CONTRACT, 'naming_contract': 'knowledge_names_v2', 'name_style': 'short_title',
          'points': [{k: p.get(k) for k in ('key', *FIELDS)} for p in points]})
 
 

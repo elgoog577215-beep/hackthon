@@ -133,8 +133,18 @@
             <button v-if="!selectedSource" type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
             <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
             <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
-              <div class="point-topline"><span>{{ selectedPoint.key }}</span><span>{{ t('knowledgeFirst.atom') }}</span></div>
-              <MathText tag="h2" :content="selectedPoint.name" /><MarkdownRenderer class="claim" :content="selectedPoint.statement" />
+              <div class="point-topline"><span>{{ selectedPoint.key }}</span><span data-testid="knowledge-type">{{ t(`knowledgeFirst.knowledgeTypes.${selectedPoint.knowledge_type}`, t('knowledgeFirst.atom')) }}</span></div>
+              <MathText tag="h2" :content="knowledgeDisplayName(selectedPoint)" />
+              <details v-if="data.can_edit && !activeJobs.length && !displayTree.generation_preview" class="knowledge-name-editor">
+                <summary>{{ t('knowledgeFirst.editDisplayName') }}</summary>
+                <form data-testid="knowledge-name-form" @submit.prevent="saveDisplayName">
+                  <label>{{ t('knowledgeFirst.shortName') }}<input v-model="draftDisplayName" data-testid="knowledge-name-input" required maxlength="200" /></label>
+                  <p class="muted">{{ t('knowledgeFirst.nameOnlyHint') }}</p>
+                  <button type="submit" :disabled="busy || !draftDisplayName.trim() || draftDisplayName.trim() === knowledgeDisplayName(selectedPoint)">{{ t('knowledgeFirst.saveDisplayName') }}</button>
+                </form>
+              </details>
+              <h3>{{ t('knowledgeFirst.coreKnowledge') }}</h3>
+              <MarkdownRenderer class="claim" :content="selectedPoint.statement" />
               <p v-if="selectedPoint.extraction_method" class="knowledge-extraction-method">{{ t(`knowledgeFirst.method_${selectedPoint.extraction_method || 'unspecified'}`) }}</p>
               <p v-if="selectedPoint.derivation_note">{{ selectedPoint.derivation_note }}</p>
               <KnowledgeTerms :point="selectedPoint" />
@@ -144,10 +154,10 @@
               <section v-if="selectedPoint.teaching_context?.length"><h3>{{ t('knowledgeFirst.teachingContext') }}</h3><ul><li v-for="value in selectedPoint.teaching_context" :key="value"><MathText :content="value" /></li></ul></section>
               <details v-if="selectedPoint.examples?.length"><summary>{{ t('knowledgeFirst.applicationExamples') }}</summary><MarkdownRenderer v-for="(value,index) in selectedPoint.examples" :key="index" :content="value" /></details>
               <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
-              <section v-if="selectedPoint.check_intents?.length" data-testid="knowledge-check-intents">
-                <h3>{{ t('knowledgeFirst.checkIntents') }}</h3>
+              <details v-if="selectedPoint.check_intents?.length" data-testid="knowledge-check-intents">
+                <summary>{{ t('knowledgeFirst.checkIntents') }}</summary>
                 <ul><li v-for="intent in selectedPoint.check_intents" :key="intent"><MathText :content="intent" /></li></ul>
-              </section>
+              </details>
               <section v-if="selectedPoint.kc_skill_profile?.knowledge_id === selectedPoint.knowledge_id && selectedPoint.kc_skill_profile?.knowledge_revision === selectedPoint.revision_id" data-testid="knowledge-teaching-profile">
                 <h3>{{ t('knowledgeFirst.teachingProfile') }}</h3>
                 <p class="notice">{{ t(selectedPoint.kc_skill_profile.basis === 'question_samples' ? 'knowledgeFirst.profileSampleDraft' : 'knowledgeFirst.profileKnowledgeDraft') }}</p>
@@ -161,7 +171,7 @@
               <div v-for="link in relatedLinks" :key="link.edge.id" class="relation">
                 <span v-if="link.crossLesson" class="relation-scope">{{ t('knowledgeFirst.crossLessonLinks') }}</span>
                 <div class="related-point-row">
-                  <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })"><MathText :content="`${link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : ''}${link.point?.name || link.id}`" /></button>
+                  <button type="button" :disabled="!link.point" @click="navigateRelated({ lesson_id: link.lessonId, knowledge_id: link.id })"><MathText :content="`${link.crossLesson ? `${lessonLabels[link.lessonId] || link.lessonId} · ` : ''}${knowledgeDisplayName(link.point) || link.id}`" /></button>
                   <span class="related-point-type" :aria-label="t(link.edge.source_id === selectedId ? 'knowledgeFirst.outgoing' : 'knowledgeFirst.incoming')">{{ link.edge.source_id === selectedId ? '→' : '←' }} {{ t(`knowledgeFirst.relationTypes.${link.edge.type}`, link.edge.type) }}</span>
                 </div>
                 <details class="related-point-details">
@@ -227,6 +237,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
 import { createContentKnowledgeTree } from '../utils/knowledge-tree-layout'
+import { knowledgeDisplayName } from '../utils/knowledge-terms'
 import TeachingCapabilityPanel from './TeachingCapabilityPanel.vue'
 import KnowledgeQuestionSupply from './KnowledgeQuestionSupply.vue'
 import KnowledgeSourceReader from './KnowledgeSourceReader.vue'
@@ -460,7 +471,7 @@ const relationGraphNodes = computed(() => {
   code: point.key || `K${index + 1}`,
   parent_id: point.parent_id || null,
   node_type: 'knowledge_point',
-  name: point.name,
+  name: knowledgeDisplayName(point),
   description: point.statement || '',
   depth: 0,
   sort_order: index,
@@ -479,9 +490,11 @@ const relationGraphRelations = computed(() => (displayTree.value?.relations || [
   conditions: relation.conditions || [], distinction: relation.distinction, derivation_steps: relation.derivation_steps || [], revision_id: relation.revision_id || '',
 })))
 const selectedPoint = computed(() => displayTree.value?.knowledge_points.find((p: any) => p.knowledge_id === selectedId.value))
+const draftDisplayName = ref('')
+watch(selectedPoint, point => { draftDisplayName.value = knowledgeDisplayName(point) }, { immediate: true })
 const relations = computed(() => displayTree.value?.relations.filter((r: any) => [r.source_id, r.target_id].includes(selectedId.value)) || [])
 const diagnoses = computed(() => displayTree.value?.misconceptions?.filter((d: any) => d.hypothesis_a && (d.knowledge_keys || []).includes(selectedPoint.value?.key)) || [])
-const pointName = (id: string) => displayTree.value?.allKnowledgePoints.find((p: any) => p.knowledge_id === id)?.name || id
+const pointName = (id: string) => knowledgeDisplayName(displayTree.value?.allKnowledgePoints.find((p: any) => p.knowledge_id === id)) || id
 const relatedLinks = computed(() => relations.value.map((edge: any) => {
   const id = edge.source_id === selectedId.value ? edge.target_id : edge.source_id
   const point = displayTree.value?.allKnowledgePoints.find((p: any) => p.knowledge_id === id)
@@ -490,7 +503,7 @@ const relatedLinks = computed(() => relations.value.map((edge: any) => {
   const crossLesson = perLesson.value && !!foreignLesson && (edge.cross_lesson || !refs.includes(knowledgeLessonId.value))
   return { id, point, edge, crossLesson, lessonId: crossLesson ? foreignLesson : knowledgeLessonId.value }
 }))
-const refName = (revision: string, id: string) => data.value.history.find((v: any) => v.revision_id === revision)?.knowledge_points.find((p: any) => p.knowledge_id === id)?.name || id
+const refName = (revision: string, id: string) => knowledgeDisplayName(data.value.history.find((v: any) => v.revision_id === revision)?.knowledge_points.find((p: any) => p.knowledge_id === id)) || id
 const currentLesson = computed(() => data.value?.handouts.find((h: any) => h.topic === lesson.value))
 const handout = computed(() => currentLesson.value?.revisions.find((r: any) => r.revision_id === (handoutChoice.value || currentLesson.value.current_revision_id)))
 const handoutBlocks = computed(() => (handout.value?.sections || []).flatMap((section: any) => section.blocks || []))
@@ -651,6 +664,12 @@ async function generate(topic: string) {
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
   await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true, include_relations: true } : {}) })
+}
+async function saveDisplayName() {
+  if (!selectedPoint.value || !data.value.can_edit || activeJobs.value.length || !draftDisplayName.value.trim()) return
+  await mutate('presentation', { command_id: createUuid(), presentation_revision: data.value.presentation_revision || '',
+    tree_revision: displayTree.value.revision_id,
+    labels: [{ knowledge_id: selectedPoint.value.knowledge_id, knowledge_revision: selectedPoint.value.revision_id, name: draftDisplayName.value.trim() }] })
 }
 async function continueAtomic(batchId = '') {
   if (!atomicRun.value) return

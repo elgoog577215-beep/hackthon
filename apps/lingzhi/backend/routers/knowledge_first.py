@@ -42,6 +42,21 @@ class AdoptRequest(SourceRequest):
     selected_relation_ids: list[str] | None = Field(default=None,max_length=800)
 
 
+class DisplayLabel(BaseModel):
+    model_config = {'extra': 'forbid'}
+    knowledge_id: str = Field(min_length=1, max_length=200)
+    knowledge_revision: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200)
+
+
+class PresentationRequest(SourceRequest):
+    model_config = {'extra': 'forbid'}
+    command_id: str = Field(min_length=1, max_length=100)
+    presentation_revision: str = Field(default='', max_length=200)
+    tree_revision: str = Field(min_length=1, max_length=200)
+    labels: list[DisplayLabel] = Field(min_length=1, max_length=240)
+
+
 class InputRequest(SourceRequest):
     input_revision: str = Field(default="", max_length=200)
     requirements: str = Field(min_length=1, max_length=5000)
@@ -112,6 +127,15 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
 def initialize(course_id: str, body: SourceRequest, svc=Depends(service)):
     action(lambda: svc.initialize(course_id, body.document_revision))
     return {"initialized": True}
+
+
+@router.post('/courses/{course_id}/knowledge-first/presentation')
+def presentation(course_id: str, body: PresentationRequest, request: Request, svc=Depends(service)):
+    return action(lambda: svc.update_presentation(course_id,
+        actor=require_actor_id(request.headers.get('X-User-Id')), command_id=body.command_id,
+        expected_document=body.document_revision, expected_knowledge=body.knowledge_revision,
+        expected_presentation=body.presentation_revision, tree_revision=body.tree_revision,
+        labels=[row.model_dump() for row in body.labels]))
 
 
 @router.get("/courses/{course_id}/knowledge-first/status")
