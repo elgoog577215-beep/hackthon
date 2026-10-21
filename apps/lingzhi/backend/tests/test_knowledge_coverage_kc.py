@@ -24,6 +24,17 @@ def test_coverage_units_are_separate_from_material_wording_and_all_get_a_disposi
         parse_unit_points({'points':{'U1':[point()]}},units,['S1'])
 
 
+def test_bound_checks_are_accounted_without_becoming_knowledge_leaves():
+    from knowledge_coverage import coverage_report
+    record={'disposition':'check','coverage_unit_ids':['U2'],'reason':'只检查规则应用','knowledge_id':'k'}
+    points=[{'knowledge_id':'k','coverage_unit_ids':['U1']}]
+    report=coverage_report([{'key':'U1'},{'key':'U2'}],points,[record])
+    assert report['covered_unit_count']==1 and report['accounted_unit_count']==2
+    assert report['unit_dispositions']['U2']['disposition']=='check'
+    record['knowledge_id']='missing'
+    with pytest.raises(ValueError):coverage_report([{'key':'U1'},{'key':'U2'}],points,[record])
+
+
 def test_distinct_learning_units_cannot_be_lost_by_equivalence_flags():
     from knowledge_registry_identity import apply_decisions
     rows=[{**point(text),'key':key,'input_material_keys':['S1'],'coverage_unit_ids':[uid]}

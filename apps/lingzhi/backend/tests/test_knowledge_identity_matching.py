@@ -45,3 +45,18 @@ def test_focus_batch_needs_complete_explicit_decisions_and_never_rewrites_facts(
     assert 'challenge' not in prompt and 'same_scope' in prompt
     refs=json.loads(prompt.split('\nINPUT_JSON:\n')[1])['reference_candidates']
     assert [p['key'] for p in refs]==['B']
+
+
+def test_operational_reminder_becomes_bound_check_without_an_extra_leaf():
+    from knowledge_identity_matching import resolve_matches
+    rows=[certified('A'),certified('B')]
+    rows[1]['semantic_review']['conclusion_role']='comparison'
+    decisions={'A':{'action':'keep','reason':'完整规则'},'B':{'action':'check','target':'A',
+        'same_scope':True,'adds_knowledge':False,'operational_only':True,'check_intent':'检查完整规则的操作位置','reason':'仅为规则应用检查'}}
+    result=resolve_matches(rows,[],decisions)
+    assert len(result['points'])==1
+    assert result['points'][0]['check_intents'][-1]=='检查完整规则的操作位置'
+    assert result['check_resolutions'][0]['target_key']=='A'
+    assert result['check_resolutions'][0]['coverage_unit_ids']==['B']
+    rows[1]['semantic_review']['conclusion_role']='relation'
+    with pytest.raises(ValueError):resolve_matches(rows,[],decisions)
