@@ -36,6 +36,8 @@ def apply_decisions(candidates, catalog, decisions):
         if not isinstance(decision, dict):
             raise ValueError(key + '：身份决定必须为对象')
         action = decision.get('action')
+        if by_key[key].get('semantic_review') and action not in {'keep', 'match', 'merge', 'reuse', 'uncertain'}:
+            raise ValueError(key + '：身份阶段只能匹配知识，不能再次改写、拆并或丢弃已核对内容')
         fields = {'action', 'reason'}
         if action == 'replace':
             fields.add('points')
@@ -74,7 +76,7 @@ def apply_decisions(candidates, catalog, decisions):
             point = {**validate_point(row), 'key': key if len(rows) == 1 else f'{key}_{i}',
                      'input_material_keys': deepcopy(original['input_material_keys']),
                      'identity_members': [deepcopy(original)], 'identity_decisions': [deepcopy(decision)]}
-            for field in ('coverage_unit_ids','profile_focus','check_intents'):
+            for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','review_pending'):
                 if field in original:
                     point[field]=deepcopy(original[field])
             if action == 'uncertain':
@@ -107,6 +109,10 @@ def apply_decisions(candidates, catalog, decisions):
 
     def bind(point, key, decision):
         original = by_key[key]
+        group = (original.get('semantic_review') or {}).get('independence_group')
+        if group and any((member.get('semantic_review') or {}).get('independence_group') == group
+                         and member.get('key') != key for member in point.get('identity_members', [])):
+            raise ValueError(key + '：已拆分的独立结论不能在身份阶段重新合并')
         for field in ('coverage_unit_ids','check_intents'):
             if field in original:
                 point[field]=list(dict.fromkeys([*point.get(field,[]),*original[field]]))

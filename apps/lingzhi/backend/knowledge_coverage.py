@@ -51,13 +51,27 @@ def parse_unit_points(value, units, materials):
     return result
 
 
-def coverage_report(units, points):
+def coverage_report(units, points, resolutions=None):
     mapping={u['key']:[] for u in units}
     for point in points:
         for uid in point.get('coverage_unit_ids',[]):
             if uid not in mapping:
                 raise ValueError('知识引用了未知清单项：'+uid)
             mapping[uid].append(point.get('knowledge_id') or point['key'])
-    missing=[key for key,ids in mapping.items() if not ids]
+    dispositions={}
+    for record in resolutions or []:
+        if (record.get('disposition') not in {'example','context'} or not isinstance(record.get('reason'),str)
+                or not record['reason'].strip() or not record.get('coverage_unit_ids')):
+            raise ValueError('非知识项须有明确处理去向和理由')
+        for uid in record['coverage_unit_ids']:
+            if uid not in mapping:
+                raise ValueError('处理记录引用了未知清单项：'+uid)
+            dispositions[uid]={'disposition':record['disposition'],'reason':record['reason']}
+    missing=[key for key,ids in mapping.items() if not ids and key not in dispositions]
+    covered=sum(bool(ids) for ids in mapping.values())
+    non_knowledge=sum(not mapping[key] for key in dispositions)
     return {'contract':CONTRACT,'unit_count':len(units),'covered_unit_count':len(units)-len(missing),
-            'missing_unit_ids':missing,'unit_points':mapping,'semantics_verified':False}
+            'missing_unit_ids':missing,'unit_points':mapping,'semantics_verified':False,
+            **({'covered_unit_count':covered,'accounted_unit_count':covered+non_knowledge,
+                'non_knowledge_unit_count':non_knowledge,'unit_dispositions':dispositions,
+                'non_knowledge_records':deepcopy(resolutions or [])} if resolutions is not None else {})}
