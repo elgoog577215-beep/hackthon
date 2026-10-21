@@ -164,7 +164,7 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
             return json.dumps({'reviews':{p['key']:{**response()['reviews']['P1'],
                 'conclusions':[conclusion('独立结论甲'),conclusion('独立结论乙')]}}})
         if stage=='identity_review':
-            assert set(payload['allowed_actions'])=={'keep','match','uncertain'}
+            assert set(payload['allowed_actions'])=={'keep','match','check','uncertain'}
             return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'独立结论'} for p in payload['candidates']}})
         if stage=='candidate_names':
             return json.dumps({'names':{} if broken else {p['key']:{'name':p['statement'],'meta_question':'解释该结论'} for p in payload['points']}})

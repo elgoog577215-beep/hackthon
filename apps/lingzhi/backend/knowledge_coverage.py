@@ -60,9 +60,11 @@ def coverage_report(units, points, resolutions=None):
             mapping[uid].append(point.get('knowledge_id') or point['key'])
     dispositions={}
     for record in resolutions or []:
-        if (record.get('disposition') not in {'example','context'} or not isinstance(record.get('reason'),str)
+        if (record.get('disposition') not in {'example','context','check'} or not isinstance(record.get('reason'),str)
                 or not record['reason'].strip() or not record.get('coverage_unit_ids')):
             raise ValueError('非知识项须有明确处理去向和理由')
+        if record['disposition']=='check' and record.get('knowledge_id') not in {p.get('knowledge_id') for p in points}:
+            raise ValueError('检查项必须绑定本批真实知识身份')
         for uid in record['coverage_unit_ids']:
             if uid not in mapping:
                 raise ValueError('处理记录引用了未知清单项：'+uid)

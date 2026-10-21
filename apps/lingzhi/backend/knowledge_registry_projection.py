@@ -59,13 +59,16 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         for field in ('symbol_definitions', 'teaching_context', 'examples'):
             if not old or field in old:
                 point[field] = deepcopy(candidate.get(field, []))
-        for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','truth_review'):
+        for field in ('coverage_unit_ids','profile_focus','check_intents','semantic_review','truth_review','check_records'):
             if field in candidate:
                 point[field]=deepcopy(candidate[field])
         point['source_quotes'] = material_records(context, candidate['input_material_keys'])
         point['source_refs'] = list(dict.fromkeys(q['evidence_id'] for q in point['source_quotes']))
         point.setdefault('aliases', [])
         point['revision_id'] = old.get('revision_id') if old and old.get('revision_id') else stable_hash(knowledge_facts(point), prefix='kpv_')
+        for check in point.get('check_records',[]):
+            check.update(knowledge_id=kid,knowledge_revision=point['revision_id'],
+                check_id=stable_hash({'knowledge':kid,'candidate':check['candidate_key'],'intent':check['check_intent']},prefix='kcheck_'))
         point['content_review'] = {'contract': CONTRACT, 'semantics_verified': False,
                                    'decisions': deepcopy(candidate.get('identity_decisions', []))}
         points.append(point)
@@ -119,6 +122,8 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         review_batches = pipeline.get('semantic_review', {}).get('batches', [])
         resolutions = [*pipeline.get('extraction_resolutions',[]),
             *[r for b in review_batches if b.get('status')=='completed' for r in b['result']['resolutions']]]
+        by_candidate={candidate['key']:point['knowledge_id'] for candidate,point in zip(registry['points'],points)}
+        resolutions.extend({**deepcopy(r),'knowledge_id':by_candidate[r['target_key']]} for r in registry.get('check_resolutions',[]))
         report=coverage_report(frozen_units,points,resolutions if review_batches or 'extraction_resolutions' in pipeline else None)
         result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
         if review_batches:
