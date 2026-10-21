@@ -5,7 +5,37 @@ from copy import deepcopy
 from knowledge_registry_contract import render
 from knowledge_registry_identity import apply_decisions
 
-CONTRACT = 'knowledge_identity_matching_v4'
+CONTRACT = 'knowledge_identity_matching_v5'
+
+
+def placement_prompt(focus,candidates,catalog):
+    fields=('key','statement','conditions','knowledge_type')
+    return render(
+        '这里只决定比较型候选的保存归属，不判断真伪、不合并同义、不改写正文。'
+        '逐条判断该候选是否只是某个完整规则已经直接明示的操作检查。'
+        '完整公式中的参数代入位置、已有因子的运算连接、适用条件的防漏提醒，不另建知识叶子，必须作为check挂回该完整规则。'
+        '仅“说法正确、能检查、常见错误”不是独立知识的充分理由。'
+        '新定义、新对象/量关系、逆命题、反例性质及真正独立的概念辨析仍keep。'
+        '不能把能推导出的不同定理都归check；只处理从完整规则直接读出的操作提醒。'
+        'target从rule_catalog或existing_knowledge选择，不能指向自身或另一个检查候选。'
+        '每个candidate key必须一项placements。独立知识只填action=keep,reason。'
+        '纯检查填action=check,target,same_scope=true,adds_knowledge=false,operational_only=true,check_intent,reason。'
+        'check_intent用简短陈述描述可观察的操作，不声称任何学生已犯错。输出{"placements":{"key":{"action":"keep","reason":"独立知识依据"}}}。',
+        {'stage':'candidate_check_placement','contract':'knowledge_check_placement_v1',
+         'candidates':[{k:p.get(k) for k in fields} for p in focus],
+         'rule_catalog':[{k:p.get(k) for k in fields} for p in candidates
+                         if p.get('semantic_review',{}).get('conclusion_role')!='comparison'],
+         'existing_knowledge':[{k:p.get(k) for k in fields} for p in catalog]})
+
+
+def parse_placements(value,focus,candidates,catalog):
+    rows=value.get('placements') if isinstance(value,dict) and set(value)=={'placements'} else None
+    parsed=parse_matches({'decisions':rows},focus,candidates,catalog)
+    roles={p['key']:p.get('semantic_review',{}).get('conclusion_role') for p in candidates}
+    for key,row in parsed.items():
+        if row['action'] not in {'keep','check'} or row['action']=='check' and roles.get(row['target'])=='comparison':
+            raise ValueError(key+'：归属阶段只允许keep或将纯操作检查绑定到完整规则')
+    return parsed
 
 
 def matching_prompt(focus, candidates, catalog):
