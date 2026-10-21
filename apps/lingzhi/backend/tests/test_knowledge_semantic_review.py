@@ -150,13 +150,14 @@ def test_explicit_content_retry_reuses_extraction_and_drops_only_dependent_stage
 async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_finished_review(svc, monkeypatch):
     from types import SimpleNamespace
     from backend.tests.test_knowledge_atomic import setup_course
-    from backend.tests.test_knowledge_registry_pipeline import discovery_reply, atomic_reply
+    from backend.tests.test_knowledge_registry_pipeline import discovery_reply, atomic_reply, truth_reply
     setup_course(svc,monkeypatch)
     calls=[];broken=True
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=payload['stage'];calls.append(stage)
         if stage=='knowledge_discovery':return discovery_reply(payload)
         if stage=='knowledge_atomize':return atomic_reply(payload)
+        if stage=='candidate_truth_review':return truth_reply(payload)
         if stage=='candidate_semantic_review':
             p=payload['points'][0]
             return json.dumps({'reviews':{p['key']:{**response()['reviews']['P1'],
@@ -175,7 +176,7 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
     job=start('review-first');await svc.run('c-pilot',job['id'])
     old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
     assert old['status']=='failed'
-    assert calls==['knowledge_discovery','knowledge_atomize','candidate_semantic_review','identity_review','candidate_names','candidate_names']
+    assert calls==['knowledge_discovery','knowledge_atomize','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names','candidate_names']
     calls.clear();broken=False
     resumed=start('review-resume',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     out=svc.authoring.get_job('c-pilot',resumed['id'])
