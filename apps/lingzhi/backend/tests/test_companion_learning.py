@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from ai_teacher_state import AITeacherRepository, InteractionConflict
-from companion_learning import CompanionService, teaching_decision, select_independent_question, help_followups
+from companion_learning import CompanionService, teaching_decision, select_independent_question, help_followups, material_course_context
 
 
 @pytest.fixture
@@ -33,6 +33,16 @@ def test_read_never_creates_files_and_users_are_isolated(service):
     assert service.read("u", "another")["goal"] is None
     reopened = CompanionService(AITeacherRepository(service.repository.root))
     assert reopened.read("u", "c")["goal"]["text"] == "两周后考微积分"
+
+def test_derived_material_inherits_the_same_course_mainline_without_copying_or_overwriting_it(service):
+    command(service,'save_goal',text='课程总体目标',purpose='exam')
+    material={'request':{'source_sections':[{'course_origin':{'course_id':'c'}}]}}
+    inherited=material_course_context(material,'u',service.repository)
+    assert inherited['goal']['text']=='课程总体目标'
+    assert material_course_context(material,'v',service.repository)['goal'] is None
+    command(service,'save_goal',revision=2,text='新的课程目标',purpose='exam')
+    assert material_course_context(material,'u',service.repository)['goal']['text']=='新的课程目标'
+    assert material_course_context({'request':{'source_sections':[{'course_origin':{'course_id':'c'}},{'course_origin':{'course_id':'other'}}]}},'u',service.repository) is None
 
 
 def test_goal_idempotency_conflict_and_history(service):
