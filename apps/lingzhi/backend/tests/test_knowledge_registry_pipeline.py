@@ -491,3 +491,26 @@ def test_name_only_retry_preserves_all_semantic_and_hierarchy_work():
     assert 'names' not in new and 'preview_tree' not in new
     assert all(new[k]==old['atomic_pipeline'][k] for k in ['registry','hierarchy','registry_relations','kc_profiles'])
     assert old==before
+
+
+
+def test_navigation_names_do_not_change_new_knowledge_semantic_revisions(svc,monkeypatch):
+    from knowledge_registry_projection import build_tree
+    setup_course(svc,monkeypatch);raw=svc.repository.load_raw('c-pilot');context=svc._context(raw,'handouts','cpu')
+    point={**claim(),'key':'P1','input_material_keys':['S1']}
+    pipeline={'registry':{'points':[point],'issues':[]},'names':{'result':{'P1':{'name':'入栈定义','meta_question':'说明定义'}}}}
+    first=build_tree(raw,context,pipeline,'job')['knowledge_points'][0]
+    pipeline['names']['result']['P1']={'name':'入栈规则','meta_question':'解释完整规则'}
+    second=build_tree(raw,context,pipeline,'job')['knowledge_points'][0]
+    assert first['knowledge_id']==second['knowledge_id'] and first['revision_id']==second['revision_id']
+    point['conditions']=['容量未满']
+    third=build_tree(raw,context,pipeline,'job')['knowledge_points'][0]
+    assert third['revision_id']!=second['revision_id']
+
+
+def test_name_only_retry_keeps_legacy_candidate_revisions_for_unchanged_meaning():
+    from knowledge_registry_pipeline import continued_pipeline
+    point={**claim(),'knowledge_id':'existing-id','revision_id':'legacy-frozen-revision'}
+    old={'candidate':{'knowledge_points':[point]},'atomic_pipeline':{'inventory_batches':[]}}
+    new=continued_pipeline(old,'names')['atomic_pipeline']
+    assert new['point_revisions']['existing-id']['revision_id']=='legacy-frozen-revision'
