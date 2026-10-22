@@ -16,6 +16,7 @@
     </section>
     <CourseLearningAccessPanel v-else-if="deliveryTab === 'access'" :course-id="courseId" embedded />
     <section v-else class="delivery-section">
+    <TeacherLearningConcerns :course-id="courseId" @open-plan="payload => { open=false; emit('openPlan',payload) }" />
     <p>{{ copy('学生的正式作答与主动课程提问显示在下面。个人讲义、笔记和个人 AI 对话由学生自己保管。', 'Formal attempts and questions students explicitly send appear below. Personal handouts, notes and personal AI conversations remain with the student.') }}</p>
     <header><h3>{{ copy('学生反馈', 'Student feedback') }} · {{ feedback.length }}</h3><button :disabled="busy" @click="load">{{ copy('刷新', 'Refresh') }}</button></header>
     <p v-if="!feedback.length && !busy">{{ copy('还没有收到学生反馈。', 'No student feedback yet.') }}</p>
@@ -30,7 +31,9 @@ import { activeLocale, t } from '../shared/i18n'
 import { Send } from 'lucide-vue-next'
 import CourseWorkspaceHeaderAction from './CourseWorkspaceHeaderAction.vue'
 import CourseLearningAccessPanel from './CourseLearningAccessPanel.vue'
+import TeacherLearningConcerns from './TeacherLearningConcerns.vue'
 const props = defineProps<{ courseId: string }>()
+const emit=defineEmits<{openPlan:[payload:{planId:string;sectionId:string}]}>()
 const deliveryTab = ref<'publication' | 'access' | 'feedback'>('publication')
 const deliveryTabs = computed(() => (['publication', 'access', 'feedback'] as const).map(id => ({ id, label: t(`courseWorkspaceFlow.${id}`) })))
 const copy = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh

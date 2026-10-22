@@ -43,7 +43,7 @@
         >
           <ScanSearch :size="16" />
         </CourseWorkspaceHeaderAction>
-        <CoursePublicationPanel :course-id="courseId" />
+        <CoursePublicationPanel :course-id="courseId" @open-plan="openCourseAdjustment" />
         <CourseWorkspaceHeaderAction class="preview-action" :label="t('courseFiles.previewCourse')" :display-label="t('courseFiles.headerActions.preview')" primary @click="openCoursePreview"><Eye :size="16" /></CourseWorkspaceHeaderAction>
       </div>
     </Teleport>
