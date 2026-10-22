@@ -889,7 +889,13 @@ def test_companion_goal_summary_is_opt_in_minimal_and_withdrawable_over_real_htt
     assert response.status_code==200 and response.json()['status']=='delivered',response.text
     analysis=pair.request('teacher','GET','/api/teacher/courses/source-course/exchange/learning-analysis',headers={'X-User-Id':'teacher'}).json()
     assert analysis['roster_count']==1 and analysis['shared_goals'][0]['goal']['text']=='考试复习'
+    from companion_teaching_feedback import learning_summary
+    pending=pair.repository('student').queue_feedback(pair.actor,cid,request_id='pending-old-summary',kind='learning_summary',payload=learning_summary(svc.read(pair.actor,cid),{}),release_id=course['revision_id'])
     svc.command(pair.actor,cid,action='feedback_consent',expected_revision=3,request_id='withdraw-request',value={'enabled':False},catalog=[],source_revision='cv')
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as stale:
+        pair.repository('student').deliver(pair.actor,pending)
+    assert stale.value.status_code==409
     withdrawn=pair.request('student','POST',url,headers=pair.headers,json={'request_id':'summary-withdraw'})
     assert withdrawn.status_code==200
     teacher=pair.request('teacher','GET','/api/teacher/courses/source-course/exchange/feedback',headers={'X-User-Id':'teacher'}).json()
