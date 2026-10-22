@@ -41,3 +41,11 @@ def test_two_repository_instances_cannot_accept_the_same_expected_revision(tmp_p
     with ThreadPoolExecutor(max_workers=2) as pool:
         a=pool.submit(change,first,'first-request');b=pool.submit(change,second,'other-request')
         assert sum([a.result(),b.result()])==1
+
+def test_corrupt_saved_preference_never_silently_enables_proactive_mode(tmp_path):
+    repo=AITeacherRepository(tmp_path/'chats');svc=CompanionService(repo)
+    svc.set_preferences('u','on_request',1,'request-pref')
+    path=repo._path(repo._key('u','settings','companion_preferences'))
+    path.write_text('{broken',encoding='utf-8')
+    with pytest.raises(ValueError):svc.preferences('u')
+    assert path.read_text(encoding='utf-8')=='{broken'
