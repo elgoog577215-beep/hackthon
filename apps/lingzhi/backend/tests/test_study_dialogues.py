@@ -101,6 +101,29 @@ def env(tmp_path, monkeypatch):
     return open_note, command, records, model, events, course
 
 
+def test_discussion_consumes_goal_memory_and_saves_a_single_teaching_decision(env):
+    from companion_learning import CompanionService
+    open_note, command, records, model, events, _ = env
+    svc=CompanionService(routes.ai_teacher_repository)
+    svc.command('u','c',action='save_goal',expected_revision=1,request_id='set-goal-request',value={'text':'准备考试','purpose':'exam'},catalog=[],source_revision='cv1')
+    first=open_note(kind='explain').json()
+    response=command(first,'discuss',text='给个例子')
+    assert response.status_code==200
+    data=model.call_args.args[0]
+    assert data['companion']['goal']['purpose']=='exam'
+    assert data['teaching_decision']['format']=='example'
+    assert response.json()['messages'][-1]['teaching_decision']['action']=='explain'
+    assert not events and not records.list('u','c')
+
+
+def test_explicit_step_action_is_preserved_in_the_same_source_conversation(env):
+    open_note, command, _, model, *_ = env
+    first=open_note(kind='explain').json()
+    response=command(first,'discuss',text='帮我',teaching_action='step')
+    assert response.status_code==200
+    assert model.call_args.args[0]['teaching_decision']['action']=='step'
+
+
 def test_source_reuses_one_conversation_and_one_note_across_saves(env):
     open_note, command, records, model, events, _ = env
     first = open_note().json()
