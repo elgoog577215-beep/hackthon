@@ -873,3 +873,24 @@ def test_exchange_rejects_unapproved_plain_http_and_embedded_credentials(url):
 
     with pytest.raises(HTTPException):
         ExchangeConfig("student", "student-test", "teacher-test", url, "x" * 32).validate()
+
+
+def test_companion_goal_summary_is_opt_in_minimal_and_withdrawable_over_real_http(pair,tmp_path,monkeypatch):
+    import ai_teacher_state
+    from ai_teacher_state import AITeacherRepository
+    from companion_learning import CompanionService
+    repository=AITeacherRepository(tmp_path/'companion')
+    monkeypatch.setattr(ai_teacher_state,'ai_teacher_repository',repository)
+    course=enroll(pair);cid=course['course_id'];svc=CompanionService(repository)
+    svc.command(pair.actor,cid,action='save_goal',expected_revision=1,request_id='goal-request',value={'text':'考试复习','purpose':'exam'},catalog=[],source_revision='cv')
+    svc.command(pair.actor,cid,action='feedback_consent',expected_revision=2,request_id='consent-request',value={'enabled':True},catalog=[],source_revision='cv')
+    url=f'/api/study/courses/{cid}/exchange/learning-summary'
+    response=pair.request('student','POST',url,headers=pair.headers,json={'request_id':'summary-request'})
+    assert response.status_code==200 and response.json()['status']=='delivered',response.text
+    analysis=pair.request('teacher','GET','/api/teacher/courses/source-course/exchange/learning-analysis',headers={'X-User-Id':'teacher'}).json()
+    assert analysis['roster_count']==1 and analysis['shared_goals'][0]['goal']['text']=='考试复习'
+    svc.command(pair.actor,cid,action='feedback_consent',expected_revision=3,request_id='withdraw-request',value={'enabled':False},catalog=[],source_revision='cv')
+    withdrawn=pair.request('student','POST',url,headers=pair.headers,json={'request_id':'summary-withdraw'})
+    assert withdrawn.status_code==200
+    teacher=pair.request('teacher','GET','/api/teacher/courses/source-course/exchange/feedback',headers={'X-User-Id':'teacher'}).json()
+    assert '考试复习' not in str(teacher)
