@@ -36,4 +36,19 @@ describe('owned learning plan and companion preferences',()=>{
   expect(w.find('[data-testid="companion-plan-open"]').exists()).toBe(false)
   expect(http.get).not.toHaveBeenCalled();w.unmount()
  })
+ it('keeps a goal draft when reloading after a revision conflict and reuses a lost-response request',async()=>{
+  const original={...state(),goal:{text:'原目标',purpose:'systematic'}}
+  vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:original}))
+  const w=mount(CompanionPlanPanel,{props:{courseId:'c'},attachTo:document.body})
+  await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+  const modal=document.querySelector('[data-testid="companion-plan-dialog"]')!
+  const text=modal.querySelector('textarea')!;text.value='我的未保存目标';text.dispatchEvent(new Event('input'))
+  vi.mocked(http.post).mockRejectedValue({response:{status:409}})
+  const form=modal.querySelector('form')!
+  form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
+  form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
+  expect((vi.mocked(http.post).mock.calls[1]![1] as any).request_id).toBe((vi.mocked(http.post).mock.calls[0]![1] as any).request_id)
+  Array.from(modal.querySelectorAll('button')).find(b=>b.textContent?.trim()==='重新读取')!.click();await flushPromises()
+  expect(text.value).toBe('我的未保存目标');w.unmount()
+ })
 })
