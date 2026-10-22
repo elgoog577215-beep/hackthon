@@ -49,6 +49,14 @@ describe('companion reminders', () => {
     await settle()
     expect(http.post).toHaveBeenCalledTimes(2)
   })
+  it('honors a durable semantic note suppression even after its text or revision changes', async () => {
+    let result!: ReturnType<typeof useCompanionReminders>
+    const suppressed=ref(new Set(['note:note1']))
+    wrapper=mount(defineComponent({setup(){result=useCompanionReminders(ref(true),{suppressed});return()=>null}}))
+    await settle();expect(result.reminder.value).toBeNull();expect(http.post).not.toHaveBeenCalled()
+    useNoteStore().notes[0]!.revision=2
+    await settle();expect(http.post).not.toHaveBeenCalled()
+  })
   it('does not check drafts, AI notes, or teacher preview', async () => {
     useNoteStore().notes[0]!.syncState = 'local_only'
     start()
