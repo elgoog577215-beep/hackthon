@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { activeLocale } from '@/shared/i18n'
+import { createPinia, setActivePinia } from 'pinia'
 import CoursePublicationPanel from '@/components/CoursePublicationPanel.vue'
 import StudentCourseFeedback from '@/components/StudentCourseFeedback.vue'
 
@@ -10,6 +11,7 @@ vi.mock('@/api/study', () => ({ studyApi: api }))
 vi.mock('@/utils/http', () => ({ default: http, teacherRequestConfig: (config = {}) => ({ ...config, identityScope: 'teacher' }) }))
 let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
+  setActivePinia(createPinia())
   vi.resetAllMocks(); activeLocale.value = 'zh'
   api.courseFeedback.mockResolvedValue({ items: [], replies_available: true })
   http.get.mockImplementation(async (url: string) => ({ data: url.endsWith('/preview') ? { availability: { reading: true } } : url.endsWith('/feedback') ? { items: [] } : { enabled: true, current_revision: 'doc-a', status: 'unpublished', ppt_options: [{ project_id: 'ppt-a', title: '课程幻灯片' }] } }))
@@ -17,6 +19,11 @@ beforeEach(() => {
 })
 afterEach(() => { wrapper?.unmount(); activeLocale.value = 'zh' })
 describe('two-service course publication and feedback', () => {
+  it('labels an explicitly shared goal summary separately from a formal attempt',async()=>{
+    api.courseFeedback.mockResolvedValue({items:[{feedback_id:'summary',kind:'learning_summary',payload:{goal:{text:'考试复习'}},status:'superseded',created_at:''}],replies_available:true})
+    wrapper=mount(StudentCourseFeedback,{props:{courseId:'c',revisionId:'r'}});await flushPromises()
+    expect(wrapper.text()).toContain('目标摘要');expect(wrapper.text()).toContain('考试复习');expect(wrapper.text()).not.toContain('正式作答回执')
+  })
   it('blocks publication until the public preview confirms readable handout content', async () => {
     http.get.mockImplementation(async (url: string) => ({ data: url.endsWith('/preview') ? { availability: { reading: false } } : url.endsWith('/feedback') ? { items: [] } : { enabled: true, current_revision: 'doc-a', status: 'unpublished' } }))
     wrapper = mount(CoursePublicationPanel, { props: { courseId: 'source-a' }, global: { stubs: { Teleport: true } } })
