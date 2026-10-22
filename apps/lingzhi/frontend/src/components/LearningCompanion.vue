@@ -36,7 +36,7 @@
       <div class="reminder-heading"><strong>{{ reminder.title }}</strong><button type="button" :aria-label="t('companionReminder.dismiss')" @click="emit('dismiss-reminder')">×</button></div>
       <button type="button" class="reminder-body" @click="emit('reminder', reminder)"><span v-if="reminder.quote" class="reminder-quote">“{{ reminder.quote }}”</span><span>{{ reminder.message }}</span><span class="reminder-link">{{ t('companionReminder.open') }} →</span></button>
       <details v-if="reminder.source"><summary>{{ t('companionReminder.source') }}</summary><p>{{ reminder.source }}</p></details>
-      <footer><span>{{ t('companionReminder.hint') }}</span><button type="button" @click="emit('toggle-reminders')">{{ t('companionReminder.pause') }}</button></footer>
+      <footer><button type="button" @click="emit('dismiss-reminder','not_now')">{{ t('companionPolicy.later') }}</button><button type="button" @click="emit('dismiss-reminder','never')">{{ t('companionPolicy.never') }}</button><button type="button" @click="emit('toggle-reminders')">{{ t('companionReminder.pause') }}</button></footer>
     </aside>
     <span id="companion-drag-help" class="companion-sr-only">{{ t('learningCompanion.dragHelp', '自由拖动，松手后自动避开正文和操作。方向键调整位置，Home 和 End 移到顶部和底部，Enter 打开。') }}</span>
   </div>
@@ -52,7 +52,7 @@ import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 import { placeCompanion, type CompanionPoint, type CompanionRect } from '../utils/companion-placement'
 
 const props = withDefaults(defineProps<{ expanded?: boolean; active?: boolean; modal?: boolean; reminder?:CompanionReminder|null; remindersEnabled?:boolean; welcome?:boolean }>(), { expanded: false, active: true, remindersEnabled:undefined })
-const emit = defineEmits<{ (event: 'open'): void; (event:'reminder', reminder:CompanionReminder):void; (event:'dismiss-reminder'):void; (event:'toggle-reminders'):void; (event:'dismiss-welcome'):void }>()
+const emit = defineEmits<{ (event: 'open'): void; (event:'reminder', reminder:CompanionReminder):void; (event:'dismiss-reminder',mode?:'not_now'|'never'):void; (event:'toggle-reminders'):void; (event:'dismiss-welcome'):void }>()
 function dismissWelcome() { emit('dismiss-welcome'); void nextTick(focus) }
 const avatarUrl = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 const fullSize = { width: 112, height: 144 }

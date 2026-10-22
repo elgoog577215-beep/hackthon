@@ -21,7 +21,9 @@
 
     <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
+      <div v-if="!isGenerationPreview" class="learning-plan-tools"><CompanionPlanPanel :course-id="courseStore.currentCourseId" :preview="isTeacherPreview" @navigate="navigatePlanStep" /><span v-if="companionPreferences.suppressionError" role="status">{{ t('companionPolicy.saveFailed') }}</span></div>
       <AITeacherSuggestion
+        v-if="companionEligible"
         :suggestion="aiTeacherStore.suggestion"
         @shown="aiTeacherStore.markSuggestionShown"
         @accept="acceptSuggestion"
@@ -174,13 +176,13 @@
       :modal="aiFloating && aiVisible"
       :active="!courseStore.isFocusMode"
       :reminder="companionReminder"
-      :reminders-enabled="remindersEnabled"
+      :reminders-enabled="companionPreferences.proactive"
       :welcome="companionWelcome"
       @dismiss-welcome="dismissCompanionWelcome"
       @open="toggleAi"
       @reminder="openCompanionReminder"
-      @dismiss-reminder="dismissReminder"
-      @toggle-reminders="remindersEnabled = !remindersEnabled"
+      @dismiss-reminder="dismissReminder($event)"
+      @toggle-reminders="toggleCompanionMode"
     />
 
     <CourseEvolutionWorkspace
@@ -224,6 +226,8 @@ import NotesPanel from '../components/NotesPanel.vue'
 import ReadingNotesPanel from '../components/ReadingNotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import ReadingCompanionSurface from '../components/ReadingCompanionSurface.vue'
+import CompanionPlanPanel from '../components/CompanionPlanPanel.vue'
+import { useCompanionPreferencesStore } from '../stores/companionPreferences'
 import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
 import { useChangeProposalsStore } from '../stores/changeProposals'
@@ -266,6 +270,11 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
 const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
 const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
+const companionPreferences=useCompanionPreferencesStore()
+const companionEditing=ref(false), companionPageVisible=ref(document.visibilityState!=='hidden')
+function updateCompanionAttention(){companionEditing.value=Boolean(document.activeElement?.matches('input,textarea,[contenteditable="true"]'));companionPageVisible.value=document.visibilityState!=='hidden'}
+async function toggleCompanionMode(){try{await companionPreferences.change(companionPreferences.proactive?'on_request':'gentle')}catch{/* Keep the last verified server setting. */}}
+function navigatePlanStep(id:string){const node=courseStore.nodes.find(n=>n.node_id===id);if(node)selectNode(node)}
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
@@ -398,13 +407,15 @@ const isTeacherCurrentProjection = computed(() => (
   courseStore.currentCourseProjection === 'generation_preview' && isTeacherPreview.value
 ))
 const { visible: companionWelcome, dismiss: dismissCompanionWelcome } = useCompanionWelcome(
-  computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
+  computed(() => companionPreferences.proactive && !companionEditing.value && !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
     && !courseStore.isFocusMode && Boolean(courseStore.currentCourseId)
     && loadedLearningCourseId.value === courseStore.currentCourseId
     && String(route.params.courseId || '') === courseStore.currentCourseId),
   computed(() => isTeacherPreview.value ? '' : getLearnerIdentity()),
 )
-const { reminder:companionReminder, enabled:remindersEnabled, dismiss:dismissReminder } = useCompanionReminders(computed(() => !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value))
+const companionEligible=computed(()=>companionPreferences.proactive && companionPageVisible.value && !companionEditing.value && !taskOpen.value && !aiVisible.value && !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value)
+const { reminder:companionReminder, dismiss:dismissReminder } = useCompanionReminders(companionEligible,{suppressed:computed(()=>new Set(companionPreferences.suppressions[courseStore.currentCourseId]||[])),dismiss:(key,mode)=>{void companionPreferences.suppress(courseStore.currentCourseId,key,mode)}})
+watch(()=>[courseStore.currentCourseId,isTeacherPreview.value],()=>{if(courseStore.currentCourseId&&!isTeacherPreview.value){void companionPreferences.load();void companionPreferences.loadSuppressions(courseStore.currentCourseId)}},{immediate:true})
 async function openCompanionReminder(reminder:CompanionReminder) {
   const courseId = courseStore.currentCourseId
   await contentAreaRef.value?.closeInlineRecord?.()
@@ -670,9 +681,15 @@ async function refreshCurrentPracticeAvailability() {
 onMounted(() => {
   if (!isTeacherPreview.value) generationStore.restoreGenerationState()
   window.addEventListener('resize', handleResize)
+  document.addEventListener('focusin',updateCompanionAttention)
+  document.addEventListener('focusout',updateCompanionAttention)
+  document.addEventListener('visibilitychange',updateCompanionAttention)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('focusin',updateCompanionAttention)
+  document.removeEventListener('focusout',updateCompanionAttention)
+  document.removeEventListener('visibilitychange',updateCompanionAttention)
   learningCourseRequest++
   knowledgeReturnSequence++
   knowledgeReadingReturn = null

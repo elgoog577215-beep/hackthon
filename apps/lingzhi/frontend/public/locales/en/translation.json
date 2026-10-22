@@ -8599,5 +8599,10 @@
     "collapse": "Collapse",
     "expand": "Open full discussion",
     "return": "Return beside the passage"
+  },
+  "companionPolicy": {
+    "later": "Later",
+    "never": "Do not remind me about this",
+    "saveFailed": "Reminder preference was not saved. It is hidden for now; retry in companion settings."
   }
 }

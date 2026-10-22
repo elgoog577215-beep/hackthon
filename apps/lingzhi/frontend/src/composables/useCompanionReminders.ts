@@ -19,7 +19,7 @@ interface ReviewResult {
 }
 
 /** Checks only saved personal notes. Requests never enter the conversation or mastery stores. */
-export function useCompanionReminders(active: Ref<boolean>) {
+export function useCompanionReminders(active: Readonly<Ref<boolean>>, policy?: {suppressed:Readonly<Ref<Set<string>>>; dismiss?:(key:string,mode:'not_now'|'never')=>void}) {
   const course = useCourseStore()
   const notes = useNoteStore()
   const enabled = ref(true)
@@ -34,6 +34,7 @@ export function useCompanionReminders(active: Ref<boolean>) {
   const eligible = computed(() => notes.courseId === course.currentCourseId ? notes.notes.filter(note =>
     note.status !== 'archived' && note.status !== 'resolved' && note.status !== 'completed'
     && note.sourceType !== 'ai' && note.sourceType !== 'format' && note.sourceType !== 'wrong'
+    && !policy?.suppressed.value.has(`note:${note.id}`)
     && (!note.migrationStatus || note.migrationStatus === 'current')
     && course.nodes.some(node => node.node_id === note.nodeId)) : [])
   const reminder = computed<CompanionReminder | null>(() => {
@@ -52,7 +53,7 @@ export function useCompanionReminders(active: Ref<boolean>) {
     }
     return null
   })
-  function dismiss() { if (reminder.value) dismissed.value = new Set([...dismissed.value, reminder.value.id]) }
+  function dismiss(mode:'not_now'|'never'='not_now') { if (reminder.value) { const current=reminder.value; dismissed.value = new Set([...dismissed.value, current.id]); policy?.dismiss?.(`note:${current.note.id}`,mode) } }
   function schedule() {
     const token = ++generation
     clearTimeout(timer)

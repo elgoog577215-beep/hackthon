@@ -12,6 +12,8 @@ import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useGenerationStore } from '@/stores/generation'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import { useNoteStore } from '@/stores/notes'
+import { useCompanionPreferencesStore } from '@/stores/companionPreferences'
+import { getLearnerIdentity } from '@/utils/http'
 import type { Node } from '@/stores/types'
 
 const node: Node = {
@@ -161,6 +163,10 @@ describe('LearningView 正文任务覆盖层', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
     const pinia = createPinia()
     setActivePinia(pinia)
+    const companionPreferences=useCompanionPreferencesStore()
+    companionPreferences.ready=true;companionPreferences.owner=getLearnerIdentity();companionPreferences.mode='gentle'
+    vi.spyOn(companionPreferences,'load').mockResolvedValue(undefined)
+    vi.spyOn(companionPreferences,'loadSuppressions').mockResolvedValue(undefined)
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [

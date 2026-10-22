@@ -8599,5 +8599,10 @@
     "collapse": "收起",
     "expand": "展开完整讨论",
     "return": "回到正文旁"
+  },
+  "companionPolicy": {
+    "later": "稍后处理",
+    "never": "不再提醒这件事",
+    "saveFailed": "提醒偏好暂未保存，当前已收起；可在学伴设置中重试。"
   }
 }
