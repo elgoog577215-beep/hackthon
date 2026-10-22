@@ -8592,5 +8592,12 @@
     "evidenceMultiple": "This question covers multiple knowledge points. The color describes the whole answer and does not establish mastery of each point.",
     "evidenceExcluded": "The grading result is retained, but the system has not included this attempt as evidence to confirm mastery.",
     "gradingPending": "Grading is incomplete or awaiting review. Correctness has not been confirmed."
+  },
+  "readingCompanion": {
+    "title": "Companion · Reading help",
+    "reopen": "Reopen help",
+    "collapse": "Collapse",
+    "expand": "Open full discussion",
+    "return": "Return beside the passage"
   }
 }

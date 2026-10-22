@@ -8592,5 +8592,12 @@
     "evidenceMultiple": "本题涉及多个知识点，颜色表示整题作答结果，不能单独证明每个知识点已掌握。",
     "evidenceExcluded": "本次批改结果已保留，但系统未将它列为确认掌握程度的依据。",
     "gradingPending": "本次作答尚未完成批改或仍待复核，对错暂未确认。"
+  },
+  "readingCompanion": {
+    "title": "学伴 · 正文辅学",
+    "reopen": "展开补充",
+    "collapse": "收起",
+    "expand": "展开完整讨论",
+    "return": "回到正文旁"
   }
 }

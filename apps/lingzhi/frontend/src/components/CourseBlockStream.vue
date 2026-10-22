@@ -91,7 +91,7 @@
         />
         <MarkdownRenderer v-else :content="displayBlockContent(item.block, index)" :search-words="searchWords" />
         <InlineCourseBlockAI
-          v-if="!props.readOnly && !isCanonicalBlock(item.block.block_id)"
+          v-if="!props.readOnly && (props.studyDialogues || !isCanonicalBlock(item.block.block_id))"
           :node="node"
           :study-dialogues="props.studyDialogues"
           @study-dialogue="emit('studyDialogue', $event)"
@@ -102,6 +102,7 @@
           @record-persisted="liveRecordIds.add($event)"
           @record-released="liveRecordIds.delete($event)"
         />
+        <div v-if="props.studyDialogues" data-study-companion-anchor :data-study-node-id="node.node_id" :data-study-block-id="item.block.block_id"></div>
       </article>
       <template v-for="record in item.records" :key="record.id">
         <button v-if="props.studyDialogues && record.metadata?.study_conversation_id" type="button" class="study-note-marker" :title="record.content" @click="emit('openRecord', { note:record, x:$event.clientX, y:$event.clientY })">✎ {{ t('studyDialogue.marker') }}<span>{{ record.content }}</span></button>
