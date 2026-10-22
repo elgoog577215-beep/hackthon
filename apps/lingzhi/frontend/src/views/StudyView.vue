@@ -65,26 +65,26 @@
 
       <template v-else>
         <div class="study-reading-pane">
-          <div class="study-reading-toolbar"><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button></div>
-          <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="toolTab = 'assistant'">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
+          <div class="study-reading-toolbar"><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button><button v-if="inlineCompanion" type="button" @click="readingCompanionAnchor = null; toolTab = 'note'">{{ c('note') }}</button></div>
+          <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openPassageHelp()">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
           <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
             <article class="study-handout">
               <header class="study-handout-cover"><span class="study-eyebrow">{{ c(material.purpose) }}</span><h1>{{ material.title }}</h1><p>{{ c(material.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p><div class="handout-rule" /></header>
               <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('generatingHint') }}</span><progress v-if="isGenerating" :value="material.task?.progress || 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
               <HandoutTableOfContents v-if="readingSections.length" :entries="readingSections.map(section => ({ id: section.anchor, title: section.title }))" collapsible />
-              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
+              <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source.filename }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock><button type="button" class="personal-block-help" data-testid="personal-block-help" @click="openBlockHelp(section.id, block.block_id)">{{ t('readingCompanion.title') }}</button><div data-study-companion-anchor :data-study-node-id="section.id" :data-study-block-id="block.block_id"></div></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
               <p v-if="materialStatus === 'completed'" class="study-end"><Check :size="17" />{{ c('finishReading') }}</p>
             </article>
           </div>
         </div>
-        <ColumnResizeHandle v-if="material" v-bind="rightColumnHandle" />
-        <aside v-if="material" class="study-reading-tools">
+        <ColumnResizeHandle v-if="material && (!inlineCompanion || toolTab !== 'assistant')" v-bind="rightColumnHandle" />
+        <aside v-if="material" v-show="!inlineCompanion || toolTab !== 'assistant'" class="study-reading-tools">
           <div class="study-tool-tabs"><button v-for="tab in toolTabs" :key="tab" :class="{ active: toolTab === tab }" @click="toolTab = tab">{{ c(tab) }}</button></div>
-          <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
-          <div v-else-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
+          <ReadingCompanionSurface v-if="material.revisions[0]" :anchor="readingCompanionAnchor" :visible="toolTab === 'assistant'" @presentation-change="inlineCompanion = $event"><PersonalHandoutAssistant :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" /></ReadingCompanionSurface>
+          <div v-if="toolTab === 'note'" class="study-note"><h3>{{ c('note') }}</h3><p>{{ c('noteHint') }}</p><textarea v-model="noteText" rows="16" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><button class="study-primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</button></div>
           <div v-else-if="toolTab === 'sources'" class="study-source-list"><h3>{{ c('sources') }}</h3><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><code>{{ source.source_sha256.slice(0, 12) }}</code><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article></div>
-          <HandoutConceptMap v-else-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
-          <p v-else class="study-note">{{ c('preparingConcepts') }}</p>
+          <HandoutConceptMap v-else-if="toolTab === 'concepts' && conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" />
+          <p v-else-if="toolTab !== 'assistant'" class="study-note">{{ c('preparingConcepts') }}</p>
         </aside>
       </template>
     </div>
@@ -100,6 +100,7 @@ import HandoutTableOfContents from '../components/HandoutTableOfContents.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
+import ReadingCompanionSurface from '../components/ReadingCompanionSurface.vue'
 import { studyApi, studySession, StudyApiError, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
 import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
@@ -139,23 +140,40 @@ function selectPassage() {
   if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
   const start = range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement
   const end = range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement
+  if (start?.closest('.reading-companion-surface, .personal-block-help') || end?.closest('.reading-companion-surface, .personal-block-help')) return
   const sid = start?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId
   if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) return
   const section = material.value?.revisions[0]?.sections.find(s => s.id === sid)
   const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
   const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
-  const quote = selection.toString().trim()
+  const fragment = range.cloneContents()
+  fragment.querySelectorAll('[data-study-companion-anchor], .personal-block-help').forEach(element => element.remove())
+  const quote = fragment.textContent?.trim() || ''
   if (!section || !quote || quote.length > 3000) return
   selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', quote }
 }
+function openPassageHelp() {
+  toolTab.value = 'assistant'
+  const passage = selectedPassage.value
+  readingCompanionAnchor.value = passage?.block_id ? Array.from(readingTarget.value?.querySelectorAll<HTMLElement>('[data-study-companion-anchor]') || [])
+    .find(element => element.dataset.studyNodeId === passage.section_id && element.dataset.studyBlockId === passage.block_id) || null : null
+}
+function openBlockHelp(sectionId: string, blockId: string) {
+  const section = material.value?.revisions[0]?.sections.find(item => item.id === sectionId)
+  const block = section?.blocks.find(item => item.block_id === blockId)
+  if (!section || !block) return
+  selectedPassage.value = { section_id: section.id, section_title: section.title, block_id: block.block_id, block_title: block.title, quote: block.content.slice(0, 3000) }
+  openPassageHelp()
+}
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const noteDirty = computed(() => noteText.value !== savedNote.value)
+const readingCompanionAnchor = ref<HTMLElement | null>(null), inlineCompanion = ref(false)
 const materialId = computed(() => String(route.params.materialId || ''))
 const studyLayoutRoot = ref<HTMLElement | null>(null)
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
   storageKey: 'lingzhi:personal-study:columns', left: 240, right: 360, leftMin: 170, rightMin: 280,
   leftVisible: () => Boolean(materialId.value || creating.value),
-  rightVisible: () => Boolean(materialId.value && material.value),
+  rightVisible: () => Boolean(materialId.value && material.value && (!inlineCompanion.value || toolTab.value !== 'assistant')),
 })
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
@@ -173,7 +191,7 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { readingCompanionAnchor.value = null; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
@@ -225,6 +243,7 @@ async function generate() {
 }
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
+  readingCompanionAnchor.value = null
   material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
   activeChapter.value = ''; selectedPassage.value = null; toolTab.value = 'assistant'
   if (!id || !user.value) return

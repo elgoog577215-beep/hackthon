@@ -97,13 +97,14 @@ describe('LearningView 正文任务覆盖层', () => {
       const original = anchor.get('.same-study-panel').element
       await anchor.get('textarea').setValue('还没发出的追问')
       const request = wrapper.findComponent(panel).props('studyRequest')
+      const loadCount = vi.mocked(useAITeacherStore().load).mock.calls.length
       await anchor.get('[data-testid="companion-expand"]').trigger('click'); await flushPromises()
       expect(wrapper.findComponent(panel).element).toBe(original)
       expect(wrapper.findComponent(panel).props('studyRequest')).toBe(request)
       expect(wrapper.findComponent(panel).get('textarea').element).toHaveProperty('value', '还没发出的追问')
       document.querySelector<HTMLButtonElement>('[data-testid="companion-return-inline"]')!.click(); await flushPromises()
       expect(anchor.get('.same-study-panel').element).toBe(original)
-      expect(useAITeacherStore().load).not.toHaveBeenCalled()
+      expect(useAITeacherStore().load).toHaveBeenCalledTimes(loadCount)
     } finally { wrapper.unmount() }
   })
   it('opens the original mistake notebook and retries the exact question in the existing practice workspace', async () => {

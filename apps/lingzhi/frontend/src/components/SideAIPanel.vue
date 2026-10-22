@@ -10,10 +10,10 @@
       :aria-modal="props.embedded || props.docked ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
-      <CompanionPanelHeader v-if="companionAvatar && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" :live-pet="livePet" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
+      <CompanionPanelHeader v-if="companionAvatar && !isTeacherMode && !compact" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" :live-pet="livePet" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
       <div v-if="knowledgeContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('companionWorkspace.current', '当前知识点') }} · <strong>{{ knowledgeContext.name }}</strong></span><button type="button" :aria-label="t('companionWorkspace.clearContext', '移除知识点引用')" @click="emit('clearKnowledge')"><X :size="14" /></button></div>
       <div v-if="companionAvatar && !knowledgeContext && readingContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('readingNotes.readingAt', '正在阅读') }} · {{ readingContext.nodeName }}<small v-if="readingContext.blockTitle"> · {{ readingContext.blockTitle }}</small></span></div>
-      <header v-if="!companionAvatar || isTeacherMode" class="ai-teacher-header">
+      <header v-if="(!companionAvatar || isTeacherMode) && !compact" class="ai-teacher-header">
         <div class="ai-teacher-heading">
           <img v-if="props.companionAvatar" class="ai-companion-avatar" :src="props.companionAvatar" alt="" width="40" height="40" />
           <span v-else class="ai-teacher-icon"><Sparkles :size="16" /></span>
@@ -802,6 +802,7 @@ import { getActiveRequestIdentityScope, type RequestIdentityScope } from '../uti
 
 const props = withDefaults(defineProps<{
   visible: boolean
+  compact?: boolean
   studyRequest?: StudyRequest
   companionAvatar?: string
   floating?: boolean

@@ -58,7 +58,7 @@ beforeEach(() => {
 describe('CourseBlockStream', () => {
   it('offers the same learner companion for canonical handout blocks and provides an exact inline host', () => {
     const node: CourseNode = { ...baseNode, course_blocks: [{
-      block_id: 'canonical-help', section_id: 'node-1', position: 0, kind: 'text', role: 'explanation',
+      block_id: 'canonical-help', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept',
       payload: { title: '定义', markdown: '课程原文' }, asset_refs: [], objective_refs: [], concept_refs: [],
       evidence_refs: [], visibility_rule: {}, internal_revision: 'br1', status: 'final',
     }] }

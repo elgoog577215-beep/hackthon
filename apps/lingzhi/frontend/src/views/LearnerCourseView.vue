@@ -1,6 +1,6 @@
 <template>
   <section ref="learningLayoutRoot" class="learning-view" :style="columnLayoutStyle" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
-  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
+  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !inlineCompanion && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -32,12 +32,12 @@
         <ContentArea
           v-show="!taskOpen && !statsOpen && !mistakesOpen && !courseStore.showKnowledgeLibrary"
           ref="contentAreaRef"
-          :side-ai-panel-visible="aiVisible"
+          :side-ai-panel-visible="aiVisible && !inlineCompanion"
           :teacher-preview="isTeacherPreview"
           study-dialogues
           @study-dialogue="openStudyDialogue"
           class="learning-content"
-          @quote-ask="openAi"
+          @quote-ask="openSelectionStudy"
           @start-practice="openTask"
           @improve-block="openBlockImprovement"
           @active-block-change="handleActiveBlockChange"
@@ -128,7 +128,7 @@
         <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
-        <Teleport to="#course-companion-window-chat" :disabled="!aiFloating">
+        <ReadingCompanionSurface :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
         <SideAIPanel
           data-companion-obstacle
           id="reading-assistant-panel"
@@ -138,6 +138,8 @@
           v-show="aiVisible && !courseStore.isFocusMode"
           :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
           :docked="!isNarrow"
+          :embedded="inlineCompanion"
+          :compact="inlineCompanion"
           :visible="aiVisible && !courseStore.isFocusMode"
           :companion-avatar="companionAvatar"
           :floating="aiFloating"
@@ -161,7 +163,7 @@
           @course-applied="handleCourseGrowthApplied"
           @open-course-adjustment="openCourseAdjustment"
         />
-        </Teleport>
+        </ReadingCompanionSurface>
       </div>
     </Transition>
 
@@ -221,6 +223,7 @@ import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import ReadingNotesPanel from '../components/ReadingNotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import ReadingCompanionSurface from '../components/ReadingCompanionSurface.vue'
 import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
 import { useChangeProposalsStore } from '../stores/changeProposals'
@@ -267,14 +270,19 @@ const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', i
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
+const readingCompanionAnchor = ref<HTMLElement | null>(null)
+const inlineCompanion = ref(false)
+let studyEntrySequence = 0
 const aiFloating = useCompanionLayout()
 const selectedKnowledge = ref<KnowledgeProfileNode | null>(null)
 function selectKnowledge(point: KnowledgeProfileNode | null) {
+  readingCompanionAnchor.value = null
   studyRequest.value = undefined
   selectedKnowledge.value = point
   if (point) { aiVisible.value = true; aiQuote.value = ''; aiAnchor.value = undefined; aiPrefill.value = ''; aiBlockTarget.value = undefined }
 }
 function askKnowledge(point: KnowledgeProfileNode) {
+  readingCompanionAnchor.value = null
   studyRequest.value = undefined
   selectedKnowledge.value = point
   aiVisible.value = true
@@ -374,7 +382,8 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
-const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && (notesVisible.value || notebookOpen.value))))
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && ((aiVisible.value && !inlineCompanion.value) || (!isNarrow.value && (notesVisible.value || notebookOpen.value))))
+watch(() => [courseStore.currentCourseId, courseStore.currentCourseVersionId], () => { readingCompanionAnchor.value = null; studyEntrySequence++ })
 const dockActiveDomain = computed(() => mistakesOpen.value ? 'mistakes' : taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
   : courseStore.showKnowledgeLibrary ? 'knowledge-library'
@@ -764,9 +773,18 @@ function createReadingNote(_event: MouseEvent) {
   if (courseStore.currentNode) void openStudyDialogue({ kind:'note', nodeId:courseStore.currentNode.node_id, quote:'' })
 }
 async function openStudyDialogue(request:StudyRequest) {
+  const sequence = ++studyEntrySequence, courseId = courseStore.currentCourseId
   await contentAreaRef.value?.closeInlineRecord?.()
+  if (sequence !== studyEntrySequence || courseId !== courseStore.currentCourseId) return
   openAi({ text:request.quote, nodeId:request.nodeId, anchor:request.anchor })
+  if (request.kind === 'explain' && request.anchor?.block_id) {
+    readingCompanionAnchor.value = Array.from(learningLayoutRoot.value?.querySelectorAll<HTMLElement>('[data-study-companion-anchor]') || [])
+      .find(element => element.dataset.studyNodeId === request.nodeId && element.dataset.studyBlockId === request.anchor?.block_id) || null
+  }
   studyRequest.value = { ...request, token:Date.now() + Math.random() }
+}
+function openSelectionStudy(payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
+  void openStudyDialogue({ kind: 'explain', nodeId: payload.nodeId, quote: payload.text, anchor: payload.anchor })
 }
 function openStudyRecord(id:string) {
   const note = noteStore.notes.find(item=>item.id===id)
@@ -774,6 +792,8 @@ function openStudyRecord(id:string) {
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
+  studyEntrySequence++
+  readingCompanionAnchor.value = null
   studyRequest.value = undefined
   selectedKnowledge.value = null
   if (isGenerationPreview.value) return
