@@ -10,6 +10,13 @@ import { useLearnerModelStore } from '@/stores/learnerModel'
 
 const initial = ():AIConversation => ({ conversation_id:'study1', course_id:'c', revision:1, title:'Note', created_at:'', updated_at:'', messages:[], study_workspace:{ kind:'note',revision:1,course_version_id:'cv',node_id:'n',node_name:'Lecture',quote:'The passage',anchor:{block_id:'b'},record_id:'note1',saved_revision:0,draft:'',assisted:false,proposal:null,versions:[],nearby:[],knowledge:[],checks:[] } })
 describe('study dialogue editing', () => {
+  it('offers an explicit one-step teaching action without changing the source or saving a note', async () => {
+    const view=start()
+    await view.get('[data-teaching-action="step"]').trigger('click');await flushPromises()
+    expect(useAITeacherStore().studyCommand).toHaveBeenCalledWith('study1',expect.objectContaining({action:'discuss',teaching_action:'step'}))
+    expect(useNoteStore().loadCourseRecords).not.toHaveBeenCalled()
+    expect(useLearnerModelStore().load).not.toHaveBeenCalled()
+  })
   let wrapper:ReturnType<typeof mount> | undefined
   beforeEach(() => {
     localStorage.clear(); setActivePinia(createPinia())
