@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from ai_teacher_state import AITeacherRepository, InteractionConflict
-from companion_learning import CompanionService, teaching_decision, select_independent_question
+from companion_learning import CompanionService, teaching_decision, select_independent_question, help_followups
 
 @pytest.fixture
 def service(tmp_path):
@@ -110,3 +110,11 @@ def test_independent_check_requires_current_verified_unused_question_and_never_e
     assert select_independent_question([task],[{'task_revision_id':'q1'}],'k','kr') is None
     assert select_independent_question([{**task,'quality_status':'runtime_fallback'}],[],'k','kr') is None
     assert select_independent_question([task],[],'k','old') is None
+
+def test_help_outcomes_come_from_later_official_attempts_and_keep_uncertainty():
+    links={'q':{'created_at':'2026-10-22T01:00:00+00:00','course_version_id':'cv','help_message_id':'help'}}
+    attempts=[{'attempt_id':'a','task_revision_id':'q','course_version_id':'cv','created_at':'2026-10-22T02:00:00+00:00','status':'graded','result':{'passed':True,'grading_confidence':.9},'ai_support_level':1}]
+    row=help_followups(links,attempts,'cv')[0]
+    assert row['status']=='evidence_available' and row['attempts'][0]['independent'] is False
+    assert help_followups(links,attempts,'other')[0]['status']=='historical'
+    assert help_followups(links,[],'cv')[0]['status']=='used_unverified'
