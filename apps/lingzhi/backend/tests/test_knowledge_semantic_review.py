@@ -167,7 +167,7 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
             assert set(payload['allowed_actions'])=={'keep','match','uncertain'}
             return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'独立结论'} for p in payload['candidates']}})
         if stage=='candidate_names':
-            return json.dumps({'names':{} if broken else {p['key']:{'name':p['statement'],'meta_question':'解释该结论'} for p in payload['points']}})
+            return json.dumps({'names':{} if broken and any(p['statement'].startswith('独立结论') for p in payload['points']) else {p['key']:{'name':p['statement'],'meta_question':'解释该结论'} for p in payload['points']}})
         raise AssertionError(stage)
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     v=svc.view('c-pilot',source_mode='handouts')
@@ -177,7 +177,7 @@ async def test_pipeline_reviews_before_identity_and_resumes_without_repeating_fi
     job=start('review-first');await svc.run('c-pilot',job['id'])
     old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
     assert old['status']=='failed'
-    assert calls==['knowledge_discovery','knowledge_atomize','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names','candidate_names']
+    assert calls==['knowledge_discovery','knowledge_atomize','candidate_names','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names','candidate_names']
     calls.clear();broken=False
     resumed=start('review-resume',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     out=svc.authoring.get_job('c-pilot',resumed['id'])

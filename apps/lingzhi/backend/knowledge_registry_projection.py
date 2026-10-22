@@ -1,6 +1,7 @@
 """Compile reviewed knowledge into the existing course tree and material reader."""
 from collections import defaultdict
 from copy import deepcopy
+from knowledge_short_names import cached_name, CONTRACT as PREVIEW_NAME_CONTRACT
 
 from course_document import stable_hash
 from generic_knowledge import input_revision, sources
@@ -38,12 +39,17 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
     issues = deepcopy(registry.get('issues', []))
     by_name = defaultdict(list)
     key_map = {}
+    projected_candidates = []
     for index, candidate in enumerate(registry['points'], 1):
         old = candidate.get('_registered_point')
         kid = candidate.get('knowledge_id') or stable_hash(
             {'course': raw['course_id'], 'job': pipeline.get('identity_job_id',job_id), 'candidate': candidate['key']}, prefix='kp_')
-        row = names.get(candidate['key'], {})
-        name = old.get('name') if old else row.get('name', candidate['statement'])
+        row = names.get(candidate['key']) or cached_name(pipeline, candidate) or {}
+        name = old.get('name') if old else row.get('name')
+        if not name:
+            if preview:
+                continue  # Unnamed content is saved, but is not a navigation leaf yet.
+            raise ValueError('知识点缺少短知识名')
         question = old.get('meta_question') if old else row.get('meta_question', '请解释：' + candidate['statement'])
         point = deepcopy(old) if old else {}
         point.update(id=kid, knowledge_id=kid, key=f'K{index}', name=name, meta_question=question,
@@ -72,6 +78,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         point['content_review'] = {'contract': CONTRACT, 'semantics_verified': False,
                                    'decisions': deepcopy(candidate.get('identity_decisions', []))}
         points.append(point)
+        projected_candidates.append(candidate)
         key_map[candidate['key']] = point['key']
         by_name[name].append(point['key'])
         if not preview and (name.rstrip().endswith(('？', '?')) or len(name) > 100):
@@ -122,8 +129,8 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         review_batches = pipeline.get('semantic_review', {}).get('batches', [])
         resolutions = [*pipeline.get('extraction_resolutions',[]),
             *[r for b in review_batches if b.get('status')=='completed' for r in b['result']['resolutions']]]
-        by_candidate={candidate['key']:point['knowledge_id'] for candidate,point in zip(registry['points'],points)}
-        resolutions.extend({**deepcopy(r),'knowledge_id':by_candidate[r['target_key']]} for r in registry.get('check_resolutions',[]))
+        by_candidate={candidate['key']:point['knowledge_id'] for candidate,point in zip(projected_candidates,points)}
+        resolutions.extend({**deepcopy(r),'knowledge_id':by_candidate[r['target_key']]} for r in registry.get('check_resolutions',[]) if r['target_key'] in by_candidate)
         report=coverage_report(frozen_units,points,resolutions if review_batches or 'extraction_resolutions' in pipeline else None)
         result['knowledge_coverage']={**report,'units':deepcopy(frozen_units),'plan_origin':pipeline.get('plan_origin','model_planned')}
         if review_batches:
@@ -145,5 +152,5 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         'new_ids': sorted(current_ids - {p['knowledge_id'] for p in existing.get('knowledge_points', [])})}
     result['relation_index'] = relation_index(result)
     if preview:
-        result.update(generation_preview=True, generation_job_id=job_id)
+        result.update(generation_preview=True, generation_job_id=job_id, preview_naming_contract=PREVIEW_NAME_CONTRACT)
     return result

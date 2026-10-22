@@ -131,7 +131,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
     await svc.run('c-pilot',job['id'])
     out=svc.authoring.get_job('c-pilot',job['id'])
     assert out['status']=='completed',out.get('error')
-    assert [p['stage'] for p in calls]==(['coverage_extract'] if provided else ['knowledge_discovery','knowledge_atomize','candidate_coverage_review'])+['candidate_semantic_review','candidate_truth_review','identity_review','candidate_names']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
+    assert [p['stage'] for p in calls]==(['coverage_extract'] if provided else ['knowledge_discovery','knowledge_atomize','candidate_names','candidate_coverage_review'])+(['candidate_names'] if provided else [])+['candidate_semantic_review','candidate_truth_review','identity_review']+(['candidate_relations'] if full else [])+(['kc_profiles'] if teaching else [])
     if full:
         assert out['checkpoint']['atomic_pipeline']['hierarchy']['status']=='completed'
     tree=out['checkpoint']['candidate']
@@ -195,7 +195,7 @@ def test_replacement_and_context_keep_the_original_decisions():
 
 
 @pytest.mark.asyncio
-async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_is_unchanged(svc,monkeypatch):
+async def test_failed_early_names_continue_reuses_extraction_and_old_job_is_unchanged(svc,monkeypatch):
     setup_course(svc,monkeypatch);calls=[];broken=True
     async def call(prompt,**kwargs):
         payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload['stage'])
@@ -219,12 +219,12 @@ async def test_failed_names_continue_reuses_candidates_and_identity_and_old_job_
     before=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
     assert before['status']=='failed'
     from knowledge_atomic import project_preview
-    assert project_preview(before,'c-pilot')['knowledge_points']
-    assert calls==['knowledge_discovery','knowledge_atomize','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names','candidate_names']
+    assert project_preview(before,'c-pilot')['knowledge_points'] == []
+    assert calls==['knowledge_discovery','knowledge_atomize','candidate_names','candidate_names']
     broken=False;calls.clear()
     resumed=start('second',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     assert svc.authoring.get_job('c-pilot',resumed['id'])['status']=='completed'
-    assert calls==['candidate_names']
+    assert calls==['candidate_names','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review']
     assert svc.authoring.get_job('c-pilot',job['id'])==before
 
 
@@ -405,7 +405,7 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
     assert batch['atomization_batches'][0]['status']=='completed'
     broken=False;calls.clear();resumed=start('resume-single',resume_job_id=job['id']);await svc.run('c-pilot',resumed['id'])
     out=svc.authoring.get_job('c-pilot',resumed['id']);assert out['status']=='completed',out.get('error')
-    assert calls==['knowledge_atomize','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names']
+    assert calls==['knowledge_atomize','candidate_names','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review']
     assert out['checkpoint']['atomic_pipeline']['inventory_batches'][0]['atomization_batches'][0]==batch['atomization_batches'][0]
     assert svc.authoring.get_job('c-pilot',job['id'])==old
 
@@ -442,3 +442,21 @@ async def test_short_names_are_ready_before_first_extraction_batch_is_published(
         source_mode='handouts', lesson_id='cpu', pipeline='inventory_atomic_v1')
     await svc.run('c-pilot', job['id'])
     assert snapshots and snapshots[0]['knowledge_points'][0]['name'] == '入栈规则'
+
+
+@pytest.mark.asyncio
+async def test_preview_name_cache_tracks_meaning_instead_of_temporary_point_keys():
+    from knowledge_short_names import ensure_names, cached_name
+    pipeline = {}; calls = []
+    point = {**claim(), 'key': 'P1'}
+    async def request(prompt, stage, record, compile_result):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload)
+        return compile_result({'names': {p['key']: {'name': '入栈规则', 'meta_question': '说明规则'} for p in payload['points']}})
+    await ensure_names(pipeline, [point], request)
+    rekeyed = {**point, 'key': 'P2'}
+    assert (await ensure_names(pipeline, [rekeyed], request))['P2']['name'] == '入栈规则'
+    assert len(calls) == 1
+    changed = {**point, 'conditions': ['固定容量尚未满']}
+    assert cached_name(pipeline, changed) is None
+    await ensure_names(pipeline, [changed], request)
+    assert len(calls) == 2

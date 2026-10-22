@@ -7958,6 +7958,8 @@
     "relationsNotRun": "本次只完成知识清单与细化，保留端点仍有效的已有关系；新关系尚未分析。",
     "organizeHierarchy": "整理本讲层级",
     "equivalenceReview": "核对同义知识",
+    "previewVersion": "本次生成预览",
+    "interruptedPreview": "本次生成未完成，已保留本次知识预览。继续生成将处理剩余部分；完成前不能采用。",
     "streamingPreview": "正在生成，已完成部分会陆续显示；完成后可审阅并采用。",
     "hierarchySaved": "本讲分类已按全部批次统一整理，知识点正文和修订未改动。",
     "candidateRelationCount": "条待审关系",

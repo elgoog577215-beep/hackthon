@@ -12,6 +12,7 @@ from course_repository import CourseDocumentConflict
 CONTRACT = 'knowledge_hierarchy_v5'
 PARTITION = 'knowledge_partition_v1'
 DIRECT = '__direct__'
+RECOVERY_CONTRACT = 'knowledge_hierarchy_recovery_v1'
 
 
 def hierarchy_schema(point_keys):
@@ -186,25 +187,45 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
              'scope': '本讲全部知识', 'path': [], 'point_keys': [p['key'] for p in points], 'status': 'pending'}]}
         pipeline['hierarchy'] = state
     lookup = {p['key']: p for p in points}
+    state['recovery_contract'] = RECOVERY_CONTRACT
     async def process(pending):
         validate_source()
         if len(pending['point_keys']) == 1:
             result = {'groups': [], 'direct_keys': pending['point_keys'], 'reason': '本分支只有一个冻结元知识点，无需添加分类'}
         elif not pending.get('is_root'):
             branch_points = [lookup[key] for key in pending['point_keys']]
-            response = pending.get('raw_response') if pending.get('validation_error') else None
-            if not response:
-                response = await call_stage(svc, course_id, job_id, provider,
-                    subtree_prompt(raw, context, pending, branch_points), 'hierarchy_subtree')
-            validate_source()
-            pending['raw_response'] = response; save(pipeline_stage='hierarchy')
-            try:
-                parsed = await repair_assignments(svc,course_id,job_id,provider,raw,context,pending,
-                    parse_complete_json(response),branch_points,lambda:save(pipeline_stage='hierarchy'),validate_source)
-                compiled = compile_subtree(parsed, pending, branch_points, raw['course_id'], context['scope_lesson_id'])
-            except Exception as error:
-                pending['validation_error'] = {'code':type(error).__name__,'message':str(error)[:600]}
-                save(pipeline_stage='hierarchy'); raise
+            prompt = subtree_prompt(raw, context, pending, branch_points)
+            previous = pending.get('raw_response') if pending.get('validation_error') else None
+            for attempt in range(2):
+                effective = prompt
+                if pending.get('validation_error'):
+                    instruction, payload_text = prompt.split('\nINPUT_JSON:\n', 1)
+                    payload = json.loads(payload_text)
+                    payload['repair_feedback'] = {'error': pending['validation_error'], 'previous_response': previous,
+                        'scope': '仅修正本分支分类及归属，不改知识正文、祖先或其他已完成分支；同名子分类应调整分类范围或将点直接归属已有父分类'}
+                    effective = instruction + '\nINPUT_JSON:\n' + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+                entry = {'job_id': job_id, 'attempt': attempt + 1, 'status': 'requested', 'contract': RECOVERY_CONTRACT}
+                pending.setdefault('attempts', []).append(entry)
+                save(pipeline_stage='hierarchy')
+                response = await call_stage(svc, course_id, job_id, provider, effective, 'hierarchy_subtree')
+                validate_source()
+                pending['raw_response'] = response
+                entry['raw_response'] = response
+                try:
+                    parsed = await repair_assignments(svc,course_id,job_id,provider,raw,context,pending,
+                        parse_complete_json(response),branch_points,lambda:save(pipeline_stage='hierarchy'),validate_source)
+                    compiled = compile_subtree(parsed, pending, branch_points, raw['course_id'], context['scope_lesson_id'])
+                except (ValueError, CourseDocumentConflict, TypeError, KeyError) as error:
+                    pending['validation_error'] = {'code':type(error).__name__,'message':str(error)[:600]}
+                    entry.update(status='failed', validation_error=deepcopy(pending['validation_error']),
+                                 unchanged_response=response == previous)
+                    save(pipeline_stage='hierarchy')
+                    if response == previous or attempt:
+                        raise
+                    previous = response
+                else:
+                    entry['status'] = 'completed'
+                    break
             remap = {'__branch__': pending['key']}
             for category in compiled['categories']:
                 if category['key'] == '__branch__': continue

@@ -244,6 +244,8 @@ async def run(svc, course_id, job_id):
                 batch['validation_error'] = {'message':str(error)}
                 save()
                 raise KnowledgeBatchValidationError(batch['id'],str(error)) from error
+            from knowledge_short_names import ensure_names
+            await ensure_names(pipeline, batch['points'], request)
             batch['status'] = 'completed'
             batch.pop('validation_error',None)
             if not supplied:
@@ -331,8 +333,9 @@ async def run(svc, course_id, job_id):
         new_points = [p for p in points if not p.get('_registered_point')]
         names = pipeline.setdefault('names', {})
         if new_points and names.get('status') != 'completed':
-            names['result'] = await request(names_prompt(new_points), 'candidate_names', names,
-                                            lambda value: parse_names(value, new_points))
+            from knowledge_short_names import ensure_names
+            names['result'] = await ensure_names(pipeline, new_points, request)
+            names['status'] = 'completed'
         elif not new_points:
             names.update(status='completed', result={})
         # A completed request may have been persisted just before the caller stored its projection.

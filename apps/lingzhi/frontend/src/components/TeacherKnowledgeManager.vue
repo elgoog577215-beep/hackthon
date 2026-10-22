@@ -38,7 +38,7 @@
           <h2 v-if="treeOnly">{{ t('knowledgeFirst.tree') }}</h2>
           <label v-if="treeOnly && (historyOptions.length || selectedCandidate)" class="tree-version"><span>{{ t('knowledgeFirst.version') }}</span><select v-model="treeChoice">
             <option v-if="treeChoice === 'candidate' && !selectedCandidate && data.tree" value="candidate" disabled>{{ t('knowledgeFirst.candidatePreparingBaseline') }}</option>
-            <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
+            <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t(selectedCandidate.generation_preview ? 'knowledgeFirst.previewVersion' : 'knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
             <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
           </select></label>
           <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || staleTreeSource || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false || !atomicAdoptionReady" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
@@ -90,7 +90,7 @@
           <p v-for="(gap,index) in displayTree.relation_assessment.gaps || []" :key="index">{{ gap }}</p>
           <label><input v-model="confirmRelations" type="checkbox" data-testid="confirm-knowledge-relations" /> {{ t('knowledgeFirst.confirmRelations') }}</label>
         </details>
-        <p v-if="displayTree?.generation_preview" class="notice" role="status">{{ t('knowledgeFirst.streamingPreview') }}</p>
+        <p v-if="displayTree?.generation_preview" class="notice" role="status" data-testid="knowledge-preview-status">{{ t(previewInterrupted ? 'knowledgeFirst.interruptedPreview' : 'knowledgeFirst.streamingPreview') }}</p>
         <details v-if="treeChoice === 'candidate' && displayTree?.atomic_assessment && !displayTree.generation_preview && (atomicReviewRequired || identityReviewRequired || displayTree.atomic_assessment.ready_for_adoption === false)" class="notice atomic-adoption" data-testid="knowledge-atomic-adoption">
           <summary>{{ t(displayTree.atomic_assessment.ready_for_adoption === false ? 'knowledgeFirst.candidateNeedsRevision' : 'knowledgeFirst.adoptionReviewTitle') }} · {{ displayTree.atomic_assessment.ready_for_adoption === false ? (displayTree.atomic_assessment.issues || []).length : Number(atomicReviewRequired) + Number(identityReviewRequired) }}</summary>
           <p v-for="(issue,index) in (displayTree.atomic_assessment.issues || []).filter((item:any) => item.message)" :key="index">{{ issue.message }}</p>
@@ -107,7 +107,7 @@
           <div v-if="!treeOnly" class="section-heading"><div><h2>{{ t('knowledgeFirst.tree') }}</h2><p>{{ displayTree?.teaching_assessment ? t('knowledgeFirst.teachingProvenance') : displayTree?.provenance || data.provenance }}</p></div>
             <label v-if="historyOptions.length || selectedCandidate">{{ t('knowledgeFirst.version') }}<select v-model="treeChoice">
             <option v-if="treeChoice === 'candidate' && !selectedCandidate && data.tree" value="candidate" disabled>{{ t('knowledgeFirst.candidatePreparingBaseline') }}</option>
-              <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t('knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
+              <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t(selectedCandidate.generation_preview ? 'knowledgeFirst.previewVersion' : 'knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
               <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
             </select></label></div>
           <details v-if="displayTree?.knowledge_coverage" class="notice" data-testid="knowledge-coverage">
@@ -330,6 +330,9 @@ const selectedCandidateRecord = computed(() => {
   const preview = (data.value?.generation_previews || []).find((p: any) => !perLesson.value || p.lesson_id === knowledgeLessonId.value)
   const pendingJob = activeJobs.value.find(j => j.id === preview?.job_id)
   if (preview && pendingJob) return preview
+  const run = (data.value?.atomic_runs || []).find((r: any) => r.job_id === preview?.job_id)
+  const previewJob = (data.value?.jobs || []).find((j: any) => j.id === preview?.job_id) || run
+  if (preview && previewJob && !run?.adopted && ['failed', 'paused', 'cancelled'].includes(previewJob.status)) return preview
   if (!perLesson.value) return data.value?.candidate ? { tree: data.value.candidate, job_id: data.value.candidate_job_id, lesson_id: '' } : null
   const pending = (tree: any) => tree && !(data.value?.history || []).some((h: any) => h.revision_id === tree.revision_id)
   const candidates = (data.value?.candidates || []).filter((c: any) => !c.adopted && pending(c.tree) && (c.lesson_id || c.source_knowledge_revision === undefined || c.source_knowledge_revision === data.value.knowledge_revision))
@@ -338,6 +341,8 @@ const selectedCandidateRecord = computed(() => {
     || (!Array.isArray(data.value?.candidates) && pending(data.value?.candidate) && !data.value.candidate.scope_lesson_id ? { tree: data.value.candidate, job_id: data.value.candidate_job_id, lesson_id: '' } : null)
 })
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
+const previewInterrupted = computed(() => selectedCandidate.value?.generation_preview
+  && !activeJobs.value.some(j => j.id === selectedCandidateRecord.value?.job_id))
 const atomicRun = computed(() => {
   const run = (data.value?.atomic_runs || []).find((run:any) => !perLesson.value || run.lesson_id === knowledgeLessonId.value)
   if (treeChoice.value === 'candidate' && selectedCandidate.value?.relation_assessment

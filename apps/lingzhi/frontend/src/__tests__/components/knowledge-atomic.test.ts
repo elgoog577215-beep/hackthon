@@ -183,9 +183,9 @@ it('uses unrecovered failed observations for a historical job with a stale hiera
 })
 
 
-it.each(['failed','paused','cancelled'])('keeps the current %s preview visible instead of selecting an older candidate', async(status)=>{
- const v:any=view();v.atomic_runs[0].status=status
- v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status,progress:80}]
+it.each(['failed','paused','cancelled','failed-before-run-refresh'])('keeps the current %s preview visible instead of selecting an older candidate', async(status)=>{
+ const v:any=view();v.atomic_runs[0].status=status==='failed-before-run-refresh'?'running':status
+ v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:status==='failed-before-run-refresh'?'failed':status,progress:80}]
  const tree=(name:string)=>({revision_id:name,categories:[{id:'s',name:'基本操作',parent_id:null}],
   knowledge_points:[{knowledge_id:name,name,statement:'完整知识正文',parent_id:'s',section_refs:['cpu']}],relations:[]})
  v.candidates=[{job_id:'old-job',lesson_id:'cpu',tree:tree('旧候选知识')}]
@@ -193,6 +193,7 @@ it.each(['failed','paused','cancelled'])('keeps the current %s preview visible i
  vi.spyOn(http,'get').mockResolvedValue({data:v})
  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
  expect(w.text()).toContain('本次短知识名');expect(w.text()).not.toContain('旧候选知识')
+ expect(w.get('[data-testid="knowledge-preview-status"]').text()).toContain('本次生成未完成')
  expect(w.findAll('button').find(b=>b.text().includes('采用这版知识树'))!.attributes('disabled')).toBeDefined()
  expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
