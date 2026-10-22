@@ -3,7 +3,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -66,7 +66,7 @@ class PptRequest(ReleaseRead):
 class FeedbackEnvelope(ReleaseRead):
     feedback_id: str = Field(min_length=1, max_length=160, pattern=r"^feedback_[0-9a-f]{32}$")
     source_node_id: str = Field(min_length=1, max_length=64)
-    kind: str = Field(pattern=r"^(course_question|practice_result)$")
+    kind: str = Field(pattern=r"^(course_question|practice_result|learning_summary)$")
     payload: dict
 
 
@@ -348,6 +348,16 @@ def receive_feedback(body: FeedbackEnvelope, config=Depends(publisher)):
             or not 1 <= len(body.payload["text"].strip()) <= 6000
         ):
             raise HTTPException(422, "课程反馈格式不正确")
+    elif body.kind == 'learning_summary':
+        from companion_teaching_feedback import learning_summary
+        public=body.payload
+        if set(public)-{'schema_version','consent_revision','withdrawn','goal','formal_evidence_count'} or public.get('schema_version')!='companion_feedback_v1' or type(public.get('withdrawn')) is not bool or type(public.get('consent_revision')) is not int:
+            raise HTTPException(422,'Invalid learning summary')
+        if public['withdrawn']:
+            if set(public)!={'schema_version','consent_revision','withdrawn'}:raise HTTPException(422,'Withdrawn summary contains data')
+        else:
+            goal=public.get('goal') or {}
+            if set(goal)!={'text','purpose'} or not isinstance(goal.get('text'),str) or len(goal['text'])>2000 or goal.get('purpose') not in {'systematic','exam','project','mixed'} or type(public.get('formal_evidence_count')) is not int or public['formal_evidence_count']<0:raise HTTPException(422,'Invalid goal summary')
     else:
         receipt_id = body.payload.get("receipt_id")
         receipt = next((g for g in repo.ledger().get("grades", {}).values() if g["receipt_id"] == receipt_id), None)
@@ -415,10 +425,60 @@ def teacher_feedback(course_id: str, request: Request):
                 key: deepcopy(grade_record.get(key)) for key in ("task_revision_id", "answer_payload", "result")
             }
             row["assessment"]["task"] = {
-                key: deepcopy(task[key]) for key in ("prompt", "question_type", "options") if key in task
+                key: deepcopy(task[key]) for key in ("prompt", "question_type", "options", "node_id", "concept_ids", "knowledge_revision_refs", "knowledge_name") if key in task
             }
         items.append(row)
+    latest_summaries={}
+    for item in items:
+        if item.get('kind')!='learning_summary':continue
+        key=(item['actor_id'],item['release_id'])
+        prior=latest_summaries.get(key)
+        if not prior or (item['payload'].get('consent_revision',0),item['received_at'])>(prior['payload'].get('consent_revision',0),prior['received_at']):latest_summaries[key]=item
+    items=[i for i in items if i.get('kind')!='learning_summary']+[i for i in latest_summaries.values() if not i['payload'].get('withdrawn')]
     return {"items": items, "count": len(items)}
+
+
+@router.get('/teacher/courses/{course_id}/exchange/learning-analysis')
+def teacher_learning_analysis(course_id:str,request:Request,release_id:str=Query(default='',max_length=200),since:str=Query(default='',max_length=40),until:str=Query(default='',max_length=40)):
+    from course_learning_access import CourseLearningAccess
+    from companion_teaching_feedback import summarize_feedback
+    from companion_learning import CompanionService
+    course=owner_course(course_id,request)
+    publication=ExchangeRepository(storage).ledger().get('publications',{}).get(course_id) or {}
+    release_id=release_id or publication.get('current_release_id','')
+    roster=[r for r in CourseLearningAccess(storage).list(course_id) if r.get('owner_id')==course['owner_id']]
+    rows=teacher_feedback(course_id,request)['items']
+    projection=summarize_feedback(roster,rows,release_id=release_id,since=since,until=until)
+    actors={r['learner_id'] for r in roster if r.get('status')=='active'}
+    summaries={}
+    for row in sorted(rows,key=lambda r:r.get('received_at') or ''):
+        if row.get('kind')=='learning_summary' and row.get('actor_id') in actors and row.get('release_id')==release_id:
+            summaries[row['actor_id']]=row['payload']
+    for actor in actors:
+        local=CompanionService(__import__('ai_teacher_state').ai_teacher_repository).read(actor,course_id)
+        if local['feedback_consent']:
+            from companion_teaching_feedback import learning_summary
+            summaries[actor]=learning_summary(local,{})
+    projection['shared_goals']=[{'actor_id':actor,**s} for actor,s in summaries.items() if not s.get('withdrawn')]
+    projection['available_releases']=list(publication.get('releases',{}))
+    return projection
+
+
+class CompanionSummaryRequest(StrictModel):
+    request_id:str=Field(min_length=8,max_length=160)
+
+@router.post('/study/courses/{course_id}/exchange/learning-summary')
+def send_companion_summary(course_id:str,body:CompanionSummaryRequest,user=Depends(study_identity)):
+    from ai_teacher_state import ai_teacher_repository
+    from companion_learning import CompanionService
+    from companion_teaching_feedback import learning_summary
+    repo=ExchangeRepository(storage)
+    ref=repo.reference(user['id'],course_id)
+    if not ref:raise HTTPException(404,'Published course not found')
+    repo.read(user['id'],course_id)
+    payload=learning_summary(CompanionService(ai_teacher_repository).read(user['id'],course_id),{})
+    feedback_id=repo.queue_feedback(user['id'],course_id,request_id=body.request_id,kind='learning_summary',payload=payload,release_id=ref['release_id'])
+    return repo.deliver(user['id'],feedback_id)
 
 
 @router.post("/teacher/courses/{course_id}/exchange/feedback/{feedback_id}/reply")
