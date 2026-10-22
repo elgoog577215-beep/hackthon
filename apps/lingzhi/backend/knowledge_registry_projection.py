@@ -1,12 +1,12 @@
 """Compile reviewed knowledge into the existing course tree and material reader."""
 from collections import defaultdict
 from copy import deepcopy
-from knowledge_short_names import cached_name, CONTRACT as PREVIEW_NAME_CONTRACT
+from knowledge_short_names import cached_name, meaning_key, CONTRACT as PREVIEW_NAME_CONTRACT
 
 from course_document import stable_hash
 from generic_knowledge import input_revision, sources
-from handout_knowledge import knowledge_facts, merge_lesson_tree
-from knowledge_registry_contract import CONTRACT, FIELDS
+from handout_knowledge import merge_lesson_tree
+from knowledge_registry_contract import CONTRACT
 from knowledge_relations import relation_index
 
 
@@ -71,7 +71,15 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
         point['source_quotes'] = material_records(context, candidate['input_material_keys'])
         point['source_refs'] = list(dict.fromkeys(q['evidence_id'] for q in point['source_quotes']))
         point.setdefault('aliases', [])
-        point['revision_id'] = old.get('revision_id') if old and old.get('revision_id') else stable_hash(knowledge_facts(point), prefix='kpv_')
+        meaning = meaning_key(point)
+        frozen = pipeline.setdefault('point_revisions', {}).get(kid, {})
+        if old and old.get('revision_id'):
+            point['revision_id'] = old['revision_id']
+        elif frozen.get('meaning') == meaning and frozen.get('revision_id'):
+            point['revision_id'] = frozen['revision_id']
+        else:
+            point['revision_id'] = stable_hash({'knowledge_id': kid, 'meaning': meaning}, prefix='kpv_')
+        pipeline['point_revisions'][kid] = {'meaning': meaning, 'revision_id': point['revision_id']}
         for check in point.get('check_records',[]):
             check.update(knowledge_id=kid,knowledge_revision=point['revision_id'],
                 check_id=stable_hash({'knowledge':kid,'candidate':check['candidate_key'],'intent':check['check_intent']},prefix='kcheck_'))
@@ -102,6 +110,7 @@ def build_tree(raw, context, pipeline, job_id, *, hierarchy=None, preview=False)
             'misconceptions': [], 'skill_units': [], 'bindings': [], 'mastery_criteria': [],
             'source_mode': 'handouts', 'source_contract': 'input_material_record_v1',
             'provenance_contract': 'input_material_record_v1', 'generation_contract': CONTRACT,
+            'semantic_revision_contract': 'knowledge_meaning_revision_v1',
             'source_handouts': deepcopy(context['handout_lessons']),
             'source_unit_contract': context.get('source_unit_contract'),
             'source_evidence_package_revision': context['evidence_package']['package_revision_id'],

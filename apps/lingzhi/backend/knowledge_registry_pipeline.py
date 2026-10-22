@@ -27,8 +27,13 @@ def replay_saved(record, compile_result):
 
 def continued_pipeline(checkpoint, retry_batch_id):
     result = deepcopy(checkpoint)
-    result.pop('candidate', None)
     pipeline = result['atomic_pipeline']
+    frozen_tree = result.pop('candidate', None) or pipeline.get('preview_tree') or {}
+    from knowledge_short_names import meaning_key
+    for point in frozen_tree.get('knowledge_points', []):
+        if point.get('knowledge_id') and point.get('revision_id'):
+            pipeline.setdefault('point_revisions', {}).setdefault(point['knowledge_id'],
+                {'meaning': meaning_key(point), 'revision_id': point['revision_id']})
     if retry_batch_id == 'hierarchy':
         pipeline.pop('hierarchy', None)
     elif retry_batch_id == 'relations':
