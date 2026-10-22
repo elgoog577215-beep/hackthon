@@ -45,10 +45,25 @@ def test_shortening_subject_preserves_only_source_bound_conditional_scope():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('change',[False,True])
 async def test_adoption_compares_the_same_projection_and_still_protects_handout_changes(svc,monkeypatch,change):
-    from backend.tests.test_knowledge_tree_relations import fake_provider
-    setup_course(svc,monkeypatch);fake_provider(svc)
+    import json
+    from types import SimpleNamespace
+    from backend.tests.test_knowledge_registry_pipeline import discovery_reply, atomic_reply, completion_reply, semantic_reply, truth_reply
+    setup_course(svc,monkeypatch)
+    async def call(prompt, **kwargs):
+        data=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);stage=data['stage']
+        if stage=='knowledge_discovery':return discovery_reply(data)
+        if stage=='knowledge_atomize':return atomic_reply(data)
+        if stage=='candidate_coverage_review':return completion_reply()
+        if stage=='candidate_semantic_review':return semantic_reply(data)
+        if stage=='candidate_truth_review':return truth_reply(data)
+        if stage=='identity_review':return json.dumps({'decisions':{p['key']:{'action':'keep','reason':'完整规则'} for p in data['candidates']}})
+        if stage=='candidate_names':return json.dumps({'names':{p['key']:{'name':'入栈规则','meta_question':'说明入栈规则'} for p in data['points']}})
+        if stage=='candidate_relations':return json.dumps({'reviews':{k:'没有额外关系' for k in data['focus_keys']},'edges':[]})
+        raise AssertionError(stage)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,model_smart='qwen3.8-27b',client=None)
     job=start(svc,extraction_mode='single_pass_v1');await svc.run('c-pilot',job['id'])
     view=svc.view('c-pilot',source_mode='handouts')
+    assert svc.authoring.get_job('c-pilot',job['id'])['status']=='completed'
     if change:
         from course_repository import CourseDocumentConflict
         state=svc.authoring.load('c-pilot')

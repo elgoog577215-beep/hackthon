@@ -33,6 +33,9 @@ def continued_pipeline(checkpoint, retry_batch_id):
         pipeline.pop('hierarchy', None)
     elif retry_batch_id == 'relations':
         pipeline.pop('registry_relations', None)
+    elif retry_batch_id == 'names':
+        for key in ('names', 'preview_tree'):
+            pipeline.pop(key, None)
     elif retry_batch_id == 'identity':
         for key in ('registry','identity_review','names','hierarchy','registry_relations','preview_tree','kc_profiles'):
             pipeline.pop(key,None)
@@ -341,6 +344,8 @@ async def run(svc, course_id, job_id):
         # A completed request may have been persisted just before the caller stored its projection.
         if names.get('status') == 'completed' and 'result' not in names:
             names['result'] = parse_names(names['response'], new_points)
+        from knowledge_short_names import resolve_name_collisions
+        names['result'] = await resolve_name_collisions(pipeline, points, names['result'], request)
         save()
         tree = build_tree(raw, context, pipeline, job_id)
         # Whole-course unique keys also make reused cross-lesson identities unambiguous.
