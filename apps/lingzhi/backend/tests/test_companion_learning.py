@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from ai_teacher_state import AITeacherRepository, InteractionConflict
-from companion_learning import CompanionService, teaching_decision
+from companion_learning import CompanionService, teaching_decision, select_independent_question
 
 @pytest.fixture
 def service(tmp_path):
@@ -103,3 +103,10 @@ def test_helped_success_invites_independent_check_not_mastery():
 def test_decision_never_uses_other_knowledge_point():
     m=model([]); m['mistake_signals']=[{'status':'confirmed','category':'process_error','concept_ids':['other']}]
     assert teaching_decision(m,question='帮我',knowledge_refs={'k1':'kr1'},node_id='n1')['action']=='explain'
+
+def test_independent_check_requires_current_verified_unused_question_and_never_exposes_answer():
+    task={'task_revision_id':'q1','quality_status':'passed','concept_ids':['k'],'knowledge_revision_refs':{'k':'kr'},'node_id':'n','answer_spec':{'answer':'private'}}
+    assert select_independent_question([task],[],'k','kr')=={'task_revision_id':'q1','node_id':'n'}
+    assert select_independent_question([task],[{'task_revision_id':'q1'}],'k','kr') is None
+    assert select_independent_question([{**task,'quality_status':'runtime_fallback'}],[],'k','kr') is None
+    assert select_independent_question([task],[],'k','old') is None
