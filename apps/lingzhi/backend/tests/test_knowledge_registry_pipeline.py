@@ -408,3 +408,37 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
     assert calls==['knowledge_atomize','candidate_coverage_review','candidate_semantic_review','candidate_truth_review','identity_review','candidate_names']
     assert out['checkpoint']['atomic_pipeline']['inventory_batches'][0]['atomization_batches'][0]==batch['atomization_batches'][0]
     assert svc.authoring.get_job('c-pilot',job['id'])==old
+
+
+def test_preview_never_uses_a_full_statement_as_a_navigation_title(svc, monkeypatch):
+    from knowledge_registry_projection import build_tree
+    setup_course(svc, monkeypatch)
+    raw = svc.repository.load_raw('c-pilot'); context = svc._context(raw, 'handouts', 'cpu')
+    point = {**claim(), 'key': 'P1', 'input_material_keys': ['S1']}
+    pipeline = {'inventory_batches': [{'points': [point]}]}
+    preview = build_tree(raw, context, pipeline, 'job', preview=True)
+    assert preview['knowledge_points'] == []
+
+
+@pytest.mark.asyncio
+async def test_short_names_are_ready_before_first_extraction_batch_is_published(svc, monkeypatch):
+    setup_course(svc, monkeypatch)
+    snapshots = []
+    async def call(prompt, **kwargs):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); stage = payload['stage']
+        if stage == 'knowledge_discovery': return discovery_reply(payload)
+        if stage == 'knowledge_atomize': return atomic_reply(payload)
+        if stage == 'candidate_names':
+            return json.dumps({'names': {p['key']: {'name': '入栈规则', 'meta_question': '说明入栈规则'} for p in payload['points']}})
+        if stage == 'candidate_coverage_review':
+            saved = svc.authoring.load('c-pilot')
+            jobs = saved.get('jobs', {})
+            snapshots.extend(j['checkpoint']['atomic_pipeline'].get('preview_tree', {}) for j in jobs.values())
+            raise TimeoutError('stop after the first published batch')
+        pytest.fail('Unexpected stage ' + stage)
+    svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, client=None, model_smart='qwen3.8-27b')
+    view = svc.view('c-pilot', source_mode='handouts')
+    job, _ = svc.start('c-pilot', 'tree', 'early-names', view['knowledge_revision'], view['document_revision'],
+        source_mode='handouts', lesson_id='cpu', pipeline='inventory_atomic_v1')
+    await svc.run('c-pilot', job['id'])
+    assert snapshots and snapshots[0]['knowledge_points'][0]['name'] == '入栈规则'

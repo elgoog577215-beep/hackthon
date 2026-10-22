@@ -181,3 +181,42 @@ async def test_recursive_partition_keeps_completed_branches_on_resume(monkeypatc
     parents = {a['point_key']: a['category_key'] for a in result['assignments']}
     assert parents['K1'] != parents['K2'] and parents['K2'] == parents['K3']
     assert len(parents) == 4 and saved
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('unchanged', [False, True])
+async def test_resume_requests_a_scoped_repair_instead_of_revalidating_failed_subtree(monkeypatch, unchanged):
+    import json
+    from knowledge_hierarchy import organize, CONTRACT
+    points = [{'key': f'K{i}', 'name': f'知识{i}', 'statement': f'完整命题{i}'} for i in range(1, 4)]
+    bad = json.dumps({'response_contract': CONTRACT, 'categories': [
+        {'key': 'S1', 'name': '队列机制', 'scope': '访问规则', 'parent_key': None}],
+        'point_categories': {'K1': 'S1', 'K2': 'S1'}})
+    task = {'key': 'C1', 'name': '队列机制', 'scope': '队列访问', 'path': ['队列机制'],
+            'point_keys': ['K1', 'K2'], 'status': 'pending', 'raw_response': bad,
+            'validation_error': {'code': 'CourseDocumentConflict', 'message': '祖先与子分类不能同名套层'}}
+    done = {'key': 'C2', 'name': '队列代价', 'scope': '操作代价', 'path': ['队列代价'],
+            'point_keys': ['K3'], 'status': 'completed'}
+    pipeline = {'hierarchy': {'contract': CONTRACT, 'status': 'pending', 'categories': [
+        {'key': t['key'], 'name': t['name'], 'scope': t['scope'], 'parent_key': None} for t in [task, done]],
+        'assignments': [{'point_key': 'K3', 'category_key': 'C2'}],
+        'tasks': [{'key': 'root', 'status': 'completed'}, task, done]}}
+    before = deepcopy(done); calls = []
+    async def request(svc, cid, jid, provider, prompt, stage):
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload)
+        assert payload['repair_feedback']['previous_response'] == bad
+        assert set(p['key'] for p in payload['points']) == {'K1', 'K2'}
+        if unchanged: return bad
+        return json.dumps({'response_contract': CONTRACT, 'categories': [],
+                           'point_categories': {'K1': '__direct__', 'K2': '__direct__'}})
+    monkeypatch.setattr('knowledge_atomic.call_stage', request)
+    args = (None, 'c', 'new-job', None, {'course_id': 'c'},
+            {'scope_lesson_id': 'l', 'handout_lessons': [{'title': '课题'}]}, pipeline, points,
+            lambda **kwargs: None, lambda: None)
+    if unchanged:
+        with pytest.raises(CourseDocumentConflict): await organize(*args)
+        assert task['validation_error'] and task['status'] == 'pending'
+    else:
+        result = await organize(*args)
+        assert len(result['assignments']) == 3 and task['status'] == 'completed'
+    assert len(calls) == 1 and done == before
