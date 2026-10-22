@@ -14,6 +14,7 @@ export function learningSelectionQuote(range: Range, root: HTMLElement, nodeIds:
   const start = elementAt(range.startContainer)
   const end = elementAt(range.endContainer)
   if (!start || !end || !root.contains(start) || !root.contains(end)) return null
+  if (Array.from(root.querySelectorAll('.reading-companion-surface')).some(surface => range.intersectsNode(surface))) return null
   const editable = 'input, textarea, button, [contenteditable]:not([contenteditable="false"])'
   if (start.closest(editable) || end.closest(editable)) return null
   const lecture = start.closest<HTMLElement>('[id^="node-"]')

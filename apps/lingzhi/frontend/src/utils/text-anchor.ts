@@ -38,12 +38,18 @@ const positionPayload = (content: string, quote: string, start: number): TextPos
   occurrence: quotePositions(content, quote).filter(position => position < start).length,
 })
 
+function originalText(fragment: DocumentFragment | HTMLElement): string {
+  const copy = fragment.cloneNode(true) as DocumentFragment | HTMLElement
+  copy.querySelectorAll('[data-study-companion-anchor], .reading-companion-surface').forEach(element => element.remove())
+  return copy.textContent || ''
+}
+
 export function buildTextQuoteAnchor(range: Range, root: HTMLElement, quote = range.toString()): TextQuoteAnchor {
-  const content = root.textContent || ''
+  const content = originalText(root)
   const before = document.createRange()
   before.selectNodeContents(root)
   before.setEnd(range.startContainer, range.startOffset)
-  const start = Math.max(0, before.toString().length)
+  const start = Math.max(0, originalText(before.cloneContents()).length)
   return {
     text_quote: quote,
     text_position: positionPayload(content, quote, start),

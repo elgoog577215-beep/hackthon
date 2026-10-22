@@ -1844,7 +1844,7 @@ async function openStudyRequest() {
     if (!conversation || request !== props.studyRequest) return
     conversationOpen.value = false
     await nextTick()
-    if (request.prompt && conversation.messages.length <= 1) await studyPanel.value?.startDiscussion(request.prompt)
+    if (request.prompt) await studyPanel.value?.startDiscussion(request.prompt)
   } catch { studyEntryError.value = t('studyDialogue.openFailed') }
 }
 watch(() => [props.quoteText, props.quoteAnchor, props.entrypoint], () => {
