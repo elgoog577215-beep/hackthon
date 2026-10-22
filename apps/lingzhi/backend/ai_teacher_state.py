@@ -11,11 +11,13 @@ from pathlib import Path
 import threading
 from typing import Any
 import uuid
+import file_lock
 
 from storage import storage
 
 
 SCHEMA_VERSION = 2
+_guard_local = threading.local()
 PROPOSAL_STATUSES = {
     "presented",
     "confirmed",
@@ -459,14 +461,40 @@ class _RepositoryGuard:
 
     def __enter__(self) -> dict[str, Any]:
         self.lock.acquire()
-        self.data = self.repository._read(self.path)
+        scopes = getattr(_guard_local, 'scopes', None)
+        if scopes is None:
+            scopes = _guard_local.scopes = {}
+        self.scope_key = str(self.path.resolve())
+        self.nested = self.scope_key in scopes
+        if self.nested:
+            self.scope = scopes[self.scope_key]
+            self.scope['write'] = self.scope['write'] or self.write
+            self.data = self.scope['data']
+            return self.data
+        self.file_guard = self.path.with_suffix('.lock').open('a+b')
+        try:
+            file_lock.flock(self.file_guard,file_lock.LOCK_EX)
+            self.data = self.repository._read(self.path)
+            self.scope = scopes[self.scope_key] = {'data': self.data, 'write': self.write, 'failed': False}
+        except BaseException:
+            self.file_guard.close()
+            self.lock.release()
+            raise
         return self.data
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        if self.nested:
+            if exc_type is not None:
+                self.scope['failed'] = True
+            self.lock.release()
+            return
         try:
-            if self.write and exc_type is None and self.data is not None:
+            if self.scope['write'] and not self.scope['failed'] and exc_type is None and self.data is not None:
                 self.repository._write_atomic(self.path, self.data)
         finally:
+            _guard_local.scopes.pop(self.scope_key, None)
+            file_lock.flock(self.file_guard,file_lock.LOCK_UN)
+            self.file_guard.close()
             self.lock.release()
 
 
