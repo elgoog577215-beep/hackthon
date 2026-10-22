@@ -56,6 +56,17 @@ beforeEach(() => {
 })
 
 describe('CourseBlockStream', () => {
+  it('offers the same learner companion for canonical handout blocks and provides an exact inline host', () => {
+    const node: CourseNode = { ...baseNode, course_blocks: [{
+      block_id: 'canonical-help', section_id: 'node-1', position: 0, kind: 'text', role: 'explanation',
+      payload: { title: '定义', markdown: '课程原文' }, asset_refs: [], objective_refs: [], concept_refs: [],
+      evidence_refs: [], visibility_rule: {}, internal_revision: 'br1', status: 'final',
+    }] }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: '', studyDialogues: true }, global })
+    expect(wrapper.findComponent({ name: 'InlineCourseBlockAI' }).exists()).toBe(true)
+    expect(wrapper.get('[data-study-companion-anchor]').attributes('data-study-node-id')).toBe('node-1')
+    expect(wrapper.get('[data-study-companion-anchor]').attributes('data-study-block-id')).toBe('canonical-help')
+  })
   it('讲义关系沿用当前教案，并用 canonical 知识引用定位到正文块', () => {
     useCourseStore(pinia).currentTeachingPlan = { sections: [{ node_id: 'node-1', knowledge_structure: [{ knowledge_points: [{ name: '向量空间', knowledge_id: 'k-vector' }, { name: '基', knowledge_id: 'k-basis' }] }], knowledge_relations: [{ source_name: '向量空间', target_name: '基', relation_type: 'prerequisite', reason: '先确定空间，再讨论生成与独立。' }] }] } as any
     const node: CourseNode = { ...baseNode, course_blocks: [{ block_id: 'basis', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept', payload: { title: '一组基', markdown: '说明', content_type: 'definition' }, concept_refs: ['k-basis'], asset_refs: [], objective_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'v1', status: 'final' }] }
