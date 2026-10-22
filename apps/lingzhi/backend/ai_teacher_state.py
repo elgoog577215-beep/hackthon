@@ -364,6 +364,14 @@ class AITeacherRepository:
     def _conversation(self, data: dict[str, Any], conversation_id: str) -> dict[str, Any] | None:
         return next((item for item in data["conversations"] if item.get("conversation_id") == conversation_id), None)
 
+    def companion_state(self, user_id: str, resource_id: str, *, resource_type: str = 'course', update=None) -> dict:
+        """Versioned companion metadata in the existing interaction repository."""
+        with self._guard(user_id, resource_id, write=update is not None, resource_type=resource_type) as data:
+            state = data.setdefault('companion', {})
+            if update is not None:
+                update(state)
+            return deepcopy(state)
+
     def material_conversation(self, user_id: str, material_id: str, revision_id: str, update=None) -> dict:
         """The same conversation store with a typed personal-material scope.
 
@@ -410,6 +418,7 @@ class AITeacherRepository:
             if not isinstance(data, dict):
                 return _blank()
             normalized = _blank()
+            normalized['companion'] = data.get('companion') if isinstance(data.get('companion'), dict) else {}
             for key in {"conversations", "proposals", "receipts", "suppressions", "suggestions_shown"}:
                 normalized[key] = data.get(key) if isinstance(data.get(key), list) else []
             for conversation in normalized["conversations"]:
