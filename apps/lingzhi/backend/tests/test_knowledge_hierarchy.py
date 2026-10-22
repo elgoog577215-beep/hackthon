@@ -220,3 +220,21 @@ async def test_resume_requests_a_scoped_repair_instead_of_revalidating_failed_su
         result = await organize(*args)
         assert len(result['assignments']) == 3 and task['status'] == 'completed'
     assert len(calls) == 1 and done == before
+
+
+@pytest.mark.parametrize('topic', ['队列机制','法线性质','数据库连接'])
+def test_subtree_normalizes_redundant_ancestor_wrappers_without_changing_knowledge(topic):
+    from knowledge_hierarchy import compile_subtree, CONTRACT
+    task = {'key':'C1','name':topic,'scope':'本分支范围','path':[topic]}
+    points = [{'key':'K1','statement':'完整知识甲'},{'key':'K2','statement':'完整知识乙'}]
+    response = {'response_contract':CONTRACT,'categories':[
+        {'key':'S1','name':topic,'scope':'重复的父范围','parent_key':None},
+        {'key':'S2','name':'具体规则','scope':'一个明确子问题','parent_key':'S1'}],
+        'point_categories':{'K1':'S1','K2':'S2'}}
+    before = deepcopy(response); original = deepcopy(points)
+    result = compile_subtree(response, task, points, 'c', 'l')
+    assert {c['key'] for c in result['categories']} == {'__branch__','S2'}
+    assert {a['point_key']:a['category_key'] for a in result['assignments']} == {'K1':'__branch__','K2':'S2'}
+    assert next(c for c in result['categories'] if c['key']=='S2')['parent_key']=='__branch__'
+    assert result['normalizations'][0]['category_key']=='S1'
+    assert response==before and points==original
