@@ -83,6 +83,7 @@ export type AIModelFailureCode =
   | 'cancelled'
 
 export interface AIMessage {
+  teaching_decision?: {decision_id:string;action:string;format:string;uncertainty:string;evidence_refs:unknown[]}
   message_id: string
   role: 'user' | 'assistant' | 'system'
   content: string

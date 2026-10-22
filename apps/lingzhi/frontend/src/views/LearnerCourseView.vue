@@ -156,6 +156,7 @@
           :prefill="aiPrefill"
           :study-request="studyRequest"
           @open-study-record="openStudyRecord"
+          @practice="target => { closeAi(); openMatrixPractice(target.nodeId,target.taskRevisionId) }"
           :entrypoint="aiEntrypoint"
           :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
           :block-target="aiBlockTarget"

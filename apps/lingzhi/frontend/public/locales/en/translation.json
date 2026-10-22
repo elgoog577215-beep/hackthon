@@ -8604,5 +8604,13 @@
     "later": "Later",
     "never": "Do not remind me about this",
     "saveFailed": "Reminder preference was not saved. It is hidden for now; retry in companion settings."
+  },
+  "companionTeaching": {
+    "explain": "Explain differently",
+    "contrast": "Contrast the ideas",
+    "step": "Guide just my next step",
+    "verify": "Find a new independent check",
+    "awaiting": "No qualified unused question has this exact binding. Verification remains pending; continue learning or check later.",
+    "unavailable": "Check unavailable. No attempt was created; try later."
   }
 }

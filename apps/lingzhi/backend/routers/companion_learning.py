@@ -42,6 +42,11 @@ class Suppress(Strict):
     key:str=Field(min_length=1,max_length=200)
     mode:Literal['not_now','never','restore']
 
+class CheckTarget(Strict):
+    conversation_id:str=Field(min_length=1,max_length=160)
+    knowledge_id:str=Field(min_length=1,max_length=160)
+    knowledge_revision:str=Field(min_length=1,max_length=160)
+
 def service(): return CompanionService(ai_teacher_repository)
 
 def failure(exc):
@@ -70,6 +75,28 @@ def view(user,resource,catalog,revision,model=None,resource_type='course'):
     result.update(catalog=catalog,source_revision=revision,progress=(model or {}).get('objectives',[]),
                   model_revision_id=(model or {}).get('model_revision_id'))
     return result
+
+@router.post('/courses/{course_id}/learning-records/companion/check-target')
+async def check_target(course_id:str,body:CheckTarget,user=Depends(study_identity)):
+    from companion_learning import select_independent_question, stamp
+    from routers.practice import _questions
+    from practice_attempts import practice_attempt_repository
+    course=await read_learning_course(course_id,user)
+    conversation=ai_teacher_repository.get_conversation(user['id'],course_id,body.conversation_id)
+    workspace=(conversation or {}).get('study_workspace') or {}
+    if workspace.get('course_version_id')!=course.get('current_course_version_id'):raise HTTPException(409,'Source changed')
+    from routers.study_dialogues import _knowledge
+    points=_knowledge(course,workspace.get('node_id'),workspace.get('anchor') or {})
+    if not any(p['knowledge_id']==body.knowledge_id and p['revision_id']==body.knowledge_revision for p in points):raise HTTPException(409,'No exact current knowledge binding')
+    attempts=practice_attempt_repository.list(user['id'],course_id)
+    target=select_independent_question(_questions(course,node_id=workspace['node_id'],scope='node'),attempts,body.knowledge_id,body.knowledge_revision)
+    if not target:return {'status':'unavailable','reason':'no_qualified_unused_question'}
+    message=next((m for m in reversed(conversation.get('messages',[])) if m.get('role')=='assistant' and m.get('teaching_decision')),None)
+    def link(state):
+        state.setdefault('check_links',{})[target['task_revision_id']]={'conversation_id':body.conversation_id,'help_message_id':(message or {}).get('message_id'),
+            'decision_id':((message or {}).get('teaching_decision') or {}).get('decision_id'),'created_at':stamp(),'course_version_id':course.get('current_course_version_id')}
+    ai_teacher_repository.companion_state(user['id'],course_id,update=link)
+    return {'status':'available',**target}
 
 @router.get('/courses/{course_id}/learning-records/companion')
 async def get_context(course_id:str,user=Depends(study_identity)):

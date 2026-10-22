@@ -366,7 +366,8 @@ async def command(course_id: str, conversation_id: str, payload: DialogueCommand
                 concept_ids=[point["knowledge_id"]], task_revision_id=f"note-check:{point['knowledge_id']}:{point['revision_id']}",
                 idempotency_key=payload.request_id, evidence={"answer": payload.text, "question": point["question"]},
                 result={"passed": result["passed"], "grading_confidence": result["confidence"], "support_level": support, "solution_revealed": solution_seen},
-                metadata={"knowledge_revision_refs": {point["knowledge_id"]: point["revision_id"]}, "conversation_id": conversation_id})
+                metadata={"knowledge_revision_refs": {point["knowledge_id"]: point["revision_id"]}, "conversation_id": conversation_id,
+                    "preceding_help_id":next((m['message_id'] for m in reversed(current['messages']) if m.get('teaching_decision')),None)})
             check["event_id"] = event["event_id"]
             ws["checks"].append(check)
             # Subsequent checks follow feedback and cannot be relabelled independent.

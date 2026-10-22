@@ -151,3 +151,15 @@ def teaching_decision(model,*,question,knowledge_refs,node_id,requested_action='
                        'contrast':'用关键条件不同的一组对比例子辨析，请学生说明区别，保留待核实判断。',
                        'step':'保留正确步骤，只给下一步最小提示并等待学生回应；不默认展开全部答案。',
                        'verify':'邀请学生做未展示答案的合格新题或独立解释；缺少合格检查材料则明确待验证，不能宣称掌握。'}[action]}
+
+
+def select_independent_question(tasks,attempts,knowledge_id,knowledge_revision):
+    used={a.get('task_revision_id') or a.get('question_revision_id') for a in attempts}
+    evidence_keys={a.get('assessment_evidence_key') for a in attempts if a.get('assessment_evidence_key')}
+    for task in tasks:
+        revision=task.get('task_revision_id') or task.get('revision_id')
+        if (not revision or revision in used or task.get('assessment_evidence_key') in evidence_keys
+            or task.get('quality_status')!='passed' or task.get('concept_ids')!=[knowledge_id]
+            or task.get('knowledge_revision_refs')!={knowledge_id:knowledge_revision}):continue
+        return {'task_revision_id':revision,'node_id':task.get('node_id') or ''}
+    return None

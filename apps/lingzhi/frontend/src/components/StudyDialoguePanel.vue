@@ -9,6 +9,10 @@
     <nav class="study-tabs" :aria-label="t('studyDialogue.title')">
       <button v-for="tab in tabs" :key="tab" type="button" :aria-pressed="view === tab" @click="view = tab">{{ t(`studyDialogue.${tab}`) }}</button>
     </nav>
+    <div v-if="view==='conversation'" class="study-teaching-actions">
+      <button v-for="action in ['explain','contrast','step'] as const" :key="action" type="button" :data-teaching-action="action" :disabled="!canAct" @click="run('discuss',{text:t(`companionTeaching.${action}`),teaching_action:action})">{{t(`companionTeaching.${action}`)}}</button>
+      <button type="button" data-teaching-action="verify" :disabled="!canAct || !selectedPoint || preview" @click="independentCheck">{{t('companionTeaching.verify')}}</button>
+    </div>
     <div ref="messageList" class="study-body" tabindex="0" @scroll="handleMessageScroll">
       <div v-if="view === 'conversation'" ref="messageContent">
         <p v-if="!conversation.messages.length" class="study-hint">{{ t('studyDialogue.welcome') }}</p>
@@ -72,9 +76,10 @@ import { t } from '../shared/i18n'
 import { modelFailureLabel } from '../utils/ai-teacher-failures'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useFollowingScroll } from '../composables/useFollowingScroll'
+import http from '../utils/http'
 
 const props = defineProps<{ conversation:AIConversation }>()
-const emit = defineEmits<{ openRecord:[id:string] }>()
+const emit = defineEmits<{ openRecord:[id:string]; practice:[target:{nodeId:string;taskRevisionId:string}] }>()
 const ai = useAITeacherStore(), course = useCourseStore(), notes = useNoteStore()
 const workspace = computed(() => props.conversation.study_workspace!)
 const preview = computed(() => isTeacherPreviewCourse(props.conversation.course_id))
@@ -85,6 +90,7 @@ const draft = ref(workspace.value.draft), input = ref(''), answer = ref('')
 const knowledgeId = ref(workspace.value.knowledge[0]?.knowledge_id || '')
 const selectedPoint = computed(() => workspace.value.knowledge.find(point=>point.knowledge_id===knowledgeId.value))
 const busy = ref(false), error = ref(''), notice = ref(''), conflict = ref(false)
+async function independentCheck(){if(!canAct.value||!selectedPoint.value||preview.value)return;const target=props.conversation;busy.value=true;error.value='';try{const {data}=await http.post(`/api/courses/${encodeURIComponent(target.course_id)}/learning-records/companion/check-target`,{conversation_id:target.conversation_id,knowledge_id:selectedPoint.value.knowledge_id,knowledge_revision:selectedPoint.value.revision_id});if(disposed||course.currentCourseId!==target.course_id)return;if(data.status==='available')emit('practice',{nodeId:data.node_id,taskRevisionId:data.task_revision_id});else notice.value=t('companionTeaching.awaiting')}catch{if(!disposed)error.value=t('companionTeaching.unavailable')}finally{if(!disposed)busy.value=false}}
 const canAct = computed(() => !busy.value && !historical.value && !conflict.value)
 const messageList = ref<HTMLElement | null>(null)
 const messageContent = ref<HTMLElement | null>(null)
@@ -176,6 +182,7 @@ async function reload() {
 </script>
 
 <style scoped>
+.study-teaching-actions { display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px;border-bottom:1px solid #e9e2f1 }.study-teaching-actions button { font:inherit;font-size:15px;border:1px solid #d7cce8;border-radius:7px;padding:5px 8px;background:#faf7fe;color:#655080;cursor:pointer }.study-teaching-actions button:disabled {opacity:.5;cursor:default}
 .study-dialogue { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; color:var(--lz-text,#44384f); background:#fff; font-size:15px; }
 .study-source { padding:8px 14px; background:#f7f3fd; flex:none; }
 .study-source strong { display:block; font-size:15px; line-height:1.45; }.study-source blockquote { margin:4px 0 0; padding-left:8px; border-left:2px solid #beabd9; max-height:44px; overflow:auto; color:#776587; font-size:13px; line-height:1.6; }
