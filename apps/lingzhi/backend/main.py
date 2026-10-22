@@ -209,6 +209,8 @@ def read_root():
 app.include_router(courses.router, prefix="/api")
 from routers import study
 app.include_router(study.router, prefix="/api")
+from routers import companion_learning
+app.include_router(companion_learning.router, prefix="/api")
 from routers import course_learning_access
 app.include_router(course_learning_access.router, prefix="/api")
 from routers import course_exchange
