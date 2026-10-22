@@ -191,10 +191,10 @@ async def test_resume_requests_a_scoped_repair_instead_of_revalidating_failed_su
     points = [{'key': f'K{i}', 'name': f'知识{i}', 'statement': f'完整命题{i}'} for i in range(1, 4)]
     bad = json.dumps({'response_contract': CONTRACT, 'categories': [
         {'key': 'S1', 'name': '队列机制', 'scope': '访问规则', 'parent_key': None}],
-        'point_categories': {'K1': 'S1', 'K2': 'S1'}})
+        'point_categories': {'K1': 'S1', 'K2': 'unknown'}})
     task = {'key': 'C1', 'name': '队列机制', 'scope': '队列访问', 'path': ['队列机制'],
             'point_keys': ['K1', 'K2'], 'status': 'pending', 'raw_response': bad,
-            'validation_error': {'code': 'CourseDocumentConflict', 'message': '祖先与子分类不能同名套层'}}
+            'validation_error': {'code': 'CourseDocumentConflict', 'message': '知识点归类不完整或重复'}}
     done = {'key': 'C2', 'name': '队列代价', 'scope': '操作代价', 'path': ['队列代价'],
             'point_keys': ['K3'], 'status': 'completed'}
     pipeline = {'hierarchy': {'contract': CONTRACT, 'status': 'pending', 'categories': [
@@ -238,3 +238,17 @@ def test_subtree_normalizes_redundant_ancestor_wrappers_without_changing_knowled
     assert next(c for c in result['categories'] if c['key']=='S2')['parent_key']=='__branch__'
     assert result['normalizations'][0]['category_key']=='S1'
     assert response==before and points==original
+
+
+@pytest.mark.parametrize('failure', ['unknown','cycle','extra_field','empty'])
+def test_redundant_wrapper_normalization_cannot_hide_invalid_original_structure(failure):
+    from knowledge_hierarchy import compile_subtree, CONTRACT
+    task={'key':'C1','name':'父范围','scope':'完整范围','path':['父范围']}
+    response={'response_contract':CONTRACT,'categories':[
+        {'key':'S1','name':'父范围','scope':'重复父范围','parent_key':None}],
+        'point_categories':{'K1':'S1'}}
+    if failure=='unknown':response['point_categories']['K1']='missing'
+    if failure=='cycle':response['categories'][0]['parent_key']='S1'
+    if failure=='extra_field':response['categories'][0]['statement']='不准改知识'
+    if failure=='empty':response['point_categories']['K1']='__direct__'
+    with pytest.raises(CourseDocumentConflict):compile_subtree(response,task,[{'key':'K1'}],'c','l')

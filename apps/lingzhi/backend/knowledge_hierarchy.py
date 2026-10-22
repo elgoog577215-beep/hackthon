@@ -126,17 +126,39 @@ def compile_subtree(response, task, points, course_id, lesson_id):
     if not isinstance(categories, list) or not isinstance(mapping, dict):
         _fail('递归子树结构无效')
     root = '__branch__'
-    ancestors = {str(name).strip().casefold().replace(' ', '') for name in [task['name'], *task.get('path', [])]}
     for category in categories:
         if not isinstance(category, dict) or category.get('key') in {root, DIRECT}:
             _fail('子树分类短键无效')
-        if str(category.get('name', '')).strip().casefold().replace(' ', '') in ancestors:
-            _fail('祖先与子分类不能同名套层')
     value = {**response, 'categories': [
         {'key': root, 'name': task['name'], 'scope': task['scope'], 'parent_key': None},
         *[{**c, 'parent_key': root if c.get('parent_key') is None else c['parent_key']} for c in categories]],
         'point_categories': {k: root if v == DIRECT else v for k, v in mapping.items()}}
-    return compile_hierarchy(value, points, course_id, lesson_id)
+    # Validate every reference, membership, field, cycle and empty branch before
+    # removing any redundant wrapper. Knowledge and historical responses stay frozen.
+    checked = compile_hierarchy(value, points, course_id, lesson_id, allow_redundant_ancestors=True)
+    by_key = {c['key']: deepcopy(c) for c in checked['categories']}
+    mapping = {a['point_key']: a['category_key'] for a in checked['assignments']}
+    normalizations = []
+    normalized = lambda name: name.strip().casefold().replace(' ', '')
+    for key in list(by_key):
+        if key == root:
+            continue
+        category = by_key[key]
+        ancestors = [by_key[k]['name'] for k in _path_keys(by_key, key)[:-1]] + task.get('path', [])
+        if normalized(category['name']) not in {normalized(name) for name in ancestors}:
+            continue
+        parent = category['parent_key']
+        for child in by_key.values():
+            if child['parent_key'] == key:
+                child['parent_key'] = parent
+        mapping = {point: parent if target == key else target for point, target in mapping.items()}
+        normalizations.append({'category_key': key, 'parent_key': parent,
+                               'reason': 'redundant_ancestor_wrapper', 'name': category['name']})
+        del by_key[key]
+    result = compile_hierarchy({'response_contract': CONTRACT, 'categories': list(by_key.values()),
+                                'point_categories': mapping}, points, course_id, lesson_id)
+    result['normalizations'] = normalizations
+    return result
 
 
 async def repair_assignments(svc, course_id, job_id, provider, raw, context, task, response, points, save, validate_source):
@@ -234,7 +256,8 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
                 if category['key'] == '__branch__': continue
                 state['categories'].append({**category, 'key': remap[category['key']], 'parent_key': remap[category['parent_key']]})
             state['assignments'].extend({**a, 'category_key': remap[a['category_key']]} for a in compiled['assignments'])
-            pending.update(status='completed', raw_response=response, reason='已校验完整递归子树')
+            pending.update(status='completed', raw_response=response, reason='已校验完整递归子树',
+                           normalizations=deepcopy(compiled.get('normalizations', [])))
             pending.pop('validation_error', None)
             save(pipeline_stage='hierarchy')
             return
@@ -282,7 +305,7 @@ def _fail(message):
     raise CourseDocumentConflict(message)
 
 
-def compile_hierarchy(response, points, course_id, lesson_id):
+def compile_hierarchy(response, points, course_id, lesson_id, *, allow_redundant_ancestors=False):
     contract = response.get('response_contract') if isinstance(response, dict) else None
     if contract in {'knowledge_hierarchy_v2', 'knowledge_hierarchy_v3', 'knowledge_hierarchy_v4', CONTRACT}:
         mapping = response.get('point_categories')
@@ -327,7 +350,7 @@ def compile_hierarchy(response, points, course_id, lesson_id):
     for key in by_key:
         visit(key)
         names = [by_key[k]['name'].casefold().replace(' ', '') for k in _path_keys(by_key, key)]
-        if len(names) != len(set(names)):
+        if len(names) != len(set(names)) and not allow_redundant_ancestors:
             _fail("祖先与子分类不能同名套层")
     siblings = [(c['parent_key'], c['name']) for c in by_key.values()]
     if len(siblings) != len(set(siblings)):
