@@ -268,6 +268,7 @@ describe('LearningView 正文任务覆盖层', () => {
     } })
     await flushPromises()
     expect(wrapper.findComponent({ name:'LearningCompanion' }).props('welcome')).toBe(!preview)
+    if(!preview){wrapper.findComponent(ContentAreaStub).vm.$emit('quoteAsk',{text:'问题',nodeId:'n1'});await flushPromises();expect(wrapper.findComponent({name:'LearningCompanion'}).props('welcome')).toBe(false)}
     if (preview) expect(useCourseStore().fetchCourseList).not.toHaveBeenCalled()
     else expect(useCourseStore().fetchCourseList).toHaveBeenCalledWith({ surface: 'student', background: true })
     wrapper.unmount()
