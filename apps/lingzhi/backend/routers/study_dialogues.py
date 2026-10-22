@@ -43,6 +43,7 @@ class DialogueCommand(BaseModel):
     knowledge_id: str = Field(default="", max_length=160)
     version: int | None = Field(default=None, ge=1)
     language: Literal["zh", "en"] = "zh"
+    teaching_action: Literal['', 'explain', 'contrast', 'step', 'verify'] = ''
 
 
 def _version(course):
@@ -200,7 +201,9 @@ async def _model(data, *, action, language):
                         '"confidence":number between 0 and 1,"feedback":string}. Use null and low confidence when evidence is insufficient. '
                         'Do not use the note draft or chat as the student answer.')
     else:
-        instruction += ('Return {"reply":string,"draft":string|null}; both keys are required. '
+        instruction += ('Follow teaching_decision for this turn; step means one minimal hint, never the whole solution. '
+                        'Use companion goal/plan/memories as context, never mastery evidence. Do not silently change the goal. '
+                        'Return {"reply":string,"draft":string|null}; both keys are required. '
                         'For discuss, answer the message AND automatically update the same note draft with any substantive learning from this turn. '
                         'Return draft:null only for greetings or clarification with no new note content; never erase the existing draft. '
                         'Merge new learning into the current draft, preserving the student\'s manual edits and intent instead of replacing it with only the latest message. '
@@ -261,10 +264,16 @@ async def command(course_id: str, conversation_id: str, payload: DialogueCommand
     nearby = _nearby(records, workspace, course)
     result = None
     point = None
+    decision = None
     if payload.action in {"discuss", "refine"}:
         if not payload.text.strip() and payload.action == "discuss":
             raise HTTPException(422, "Message required")
-        result = await _model({"source": str(node.get("node_content") or "")[:16000], "quote": workspace["quote"],
+        from companion_learning import course_help_context
+        points = _knowledge(course, workspace['node_id'], workspace['anchor'])
+        companion,decision = await run_in_threadpool(course_help_context,course,user_id,workspace['node_id'],payload.text,
+            {p['knowledge_id']:p['revision_id'] for p in points},ai_teacher_repository,payload.teaching_action)
+        result = await _model({"companion":companion,"teaching_decision":decision,
+                               "source": str(node.get("node_content") or "")[:16000], "quote": workspace["quote"],
                                "draft": workspace["draft"], "nearby_notes": nearby,
                                "history": [{"role": m["role"], "content": m["content"][:3000]} for m in conversation["messages"][-12:]],
                                "message": payload.text, "action": payload.action}, action=payload.action, language=payload.language)
@@ -297,7 +306,7 @@ async def command(course_id: str, conversation_id: str, payload: DialogueCommand
         elif payload.action in {"discuss", "refine"}:
             current["messages"].extend([
                 {"message_id": payload.request_id + ":user", "role": "user", "content": payload.text or ("Organize the note" if payload.language == "en" else "请整理当前笔记"), "created_at": stamp, "status": "complete"},
-                {"message_id": payload.request_id + ":ai", "role": "assistant", "content": result["reply"], "created_at": stamp, "status": "complete"},
+                {"message_id": payload.request_id + ":ai", "role": "assistant", "content": result["reply"], "created_at": stamp, "status": "complete", "teaching_decision":decision},
             ])
             ws["assisted"] = True
             if result.get("draft"):

@@ -365,6 +365,8 @@ def _mistake_signals(workflow: dict[str, Any]) -> list[dict[str, Any]]:
             ]
             signal = {
                 "mistake_point_id": str(mistake_id),
+                "concept_ids": list(hypothesis.get("concept_ids") or case.get("concept_ids") or []),
+                "category": hypothesis.get("category"),
                 "status": "confirmed",
                 "confidence": str(hypothesis.get("confidence_level") or "high"),
                 "skill_unit_ids": list(hypothesis.get("skill_unit_ids") or case.get("skill_unit_ids") or []),

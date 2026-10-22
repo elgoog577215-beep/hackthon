@@ -77,7 +77,15 @@ def build_ai_teacher_context(
             "message_id": str(message.get("message_id") or ""),
         })
 
+    companion, decision = {}, {}
+    if perspective != 'teacher':
+        from companion_learning import course_help_context
+        from ai_teacher_state import ai_teacher_repository
+        companion, decision = course_help_context(projected_course,user_id,effective_node_id,question,
+            ((context_ref or {}).get('content_anchor') or {}).get('knowledge_revision_refs') or {},ai_teacher_repository)
     return {
+        'companion': companion,
+        'teaching_decision': decision,
         "schema_version": "ai_context_package_v3",
         "request": {
             "question": _clip(question, 5000),
@@ -264,6 +272,11 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 8. 回答正文中不伪造已经执行的系统动作。写动作由独立 ActionProposal 协议处理。
 9. 当前课程知识库是本课程知识身份、能力、易错与掌握标准的统一坐标；只允许使用已通过质量门的条目。回答仍须结合当前正文、任务和学习证据，不得忽略真实问题。
 10. 当入口为 block 时，回答到当前解释、例子、简化或问题本身为止；不得主动提出下一步、出题、保存或课程改写，也不要在结尾添加“如果你愿意”“需要我可以”等邀请。
+学伴的总体目标、计划与明确记忆（可修改的个人上下文，不是掌握证据）：
+{json.dumps(package.get('companion') or {}, ensure_ascii=False)}
+本次教学决定：
+{json.dumps(package.get('teaching_decision') or {}, ensure_ascii=False)}
+按本次决定选一种教学动作；临时提问不改总体目标。step 只给下一步最小提示；verify 缺少合格新题时明确待验证，不编造通过。不得把提供帮助作为掌握。
 {diagram_guidance}"""
 
 

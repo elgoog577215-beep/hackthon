@@ -109,8 +109,24 @@ class CompanionService:
     def prompt(self,user,resource,resource_type='course'):
         state=self.read(user,resource,resource_type)
         context={'goal':state['goal'],'plan':state['plan'],
-                 'memories':[m for m in state['memories'] if m['status']=='active'][-12:]}
+                 'memories':[{k:m[k] for k in ('memory_id','kind','text','source_revision','updated_at')} for m in state['memories'] if m['status']=='active'][-12:]}
         return json.dumps(context,ensure_ascii=False)
+
+
+def course_help_context(course,user,node_id,question,refs,repository,requested_action=''):
+    from learner_model_service import build_current_learner_model
+    model=build_current_learner_model(course,user_id=user)
+    companion=json.loads(CompanionService(repository).prompt(user,str(course.get('course_id') or '')))
+    plan=companion.get('plan')
+    if plan and plan.get('source_revision')!=course.get('current_course_version_id'):
+        companion['plan']={**plan,'status':'stale'}
+    recent=[]
+    for conv in repository.list_conversations(user,str(course.get('course_id') or ''))[:20]:
+        if (conv.get('study_workspace') or {}).get('node_id')!=node_id: continue
+        recent.extend({'message_id':m['message_id'],'decision':m['teaching_decision'],'created_at':m.get('created_at')}
+                      for m in conv.get('messages',[]) if m.get('teaching_decision'))
+    companion['recent_help']=recent[-6:]
+    return companion,teaching_decision(model,question=question,knowledge_refs=refs,node_id=node_id,requested_action=requested_action)
 
 
 def teaching_decision(model,*,question,knowledge_refs,node_id,requested_action=''):
