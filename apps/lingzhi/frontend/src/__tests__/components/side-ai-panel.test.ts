@@ -99,6 +99,26 @@ function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseB
 }
 
 describe('SideAIPanel', () => {
+  it('runs an explicit new block shortcut in the existing study conversation, without rerunning it on presentation changes', async () => {
+    const wrapper = mountPanel([], '', undefined, course => { course.currentCourseVersionId = 'cv' })
+    await flushPromises()
+    const ai = useAITeacherStore()
+    const existing: AIConversation = { ...conversation(), messages: [
+      { message_id: 'welcome', role: 'assistant', content: 'Welcome' },
+      { message_id: 'old', role: 'user', content: 'Earlier question' },
+    ], study_workspace: { kind:'explain', revision:1, course_version_id:'cv', node_id:'node-1', node_name:'Lecture',
+      quote:'Passage', anchor:{block_id:'b1'}, record_id:'record', saved_revision:0, draft:'', assisted:false,
+      proposal:null, versions:[], nearby:[], knowledge:[], checks:[] } }
+    vi.spyOn(ai, 'openStudyDialogue').mockImplementation(async () => { ai.conversations=[existing]; ai.currentConversationId=existing.conversation_id; return existing })
+    const command = vi.spyOn(ai, 'studyCommand').mockImplementation(async () => existing)
+    await wrapper.setProps({ studyRequest:{kind:'explain',nodeId:'node-1',quote:'Passage',prompt:'Give another example',token:1} })
+    await flushPromises()
+    expect(command).toHaveBeenCalledWith(existing.conversation_id, expect.objectContaining({action:'discuss',text:'Give another example'}))
+    command.mockClear()
+    await wrapper.setProps({ compact:true, embedded:true }); await wrapper.setProps({ compact:false, embedded:false }); await flushPromises()
+    expect(command).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('restores selected-text prompts including diagrams even in an existing conversation, without sending or replacing a draft', async () => {
     const wrapper = mountPanel([{message_id:'old',role:'assistant',content:'已有回答'} as any], '', undefined, undefined, 'learner', [], false, true)
     await flushPromises()

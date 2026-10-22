@@ -18,6 +18,23 @@ function rangeAt(start: Node, startOffset: number, end = start, endOffset = star
 }
 
 describe('lecture selection references', () => {
+  it('never treats inline companion replies or selections crossing them as original course text', () => {
+    const root = fixture(), lecture = root.querySelector('article')!
+    const surface = document.createElement('div'); surface.className = 'reading-companion-surface'; surface.textContent = 'AI补充'
+    const paragraphs = lecture.querySelectorAll('p'); lecture.insertBefore(surface, paragraphs[1]!)
+    expect(learningSelectionQuote(rangeAt(surface.firstChild!, 0), root, new Set(['n1']))).toBeNull()
+    expect(learningSelectionQuote(rangeAt(paragraphs[0]!.firstChild!, 0, paragraphs[1]!.firstChild!, 4), root, new Set(['n1']))).toBeNull()
+  })
+  it('keeps later original-text anchors stable when inline help is inserted before them', () => {
+    const root = fixture(), paragraphs = root.querySelectorAll('p')
+    const range = rangeAt(paragraphs[1]!.firstChild!, 0)
+    const original = learningSelectionQuote(range, root, new Set(['n1']))!
+    const host = document.createElement('div'); host.dataset.studyCompanionAnchor = ''
+    host.innerHTML = '<section class="reading-companion-surface">这段帮助不属于教材正文</section>'
+    paragraphs[0]!.after(host)
+    const after = learningSelectionQuote(range, root, new Set(['n1']))!
+    expect(after.anchor.text_position).toEqual(original.anchor.text_position)
+  })
   it('captures the exact quotation, lecture, text position and block revision before the UI reflows', () => {
     const root = fixture()
     const range = rangeAt(root.querySelector('p')!.firstChild!, 3, undefined, 7)
