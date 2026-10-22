@@ -460,3 +460,34 @@ async def test_preview_name_cache_tracks_meaning_instead_of_temporary_point_keys
     assert cached_name(pipeline, changed) is None
     await ensure_names(pipeline, [changed], request)
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('invalid', [False, True])
+async def test_final_name_disambiguation_only_changes_colliding_titles(invalid):
+    from knowledge_short_names import resolve_name_collisions
+    points=[{**claim(f'完整规则{i}'),'key':f'P{i}'} for i in range(3)]
+    names={p['key']:{'name':'重复名称' if i<2 else '保留名称','meta_question':'解释规则'} for i,p in enumerate(points)}
+    before=deepcopy(points);labels=deepcopy(names);pipeline={};calls=[]
+    async def request(prompt,stage,record,compile_result):
+        payload=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(payload)
+        assert [p['key'] for p in payload['points']]==['P0','P1']
+        assert payload['frozen_names']=={'P2':'保留名称'}
+        return compile_result({'names':{f'P{i}':{'name':'重复名称' if invalid else f'规则{i}','meta_question':'解释规则'} for i in range(2)}})
+    result=await resolve_name_collisions(pipeline,points,names,request)
+    assert points==before and names==labels and result['P2']==labels['P2'] and len(calls)==1
+    if invalid:
+        assert result==labels
+        assert pipeline['name_disambiguation']['review_required']
+    else:
+        assert len({n['name'] for n in result.values()})==3
+
+
+def test_name_only_retry_preserves_all_semantic_and_hierarchy_work():
+    from knowledge_registry_pipeline import continued_pipeline
+    old={'atomic_pipeline':{k:{'status':'completed'} for k in ['names','preview_tree','registry','hierarchy','registry_relations','kc_profiles']}}
+    old['atomic_pipeline']['inventory_batches']=[]
+    before=deepcopy(old);new=continued_pipeline(old,'names')['atomic_pipeline']
+    assert 'names' not in new and 'preview_tree' not in new
+    assert all(new[k]==old['atomic_pipeline'][k] for k in ['registry','hierarchy','registry_relations','kc_profiles'])
+    assert old==before
