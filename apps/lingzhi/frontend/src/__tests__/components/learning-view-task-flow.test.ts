@@ -79,6 +79,33 @@ const LearningStatsStub = defineComponent({
 })
 
 describe('LearningView 正文任务覆盖层', () => {
+  it('opens passage help beside the text and expands the same panel without reopening its request', async () => {
+    const content = defineComponent({
+      emits: ['studyDialogue'],
+      template: `<div id="content-scroll-container"><button class="ask-inline" @click="$emit('studyDialogue', {kind:'explain',nodeId:'n1',quote:'原文',anchor:{block_id:'b1'}})">ask</button><div data-study-companion-anchor data-study-node-id="n1" data-study-block-id="b1"></div></div>`,
+    })
+    const panel = defineComponent({ props: ['studyRequest'], setup() { return { draft: ref('') } },
+      template: '<aside class="same-study-panel"><textarea v-model="draft" /><span>{{studyRequest?.quote}}</span></aside>' })
+    const wrapper = mount(LearningView, { attachTo: document.body, global: {
+      plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+      stubs: { ContentArea: content, SideAIPanel: panel, CourseNavigator: true, LearningCompanion: true,
+        LearningTaskOverlay: true, LearningStats: true, NotesPanel: true, CourseKnowledgeStudy: true },
+    } })
+    try {
+      await flushPromises(); await wrapper.get('.ask-inline').trigger('click'); await flushPromises()
+      const anchor = wrapper.get('[data-study-companion-anchor]')
+      const original = anchor.get('.same-study-panel').element
+      await anchor.get('textarea').setValue('还没发出的追问')
+      const request = wrapper.findComponent(panel).props('studyRequest')
+      await anchor.get('[data-testid="companion-expand"]').trigger('click'); await flushPromises()
+      expect(wrapper.findComponent(panel).element).toBe(original)
+      expect(wrapper.findComponent(panel).props('studyRequest')).toBe(request)
+      expect(wrapper.findComponent(panel).get('textarea').element).toHaveProperty('value', '还没发出的追问')
+      document.querySelector<HTMLButtonElement>('[data-testid="companion-return-inline"]')!.click(); await flushPromises()
+      expect(anchor.get('.same-study-panel').element).toBe(original)
+      expect(useAITeacherStore().load).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
   it('opens the original mistake notebook and retries the exact question in the existing practice workspace', async () => {
     const router = (globalThis as any).__learningTestRouter
     const pinia = (globalThis as any).__learningTestPinia

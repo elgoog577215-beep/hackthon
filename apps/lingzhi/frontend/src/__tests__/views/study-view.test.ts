@@ -32,6 +32,17 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('offers passage-level companion help in the personal handout without replacing the assistant instance', async () => {
+    const { wrapper } = await page('/study/material-a')
+    const assistant = wrapper.findComponent({ name: 'PersonalHandoutAssistant' }).element
+    await wrapper.get('[data-testid="personal-block-help"]').trigger('click'); await flushPromises()
+    const anchor = wrapper.get('[data-study-companion-anchor]')
+    expect(anchor.find('personal-handout-assistant-stub').exists()).toBe(true)
+    expect(anchor.get('personal-handout-assistant-stub').element).toBe(assistant)
+    await anchor.get('[data-testid="companion-expand"]').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'PersonalHandoutAssistant' }).element).toBe(assistant)
+    expect(api.generate).not.toHaveBeenCalled()
+  })
   it('reconnects the visible authorized course library together with personal sources', async () => {
     api.sources.mockRejectedValueOnce(new Error('另一端暂不可达'))
     api.courses.mockRejectedValueOnce(new Error('另一端暂不可达'))
