@@ -70,6 +70,14 @@ describe('owned learning plan and companion preferences',()=>{
   expect(w.emitted('prepareMaterial')?.[0]).toEqual([{courseId:'c',purpose:'project'}])
   expect(http.post).not.toHaveBeenCalled();w.unmount()
  })
+ it('shows the independent check result separately from the current profile judgement',async()=>{
+  vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:{...state(),help_outcomes:[{task_revision_id:'private-q-id',knowledge_name:'循环边界',verification_state:'independent_pass',current_profile:{status:'checking'},attempts:[]}]}}))
+  const w=mount(CompanionPlanPanel,{props:{courseId:'c'},attachTo:document.body})
+  await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+  const text=document.querySelector('[data-testid="companion-plan-dialog"]')!.textContent!
+  expect(text).toContain('新题已独立通过');expect(text).toContain('画像当前判断')
+  expect(text).not.toContain('private-q-id');w.unmount()
+ })
  it('does not read or write personal context from teacher preview',async()=>{
   const w=mount(CompanionPlanPanel,{props:{courseId:'c',preview:true}})
   expect(w.find('[data-testid="companion-plan-open"]').exists()).toBe(false)
