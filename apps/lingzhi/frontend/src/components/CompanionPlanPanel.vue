@@ -18,6 +18,7 @@
         <p v-if="state.plan?.status==='needs_review' || state.plan && state.plan.source_revision!==state.source_revision" role="status">{{c('目标或来源已变，请核对未来安排。历史记录保留。','Your goal or source changed. Review future steps; history is preserved.')}}</p>
         <ol v-if="state.plan"><li v-for="step in state.plan.steps" :key="step.step_id"><strong>{{step.title}}</strong> · {{stepIntent(step)}} <span>{{progress(step.node_id)}}</span><button :disabled="busy" @click="run(step.decision==='deferred'?'resume_step':'defer_step',{step_id:step.step_id})">{{step.decision==='deferred'?c('恢复','Resume'):c('稍后学习','Defer')}}</button><button type="button" @click="emit('navigate',step.node_id);open=false">{{c('到这里学习','Open this step')}}</button></li></ol>
         <p v-else>{{c('保存目标后预览安排，确认后作为持续主线。','Save a goal, preview the stages, then adopt your ongoing plan.')}}</p>
+        <button v-if="courseId && state.plan" type="button" data-testid="prepare-goal-material" :disabled="busy || state.plan.status!=='active' || state.plan.source_revision!==state.source_revision" @click="emit('prepareMaterial',{courseId:courseId!,purpose:state.goal?.purpose==='exam'?'exam_prep':state.goal?.purpose==='project'?'project':'systematic'});open=false">{{c('按这个目标准备个人讲义','Prepare a handout for this goal')}}</button>
       </section>
       <section><h3>{{c('学伴记住的约定与偏好','Remembered agreements & preferences')}}</h3><div class="memory-compose"><input v-model="memoryText" maxlength="2000" :aria-label="c('希望学伴记住什么','What should your companion remember?')" /><button :disabled="busy || !memoryText.trim()" @click="remember">{{c('记住这个约定','Remember this')}}</button></div>
         <article v-for="memory in state.memories" :key="memory.memory_id"><p>{{memory.text}}</p><small>{{c('本人明确约定','Student-stated')}} · {{memory.updated_at}}</small><template v-if="memory.status==='active'"><button :disabled="busy" @click="editingMemory=memory.memory_id;correction=memory.text">{{c('纠正','Correct')}}</button><button :disabled="busy" @click="run('disable_memory',{memory_id:memory.memory_id})">{{c('停止使用','Stop using')}}</button></template><span v-else>{{c('已停用','Disabled')}}</span><div v-if="editingMemory===memory.memory_id"><input v-model="correction" maxlength="2000" :aria-label="c('纠正后的内容','Corrected memory')" /><button :disabled="busy || !correction.trim()" @click="correctMemory(memory.memory_id)">{{c('保存纠正','Save correction')}}</button></div></article>
@@ -34,7 +35,7 @@ import { activeLocale } from '../shared/i18n'
 import { useCompanionPreferencesStore } from '../stores/companionPreferences'
 import { createUuid } from '../utils/client-id'
 const props=defineProps<{courseId?:string;materialId?:string;preview?:boolean}>()
-const emit=defineEmits<{navigate:[nodeId:string];visibilityChange:[visible:boolean];navigateCourse:[courseId:string]}>()
+const emit=defineEmits<{navigate:[nodeId:string];visibilityChange:[visible:boolean];navigateCourse:[courseId:string];prepareMaterial:[target:{courseId:string;purpose:string}]}>()
 const c=(zh:string,en:string)=>activeLocale.value==='en'?en:zh
 const preferences=useCompanionPreferencesStore()
 const entryButton=ref<HTMLButtonElement|null>(null),dialogElement=ref<HTMLElement|null>(null)

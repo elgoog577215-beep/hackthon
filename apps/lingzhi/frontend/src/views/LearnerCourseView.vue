@@ -21,7 +21,7 @@
 
     <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
-      <div v-if="!isGenerationPreview" class="learning-plan-tools"><CompanionPlanPanel :course-id="courseStore.currentCourseId" :preview="isTeacherPreview" @visibility-change="companionSettingsOpen=$event" @navigate="navigatePlanStep" /><span v-if="companionPreferences.suppressionError" role="status">{{ t('companionPolicy.saveFailed') }}</span></div>
+      <div v-if="!isGenerationPreview" class="learning-plan-tools"><CompanionPlanPanel :course-id="courseStore.currentCourseId" :preview="isTeacherPreview" @visibility-change="companionSettingsOpen=$event" @navigate="navigatePlanStep" @prepare-material="target => router.push({path:'/study',query:{fromCourse:target.courseId,purpose:target.purpose}})" /><span v-if="companionPreferences.suppressionError" role="status">{{ t('companionPolicy.saveFailed') }}</span></div>
       <AITeacherSuggestion
         v-if="companionEligible"
         :suggestion="aiTeacherStore.suggestion"
