@@ -181,13 +181,22 @@ async def import_course_source(course_id: str, body: CourseSourceRequest, user=D
     if course.get("exchange_origin"):
         origin["exchange_origin"] = course["exchange_origin"]
 
+    result = await parse_source(source_repo, asset)
+    readable = [node for node in course["nodes"] if node.get("node_content")]
+    sections = result.get("sections") or []
+    # Bind the parser's exact ranges to the exported lecture order. Old or
+    # ambiguous sources retain course-level context rather than guessed IDs.
+    if len(readable) == 1:
+        origin["section_node_ids"] = {s["id"]: readable[0]["node_id"] for s in sections}
+    elif len(readable) == len(sections) and all(s["title"] == n["node_name"] for s, n in zip(sections, readable)):
+        origin["section_node_ids"] = {s["id"]: n["node_id"] for s, n in zip(sections, readable)}
+
     def save_origin(current):
         current = current or {}
         current.setdefault(user["id"], {})[asset.asset_id] = origin
         return current
 
     storage.update_data("study_course_sources.json", save_origin)
-    result = await parse_source(source_repo, asset)
     result["course_origin"] = origin
     return result
 

@@ -38,7 +38,14 @@ def teaching_design(purpose, *, profile=None, knowledge_refs=None):
         kid = point.get("knowledge_id")
         if not kid or knowledge_refs.get(kid) != point.get("knowledge_revision_id"):
             continue
-        evidence = point.get("evidence") or []
+        evidence = sorted(
+            point.get("evidence") or [], key=lambda e: str(e.get("observed_at") or e.get("created_at") or "")
+        )
+        last_pass = max(
+            (i for i, e in enumerate(evidence) if e.get("support") == "independent" and e.get("outcome") == "passed"),
+            default=-1,
+        )
+        evidence = evidence[last_pass + 1 :]
         failed = {
             e.get("source_id") or e.get("attempt_id")
             for e in evidence
@@ -77,3 +84,18 @@ def design_requirements(design):
         "材料中的练习只是学习材料，展示或阅读不得宣称产生正式作答与掌握证据。\n"
         + json.dumps(design, ensure_ascii=False)
     )
+
+
+def source_knowledge_refs(course, node_id, visible_blocks):
+    base = course.get("course_knowledge_base") or {}
+    if not node_id or base.get("lifecycle_status") != "active":
+        return {}
+    return {
+        p["knowledge_id"]: p["revision_id"]
+        for p in base.get("knowledge_points", [])
+        if p.get("knowledge_id")
+        and p.get("revision_id")
+        and p.get("status") == "active"
+        and node_id in (p.get("section_refs") or [])
+        and (not p.get("course_block_refs") or set(p["course_block_refs"]) & set(visible_blocks))
+    }

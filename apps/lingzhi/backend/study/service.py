@@ -10,7 +10,7 @@ from copy import deepcopy
 
 from teacher_script import parse_handout_blocks, parse_handout_stream
 from study.repository import StudyRepository, now
-from study.teaching import teaching_design, design_requirements
+from study.teaching import teaching_design, design_requirements, source_knowledge_refs
 
 PURPOSES = {
     "project": "项目实践讲义：围绕明确的小型任务、约束、方案选择、实施步骤与可检查的产出组织；概念为完成任务服务，解释必要知识并安排正常与边界验证。缺少实际项目背景时明确标记假设场景，不宣称已运行或已完成作品。",
@@ -58,6 +58,7 @@ def source_sections(asset, document) -> list[dict]:
 def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
     selected = []
     seen = set()
+    contexts, models = {}, {}
     for selection in request["selections"]:
         key = (selection["asset_id"], selection["section_id"])
         if key in seen:
@@ -90,6 +91,21 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
             if current.get("current_course_version_id") != origin["revision_id"]:
                 raise ValueError("教师讲义已更新，请从授权课程重新选择资料")
             section["course_origin"] = deepcopy(origin)
+            cid = origin["course_id"]
+            if cid not in contexts:
+                from pathlib import Path
+                from ai_teacher_state import AITeacherRepository
+                from companion_learning import CompanionService
+                from learner_model_service import build_current_learner_model
+
+                companion = CompanionService(AITeacherRepository(Path(repo.storage._data_dir) / "ai_teacher"))
+                models[cid] = build_current_learner_model(current, user_id=owner)
+                contexts[cid] = {**json.loads(companion.prompt(owner, cid)), "course_id": cid,
+                                 "course_version_id": origin["revision_id"],
+                                 "model_revision_id": models[cid].get("model_revision_id")}
+            section["source_node_id"] = (origin.get("section_node_ids") or {}).get(selection["section_id"], "")
+            section["teaching_design"] = teaching_design(request["purpose"], profile=models[cid],
+                knowledge_refs=source_knowledge_refs(current, section["source_node_id"], origin.get("block_ids") or []))
         section["node_id"] = f"study-section-{len(selected) + 1}"
         section["node_name"] = section["title"]
         for block in section["blocks"]:
@@ -101,6 +117,7 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
     frozen = deepcopy(request)
     frozen["source_sections"] = selected
     frozen["teaching_design"] = teaching_design(request["purpose"])
+    frozen["course_contexts"] = contexts
     return frozen
 
 
@@ -252,9 +269,11 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     course_id="", outline_sections=[outline],
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"],
-                                    "teaching_design": request.get("teaching_design") or teaching_design(request["purpose"])},
+                                    "teaching_design": outline.get("teaching_design") or request.get("teaching_design") or teaching_design(request["purpose"]),
+                                    "companion": (request.get("course_contexts") or {}).get((outline.get("course_origin") or {}).get("course_id"), {})},
                     requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
-                                 + design_requirements(request.get("teaching_design") or teaching_design(request["purpose"]))
+                                 + design_requirements(outline.get("teaching_design") or request.get("teaching_design") or teaching_design(request["purpose"]))
+                                 + "\n按冻结的总体目标、已采用计划和明确约定选择深度；本份材料的用途以本次请求为准，不据此修改课程总体目标。已有帮助与困难不等于掌握。"
                                  + "\n" + request.get("requirements", "")
                                  + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}
