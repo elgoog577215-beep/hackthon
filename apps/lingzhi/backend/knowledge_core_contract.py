@@ -291,14 +291,19 @@ def compile_review(value, originals, catalog, materials):
     registry=resolve_matches(points,catalog,decisions)
     if any(v[0]=='gap' for v in coverage.values()):
         registry['issues'].append({'code':'knowledge_core_coverage_gap','severity':'blocking','message':'完整讲义仍有待补齐知识'})
+    names,paths=presentation_for(registry)
+    units=[{'key':p['key'],'statement':p['statement'],'branch':' / '.join(p['branch_path']),
+            'knowledge_type':p['knowledge_type'],'profile_focus':'','check_intent':next(iter(p['check_intents']),'独立解释该知识')}
+           for p in by_key.values()]
+    return {'registry':registry,'names':names,'paths':paths,'frozen_units':units,'reviewed_candidates':points,
+            'identity_decisions':deepcopy(decisions),'extraction_resolutions':dispositions,'coverage':deepcopy(coverage)}
+
+
+def presentation_for(registry):
     names,paths={},{}
     for point in registry['points']:
         member=next(iter(point.get('identity_members') or []),point)
         names[point['key']]={'name':member.get('short_name',point.get('name','')),
                             'meta_question':'请解释：'+point['statement']}
         paths[point['key']]=deepcopy(member.get('branch_path') or ['本讲知识'])
-    units=[{'key':p['key'],'statement':p['statement'],'branch':' / '.join(p['branch_path']),
-            'knowledge_type':p['knowledge_type'],'profile_focus':'','check_intent':next(iter(p['check_intents']),'独立解释该知识')}
-           for p in by_key.values()]
-    return {'registry':registry,'names':names,'paths':paths,'frozen_units':units,
-            'extraction_resolutions':dispositions,'coverage':deepcopy(coverage)}
+    return names,paths

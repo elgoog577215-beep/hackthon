@@ -128,7 +128,7 @@ async def run(svc, course_id, job_id):
             pipeline['names']['result'].update({p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']} for p in batch['points']})
             await save()
         await run_batches(pipeline['inventory_batches'],extract,width=8,stage='candidate_core_extract')
-        await save(durable=True)
+        await save()
         candidates=[p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates)<=160,'本讲独立知识为空或超过单讲容量')
         review=pipeline.get('core_review',{})
@@ -161,6 +161,12 @@ async def run(svc, course_id, job_id):
             review['status']='failed'
             raise
         review['status']='completed'
+        from knowledge_core_identity import candidate_pairs,pair_prompt,apply_pairs
+        pairs=candidate_pairs(result)
+        if pairs:
+            await io(svc.authoring.update_job_live,course_id,job_id,progress=96)
+            result=await request(pair_prompt(result,pairs),'candidate_core_identity',pipeline.setdefault('core_identity',{}),
+                lambda value:apply_pairs(result,pairs,value,pipeline['catalog']))
         pipeline.update({k:deepcopy(v) for k,v in result.items() if k not in {'names','coverage'}})
         pipeline['names']={'status':'completed','result':result['names']}
         pipeline['hierarchy']={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}}

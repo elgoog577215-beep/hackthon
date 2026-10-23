@@ -534,6 +534,10 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         from knowledge_core_contract import review_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
         structure = review_schema(payload['points'],payload.get('coverage_materials',payload['materials']),payload['existing_knowledge'],payload.get('reference_candidates',[]))
+    elif stage == 'candidate_core_identity':
+        from knowledge_core_identity import pair_schema
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
+        structure = pair_schema([p['key'] for p in payload['pairs']])
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.
@@ -543,7 +547,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') in
         {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'})
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
-    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_review'} and structure is not None):
+    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_review','candidate_core_identity'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, request_budget=request_budget,
