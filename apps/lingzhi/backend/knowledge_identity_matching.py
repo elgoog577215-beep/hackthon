@@ -114,6 +114,34 @@ def parse_equivalences(value,focus,candidates,catalog):
     return rows
 
 
+def conflicting_identity_keys(candidates,catalog,decisions):
+    """Locate only components that violate frozen independence or stored identities."""
+    parse_matches({'decisions':decisions},candidates,candidates,catalog)
+    by_key={p['key']:p for p in candidates+catalog};parents={key:key for key in by_key}
+    def find(key):
+        while parents[key]!=key:
+            parents[key]=parents[parents[key]];key=parents[key]
+        return key
+    for key,row in decisions.items():
+        if row['action']=='match':parents[find(key)]=find(row['target'])
+    groups=defaultdict(list)
+    for key in by_key:groups[find(key)].append(key)
+    registered={p['key'] for p in catalog};conflicts=set()
+    for members in groups.values():
+        local=[k for k in members if k in decisions and decisions[k]['action']!='check']
+        independent=[by_key[k].get('semantic_review',{}).get('independence_group') for k in local]
+        independent=[g for g in independent if g]
+        if len(registered.intersection(members))>1 or len(independent)!=len(set(independent)):
+            conflicts.update(local)
+    return [p['key'] for p in candidates if p['key'] in conflicts]
+
+
+def parse_reconciled_identity(value,focus,candidates,catalog,frozen_decisions):
+    changed=parse_equivalences(value,focus,candidates,catalog)
+    decisions={**deepcopy(frozen_decisions),**changed}
+    return {'decisions':decisions,'registry':resolve_matches(candidates,catalog,decisions)}
+
+
 def resolve_matches(candidates, catalog, decisions):
     parse_matches({'decisions':decisions},candidates,candidates,catalog)
     by_key={p['key']:p for p in candidates+catalog};parents={key:key for key in by_key}

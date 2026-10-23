@@ -65,5 +65,5 @@ async def test_rejected_request_retains_actual_failure_stage_in_saved_job(svc,mo
     assert saved['error']['code']=='ModelProviderFailure'
     assert saved['error']['provider_http_status']==409
     assert saved['error']['provider_reason']=='isolated_scope_rejected'
-    assert saved['error']['stage']==saved['pipeline_stage']=='extract'
+    assert saved['error']['stage']==saved['pipeline_stage']=='knowledge_discovery'
     assert not saved.get('transport_retry_count')

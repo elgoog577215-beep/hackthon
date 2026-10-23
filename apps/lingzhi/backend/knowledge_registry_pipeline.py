@@ -337,7 +337,30 @@ async def run(svc, course_id, job_id):
                 batch['status']='completed';await save()
             await run_batches(matching['batches'],match_batch,width=3,stage='identity_review')
             decisions={**{key:value for b in matching['batches'] for key,value in b['result'].items()},**check_decisions}
-            pipeline['registry']=resolve_matches(candidates,pipeline['catalog'],decisions)
+            try:
+                pipeline['registry']=resolve_matches(candidates,pipeline['catalog'],decisions)
+            except ValueError:
+                from knowledge_identity_matching import conflicting_identity_keys,parse_reconciled_identity
+                conflict_keys=conflicting_identity_keys(candidates,pipeline['catalog'],decisions)
+                if not conflict_keys:raise
+                focus=[p for p in knowledge_candidates if p['key'] in conflict_keys]
+                signature=stable_hash({'input':identity_signature,'decisions':decisions},prefix='kirepair_')
+                state=pipeline.get('identity_reconciliation') or {}
+                if state.get('input_signature')!=signature:
+                    state={'contract':'knowledge_identity_reconciliation_v1','input_signature':signature,'keys':conflict_keys,'request':{}}
+                    pipeline['identity_reconciliation']=state
+                instruction,payload_text=matching_prompt(focus,knowledge_candidates,pipeline['catalog'],knowledge_only=True).split('\nINPUT_JSON:\n',1)
+                payload=json.loads(payload_text)
+                payload.update(previous_decisions={k:decisions[k] for k in conflict_keys},
+                    frozen_decisions={k:v for k,v in decisions.items() if k not in conflict_keys})
+                prompt=('这些决定通过等价链折叠了已冻结的独立知识，或合并了不同已有身份。只修正focus，其他决定冻结。'
+                    '同组独立结论不能直接或通过第三点间接合并；不能确认完整等价时保留keep。不得改知识正文。'+instruction
+                    +'\nINPUT_JSON:\n'+json.dumps(payload,ensure_ascii=False,separators=(',',':')))
+                with model_scope(batch_id='identity-reconciliation',last_stage='identity_review'):
+                    repaired=await request(prompt,'identity_review',state['request'],
+                        lambda value:parse_reconciled_identity(value,focus,candidates,pipeline['catalog'],decisions))
+                state.update(status='completed',decisions=repaired['decisions'])
+                pipeline['registry']=repaired['registry']
             for stage in (review,truth):
                 pipeline['registry']['issues'].extend(issue for b in stage['batches'] for issue in b['result']['issues'])
             matching['status']='completed'
@@ -435,10 +458,11 @@ async def run(svc, course_id, job_id):
     except Exception as error:
         current = await asyncio.to_thread(svc.authoring.get_job, course_id, job_id)
         if current['status'] in {'pending', 'running'}:
+            from knowledge_provider_errors import provider_failure
             await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='failed', phase='failed',
                 checkpoint={'atomic_pipeline': deepcopy(pipeline)},
                 error={'code': type(error).__name__, 'message': str(error),
-                       **deepcopy(getattr(error, 'knowledge_failure', {}))},
+                       **deepcopy(getattr(error, 'knowledge_failure', {})),**provider_failure(error)},
                 message='已保留完成批次与候选，请继续未完成环节')
     finally:
         REQUEST_SCOPE.reset(token)
