@@ -13,12 +13,13 @@ def group_materials(materials):
     if not materials:
         raise ValueError('没有可读取的讲义材料')
     total = sum(len(m['text']) for m in materials)
-    target = max(1, math.ceil(total / min(8, max(1, math.ceil(total / 3500)))))
-    groups, current, size = [], [], 0
-    for material in materials:
-        if current and size + len(material['text']) > target and len(groups) < 7:
-            groups.append(current); current, size = [], 0
-        current.append(deepcopy(material)); size += len(material['text'])
+    count = min(8, len(materials), max(1, math.ceil(total / 3500)))
+    groups, current, consumed = [], [], 0
+    for index, material in enumerate(materials):
+        current.append(deepcopy(material)); consumed += len(material['text'])
+        remaining = len(materials)-index-1
+        if len(groups)<count-1 and (consumed>=total*(len(groups)+1)/count or remaining==count-len(groups)-1):
+            groups.append(current); current=[]
     if current:
         groups.append(current)
     return groups
