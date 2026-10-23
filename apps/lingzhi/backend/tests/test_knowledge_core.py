@@ -248,3 +248,65 @@ async def test_core_source_change_and_cancel_never_publish_late_candidates(svc,m
     saved=svc.authoring.get_job('c-pilot',job['id'])
     assert saved['status']=='cancelled' and 'candidate' not in saved.get('checkpoint',{})
     assert svc.repository.load_raw('c-pilot')==before
+
+
+@pytest.mark.asyncio
+async def test_core_adoption_uses_original_course_command_and_keeps_other_lessons(svc,monkeypatch):
+    setup_course(svc,monkeypatch);before=deepcopy(svc.authoring.view('c-pilot')['lessons'])
+    async def model(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+        if p['stage']=='candidate_core_extract':return json.dumps({'points':[row()],'context_note':''})
+        return json.dumps(transport_review(p['points'],p['coverage_materials']))
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
+    view=svc.view('c-pilot',source_mode='handouts')
+    job=svc.start('c-pilot','tree','adopt-core',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    await svc.run('c-pilot',job['id'])
+    svc.adopt('c-pilot',job['id'],view['knowledge_revision'],view['document_revision'])
+    tree=svc.repository.load_raw('c-pilot')['course_knowledge_base']
+    assert tree['status']=='accepted' and tree['generation_contract']=='knowledge_core_v1'
+    assert svc.authoring.view('c-pilot')['lessons']==before
+
+
+def test_semantic_reuse_does_not_rename_or_rewrite_the_registered_knowledge():
+    from knowledge_core_contract import parse_extraction, compile_review
+    points=parse_extraction({'points':[row()],'context_note':''},'B1',['S1'])
+    old={k:deepcopy(points[0][k]) for k in ['statement','knowledge_type','conditions','symbol_definitions','teaching_context','examples']}
+    old.update(key='E1',knowledge_id='existing',revision_id='unchanged',name='原有知识名称')
+    old['_registered_point']=deepcopy({k:v for k,v in old.items()})
+    before=deepcopy(old);value=review(points,[{'key':'S1'}]);value['keep']=[]
+    value['match']={points[0]['key']:{'target':'E1','same_claim':True,'same_scope':True,'same_symbols':True,'reason':'完整知识相同'}}
+    result=compile_review(value,points,[old],[{'key':'S1'}])
+    assert old==before
+    assert result['registry']['points'][0]['knowledge_id']=='existing'
+    assert result['registry']['points'][0]['_registered_point']['name']=='原有知识名称'
+
+
+def test_final_identity_screen_never_merges_from_names_without_full_semantic_proof():
+    from knowledge_core_contract import parse_extraction,compile_review
+    from knowledge_core_identity import candidate_pairs,apply_pairs
+    points=parse_extraction({'points':[row('操作规则','操作将元素放到指定位置。'),row('操作的规则','该操作把元素加入指定位置。')],'context_note':''},'B1',['S1'])
+    result=compile_review(review(points,[{'key':'S1'}]),points,[],[{'key':'S1'}])
+    pairs=candidate_pairs(result);assert len(pairs)==1
+    before=deepcopy(result)
+    distinct=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:{'verdict':'different','reason':'范围不同'}}},[])
+    assert len(distinct['registry']['points'])==2 and result==before
+    merged=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:{'verdict':'same_claim_scope_symbols','reason':'完整知识、范围、对象含义相同'}}},[])
+    assert len(merged['registry']['points'])==1
+    assert merged['registry']['points'][0]['coverage_unit_ids']==['B1P1','B1P2']
+
+
+@pytest.mark.asyncio
+async def test_source_revision_change_stops_core_before_audit_and_keeps_checkpoint(svc,monkeypatch):
+    setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts');calls=[]
+    async def model(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(p['stage'])
+        svc.storage.update_course_data('c-pilot',lambda raw:{**raw,'course_document_revision':'new-source'})
+        return json.dumps({'points':[row()],'context_note':''})
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
+    job=svc.start('c-pilot','tree','changed-source-core',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='failed' and 'candidate' not in saved['checkpoint']
+    assert calls==['candidate_core_extract']
+    assert saved['checkpoint']['atomic_pipeline']['inventory_batches'][0]['points']
