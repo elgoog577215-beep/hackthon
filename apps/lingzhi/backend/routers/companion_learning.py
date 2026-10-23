@@ -151,20 +151,32 @@ async def check_target(course_id: str, body: CheckTarget, user=Depends(study_ide
         (
             m
             for m in reversed(conversation.get("messages", []))
-            if m.get("role") == "assistant" and m.get("status") == "complete"
-            and ((m.get("teaching_decision") or {}).get("knowledge_revision_refs") or {}).get(body.knowledge_id) == body.knowledge_revision
+            if m.get("role") == "assistant"
+            and m.get("status") == "complete"
+            and ((m.get("teaching_decision") or {}).get("knowledge_revision_refs") or {}).get(body.knowledge_id)
+            == body.knowledge_revision
         ),
         None,
     )
 
     model = await run_in_threadpool(build_current_learner_model, course, user_id=user["id"])
-    point = next((p for p in (model.get("knowledge_profile") or {}).get("nodes", [])
-                  if p.get("knowledge_id") == body.knowledge_id and p.get("knowledge_revision_id") == body.knowledge_revision), {})
+    point = next(
+        (
+            p
+            for p in (model.get("knowledge_profile") or {}).get("nodes", [])
+            if p.get("knowledge_id") == body.knowledge_id and p.get("knowledge_revision_id") == body.knowledge_revision
+        ),
+        {},
+    )
 
     def link(state):
         links = state.setdefault("check_links", {})
         previous = links.get(target["task_revision_id"])
-        if previous and previous.get("conversation_id") == body.conversation_id and previous.get("help_message_id") == (message or {}).get("message_id"):
+        if (
+            previous
+            and previous.get("conversation_id") == body.conversation_id
+            and previous.get("help_message_id") == (message or {}).get("message_id")
+        ):
             return
         links[target["task_revision_id"]] = {
             "conversation_id": body.conversation_id,
@@ -173,7 +185,8 @@ async def check_target(course_id: str, body: CheckTarget, user=Depends(study_ide
             "kind": "help_followup" if message else "independent_check",
             "knowledge_id": body.knowledge_id,
             "knowledge_revision_id": body.knowledge_revision,
-            "knowledge_name": point.get("name") or next((p.get("name") for p in points if p["knowledge_id"] == body.knowledge_id), ""),
+            "knowledge_name": point.get("name")
+            or next((p.get("name") for p in points if p["knowledge_id"] == body.knowledge_id), ""),
             "model_before_revision": model.get("model_revision_id"),
             "profile_before": {k: point[k] for k in ("status", "independent_count", "assessment_count") if k in point},
             "created_at": stamp(),
