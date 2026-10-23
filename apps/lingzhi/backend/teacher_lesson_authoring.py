@@ -2003,6 +2003,12 @@ class TeacherLessonAuthoringRepository:
         self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+        # Receive-only transport buffer: no separate task or durable owner. A
+        # pause/cancel transaction can include the latest bytes while the stream
+        # projector is waiting for the course writer. Never take the course lock
+        # while holding this short buffer lock (writers acquire them in reverse).
+        self._handout_receive_lock = threading.Lock()
+        self._handout_received: dict[tuple[str, str], str] = {}
         from knowledge_observation import KnowledgeObservation
         self._knowledge_observation = KnowledgeObservation(self._path)
         self._load_cache: OrderedDict[
@@ -2108,6 +2114,30 @@ class TeacherLessonAuthoringRepository:
             if not live_jobs:
                 self._live_stream_jobs.pop(course_id, None)
         self._live_stream_touched_at.pop((course_id, job_id), None)
+        self.end_handout_receive(course_id, job_id)
+
+    def begin_handout_receive(self, course_id: str, job_id: str) -> None:
+        with self._handout_receive_lock:
+            self._handout_received[(course_id, job_id)] = ""
+
+    def receive_handout_text(self, course_id: str, job_id: str, text: str) -> bool:
+        """Publish already-received bytes without waiting for disk/course locks."""
+        with self._handout_receive_lock:
+            key = (course_id, job_id)
+            if key not in self._handout_received:
+                return False
+            self._handout_received[key] = text
+            return True
+
+    def end_handout_receive(self, course_id: str, job_id: str) -> None:
+        with self._handout_receive_lock:
+            self._handout_received.pop((course_id, job_id), None)
+
+    def _include_received_handout_text(self, course_id: str, jobs: dict) -> None:
+        with self._handout_receive_lock:
+            for (cid, jid), text in self._handout_received.items():
+                if cid == course_id and jid in jobs and text:
+                    jobs[jid]["raw_response"] = text
     def _load_cached_value_locked(self, course_id: str) -> dict[str, Any]:
         """Return the immutable cached tree; callers must copy only what they need."""
         path = self._path(course_id)
@@ -2185,6 +2215,7 @@ class TeacherLessonAuthoringRepository:
         path = self._path(course_id)
         payload = deepcopy(value)
         payload.pop("_canonical_baselines", None)
+        self._include_received_handout_text(course_id, payload.get("jobs") or {})
         for job in (payload.get("jobs") or {}).values():
             if not isinstance(job, dict):
                 continue
@@ -5455,7 +5486,7 @@ class TeacherLessonAuthoringService:
             if complete:
                 parsed_cache[key] = (content, value)
             return value
-        def snapshot(parsed: dict[str, Any], *, force: bool = False) -> None:
+        def snapshot(parsed: dict[str, Any], *, response_text: str, force: bool = False) -> None:
             nonlocal last_checkpoint
             changed = False
             for key, content in parsed["completed"].items():
@@ -5483,17 +5514,17 @@ class TeacherLessonAuthoringService:
                 return
             last_checkpoint = time.monotonic()
             self.repository.update_job(
-                course_id, job_id, result_sections=sections(), raw_response=raw,
+                course_id, job_id, result_sections=sections(), raw_response=response_text,
                 requested_section_ids=requested, completed_blocks=len(completed),
                 block_states={**states(), **block_statuses},
                 block_metadata=block_metadata, block_section_ids=block_sections,
                 block_titles={key: value["title"] for key, value in block_metadata.items()},
                 unassigned_fragment=parsed.get("unassigned_fragment", ""),
                 progress=max(5, int(90 * len(completed) / len(contracts))),
-                checkpoint={"result_sections": sections(), "raw_response": raw,
+                checkpoint={"result_sections": sections(), "raw_response": response_text,
                             "requested_section_ids": requested, "fragments": parsed["fragments"]},
             )
-        def emit_sync(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
+        def emit_sync(response_text: str, force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
             nonlocal last_emit
             check_active()
             if not force and time.monotonic() - last_emit < 0.3:
@@ -5501,8 +5532,8 @@ class TeacherLessonAuthoringService:
             last_emit = time.monotonic()
             # Pause/cancel persists the live job. Keep its received draft current
             # even between the less frequent durable section checkpoints.
-            self.repository.update_job_live(course_id, job_id, raw_response=raw)
-            parsed = parse_handout_stream(raw, requested, provider_complete=provider_complete)
+            self.repository.update_job_live(course_id, job_id, raw_response=response_text)
+            parsed = parse_handout_stream(response_text, requested, provider_complete=provider_complete)
             visible = {**parsed["completed"], **parsed["fragments"]}
             for key, content in visible.items():
                 value = parse_blocks(key, content, key in parsed["completed"])
@@ -5536,21 +5567,39 @@ class TeacherLessonAuthoringService:
                     if prose[len(old):]:
                         self.repository.update_job_stream(course_id, job_id, event="delta", delta=prose[len(old):], **kwargs)
                     streamed[bid] = prose
-            snapshot(parsed, force=force)
+            snapshot(parsed, response_text=response_text, force=force)
             return parsed
-        # Stream parsing also touches the shared course lock. Move the whole
-        # transaction off the loop, not just the final os.replace/fsync calls.
-        # Await it before receiving the next delta: no unbounded save queue and
-        # no stale checkpoint racing a later publication or terminal status.
-        stream_lock = asyncio.Lock()
+        # One in-flight projection and one replaceable latest snapshot. Reading
+        # the model stream never awaits the course writer. Completion/failure
+        # drains this same worker before publishing any terminal result.
+        pending_text: str | None = None
+        stream_worker: asyncio.Task | None = None
+        self.repository.begin_handout_receive(course_id, job_id)
+
+        async def project_received():
+            nonlocal pending_text
+            while pending_text is not None:
+                text, pending_text = pending_text, None
+                await self._authoring_io(emit_sync, text)
+
+        async def drain_stream():
+            if stream_worker is not None:
+                await stream_worker
+
         async def emit(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
-            async with stream_lock:
-                return await self._authoring_io(emit_sync, force, provider_complete)
+            await drain_stream()
+            return await self._authoring_io(emit_sync, raw, force, provider_complete)
 
         async def on_delta(delta: str) -> None:
-            nonlocal raw
+            nonlocal raw, pending_text, stream_worker
             raw += str(delta or "")
-            await emit()
+            if not self.repository.receive_handout_text(course_id, job_id, raw):
+                raise asyncio.CancelledError
+            if stream_worker is not None and stream_worker.done():
+                stream_worker.result()  # A failed writer must stop this attempt.
+            pending_text = raw
+            if stream_worker is None or stream_worker.done():
+                stream_worker = asyncio.create_task(project_received())
         async def on_reset() -> None:
             await self._authoring_io(check_active)
         async def on_scope(ids: list[str]) -> None:
@@ -5604,15 +5653,29 @@ class TeacherLessonAuthoringService:
                 stream_complete=True, error=None,
             )
         except asyncio.CancelledError:
+            try:
+                await drain_stream()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                # A user pause/cancel already saved the receive buffer. Direct
+                # task cancellation still persists the latest draft; frozen
+                # lifecycle states are guarded by the original repository.
+                if raw:
+                    await self._authoring_io(self.repository.update_job, course_id, job_id, raw_response=raw)
             raise
         except Exception as exc:
+            try:
+                await drain_stream()
+            except (Exception, asyncio.CancelledError):
+                pass
             telemetry = getattr(exc, "generation_telemetry", telemetry)
             # Never downgrade a completed last section after a save failure.
             if raw:
                 parsed = parse_handout_stream(raw, requested)
                 previous = await self._authoring_io(self.repository.get_job, course_id, job_id)
                 parsed["unassigned_fragment"] = parsed.get("unassigned_fragment") or previous.get("unassigned_fragment", "")
-                await self._authoring_io(snapshot, parsed, force=True)
+                await self._authoring_io(snapshot, parsed, response_text=raw, force=True)
             current = await self._authoring_io(self.repository.get_job, course_id, job_id)
             if current.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
                 return current
@@ -5623,3 +5686,5 @@ class TeacherLessonAuthoringService:
                 completed_blocks=len(completed), block_states={**states(), **block_statuses}, result_sections=sections(),
                 generation_telemetry=telemetry, stream_complete=True, error=generation_failure(exc, code),
             )
+        finally:
+            self.repository.end_handout_receive(course_id, job_id)
