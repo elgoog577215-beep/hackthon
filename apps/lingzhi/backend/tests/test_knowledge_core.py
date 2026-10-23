@@ -45,6 +45,16 @@ def test_extraction_transport_closes_field_positions_without_guessing_knowledge(
     assert list(validator.iter_errors(value))
 
 
+def test_transport_grammar_preserves_formula_escapes_and_forbids_literal_controls():
+    from knowledge_core_contract import extraction_schema
+    from jsonschema import Draft202012Validator
+    value={'points':[{'n':'公式符号','s':r'当 $x\to0$ 时使用 $\theta$。','t':'rule','c':[], 'y':[], 'p':['符号'],'k':[]}],'context_note':''}
+    validator=Draft202012Validator(extraction_schema())
+    assert not list(validator.iter_errors(value))
+    value['points'][0]['s']='公式包含实际\t制表符'
+    assert list(validator.iter_errors(value))
+
+
 def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
     from knowledge_core_contract import group_materials
     sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
