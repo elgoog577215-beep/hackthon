@@ -28,7 +28,7 @@ def _control_free_schema(schema):
     return schema
 
 
-def group_materials(materials, *, target_chars=1800):
+def group_materials(materials, *, target_chars=2500):
     """Balance complete input units; never truncate or sample the lesson."""
     if not materials:
         raise ValueError('没有可读取的讲义材料')
@@ -107,6 +107,7 @@ def extraction_prompt(raw, context, materials):
         '同义表述、换符号、具体算例步骤不重复算知识。必要条件不能省略；不要把常见错误当独立规律。'
         '同时写简短知识名和主题分类路径，名称用学生能懂的概念或规律名，不用问句或完整长句。'
         '检查角度附在知识上，不写学生已犯错或已掌握。不生成关系、题目和教学档案。'
+        's只写完整结论，不写推导或算例；条件已在s写明就不在c重复，y只补充不能从公式和材料直接识别的符号，k写一个简短检查角度。'
         '直接返回紧凑JSON，无过程解释。每个points对象恰好含七个短键：'
         'n短名称，s完整陈述，t知识类型definition/rule/method/comparison，c条件数组，y符号说明数组，p主题路径数组，k检查角度数组。'
         '路径可有多级，不固定深度；同义主题统一命名。字段不能缺位，空数组用[]。'
@@ -140,9 +141,11 @@ def review_prompt(raw, context, materials, points, catalog, *, references=(), co
         '正确且独立者keep；correct只改statement、conditions、symbol_definitions三个核心字段，其他字段冻结；'
         'correct额外给core对象。multiple必须split，额外给points知识对象数组；拆开的独立子结论不能再合并。'
         '不同对象的定义、多个记号的各自含义、多种运算的各自性质、关系/方程/退化情况不能只因同属体系而混成一条。'
+        '一个统摄式若概括多种运算的性质，仍按每种运算拆开；一个具体运算规律的多个因子则保留完整。'
         '同义知识match，只有完整命题、范围及符号含义一致才允许，须明确same_claim/same_scope/same_symbols均true，'
         'target为本轮其他候选或冻结已有目录E键，不能只因同主题或一起使用而合并；已有目录正文不可修改。'
         '纯操作失误comparison用check，额外给target、intent、same_scope:true、adds_knowledge:false、operational_only:true；'
+        '仅列错用规则的写法、漏写已有因子或代入位置者，grain必须为non_knowledge，check挂回完整规则；不因取名“常见错误”或列错式而keep。'
         '真实概念辨析保留知识。纯算例或背景归context，给理由；不确定归uncertain并给理由。'
         '对照全部materials检查是否漏掉独立规则，缺失项通过add补齐，不用减少知识数掩盖遗漏。'
         '每个决定的name/path可选，仅在需要调整显示名称或分类路径时填写，其他名称和路径保留。'

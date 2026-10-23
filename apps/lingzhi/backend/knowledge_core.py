@@ -141,11 +141,11 @@ async def run(svc, course_id, job_id):
         async def extract_and_review(index,work):
             group=work['group']
             if group['status']!='completed':await extract(index,group)
-            for offset in range(0,max(1,len(group['points'])),12):
-                batch_id=f"review-{group['id']}-{offset//12+1}"
+            for offset in range(0,max(1,len(group['points'])),16):
+                batch_id=f"review-{group['id']}-{offset//16+1}"
                 batch=next((b for b in review['batches'] if b['id']==batch_id),None)
                 if batch is None:
-                    batch={'id':batch_id,'status':'pending','keys':[p['key'] for p in group['points'][offset:offset+12]],
+                    batch={'id':batch_id,'status':'pending','keys':[p['key'] for p in group['points'][offset:offset+16]],
                         'source_keys':group['source_keys'],'coverage_keys':group['source_keys'] if offset==0 else []}
                     review['batches'].append(batch)
                 if batch['status']!='completed':await review_batch(index,batch,group)
