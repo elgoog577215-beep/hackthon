@@ -37,7 +37,7 @@ class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{16,64}$")
     title: str = Field(min_length=1, max_length=160)
-    purpose: Literal["systematic", "exam_prep"]
+    purpose: Literal["systematic", "exam_prep", "project"]
     selections: list[Selection] = Field(min_length=1, max_length=6)
     level: Literal["beginner", "intermediate", "advanced"] = "beginner"
     time_minutes: int = Field(default=60, ge=10, le=600)

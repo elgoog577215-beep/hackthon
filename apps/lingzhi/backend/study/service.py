@@ -10,8 +10,10 @@ from copy import deepcopy
 
 from teacher_script import parse_handout_blocks, parse_handout_stream
 from study.repository import StudyRepository, now
+from study.teaching import teaching_design, design_requirements
 
 PURPOSES = {
+    "project": "项目实践讲义：围绕明确的小型任务、约束、方案选择、实施步骤与可检查的产出组织；概念为完成任务服务，解释必要知识并安排正常与边界验证。缺少实际项目背景时明确标记假设场景，不宣称已运行或已完成作品。",
     "exam_prep": "应试讲义：按考点、题型、选法与作答步骤组织；给出公式的适用条件、完整例题、易错原因与分开的自测解答。资料没有提供考试频率、分值或历年题时不得编造。",
     "systematic": "整体理解讲义：围绕核心问题连续解释概念、直觉、条件与边界，完整展开推导、例子与反例，再联系应用和章节之间的关系；自测检验理解而非背诵。",
 }
@@ -98,6 +100,7 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
         raise ValueError("请选择至少一个有正文的资料范围")
     frozen = deepcopy(request)
     frozen["source_sections"] = selected
+    frozen["teaching_design"] = teaching_design(request["purpose"])
     return frozen
 
 
@@ -248,8 +251,10 @@ async def run_personal_handout(manager, task_id: str) -> None:
                 result = await manager.course_service.generate_teacher_handout(
                     course_id="", outline_sections=[outline],
                     plan_sections={plan["node_id"]: plan for plan in plans},
-                    lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
+                    lesson_context={"title": request["title"], "learning_purpose": request["purpose"],
+                                    "teaching_design": request.get("teaching_design") or teaching_design(request["purpose"])},
                     requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
+                                 + design_requirements(request.get("teaching_design") or teaching_design(request["purpose"]))
                                  + "\n" + request.get("requirements", "")
                                  + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}
