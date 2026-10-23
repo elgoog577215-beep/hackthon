@@ -224,6 +224,18 @@ def test_committed_job_snapshot_is_cached_without_exposing_mutable_aliases(svc,m
     assert svc.authoring.get_job('c-pilot',job['id'])['request_snapshot']=={'nested':['original']}
 
 
+def test_core_admission_does_not_copy_unrelated_history_or_expose_duplicate_job_aliases(svc,monkeypatch):
+    setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts')
+    monkeypatch.setattr(svc.authoring,'load',lambda *_:pytest.fail('core admission copied unrelated history before the durable snapshot'))
+    options=dict(source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')
+    job,created=svc.start('c-pilot','tree','projected-admission',view['knowledge_revision'],view['document_revision'],**options)
+    assert created
+    duplicate,created=svc.start('c-pilot','tree','projected-admission',view['knowledge_revision'],view['document_revision'],**options)
+    assert not created and duplicate['id']==job['id']
+    duplicate['request_snapshot'].clear()
+    assert svc.authoring.get_job('c-pilot',job['id'])['request_snapshot']
+
+
 def test_model_response_attachments_are_durable_and_cannot_change_job_state(svc, monkeypatch):
     job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation',
         initial_fields={'actor':'owner','source_context_revision':'frozen'})
