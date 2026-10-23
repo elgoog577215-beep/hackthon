@@ -181,6 +181,8 @@ async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypat
         if p['stage']=='candidate_core_extract':
             await asyncio.sleep(.02*int(p['materials'][0]['key'][1:]))
             return json.dumps({'points':[row(p['materials'][0]['key'],'独立操作的完整规则。')],'context_note':''})
+        if p['stage']=='candidate_core_identity':
+            return json.dumps({'pairs':{pair['key']:{'verdict':'different','reason':'测试中的独立操作'}for pair in p['pairs']}})
         return json.dumps(transport_review(p['points'],p.get('coverage_materials',p['materials'])))
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
     view=svc.view('c-pilot',source_mode='handouts')
@@ -196,15 +198,11 @@ async def test_explicit_resume_after_lost_live_state_reuses_durable_model_result
     from knowledge_first import KnowledgeFirstService
     setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts')
     async def first(prompt,**kwargs):
+        if json.loads(prompt.split('\nINPUT_JSON:\n')[1])['stage']=='candidate_core_review':raise asyncio.CancelledError
         return json.dumps({'points':[row()],'context_note':''})
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=first,model_smart='test',client=None)
     job=svc.start('c-pilot','tree','crash-before-phase-commit',view['knowledge_revision'],view['document_revision'],
         source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
-    update=svc.authoring.update_job
-    def crash(*args,**kwargs):
-        if kwargs.get('progress')==65:raise asyncio.CancelledError
-        return update(*args,**kwargs)
-    monkeypatch.setattr(svc.authoring,'update_job',crash)
     with pytest.raises(asyncio.CancelledError):await svc.run('c-pilot',job['id'])
     fresh=type(svc.authoring)(svc.authoring.root,canonical_storage=svc.storage)
     fresh.update_job('c-pilot',job['id'],status='failed',error={'code':'process_interrupted','retryable':True})
@@ -294,6 +292,17 @@ def test_final_identity_screen_never_merges_from_names_without_full_semantic_pro
     merged=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:{'verdict':'same_claim_scope_symbols','reason':'完整知识、范围、对象含义相同'}}},[])
     assert len(merged['registry']['points'])==1
     assert merged['registry']['points'][0]['coverage_unit_ids']==['B1P1','B1P2']
+
+
+def test_global_identity_keeps_all_members_when_equivalences_form_a_chain():
+    from knowledge_core_contract import parse_extraction,compile_review
+    from knowledge_core_identity import apply_pairs
+    points=parse_extraction({'points':[row(),row(),row()],'context_note':''},'B1',['S1'])
+    result=compile_review(review(points,[{'key':'S1'}]),points,[],[{'key':'S1'}])
+    pairs=[{'key':'EQ1','left':'B1P1','right':'B1P2'},{'key':'EQ2','left':'B1P1','right':'B1P3'}]
+    merged=apply_pairs(result,pairs,{'pairs':{p['key']:{'verdict':'same_claim_scope_symbols','reason':'同一完整知识'}for p in pairs}},[])
+    assert len(merged['registry']['points'])==1
+    assert set(merged['registry']['points'][0]['coverage_unit_ids'])=={'B1P1','B1P2','B1P3'}
 
 
 @pytest.mark.asyncio
