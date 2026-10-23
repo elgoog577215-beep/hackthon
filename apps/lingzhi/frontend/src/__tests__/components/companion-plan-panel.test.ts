@@ -7,7 +7,7 @@ import http from '@/utils/http'
 vi.mock('@/utils/http',()=>({default:{get:vi.fn(),post:vi.fn(),patch:vi.fn()},getLearnerIdentity:()=> 'u'}))
 const state=()=>({revision:1,goal:null,goal_history:[],plan:null,proposal:null,memories:[],catalog:[{id:'n',title:'导数'}],progress:[]})
 describe('owned learning plan and companion preferences',()=>{
- beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:state()}))})
+ beforeEach(()=>{setActivePinia(createPinia());vi.resetAllMocks();vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:state()}))})
  it('waits for the server preference, preserves an explicit on-request mode, and updates by revision',async()=>{
   const store=useCompanionPreferencesStore()
   expect(store.proactive).toBe(false)
@@ -30,6 +30,22 @@ describe('owned learning plan and companion preferences',()=>{
   modal.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/learning-records/companion',expect.objectContaining({action:'save_goal',expected_revision:1,value:expect.objectContaining({text:'两周后考微积分'})}))
   w.unmount()
+ })
+ it('allows a new course command while an old course response is still pending',async()=>{
+  let finishOld!:(value:any)=>void
+  vi.mocked(http.post).mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve}))
+  const w=mount(CompanionPlanPanel,{props:{courseId:'old'},attachTo:document.body})
+  try {
+   await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+   document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
+   await w.setProps({courseId:'new'})
+   await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+   vi.mocked(http.post).mockResolvedValueOnce({data:{...state(),revision:2}})
+   document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises()
+   expect(http.post).toHaveBeenCalledWith('/api/courses/new/learning-records/companion',expect.anything())
+   finishOld({data:{...state(),goal:{text:'OLD COURSE'}}});await flushPromises()
+   expect(document.querySelector('textarea')!.value).not.toContain('OLD COURSE')
+  } finally {w.unmount()}
  })
  it('does not read or write personal context from teacher preview',async()=>{
   const w=mount(CompanionPlanPanel,{props:{courseId:'c',preview:true}})

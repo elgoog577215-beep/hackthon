@@ -13,6 +13,8 @@ it('shows roster coverage and requests a change only after the teacher chooses a
  expect(w.text()).toContain('3');expect(w.text()).toContain('链式法则');expect(generate).not.toHaveBeenCalled()
  await w.get('[data-testid="teacher-concern-suggest"]').trigger('click');await flushPromises()
  expect(generate).toHaveBeenCalledWith(expect.objectContaining({instruction:expect.stringContaining('s'),assetTypes:['course_content','question_bank']}))
+ expect(generate.mock.calls[0]![0].instruction).toContain('链式法则')
+ expect(generate.mock.calls[0]![0].instruction).not.toContain('"snapshot_id"')
  expect(w.emitted('openPlan')?.[0]?.[0]).toEqual({planId:'new-plan',sectionId:'n'})
  w.unmount()
 })
