@@ -2650,7 +2650,11 @@ class TeacherLessonAuthoringRepository:
         if job_type not in JOB_TYPES:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
         with self._course_lock(course_id):
-            value = self.load(course_id)
+            # Admission changes only the jobs mapping. _save still owns the
+            # complete independent durable snapshot; other bodies stay read-only.
+            value = self.read_projection(course_id, lambda state: {
+                **state, "jobs": dict(state.get("jobs") or {}),
+            })
             if job_type in {"teacher_lesson_script_generation", "teacher_lesson_plan_generation"}:
                 existing = next((job for job in (value.get("jobs") or {}).values()
                                  if job.get("lesson_unit_id") == lesson_unit_id

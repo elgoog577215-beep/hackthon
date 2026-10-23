@@ -360,7 +360,8 @@ class KnowledgeFirstService:
             require(knowledge_revision(raw) == expected_revision and raw.get("course_document_revision") == expected_document, "课程或知识树版本已变化")
             require(topic == "tree" or bool(expected_revision), "请先采用知识树，再生成讲义")
             require(topic == "tree" or (raw.get("course_knowledge_base") or {}).get("status") == "accepted", "当前知识树尚未采用")
-            state = self.authoring.load(course_id)
+            state = (self.authoring.read_projection(course_id,lambda value:value)
+                     if generation_mode=='core_v1' else self.authoring.load(course_id))
             existing_jobs = state["jobs"]
             previous=None
             if teaching_focus is None:
@@ -400,7 +401,7 @@ class KnowledgeFirstService:
                 require(pipeline != PIPELINE or bool(duplicate.get('include_relations')) == bool(include_relations), '请求标识对应不同关系生成选项')
                 require(not pipeline or (duplicate.get('resume_from_job_id', '') == resume_job_id and duplicate.get('retry_batch_id', '') == retry_batch_id), '请求标识对应不同细化批次')
                 require(pipeline != PIPELINE or bool(duplicate.get('organize_hierarchy')) == bool(organize_hierarchy or retry_batch_id == 'hierarchy'), '请求标识对应不同分类整理选项')
-                return duplicate, False
+                return deepcopy(duplicate), False
             require(not tree_generation_blockers(state, source_mode=source_mode, lesson_id=lesson_id), "已有相关生成任务，请查看当前任务状态")
             context = self._context(raw, source_mode, lesson_id)
             if coverage_units and plan_origin and not resume_job_id and plan_origin.get('source_evidence_package_revision')!=context['evidence_package']['package_revision_id']:
