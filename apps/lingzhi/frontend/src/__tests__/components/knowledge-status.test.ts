@@ -235,3 +235,21 @@ it('retries loading a completed result if the first full read fails', async () =
   expect(get).toHaveBeenCalledTimes(calls)
   expect(http.post).not.toHaveBeenCalled()
 })
+
+
+it('reconnects only the preview stream after disconnection without restarting generation or reloading bodies',async()=>{
+ const fetcher=vi.fn(async(url:any)=>{
+  if(String(url).includes('/events/'))throw new Error('temporary stream disconnect')
+  return {ok:true,json:async()=>zh}
+ })
+ vi.stubGlobal('fetch',fetcher)
+ const get=vi.spyOn(http,'get').mockImplementation(async url=>({data:String(url).endsWith('/status')?status():state()}))
+ const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+ try{
+  expect(fetcher.mock.calls.filter(([url])=>String(url).includes('/events/'))).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(2000);await flushPromises()
+  expect(fetcher.mock.calls.filter(([url])=>String(url).includes('/events/'))).toHaveLength(2)
+  expect(get.mock.calls.filter(([url])=>!String(url).endsWith('/status'))).toHaveLength(1)
+  expect(http.post).not.toHaveBeenCalled()
+ }finally{w.unmount()}
+})

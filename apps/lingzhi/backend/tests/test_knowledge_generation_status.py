@@ -164,3 +164,19 @@ def test_checkpoint_revisions_do_not_invalidate_whole_view_while_generation_is_a
     assert svc.status('c-pilot')['result_version']==first
     svc.authoring.update_job('c-pilot',job['id'],status='failed')
     assert svc.status('c-pilot')['result_version']!=first
+
+
+
+def test_progress_summary_omits_model_responses_and_does_not_copy_historical_pipelines():
+    from knowledge_atomic import project_runs
+    class NeverCopy:
+        def __deepcopy__(self,memo):raise AssertionError('historical pipeline was copied')
+    old={'id':'old','status':'failed','knowledge_lesson_id':'l','checkpoint':{'atomic_pipeline':{'large':NeverCopy()}}}
+    current={'id':'new','status':'running','knowledge_lesson_id':'l','checkpoint':{'atomic_pipeline':{
+        'generation_contract':'knowledge_registry_v5','schema_version':'inventory_atomic_v1','revision':2,
+        'inventory_batches':[{'id':'inventory-1','status':'completed','request':{'raw_response':'PRIVATE'*100000}}],
+        'batches':[],'truth_review':{'status':'pending','batches':[{'id':'truth-1','status':'pending'}]}}}}
+    runs=project_runs({'jobs':{'old':old,'new':current}}, {})
+    assert runs[0]['job_id']=='new'
+    assert len(json.dumps(runs))<10000
+    assert runs[0]['pipeline']['truth_review']['batches'][0]['id']=='truth-1'
