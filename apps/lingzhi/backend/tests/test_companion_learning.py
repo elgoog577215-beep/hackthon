@@ -1,7 +1,13 @@
 from copy import deepcopy
 import pytest
 from ai_teacher_state import AITeacherRepository, InteractionConflict
-from companion_learning import CompanionService, teaching_decision, select_independent_question, help_followups, material_course_context
+from companion_learning import (
+    CompanionService,
+    teaching_decision,
+    select_independent_question,
+    help_followups,
+    material_course_context,
+)
 
 
 @pytest.fixture
@@ -34,15 +40,30 @@ def test_read_never_creates_files_and_users_are_isolated(service):
     reopened = CompanionService(AITeacherRepository(service.repository.root))
     assert reopened.read("u", "c")["goal"]["text"] == "两周后考微积分"
 
+
 def test_derived_material_inherits_the_same_course_mainline_without_copying_or_overwriting_it(service):
-    command(service,'save_goal',text='课程总体目标',purpose='exam')
-    material={'request':{'source_sections':[{'course_origin':{'course_id':'c'}}]}}
-    inherited=material_course_context(material,'u',service.repository)
-    assert inherited['goal']['text']=='课程总体目标'
-    assert material_course_context(material,'v',service.repository)['goal'] is None
-    command(service,'save_goal',revision=2,text='新的课程目标',purpose='exam')
-    assert material_course_context(material,'u',service.repository)['goal']['text']=='新的课程目标'
-    assert material_course_context({'request':{'source_sections':[{'course_origin':{'course_id':'c'}},{'course_origin':{'course_id':'other'}}]}},'u',service.repository) is None
+    command(service, "save_goal", text="课程总体目标", purpose="exam")
+    material = {"request": {"source_sections": [{"course_origin": {"course_id": "c"}}]}}
+    inherited = material_course_context(material, "u", service.repository)
+    assert inherited["goal"]["text"] == "课程总体目标"
+    assert material_course_context(material, "v", service.repository)["goal"] is None
+    command(service, "save_goal", revision=2, text="新的课程目标", purpose="exam")
+    assert material_course_context(material, "u", service.repository)["goal"]["text"] == "新的课程目标"
+    assert (
+        material_course_context(
+            {
+                "request": {
+                    "source_sections": [
+                        {"course_origin": {"course_id": "c"}},
+                        {"course_origin": {"course_id": "other"}},
+                    ]
+                }
+            },
+            "u",
+            service.repository,
+        )
+        is None
+    )
 
 
 def test_goal_idempotency_conflict_and_history(service):
@@ -206,28 +227,61 @@ def test_help_outcomes_come_from_later_official_attempts_and_keep_uncertainty():
     assert help_followups(links, attempts, "other")[0]["status"] == "historical"
     assert help_followups(links, [], "cv")[0]["status"] == "verification_requested"
 
+
 def test_repeated_independent_difficulty_gets_a_bounded_hint_and_later_pass_is_respected():
-    evidence=[{'source_id':'a1','support':'independent','outcome':'not_passed'}, {'source_id':'a2','support':'independent','outcome':'not_passed'}]
-    result=teaching_decision(model(evidence),question='帮我理一下',knowledge_refs={'k1':'kr1'},node_id='n1')
-    assert result['action']=='step'
-    assert result['basis']=='repeated_independent_difficulty'
-    assert result['mastery_write'] is False
-    result=teaching_decision(model(evidence+[{'source_id':'a3','support':'independent','outcome':'passed'}]),question='解释一下',knowledge_refs={'k1':'kr1'},node_id='n1')
-    assert result['basis']!='repeated_independent_difficulty'
+    evidence = [
+        {"source_id": "a1", "support": "independent", "outcome": "not_passed"},
+        {"source_id": "a2", "support": "independent", "outcome": "not_passed"},
+    ]
+    result = teaching_decision(model(evidence), question="帮我理一下", knowledge_refs={"k1": "kr1"}, node_id="n1")
+    assert result["action"] == "step"
+    assert result["basis"] == "repeated_independent_difficulty"
+    assert result["mastery_write"] is False
+    result = teaching_decision(
+        model(evidence + [{"source_id": "a3", "support": "independent", "outcome": "passed"}]),
+        question="解释一下",
+        knowledge_refs={"k1": "kr1"},
+        node_id="n1",
+    )
+    assert result["basis"] != "repeated_independent_difficulty"
 
 
 def test_check_followup_separates_assisted_success_from_independent_result_and_current_profile():
-    links={'q':{'created_at':'2026-10-23T01:00:00Z','course_version_id':'cv','help_message_id':'h','knowledge_id':'k','knowledge_revision_id':'kr'}}
-    attempt={'attempt_id':'a','task_revision_id':'q','course_version_id':'cv','created_at':'2026-10-23T02:00:00Z','status':'graded','result':{'passed':True,'grading_confidence':.9}}
-    profile={'model_revision_id':'m2','knowledge_profile':{'nodes':[{'knowledge_id':'k','knowledge_revision_id':'kr','status':'checking','independent_count':1}]}}
-    result=help_followups(links,[attempt],'cv',model=profile)[0]
-    assert result['verification_state']=='independent_pass'
-    assert result['current_profile']['status']=='checking'
-    assert result['current_model_revision_id']=='m2'
-    assert result['causal_effect_verified'] is False
-    assisted=deepcopy(attempt);assisted['ai_support_level']=1
-    assert help_followups(links,[assisted],'cv',model=profile)[0]['verification_state']=='assisted_only'
-    uncertain=deepcopy(attempt);uncertain['result']['grading_confidence']=.2
-    assert help_followups(links,[uncertain],'cv',model=profile)[0]['verification_state']=='uncertain'
-    assert help_followups(links,[],'cv',model=profile)[0]['verification_state']=='awaiting_check'
-    assert help_followups(links,[attempt],'new',model=profile)[0]['current_profile'] is None
+    links = {
+        "q": {
+            "created_at": "2026-10-23T01:00:00Z",
+            "course_version_id": "cv",
+            "help_message_id": "h",
+            "knowledge_id": "k",
+            "knowledge_revision_id": "kr",
+        }
+    }
+    attempt = {
+        "attempt_id": "a",
+        "task_revision_id": "q",
+        "course_version_id": "cv",
+        "created_at": "2026-10-23T02:00:00Z",
+        "status": "graded",
+        "result": {"passed": True, "grading_confidence": 0.9},
+    }
+    profile = {
+        "model_revision_id": "m2",
+        "knowledge_profile": {
+            "nodes": [
+                {"knowledge_id": "k", "knowledge_revision_id": "kr", "status": "checking", "independent_count": 1}
+            ]
+        },
+    }
+    result = help_followups(links, [attempt], "cv", model=profile)[0]
+    assert result["verification_state"] == "independent_pass"
+    assert result["current_profile"]["status"] == "checking"
+    assert result["current_model_revision_id"] == "m2"
+    assert result["causal_effect_verified"] is False
+    assisted = deepcopy(attempt)
+    assisted["ai_support_level"] = 1
+    assert help_followups(links, [assisted], "cv", model=profile)[0]["verification_state"] == "assisted_only"
+    uncertain = deepcopy(attempt)
+    uncertain["result"]["grading_confidence"] = 0.2
+    assert help_followups(links, [uncertain], "cv", model=profile)[0]["verification_state"] == "uncertain"
+    assert help_followups(links, [], "cv", model=profile)[0]["verification_state"] == "awaiting_check"
+    assert help_followups(links, [attempt], "new", model=profile)[0]["current_profile"] is None

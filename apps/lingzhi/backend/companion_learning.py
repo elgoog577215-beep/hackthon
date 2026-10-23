@@ -267,11 +267,16 @@ def teaching_decision(model, *, question, knowledge_refs, node_id, requested_act
         for s in model.get("mistake_signals", [])
         if s.get("status", "confirmed") == "confirmed" and set(s.get("concept_ids") or []) & current_ids
     ]
+    from study.teaching import teaching_design
+
+    focus = teaching_design("systematic", profile=model, knowledge_refs=knowledge_refs)["focus"]
+    basis = "question"
     action = "explain"
     form = "brief"
     uncertainty = "insufficient_evidence"
     if requested_action in {"explain", "contrast", "step", "verify"}:
         action = requested_action
+        basis = "explicit_request"
     elif any(t in question.lower() for t in ["举例", "例子", "example"]):
         form = "example"
     elif any(t in question.lower() for t in ["带我", "一步", "step by step", "next step"]):
@@ -281,15 +286,21 @@ def teaching_decision(model, *, question, knowledge_refs, node_id, requested_act
     elif any(t in question.lower() for t in ["独立检查", "independent check"]):
         action = "verify"
     elif signals:
+        basis = "confirmed_signal"
         action = "contrast" if signals[0].get("category") in {"concept_gap", "boundary_confusion"} else "step"
     elif evidence and evidence[-1].get("outcome") == "passed" and evidence[-1].get("support") != "independent":
         action = "verify"
+        basis = "assisted_success"
+    elif focus:
+        action = "step"
+        basis = "repeated_independent_difficulty"
     if evidence:
         uncertainty = "bounded_evidence"
     return {
         "schema_version": "teaching_decision_v1",
         "decision_id": "td_" + digest([model.get("model_revision_id"), knowledge_refs, question, action]),
         "action": action,
+        "basis": basis,
         "format": form,
         "model_revision_id": model.get("model_revision_id"),
         "node_id": node_id,
@@ -325,7 +336,7 @@ def select_independent_question(tasks, attempts, knowledge_id, knowledge_revisio
     return None
 
 
-def help_followups(links, attempts, course_version):
+def help_followups(links, attempts, course_version, *, model=None):
     outcomes = []
     for revision, link in links.items():
         rows = []
@@ -363,9 +374,53 @@ def help_followups(links, attempts, course_version):
                     else "uncertain",
                 }
             )
+        rows.sort(key=lambda item: str(item.get("observed_at") or ""))
+        latest = rows[-1] if rows else None
+        verification = "historical" if historical else "awaiting_check"
+        if latest:
+            verification = (
+                "uncertain"
+                if latest["outcome"] == "uncertain"
+                else (
+                    "assisted_only"
+                    if not latest["independent"]
+                    else "independent_pass"
+                    if latest["outcome"] == "passed"
+                    else "independent_fail"
+                )
+            )
+        point = next(
+            (
+                p
+                for p in ((model or {}).get("knowledge_profile") or {}).get("nodes", [])
+                if not historical
+                and p.get("knowledge_id") == link.get("knowledge_id")
+                and p.get("knowledge_revision_id") == link.get("knowledge_revision_id")
+            ),
+            None,
+        )
+        current_profile = (
+            {
+                k: point[k]
+                for k in (
+                    "knowledge_id",
+                    "knowledge_revision_id",
+                    "name",
+                    "status",
+                    "independent_count",
+                    "assessment_count",
+                )
+                if k in point
+            }
+            if point
+            else None
+        )
         outcomes.append(
             {
                 "task_revision_id": revision,
+                "verification_state": verification,
+                "current_profile": current_profile,
+                "current_model_revision_id": (model or {}).get("model_revision_id"),
                 **link,
                 "attempts": rows,
                 "status": "historical" if historical else "evidence_available" if rows else "verification_requested",

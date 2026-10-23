@@ -42,14 +42,18 @@ def teaching_design(purpose, *, profile=None, knowledge_refs=None):
             point.get("evidence") or [], key=lambda e: str(e.get("observed_at") or e.get("created_at") or "")
         )
         last_pass = max(
-            (i for i, e in enumerate(evidence) if e.get("support") == "independent" and e.get("outcome") == "passed"),
+            (
+                i
+                for i, e in enumerate(evidence)
+                if e.get("support") == "independent" and e.get("outcome") == "passed" and e.get("counted") is not False
+            ),
             default=-1,
         )
         evidence = evidence[last_pass + 1 :]
         failed = {
             e.get("source_id") or e.get("attempt_id")
             for e in evidence
-            if e.get("outcome") == "not_passed" and e.get("support") == "independent"
+            if e.get("outcome") == "not_passed" and e.get("support") == "independent" and e.get("counted") is not False
         } - {None, ""}
         if len(failed) >= 2:
             focus.append(
