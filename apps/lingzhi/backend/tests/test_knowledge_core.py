@@ -131,3 +131,41 @@ def test_get_job_projects_only_the_requested_job_without_copying_all_history(svc
     job = svc.authoring.create_job('c-pilot', 'tree', job_type='course_knowledge_tree_generation')
     monkeypatch.setattr(svc.authoring, 'load', lambda *_: pytest.fail('a job read copied all course history'))
     assert svc.authoring.get_job('c-pilot', job['id'])['id'] == job['id']
+
+
+def test_model_response_attachments_are_durable_and_cannot_change_job_state(svc, monkeypatch):
+    job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation',
+        initial_fields={'actor':'owner','source_context_revision':'frozen'})
+    before=svc.authoring._path('c-pilot').read_bytes()
+    monkeypatch.setattr(svc.authoring,'_save',lambda *_:pytest.fail('a small response rewrote all history'))
+    svc.authoring.save_knowledge_response('c-pilot',job['id'],job['id'],'request-1','{"points":[]}')
+    fresh=type(svc.authoring)(svc.authoring.root)
+    assert fresh.read_knowledge_response('c-pilot',job['id'],job['id'],'request-1')=='{"points":[]}'
+    assert svc.authoring._path('c-pilot').read_bytes()==before
+    with pytest.raises(ValueError):svc.authoring.save_knowledge_response('c-pilot',job['id'],job['id'],'request-1','different result')
+    with pytest.raises(ValueError):fresh.read_knowledge_response('c-pilot',job['id'],job['id'],'../outside')
+
+
+@pytest.mark.asyncio
+async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypatch):
+    setup_course(svc,monkeypatch)
+    state=svc.authoring.load('c-pilot')
+    state['lessons']['cpu']['script_revisions'][0]['sections'][0]['blocks']=[
+        {'block_id':f'b{i}','content':('独立操作的定义和边界。'*200),'status':'completed'} for i in range(3)]
+    svc.authoring._save(state)
+    writes=[];save=svc.authoring._save
+    def recorded(value):writes.append(1);return save(value)
+    monkeypatch.setattr(svc.authoring,'_save',recorded)
+    async def model(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+        if p['stage']=='candidate_core_extract':
+            await asyncio.sleep(.02*int(p['materials'][0]['key'][1:]))
+            return json.dumps({'points':[row(p['materials'][0]['key'],'独立操作的完整规则。')],'context_note':''})
+        return json.dumps(review(p['points'],p.get('coverage_materials',p['materials'])))
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
+    view=svc.view('c-pilot',source_mode='handouts')
+    job=svc.start('c-pilot','tree','bounded-writes',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    await svc.run('c-pilot',job['id'])
+    assert svc.authoring.get_job('c-pilot',job['id'])['status']=='completed'
+    assert len(writes)<=4, 'completed batches should persist small attachments before the phase commit'
