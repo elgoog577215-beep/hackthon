@@ -30,11 +30,18 @@ it('replaces inventory, batch diagnostics and timings with one percentage bar',a
   expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('37%')
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
-it('uses the inventory pipeline for new lecture generations',async()=>{
+it('generates a complete core first without attaching relation/profile work',async()=>{
   const v=view();v.atomic_runs=[];vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   await w.findAll('button').find(b=>b.text().includes('生成本讲知识树'))!.trigger('click');await flushPromises()
-  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'inventory_atomic_v1',lesson_id:'cpu',organize_hierarchy:true}))
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'inventory_atomic_v1',lesson_id:'cpu',organize_hierarchy:true,generation_mode:'core_v1',include_relations:false}))
+  w.unmount()
+})
+it('keeps complete generation as an explicit action',async()=>{
+  const v=view();v.atomic_runs=[];vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('[data-testid="generate-full-knowledge-tree"]').trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',include_relations:true}))
   w.unmount()
 })
 it('organizes only saved leaf batches after an explicit click',async()=>{

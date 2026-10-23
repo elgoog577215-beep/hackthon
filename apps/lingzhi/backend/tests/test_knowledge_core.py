@@ -17,7 +17,7 @@ def row(name='入栈', statement='入栈将新元素放到栈顶。'):
 def review(points, materials):
     return {'keep': [p['key'] for p in points], 'correct': {}, 'split': {}, 'match': {},
             'checks': {}, 'context': {}, 'uncertain': {}, 'add': [], 'names': {}, 'paths': {},
-            'coverage': {m['key']: ['complete', '已检查独立结论与必要条件'] for m in materials}}
+            'types': {}, 'coverage': {m['key']: ['complete', '已检查独立结论与必要条件'] for m in materials}}
 
 
 def test_core_material_groups_retain_every_unabridged_input():
@@ -63,6 +63,17 @@ def test_truth_patch_cannot_overwrite_ancillary_fields_or_skip_any_claim():
     assert result['registry']['points'][0]['examples'] == ['保留的示例']
     value['correct'][key]['examples'] = []
     with pytest.raises(ValueError): compile_review(value, points, [], [{'key': 'S1'}])
+
+
+def test_open_draft_type_requires_explicit_classification_before_publication():
+    from knowledge_core_contract import parse_extraction, compile_review
+    source=row();source[2]='domain-specific-label'
+    points=parse_extraction({'points':[source],'context_note':''},'B1',['S1'])
+    assert points[0]['knowledge_type']=='domain-specific-label'
+    value=review(points,[{'key':'S1'}])
+    with pytest.raises(ValueError):compile_review(value,points,[],[{'key':'S1'}])
+    value['types']={points[0]['key']:'rule'}
+    assert compile_review(value,points,[],[{'key':'S1'}])['registry']['points'][0]['knowledge_type']=='rule'
     value['correct'] = {}
     with pytest.raises(ValueError): compile_review(value, points, [], [{'key': 'S1'}])
 
