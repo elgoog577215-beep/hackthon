@@ -2257,6 +2257,13 @@ class TeacherLessonAuthoringRepository:
         self._knowledge_observation.publish(course_id,payload,(stat.st_mtime_ns,stat.st_size))
         return payload
 
+    def _cache_committed_job_snapshot(self, course_id, snapshot):
+        """Only job mutation commands call this; their public returns are copies."""
+        stat=self._path(course_id).stat()
+        self._load_cache[course_id]=((stat.st_mtime_ns,stat.st_size),snapshot)
+        self._load_cache.move_to_end(course_id)
+        while len(self._load_cache)>AUTHORING_LOAD_CACHE_MAX_COURSES:self._load_cache.popitem(last=False)
+
     def set_outline(
         self,
         course_id: str,
@@ -2721,7 +2728,8 @@ class TeacherLessonAuthoringRepository:
                     raise ValueError('Initial job fields cannot replace lifecycle or identity')
                 job.update(deepcopy(initial_fields))
             value.setdefault("jobs", {})[job_id] = job
-            self._save(value)
+            saved=self._save(value)
+            self._cache_committed_job_snapshot(course_id,saved)
             return (deepcopy(job), True) if return_created else deepcopy(job)
 
     def _apply_job_changes_locked(
@@ -2786,6 +2794,7 @@ class TeacherLessonAuthoringRepository:
             job = self._apply_job_changes_locked(job, changes)
             value["jobs"][job_id] = job
             saved = self._save(value)
+            self._cache_committed_job_snapshot(course_id,saved)
             if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
                 self._drop_live_stream_job_locked(course_id, job_id)
             elif job_id in (self._live_stream_jobs.get(course_id) or {}):
@@ -2962,8 +2971,7 @@ class TeacherLessonAuthoringRepository:
             live_jobs = self._live_stream_jobs.setdefault(course_id, {})
             job = live_jobs.get(job_id)
             if not isinstance(job, dict):
-                value = self.load(course_id)
-                job = (value.get("jobs") or {}).get(job_id)
+                job = self.read_projection(course_id,lambda value:deepcopy((value.get("jobs") or {}).get(job_id)))
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             if str(job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
@@ -3005,8 +3013,7 @@ class TeacherLessonAuthoringRepository:
             live_jobs = self._live_stream_jobs.setdefault(course_id, {})
             job = live_jobs.get(job_id)
             if not isinstance(job, dict):
-                value = self.load(course_id)
-                job = (value.get("jobs") or {}).get(job_id)
+                job = self.read_projection(course_id,lambda value:deepcopy((value.get("jobs") or {}).get(job_id)))
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             if str(job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:

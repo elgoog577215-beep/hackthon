@@ -434,7 +434,7 @@ class KnowledgeFirstService:
                             require(bool(selected),'基础树批次不存在')
                             for batch in selected:
                                 batch['status']='pending';batch.pop('points',None);batch.pop('request',None)
-                        for field in ('core_review','registry','paths','frozen_units','extraction_resolutions','hierarchy','preview_tree'):
+                        for field in ('core_review','core_identity','registry','paths','frozen_units','extraction_resolutions','hierarchy','preview_tree'):
                             core.pop(field,None)
                 elif prior.get('generation_contract') in {REGISTRY,'knowledge_registry_v4'}:
                     require(original.get('coverage_units',[])==coverage_units,'继续任务不能更换冻结知识清单')

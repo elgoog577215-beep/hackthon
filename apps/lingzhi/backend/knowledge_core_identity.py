@@ -36,14 +36,14 @@ def pair_prompt(result,pairs):
     return render('只核对以下疑似同义知识对，不改写、不拆分或删除知识。'
         '名字相近只是线索，完整命题、适用范围和符号含义全部相同才给same_claim_scope_symbols。'
         '公式与口头解释、换符号以及相同范围内的等价表示应合并；不同量、运算、定义/斜率/方程不能因为相关而合并。'
-        '若不同用different；无法确认用uncertain。每个EQ键恰好一次，给简短reason。'
-        '输出{"pairs":{"EQ键":{"verdict":"same_claim_scope_symbols/different/uncertain","reason":"完整含义依据"}}}。',
+        '若不同用different；无法确认用uncertain。每个EQ键恰好一次，直接给判断码，不展开解释或复述知识。'
+        'same_claim_scope_symbols明确同时声明三个条件全部一致，不是名称相似。'
+        '输出{"pairs":{"EQ键":"same_claim_scope_symbols/different/uncertain"}}。',
         {'stage':'candidate_core_identity','pairs':[{'key':p['key'],'left':compact(p['left']),'right':compact(p['right'])} for p in pairs]})
 
 
 def pair_schema(keys):
-    decision={'type':'object','additionalProperties':False,'required':['verdict','reason'],
-        'properties':{'verdict':{'enum':['same_claim_scope_symbols','different','uncertain']},'reason':{'type':'string','minLength':1}}}
+    decision={'enum':['same_claim_scope_symbols','different','uncertain']}
     return {'type':'object','additionalProperties':False,'required':['pairs'],'properties':{
         'pairs':{'type':'object','additionalProperties':False,'required':keys,'properties':{k:decision for k in keys}}}}
 
@@ -61,9 +61,9 @@ def apply_pairs(result,pairs,value,catalog):
         return catalog_keys[point['knowledge_id']] if point.get('_registered_point') else key
     for pair in pairs:
         decision=value['pairs'][pair['key']]
-        if decision['verdict']=='different':continue
-        if decision['verdict']=='uncertain':
-            updated['registry']['issues'].append({'code':'knowledge_core_identity_pending','severity':'blocking','message':decision['reason']})
+        if decision=='different':continue
+        if decision=='uncertain':
+            updated['registry']['issues'].append({'code':'knowledge_core_identity_pending','severity':'blocking','message':'模型未确认完整知识等价，保留原知识'})
             continue
         left,right=anchor(pair['left']),anchor(pair['right'])
         if left==right:continue
@@ -72,7 +72,8 @@ def apply_pairs(result,pairs,value,catalog):
             continue
         source,target=(right,left) if left in catalog_keys.values() else (left,right)
         proposed=deepcopy(decisions);proposed[source]={'action':'match','target':target,
-            'same_claim':True,'same_scope':True,'same_symbols':True,'reason':decision['reason']}
+            'same_claim':True,'same_scope':True,'same_symbols':True,
+            'reason':'全讲同义核对明确判定完整命题、适用范围及符号含义全部相同：'+pair['key']}
         try:registry=resolve_matches(points,catalog,proposed)
         except ValueError:
             updated['registry']['issues'].append({'code':'knowledge_core_identity_conflict','severity':'blocking','message':'同义决定与已冻结独立结论冲突'})

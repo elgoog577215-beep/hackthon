@@ -207,7 +207,7 @@ async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypat
             await asyncio.sleep(.02*int(p['materials'][0]['key'][1:]))
             return json.dumps({'points':[row(p['materials'][0]['key'],'独立操作的完整规则。')],'context_note':''})
         if p['stage']=='candidate_core_identity':
-            return json.dumps({'pairs':{pair['key']:{'verdict':'different','reason':'测试中的独立操作'}for pair in p['pairs']}})
+            return json.dumps({'pairs':{pair['key']:'different'for pair in p['pairs']}})
         return json.dumps(transport_review(p['points'],p.get('coverage_materials',p['materials'])))
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
     view=svc.view('c-pilot',source_mode='handouts')
@@ -312,9 +312,9 @@ def test_final_identity_screen_never_merges_from_names_without_full_semantic_pro
     result=compile_review(review(points,[{'key':'S1'}]),points,[],[{'key':'S1'}])
     pairs=candidate_pairs(result);assert len(pairs)==1
     before=deepcopy(result)
-    distinct=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:{'verdict':'different','reason':'范围不同'}}},[])
+    distinct=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:'different'}},[])
     assert len(distinct['registry']['points'])==2 and result==before
-    merged=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:{'verdict':'same_claim_scope_symbols','reason':'完整知识、范围、对象含义相同'}}},[])
+    merged=apply_pairs(result,pairs,{'pairs':{pairs[0]['key']:'same_claim_scope_symbols'}},[])
     assert len(merged['registry']['points'])==1
     assert merged['registry']['points'][0]['coverage_unit_ids']==['B1P1','B1P2']
 
@@ -325,7 +325,7 @@ def test_global_identity_keeps_all_members_when_equivalences_form_a_chain():
     points=parse_extraction({'points':[row(),row(),row()],'context_note':''},'B1',['S1'])
     result=compile_review(review(points,[{'key':'S1'}]),points,[],[{'key':'S1'}])
     pairs=[{'key':'EQ1','left':'B1P1','right':'B1P2'},{'key':'EQ2','left':'B1P1','right':'B1P3'}]
-    merged=apply_pairs(result,pairs,{'pairs':{p['key']:{'verdict':'same_claim_scope_symbols','reason':'同一完整知识'}for p in pairs}},[])
+    merged=apply_pairs(result,pairs,{'pairs':{p['key']:'same_claim_scope_symbols'for p in pairs}},[])
     assert len(merged['registry']['points'])==1
     assert set(merged['registry']['points'][0]['coverage_unit_ids'])=={'B1P1','B1P2','B1P3'}
 

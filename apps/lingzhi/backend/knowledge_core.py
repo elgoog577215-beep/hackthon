@@ -91,9 +91,10 @@ async def run(svc, course_id, job_id):
                 course_id,job_id,checkpoint={'atomic_pipeline':snapshot},progress=progress)
             if not durable:await io(svc.authoring.publish_knowledge_preview,course_id)
     async def request(prompt,stage,record,compile_result):
-        if record.get('status')=='completed':return compile_result(deepcopy(record['response']))
-        await io(validate_version)
         request_key=stable_hash({'contract':'knowledge_core_transport_v2','prompt':prompt,'epoch':record.get('response_epoch',0)},prefix='kreq_')
+        if record.get('status')=='completed' and record.get('response_attachment')==request_key:
+            return compile_result(deepcopy(record['response']))
+        await io(validate_version)
         if record.get('status')!='failed':
             cached=await io(svc.authoring.read_knowledge_response,course_id,job_id,pipeline['identity_job_id'],request_key)
             if cached is not None:
