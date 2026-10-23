@@ -153,6 +153,31 @@ def test_get_job_projects_only_the_requested_job_without_copying_all_history(svc
     assert svc.authoring.get_job('c-pilot', job['id'])['id'] == job['id']
 
 
+@pytest.mark.parametrize('stream',[False,True])
+def test_first_live_update_copies_only_its_job(svc,monkeypatch,stream):
+    job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation')
+    monkeypatch.setattr(svc.authoring,'load',lambda *_:pytest.fail('first live update copied the full history'))
+    if stream:
+        result=svc.authoring.update_job_stream('c-pilot',job['id'],phase='model_streaming',progress=1,
+            message='received',batch_id='B',event='delta',delta='text')
+    else:result=svc.authoring.update_job_live('c-pilot',job['id'],progress=1)
+    assert result['id']==job['id']
+
+
+def test_committed_job_snapshot_is_cached_without_exposing_mutable_aliases(svc,monkeypatch):
+    from pathlib import Path
+    job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation')
+    path=svc.authoring._path('c-pilot');read=Path.read_text
+    def checked(target,*args,**kwargs):
+        if target==path:pytest.fail('a just-committed course snapshot was decoded from disk again')
+        return read(target,*args,**kwargs)
+    monkeypatch.setattr(Path,'read_text',checked)
+    assert svc.authoring.get_job('c-pilot',job['id'])['id']==job['id']
+    returned=svc.authoring.update_job('c-pilot',job['id'],message='saved',request_snapshot={'nested':['original']})
+    returned['request_snapshot']['nested'].append('mutated')
+    assert svc.authoring.get_job('c-pilot',job['id'])['request_snapshot']=={'nested':['original']}
+
+
 def test_model_response_attachments_are_durable_and_cannot_change_job_state(svc, monkeypatch):
     job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation',
         initial_fields={'actor':'owner','source_context_revision':'frozen'})
