@@ -65,6 +65,9 @@ def _parse_block_metadata(payload: str) -> dict[str, Any]:
     Delimiters, identity fields and references must remain valid JSON. Ambiguous
     duplicate keys are rejected rather than silently overwriting metadata.
     """
+    from handout_metadata import normalize_title_math_transport
+    payload = normalize_title_math_transport(payload)
+
     def unique_fields(pairs):
         result = {}
         for key, value in pairs:
