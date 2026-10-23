@@ -173,26 +173,27 @@ async def _run_lesson_plan_job(
     run: Callable[[], Awaitable[None]],
 ) -> None:
     """Run, publish, and retry one lesson independently of its batch siblings."""
+    authoring_io = TeacherLessonAuthoringService(repository)._authoring_io
     while True:
         job = await run_in_threadpool(repository.get_job, course_id, job_id)
         if job.get("status") not in {"pending", "running"}:
             return
         if not job.get("restart_whole") or job.get("type") in {"teacher_lesson_script_generation", "teacher_lesson_plan_generation"}:
             if job.get("restart_whole"):
-                repository.update_job(course_id, job_id, restart_whole=False)
+                await authoring_io(repository.update_job, course_id, job_id, restart_whole=False)
             async def heartbeat():
                 ticks = 0
                 while True:
                     await asyncio.sleep(_TEACHER_JOB_HEARTBEAT_SECONDS)
                     ticks += 1
                     update = repository.update_job if ticks % 3 == 0 else repository.update_job_live
-                    await asyncio.to_thread(update, course_id, job_id,
+                    await authoring_io(update, course_id, job_id,
                                             heartbeat_at=datetime.now(timezone.utc).isoformat())
             pulse = asyncio.create_task(heartbeat())
             try:
                 await run()
             except Exception as exc:
-                repository.update_job(course_id, job_id, status="failed", phase="generation_failed",
+                await authoring_io(repository.update_job, course_id, job_id, status="failed", phase="generation_failed",
                                       stream_complete=True, error=generation_failure(exc, "lesson_generation_failed"))
             finally:
                 pulse.cancel()
@@ -204,20 +205,20 @@ async def _run_lesson_plan_job(
             if datetime.now(timezone.utc) < datetime.fromisoformat(due):
                 await asyncio.sleep(1)
                 continue
-            repository.update_job(course_id, job_id, next_retry_at=None)
+            await authoring_io(repository.update_job, course_id, job_id, next_retry_at=None)
         if job.get("phase") == "result_ready":
             try:
                 await run_in_threadpool(repository.publish_generation_attempt, course_id, [job_id])
             except TeacherLessonAuthoringError as exc:
-                repository.finish_generation_attempt(course_id, job_id, generation_failure(exc, exc.code))
-                repository.pause_job(course_id, job_id)
+                await authoring_io(repository.finish_generation_attempt, course_id, job_id, generation_failure(exc, exc.code))
+                await authoring_io(repository.pause_job, course_id, job_id)
             return
         if job.get("phase") == "retry_wait":
             attempt = int(job.get("attempt_number") or 0)
             if not due:
                 delay = min(300, 2 ** min(attempt + 1, 9))
                 due = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
-                repository.update_job(
+                await authoring_io(repository.update_job,
                     course_id,
                     job_id,
                     next_retry_at=due,
@@ -232,14 +233,14 @@ async def _run_lesson_plan_job(
                 )
                 continue
             await asyncio.sleep(1)
-            repository.update_job_live(course_id, job_id, heartbeat_at=datetime.now(timezone.utc).isoformat())
+            await authoring_io(repository.update_job_live, course_id, job_id, heartbeat_at=datetime.now(timezone.utc).isoformat())
             continue
         try:
             await _run_with_batch_generation_slot(job, run)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            repository.finish_generation_attempt(
+            await authoring_io(repository.finish_generation_attempt,
                 course_id,
                 job_id,
                 generation_failure(exc, "lesson_generation_failed"),
@@ -5473,6 +5474,35 @@ async def generate_lesson_script(
         get_teacher_lesson_authoring_repository
     ),
 ):
+    prepared = await TeacherLessonAuthoringService(repository)._authoring_io(
+        _prepare_lesson_script, course_id, lesson_unit_id, body, request, tm, repository,
+    )
+    job = prepared["job"]
+    run_current_lesson = prepared.get("run")
+    if run_current_lesson is None:
+        return {"job": job}
+    if any(task.get_name() == str(job["id"]) and not task.done() for task in _background_jobs):
+        current = await run_in_threadpool(repository.get_job, course_id, str(job["id"]))
+        return {"job": current}
+    task = asyncio.create_task(_run_lesson_plan_job(
+        course_id=course_id, job_id=str(job["id"]), repository=repository, run=run_current_lesson,
+    ), name=str(job["id"]))
+    repository.track_runtime_job(course_id, task)
+    _background_jobs.add(task)
+    task.add_done_callback(_background_jobs.discard)
+    return {"job": job}
+
+
+def _prepare_lesson_script(
+    course_id: str,
+    lesson_unit_id: str,
+    body: GenerateLessonScriptRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
     try:
         _validate_new_attempt(repository, course_id, lesson_unit_id, "teacher_lesson_script_generation", body)
         source = _source_course(tm, course_id, allow_empty=True)
@@ -5635,7 +5665,7 @@ async def generate_lesson_script(
                 course_context=prompt_course_context,
             )
 
-        async def before_save():
+        def check_source_before_save():
             _check_generation_source(tm, course_id, actor, _canonical_outline_revision(source))
             current_context = handout_course_context(_source_course(tm, course_id, allow_empty=True))
             if stable_hash(current_context, prefix="handout-context") != context_digest:
@@ -5643,6 +5673,9 @@ async def generate_lesson_script(
             _, live_evidence = _course_material_evidence(course_id, actor, effective_material_asset_ids)
             if stable_hash(live_evidence, prefix="handout-sources") != stable_hash(source_evidence, prefix="handout-sources"):
                 raise TeacherLessonAuthoringError("lesson_source_changed", "资料已变化，讲义未覆盖原版本。")
+
+        async def before_save():
+            await TeacherLessonAuthoringService(repository)._authoring_io(check_source_before_save)
 
         async def run_current_lesson() -> None:
             await TeacherLessonAuthoringService(repository).run_script_job(
@@ -5662,15 +5695,7 @@ async def generate_lesson_script(
                 expected_script_revision=expected_script_revision,
             )
 
-        if any(task.get_name() == str(job["id"]) and not task.done() for task in _background_jobs):
-            return {"job": repository.get_job(course_id, str(job["id"]))}
-        task = asyncio.create_task(_run_lesson_plan_job(
-            course_id=course_id, job_id=str(job["id"]), repository=repository, run=run_current_lesson,
-        ), name=str(job["id"]))
-        repository.track_runtime_job(course_id, task)
-        _background_jobs.add(task)
-        task.add_done_callback(_background_jobs.discard)
-        return {"job": job}
+        return {"job": job, "run": run_current_lesson}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -5687,139 +5712,144 @@ async def generate_all_lesson_scripts(
 ):
     """Queue all current lesson scripts while keeping each lesson independent."""
     try:
-        source = _source_course(tm, course_id, allow_empty=True)
-        _require_complete_outline(source)
-        lessons = _lesson_projection(source, repository)
-        if not lessons:
-            raise TeacherLessonAuthoringError(
-                "teacher_lesson_script_batch_empty",
-                "课程大纲中还没有可生成讲义的讲次。",
-            )
-        actor = resolve_user_id(request.headers.get("X-User-Id"))
-        skipped_lessons: list[dict[str, str]] = []
-        reused_jobs: list[dict[str, Any]] = []
-        target_lessons: list[dict[str, Any]] = []
-        lessons_by_id = {
-            str(lesson.get("lesson_unit_id") or ""): lesson
-            for lesson in lessons
-            if str(lesson.get("lesson_unit_id") or "")
-        }
-        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
-        resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
-        plan_revision_ids: dict[str, str] = {}
-        restart_ids = list(dict.fromkeys(body.resume_job_ids))
-        for resume_job_id in restart_ids:
-            try:
-                candidate = repository.get_job(course_id, resume_job_id)
-            except TeacherLessonAuthoringError as exc:
+        def prepare_batch():
+            source = _source_course(tm, course_id, allow_empty=True)
+            _require_complete_outline(source)
+            lessons = _lesson_projection(source, repository)
+            if not lessons:
                 raise TeacherLessonAuthoringError(
-                    "teacher_asset_resume_conflict",
-                    "要恢复的讲义任务不存在，请刷新状态后重试。",
-                    details={"resume_job_id": resume_job_id, "reason": "job_not_found"},
-                ) from exc
-            lesson_unit_id = str(candidate.get("lesson_unit_id") or "")
-            if lesson_unit_id not in lessons_by_id:
-                raise TeacherLessonAuthoringError(
-                    "teacher_asset_resume_conflict",
-                    "要恢复的讲义任务已不属于当前课程讲次，请刷新状态后重试。",
-                    details={"resume_job_id": resume_job_id, "reason": "lesson_mismatch"},
+                    "teacher_lesson_script_batch_empty",
+                    "课程大纲中还没有可生成讲义的讲次。",
                 )
-            _lesson, plan_revision = _current_plan_revision(
-                repository,
-                course_id,
-                lesson_unit_id,
-            )
-            plan_revision_id = str(plan_revision.get("revision_id") or "")
-            validated = _validated_teacher_asset_resume_job(
-                repository,
-                course_id=course_id,
-                resume_job_id=resume_job_id,
-                lesson_unit_id=lesson_unit_id,
-                job_type="teacher_lesson_script_generation",
-                source_revision_field="source_lesson_plan_revision_id",
-                source_revision_id=plan_revision_id,
-            )
-            if lesson_unit_id in resume_jobs_by_lesson:
-                raise TeacherLessonAuthoringError(
-                    "teacher_asset_resume_conflict",
-                    "同一讲次不能同时恢复多个讲义任务。",
-                    details={"resume_job_id": resume_job_id, "reason": "duplicate_lesson"},
-                )
-            resume_jobs_by_lesson[lesson_unit_id] = validated
-            plan_revision_ids[lesson_unit_id] = plan_revision_id
-        for lesson in lessons:
-            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
-            script = lesson.get("script") or {}
-            latest_script_job = _latest_teacher_asset_job(
-                prior_jobs,
-                lesson_unit_id,
-                "teacher_lesson_script_generation",
-            )
-            latest_script_status = str(
-                (latest_script_job or {}).get("status") or ""
-            )
-            if resume_jobs_by_lesson:
-                if lesson_unit_id in resume_jobs_by_lesson:
-                    if not bool(script.get("can_generate")):
-                        raise TeacherLessonAuthoringError(
-                            "teacher_asset_resume_conflict",
-                            "要恢复的讲义任务当前不再满足生成条件，请刷新状态后重试。",
-                            details={
-                                "resume_job_id": resume_jobs_by_lesson[lesson_unit_id]["id"],
-                                "reason": "generation_unavailable",
-                            },
-                        )
-                    target_lessons.append(lesson)
-                else:
-                    skipped_lessons.append({
-                        "lesson_unit_id": lesson_unit_id,
-                        "reason": "not_selected_for_resume",
-                    })
-            elif bool(script.get("ready")):
-                skipped_lessons.append({
-                    "lesson_unit_id": lesson_unit_id,
-                    "reason": "already_ready",
-                })
-            elif latest_script_status in {"pending", "running"}:
-                reused_jobs.append(deepcopy(latest_script_job))
-            elif latest_script_status not in {"", "cancelled", "canceled"}:
-                skipped_lessons.append({
-                    "lesson_unit_id": lesson_unit_id,
-                    "reason": "existing_job_requires_explicit_action",
-                })
-            elif bool(script.get("can_generate")):
-                target_lessons.append(lesson)
-            else:
-                skipped_lessons.append({
-                    "lesson_unit_id": lesson_unit_id,
-                    "reason": str(
-                        script.get("generation_unavailable_reason")
-                        or "lesson_plan_not_ready"
-                    ),
-                })
-        skipped_lesson_ids = [
-            item["lesson_unit_id"] for item in skipped_lessons
-        ]
-
-        # Validate the entire launch set before creating any child.  A stale
-        # plan must not leave the teacher with a half-enqueued batch.
-        material_scopes: dict[str, dict[str, Any]] = {}
-        for lesson in target_lessons:
-            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
-            if lesson_unit_id not in plan_revision_ids:
+            actor = resolve_user_id(request.headers.get("X-User-Id"))
+            skipped_lessons: list[dict[str, str]] = []
+            reused_jobs: list[dict[str, Any]] = []
+            target_lessons: list[dict[str, Any]] = []
+            lessons_by_id = {
+                str(lesson.get("lesson_unit_id") or ""): lesson
+                for lesson in lessons
+                if str(lesson.get("lesson_unit_id") or "")
+            }
+            prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+            resume_jobs_by_lesson: dict[str, dict[str, Any]] = {}
+            plan_revision_ids: dict[str, str] = {}
+            restart_ids = list(dict.fromkeys(body.resume_job_ids))
+            for resume_job_id in restart_ids:
+                try:
+                    candidate = repository.get_job(course_id, resume_job_id)
+                except TeacherLessonAuthoringError as exc:
+                    raise TeacherLessonAuthoringError(
+                        "teacher_asset_resume_conflict",
+                        "要恢复的讲义任务不存在，请刷新状态后重试。",
+                        details={"resume_job_id": resume_job_id, "reason": "job_not_found"},
+                    ) from exc
+                lesson_unit_id = str(candidate.get("lesson_unit_id") or "")
+                if lesson_unit_id not in lessons_by_id:
+                    raise TeacherLessonAuthoringError(
+                        "teacher_asset_resume_conflict",
+                        "要恢复的讲义任务已不属于当前课程讲次，请刷新状态后重试。",
+                        details={"resume_job_id": resume_job_id, "reason": "lesson_mismatch"},
+                    )
                 _lesson, plan_revision = _current_plan_revision(
                     repository,
                     course_id,
                     lesson_unit_id,
                 )
-                plan_revision_ids[lesson_unit_id] = str(
-                    plan_revision.get("revision_id") or ""
+                plan_revision_id = str(plan_revision.get("revision_id") or "")
+                validated = _validated_teacher_asset_resume_job(
+                    repository,
+                    course_id=course_id,
+                    resume_job_id=resume_job_id,
+                    lesson_unit_id=lesson_unit_id,
+                    job_type="teacher_lesson_script_generation",
+                    source_revision_field="source_lesson_plan_revision_id",
+                    source_revision_id=plan_revision_id,
                 )
-            material_scopes[lesson_unit_id] = _lesson_script_material_scope(
-                course_id,
-                actor,
-                lesson_unit_id,
-            )
+                if lesson_unit_id in resume_jobs_by_lesson:
+                    raise TeacherLessonAuthoringError(
+                        "teacher_asset_resume_conflict",
+                        "同一讲次不能同时恢复多个讲义任务。",
+                        details={"resume_job_id": resume_job_id, "reason": "duplicate_lesson"},
+                    )
+                resume_jobs_by_lesson[lesson_unit_id] = validated
+                plan_revision_ids[lesson_unit_id] = plan_revision_id
+            for lesson in lessons:
+                lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+                script = lesson.get("script") or {}
+                latest_script_job = _latest_teacher_asset_job(
+                    prior_jobs,
+                    lesson_unit_id,
+                    "teacher_lesson_script_generation",
+                )
+                latest_script_status = str(
+                    (latest_script_job or {}).get("status") or ""
+                )
+                if resume_jobs_by_lesson:
+                    if lesson_unit_id in resume_jobs_by_lesson:
+                        if not bool(script.get("can_generate")):
+                            raise TeacherLessonAuthoringError(
+                                "teacher_asset_resume_conflict",
+                                "要恢复的讲义任务当前不再满足生成条件，请刷新状态后重试。",
+                                details={
+                                    "resume_job_id": resume_jobs_by_lesson[lesson_unit_id]["id"],
+                                    "reason": "generation_unavailable",
+                                },
+                            )
+                        target_lessons.append(lesson)
+                    else:
+                        skipped_lessons.append({
+                            "lesson_unit_id": lesson_unit_id,
+                            "reason": "not_selected_for_resume",
+                        })
+                elif bool(script.get("ready")):
+                    skipped_lessons.append({
+                        "lesson_unit_id": lesson_unit_id,
+                        "reason": "already_ready",
+                    })
+                elif latest_script_status in {"pending", "running"}:
+                    reused_jobs.append(deepcopy(latest_script_job))
+                elif latest_script_status not in {"", "cancelled", "canceled"}:
+                    skipped_lessons.append({
+                        "lesson_unit_id": lesson_unit_id,
+                        "reason": "existing_job_requires_explicit_action",
+                    })
+                elif bool(script.get("can_generate")):
+                    target_lessons.append(lesson)
+                else:
+                    skipped_lessons.append({
+                        "lesson_unit_id": lesson_unit_id,
+                        "reason": str(
+                            script.get("generation_unavailable_reason")
+                            or "lesson_plan_not_ready"
+                        ),
+                    })
+            skipped_lesson_ids = [
+                item["lesson_unit_id"] for item in skipped_lessons
+            ]
+
+            # Validate the entire launch set before creating any child.  A stale
+            # plan must not leave the teacher with a half-enqueued batch.
+            material_scopes: dict[str, dict[str, Any]] = {}
+            for lesson in target_lessons:
+                lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+                if lesson_unit_id not in plan_revision_ids:
+                    _lesson, plan_revision = _current_plan_revision(
+                        repository,
+                        course_id,
+                        lesson_unit_id,
+                    )
+                    plan_revision_ids[lesson_unit_id] = str(
+                        plan_revision.get("revision_id") or ""
+                    )
+                material_scopes[lesson_unit_id] = _lesson_script_material_scope(
+                    course_id,
+                    actor,
+                    lesson_unit_id,
+                )
+
+            return (lessons, reused_jobs, target_lessons, resume_jobs_by_lesson, plan_revision_ids, material_scopes, skipped_lesson_ids, skipped_lessons)
+
+        (lessons, reused_jobs, target_lessons, resume_jobs_by_lesson, plan_revision_ids, material_scopes, skipped_lesson_ids, skipped_lessons) = await TeacherLessonAuthoringService(repository)._authoring_io(prepare_batch)
 
         parent_job_id = f"tls-batch-{body.request_id or uuid.uuid4().hex}"
         request_prefix = body.request_id.strip() or parent_job_id
