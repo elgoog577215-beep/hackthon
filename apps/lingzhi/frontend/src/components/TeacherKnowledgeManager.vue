@@ -445,6 +445,11 @@ const displayTree = computed(() => {
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
 function jobPhase(job: any) {
+  if (atomicRun.value?.pipeline?.generation_mode === 'core_v1' && job.status !== 'completed') {
+    if (job.transport_retry_active_count > 0) return t('knowledgeFirst.modelReconnecting')
+    return t(job.pipeline_stage === 'candidate_core_identity' ? 'knowledgeFirst.coreIdentity'
+      : job.pipeline_stage === 'candidate_core_review' ? 'knowledgeFirst.coreReview' : 'knowledgeFirst.coreExtract')
+  }
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
   const recovering = job.status === 'running' && job.transport_retry_active_count > 0
