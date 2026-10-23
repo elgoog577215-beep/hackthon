@@ -1,0 +1,145 @@
+"""Slow authoring storage must not occupy the HTTP/model event loop."""
+
+import asyncio
+import threading
+import time
+from copy import deepcopy
+
+import pytest
+
+from ai_base import AIProviderRequestError
+from backend.tests.test_teacher_handout_lecture import fixture, new_job, response, BLOCK
+from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "disconnect", "publication_failure"])
+async def test_handout_repository_work_never_runs_on_event_loop(tmp_path, monkeypatch, outcome):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    event_thread = threading.get_ident()
+    calls = []
+    for name in ("get_job", "update_job", "update_job_live", "update_job_stream", "save_script_revision"):
+        original = getattr(repo, name)
+
+        def recorded(*args, _original=original, _name=name, **changes):
+            calls.append((_name, threading.get_ident()))
+            if outcome == "publication_failure" and _name == "save_script_revision":
+                raise OSError("disk unavailable during publication")
+            return _original(*args, **changes)
+
+        monkeypatch.setattr(repo, name, recorded)
+
+    async def generate(**request):
+        if outcome == "disconnect":
+            text = "<!-- section:L2-1-1 -->\n" + BLOCK + "已完成小节\n<!-- section:L2-1-2 -->\n" + BLOCK + "收到的片段"
+            await request["on_content_delta"](text)
+            raise AIProviderRequestError("connection lost")
+        text = response(["L2-1-1", "L2-1-2"])
+        await request["on_scope"](["L2-1-1", "L2-1-2"])
+        await request["on_content_reset"]()
+        await request["on_content_delta"](text)
+        return {"text": text}
+
+    result = await service.run_script_job(**kwargs, job_id=jid, generator=generate)
+    assert result["status"] == ("completed" if outcome == "completed" else "failed")
+    assert calls
+    assert not [name for name, thread in calls if thread == event_thread], "authoring I/O occupied the event loop"
+    reloaded = TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)
+    assert reloaded["id"] == jid
+    assert reloaded["result_sections"] == result["result_sections"]
+    if outcome == "disconnect":
+        assert "收到的片段" in reloaded["raw_response"]
+    if outcome == "publication_failure":
+        assert len(reloaded["result_sections"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_handout_and_tree_checkpoint_share_store_without_stalling_observers(tmp_path, monkeypatch):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    tree = repo.create_job("course-1", "tree", job_type="course_knowledge_tree_generation")
+    original_save = repo._save
+    loop_thread = threading.get_ident()
+    saves = []
+    ticks = []
+    running = True
+
+    def slow_save(value):
+        saves.append(threading.get_ident())
+        time.sleep(.06)
+        return original_save(value)
+
+    monkeypatch.setattr(repo, "_save", slow_save)
+
+    async def observe():
+        while running:
+            ticks.append(time.monotonic())
+            repo.read_knowledge_observation("course-1", lambda value: value["jobs"])
+            await asyncio.sleep(.005)
+
+    async def tree_checkpoint():
+        for revision in range(3):
+            await asyncio.to_thread(repo.update_job, "course-1", tree["id"], status="running",
+                                    checkpoint={"atomic_pipeline": {"revision": revision}})
+
+    async def generate(**request):
+        text = response(["L2-1-1", "L2-1-2"])
+        await request["on_content_delta"](text)
+        return {"text": text}
+
+    observer = asyncio.create_task(observe())
+    try:
+        result, _ = await asyncio.gather(
+            service.run_script_job(**kwargs, job_id=jid, generator=generate), tree_checkpoint())
+    finally:
+        running = False
+        await observer
+    assert result["status"] == "completed"
+    assert loop_thread not in saves, "one generator still persisted on the shared event loop"
+    assert len(ticks) > 10
+    assert max(b - a for a, b in zip(ticks, ticks[1:])) < .1
+    fresh = TeacherLessonAuthoringRepository(tmp_path)
+    assert fresh.get_job("course-1", tree["id"])["checkpoint"]["atomic_pipeline"]["revision"] == 2
+    assert fresh.get_job("course-1", jid)["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancel_waits_for_inflight_save_and_keeps_the_same_durable_job(tmp_path, monkeypatch):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    original_save = repo._save
+    entered = threading.Event()
+    released = threading.Event()
+    finished = threading.Event()
+    loop_thread = threading.get_ident()
+
+    def slow_save(value):
+        if threading.get_ident() != loop_thread and not entered.is_set():
+            entered.set()
+            assert released.wait(3)
+        result = original_save(value)
+        finished.set()
+        return result
+
+    monkeypatch.setattr(repo, "_save", slow_save)
+
+    async def generate(**request):
+        return {"text": response(["L2-1-1", "L2-1-2"])}
+
+    task = asyncio.create_task(service.run_script_job(**kwargs, job_id=jid, generator=generate))
+    try:
+        for _ in range(100):
+            if entered.is_set() or task.done():
+                break
+            await asyncio.sleep(.005)
+        assert entered.is_set(), "no asynchronous durable write was reached"
+        task.cancel()
+        await asyncio.sleep(.02)
+        assert not task.done(), "cancel returned while an orphan writer could still commit"
+    finally:
+        released.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert finished.is_set()
+    assert TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)["id"] == jid
