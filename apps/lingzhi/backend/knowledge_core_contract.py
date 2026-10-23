@@ -90,7 +90,8 @@ def extraction_prompt(raw, context, materials):
          'lesson_title': context['handout_lessons'][0]['title'], 'materials': materials})
 
 
-def review_prompt(raw, context, materials, points, catalog):
+def review_prompt(raw, context, materials, points, catalog, *, references=(), coverage_materials=None):
+    if coverage_materials is None:coverage_materials=materials
     return render(
         '一次集中核对全部知识的独立性、正确性、必要条件、同义身份和讲义覆盖。'
         '逐项主动尝试边界或反例，test简短记录实际检验的边界和结果，特别核对充分/必要、零值、定义域、方向及奇偶结论。'
@@ -105,24 +106,30 @@ def review_prompt(raw, context, materials, points, catalog):
         '真实概念辨析保留知识。纯算例或背景归context，给理由；不确定归uncertain并给理由。'
         '对照全部materials检查是否漏掉独立规则，缺失项通过add补齐，不用减少知识数掩盖遗漏。'
         '每个决定的name/path可选，仅在需要调整显示名称或分类路径时填写，其他名称和路径保留。'
-        'coverage恰好覆盖每个材料key，值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
+        'reference_candidates用于全讲同义匹配，不给它们做决定。coverage只且恰好覆盖coverage_materials中的材料key，'
+        '其他材料只是本批核对背景，不重复补充知识。值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
         '不要复述无问题的知识或输出核对过程。只输出紧凑JSON：'
         '{"decisions":{"候选key":{"type":"rule","action":"keep","test":"明确的边界检验及结果"}},"add":[],"coverage":{}}。'
-        'add每项为{"sources":[材料key],"point":[七列知识行]}。',
+        'split的points和add的point使用完整对象{name,statement,knowledge_type,conditions,symbol_definitions,path,checks}；'
+        'knowledge_type同样只用四种正式类别。add每项另给sources，且只能补充coverage_materials中的独立知识。',
         {'stage': 'candidate_core_review', 'contract': CONTRACT, 'course_title':raw.get('course_name',''),
          'lesson_title':context['handout_lessons'][0]['title'], 'materials':materials,
+         'coverage_materials':coverage_materials,
          'points': [{k:deepcopy(p[k]) for k in ('key',*FIELDS,'short_name','branch_path','check_intents')} for p in points],
+         'reference_candidates':[{k:deepcopy(p[k]) for k in ('key','statement','conditions','symbol_definitions')} for p in references],
          'existing_knowledge': [{k:deepcopy(p.get(k)) for k in ('key','name',*FIELDS)} for p in catalog]})
 
 
-def review_schema(points, materials, catalog=()):
+def review_schema(points, materials, catalog=(), references=()):
     """A shallow grammar closes namespaces and categories, not domain wording."""
     from knowledge_registry_contract import point_schema
     text={'type':'string','minLength':1}
-    row={'type':'array','minItems':7,'maxItems':7,'items':{}}
+    row={'type':'object','additionalProperties':False,'required':['name','statement','knowledge_type','conditions','symbol_definitions','path','checks'],
+        'properties':{'name':text,'statement':text,'knowledge_type':{'enum':sorted(KNOWLEDGE_TYPES)},
+            **{k:{'type':'array','items':text} for k in ('conditions','symbol_definitions','path','checks')}}}
     core=point_schema();core['required']=list(CORE_FIELDS)
     core['properties']={k:v for k,v in core['properties'].items() if k in CORE_FIELDS}
-    keys=[p['key'] for p in points];targets=[*keys,*[p['key'] for p in catalog]]
+    keys=[p['key'] for p in points];targets=[*keys,*[p['key'] for p in references],*[p['key'] for p in catalog]]
     decisions={}
     for key in keys:
         properties={'type':{'enum':sorted(KNOWLEDGE_TYPES)},'action':{'enum':['keep','correct','split','match','check','context','uncertain']},
@@ -131,14 +138,28 @@ def review_schema(points, materials, catalog=()):
             'adds_knowledge':{'const':False},'operational_only':{'const':True},'intent':text,'name':text,
             'path':{'type':'array','minItems':1,'items':text}}
         if any(k!=key for k in targets):properties['target']={'enum':[k for k in targets if k!=key]}
-        decisions[key]={'type':'object','additionalProperties':False,'required':['type','action','test'],'properties':properties}
+        branches=[]
+        for actions,fields in [(['keep','context','uncertain'],[]),(['correct'],['core']),(['split'],['points']),
+            (['match'],['target','same_claim','same_scope','same_symbols']),(['check'],['target','same_scope','adds_knowledge','operational_only','intent'])]:
+            if 'target' in fields and 'target' not in properties:continue
+            allowed={'type','action','test','name','path',*fields}
+            branches.append({'type':'object','additionalProperties':False,'required':['type','action','test',*fields],
+                'properties':{**{k:v for k,v in properties.items() if k in allowed},'action':{'enum':actions}}})
+        decisions[key]={'anyOf':branches,'properties':properties}
     material_keys=[m['key'] for m in materials]
     return {'type':'object','additionalProperties':False,'required':['decisions','add','coverage'],'properties':{
         'decisions':{'type':'object','additionalProperties':False,'required':keys,'properties':decisions},
-        'add':{'type':'array','items':{'type':'object','additionalProperties':False,'required':['sources','point'],
+        'add':{'type':'array',**({'maxItems':0} if not material_keys else {}),'items':{'type':'object','additionalProperties':False,'required':['sources','point'],
             'properties':{'sources':{'type':'array','minItems':1,'items':{'enum':material_keys}},'point':row}}},
         'coverage':{'type':'object','additionalProperties':False,'required':material_keys,
             'properties':{k:{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}} for k in material_keys}}}}
+
+
+def _review_row(row):
+    if isinstance(row,list):return row
+    if not isinstance(row,dict) or set(row)!={'name','statement','knowledge_type','conditions','symbol_definitions','path','checks'}:
+        raise ValueError('新知识字段不完整')
+    return [row[k] for k in ('name','statement','knowledge_type','conditions','symbol_definitions','path','checks')]
 
 
 def _decisions(value, originals):
@@ -146,7 +167,9 @@ def _decisions(value, originals):
     if set(value)!={'decisions','add','coverage'} or not isinstance(value['decisions'],dict) or set(value['decisions'])!=keys:
         raise ValueError('集中核对必须且只能逐项决定本轮候选，不能混用材料身份')
     result={k:{} for k in ('correct','split','match','checks','context','uncertain','names','paths','types')}
-    result.update(keep=[],add=value['add'],coverage=value['coverage'])
+    additions=value['add']
+    if not isinstance(additions,list):raise ValueError('补充须为列表')
+    result.update(keep=[],add=[{**a,'point':_review_row(a['point'])} for a in additions],coverage=value['coverage'])
     tests={}
     for key,decision in value['decisions'].items():
         if (not isinstance(decision,dict) or not {'type','action','test'}<=set(decision)
@@ -161,10 +184,18 @@ def _decisions(value, originals):
         if 'path' in decision:result['paths'][key]=decision['path']
         if action=='keep':result['keep'].append(key)
         elif action=='correct':result['correct'][key]=decision['core']
-        elif action=='split':result['split'][key]=decision['points']
+        elif action=='split':result['split'][key]=[_review_row(row) for row in decision['points']]
         elif action in {'context','uncertain'}:result[action][key]=decision['test']
         else:result['checks' if action=='check' else 'match'][key]={**{k:decision[k] for k in required},'reason':decision['test']}
     return result,tests
+
+
+def compile_fragment(value, points, materials, catalog, references):
+    from jsonschema import Draft202012Validator
+    errors=list(Draft202012Validator(review_schema(points,materials,catalog,references)).iter_errors(value))
+    if errors:raise ValueError('核对响应结构无效：'+'；'.join(e.message for e in errors[:3]))
+    normalized,tests=_decisions(value,points)
+    return {'response':deepcopy(value),'normalized':normalized,'tests':tests}
 
 
 def compile_review(value, originals, catalog, materials):

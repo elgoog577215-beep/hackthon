@@ -21,6 +21,11 @@ def review(points, materials):
             'types': {}, 'coverage': {m['key']: ['complete', '已检查独立结论与必要条件'] for m in materials}}
 
 
+def transport_review(points,materials):
+    return {'decisions':{p['key']:{'type':'rule','action':'keep','test':'已检查边界条件与独立规则'} for p in points},
+            'add':[],'coverage':{m['key']:['complete','独立知识完整'] for m in materials}}
+
+
 def test_core_material_groups_retain_every_unabridged_input():
     from knowledge_core_contract import group_materials
     material = [{'key': f'S{i}', 'text': '完整材料' * 110} for i in range(16)]
@@ -101,7 +106,7 @@ async def test_core_finishes_with_one_extraction_and_one_combined_audit(svc, mon
         if payload['stage'] == 'candidate_core_extract':
             return json.dumps({'points': [row(), row('出栈', '出栈移除并返回栈顶元素。')], 'context_note': ''})
         assert payload['stage'] == 'candidate_core_review'
-        return json.dumps(review(payload['points'], payload['materials']))
+        return json.dumps(transport_review(payload['points'], payload.get('coverage_materials',payload['materials'])))
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
     before = deepcopy(svc.repository.load_raw('c-pilot')); view = svc.view('c-pilot', source_mode='handouts')
     job = svc.start('c-pilot', 'tree', 'core', view['knowledge_revision'], view['document_revision'], source_mode='handouts',
@@ -161,7 +166,7 @@ async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypat
         if p['stage']=='candidate_core_extract':
             await asyncio.sleep(.02*int(p['materials'][0]['key'][1:]))
             return json.dumps({'points':[row(p['materials'][0]['key'],'独立操作的完整规则。')],'context_note':''})
-        return json.dumps(review(p['points'],p.get('coverage_materials',p['materials'])))
+        return json.dumps(transport_review(p['points'],p.get('coverage_materials',p['materials'])))
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
     view=svc.view('c-pilot',source_mode='handouts')
     job=svc.start('c-pilot','tree','bounded-writes',view['knowledge_revision'],view['document_revision'],

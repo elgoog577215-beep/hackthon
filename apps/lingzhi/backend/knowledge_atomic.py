@@ -533,7 +533,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
     if stage == 'candidate_core_review':
         from knowledge_core_contract import review_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
-        structure = review_schema(payload['points'],payload['materials'],payload['existing_knowledge'])
+        structure = review_schema(payload['points'],payload.get('coverage_materials',payload['materials']),payload['existing_knowledge'],payload.get('reference_candidates',[]))
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.

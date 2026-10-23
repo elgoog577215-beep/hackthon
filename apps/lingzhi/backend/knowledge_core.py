@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from course_document import stable_hash
 from generic_knowledge import sources, require
-from knowledge_core_contract import CONTRACT, KNOWLEDGE_TYPES, group_materials, extraction_prompt, parse_extraction, review_prompt, compile_review
+from knowledge_core_contract import CONTRACT, KNOWLEDGE_TYPES, group_materials, extraction_prompt, parse_extraction, review_prompt, compile_review, compile_fragment
 from knowledge_registry_contract import parse_json
 from knowledge_registry_identity import existing_catalog
 from knowledge_registry_projection import build_tree
@@ -71,29 +71,37 @@ async def run(svc, course_id, job_id):
             and fresh.get('course_document_revision')==job['source_document_revision']
             and svc._context(fresh,'handouts',job['knowledge_lesson_id'])['revision_id']==context['revision_id'],
             '课程、知识或讲义版本已变化，保留本次结果')
-    save_lock=asyncio.Lock();requested=0;committed=0
-    async def save():
-        nonlocal requested,committed
-        requested+=1;ticket=requested
+    save_lock=asyncio.Lock()
+    async def save(*,durable=False):
         async with save_lock:
-            if committed>=ticket:return
             await io(validate_version)
             pipeline['revision']+=1
             if any(b.get('points') for b in pipeline['inventory_batches']):
                 pipeline['preview_tree']=compile_tree(raw,context,pipeline,job_id,preview=True)
-            snapshot=deepcopy(pipeline);sequence=requested
+            snapshot=deepcopy(pipeline)
             progress=65*sum(b['status']=='completed' for b in snapshot['inventory_batches'])//len(snapshot['inventory_batches'])
-            await io(svc.authoring.update_job,course_id,job_id,checkpoint={'atomic_pipeline':snapshot},progress=progress)
-            committed=sequence
+            reviews=snapshot.get('core_review',{}).get('batches',[])
+            if reviews:progress=70+25*sum(b['status']=='completed' for b in reviews)//len(reviews)
+            await io(svc.authoring.update_job if durable else svc.authoring.update_job_live,
+                course_id,job_id,checkpoint={'atomic_pipeline':snapshot},progress=progress)
+            if not durable:await io(svc.authoring.publish_knowledge_preview,course_id)
     async def request(prompt,stage,record,compile_result):
         if record.get('status')=='completed':return compile_result(deepcopy(record['response']))
         await io(validate_version)
+        request_key=stable_hash({'contract':'knowledge_core_transport_v2','prompt':prompt,'epoch':record.get('response_epoch',0)},prefix='kreq_')
+        if record.get('status')!='failed':
+            cached=await io(svc.authoring.read_knowledge_response,course_id,job_id,pipeline['identity_job_id'],request_key)
+            if cached is not None:
+                value=parse_json(cached);result=compile_result(value)
+                record.update(status='completed',response=value,response_attachment=request_key,validation_origin='saved_response')
+                return result
         record.update(status='requested');record.pop('validation_error',None)
         try:
             response=await call_stage(svc,course_id,job_id,provider,prompt,stage)
             record['raw_response']=response
             value=parse_json(response);result=compile_result(value)
-            record.update(status='completed',response=value)
+            await io(svc.authoring.save_knowledge_response,course_id,job_id,pipeline['identity_job_id'],request_key,response)
+            record.update(status='completed',response=value,response_attachment=request_key)
             return result
         except Exception as error:
             record.update(status='failed',validation_error=str(error))
@@ -115,12 +123,39 @@ async def run(svc, course_id, job_id):
             pipeline['names']['result'].update({p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']} for p in batch['points']})
             await save()
         await run_batches(pipeline['inventory_batches'],extract,width=8,stage='candidate_core_extract')
+        await save(durable=True)
         candidates=[p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates)<=160,'本讲独立知识为空或超过单讲容量')
-        record=pipeline.setdefault('core_review',{})
-        await io(svc.authoring.update_job_live,course_id,job_id,progress=70)
-        result=await request(review_prompt(raw,context,materials,candidates,pipeline['catalog']),'candidate_core_review',
-            record,lambda value:compile_review(value,candidates,pipeline['catalog'],materials))
+        review=pipeline.get('core_review',{})
+        if review.get('contract')!='knowledge_core_review_v2':
+            batches=[]
+            for group in pipeline['inventory_batches']:
+                for offset in range(0,max(1,len(group['points'])),12):
+                    batches.append({'id':f"review-{group['id']}-{offset//12+1}",'status':'pending',
+                        'keys':[p['key'] for p in group['points'][offset:offset+12]],'source_keys':group['source_keys'],
+                        'coverage_keys':group['source_keys'] if offset==0 else []})
+            review={'contract':'knowledge_core_review_v2','status':'pending','batches':batches};pipeline['core_review']=review
+        async def review_batch(index,batch):
+            focus=[p for p in candidates if p['key'] in batch['keys']]
+            references=[p for p in candidates if p['key'] not in batch['keys']]
+            selected=[m for m in materials if m['key'] in batch['source_keys']]
+            coverage=[m for m in materials if m['key'] in batch['coverage_keys']]
+            batch['result']=await request(review_prompt(raw,context,selected,focus,pipeline['catalog'],references=references,coverage_materials=coverage),
+                'candidate_core_review',batch.setdefault('request',{}),lambda value:compile_fragment(value,focus,coverage,pipeline['catalog'],references))
+            batch['status']='completed';await save()
+        await run_batches(review['batches'],review_batch,width=8,stage='candidate_core_review')
+        combined={'decisions':{},'add':[],'coverage':{}}
+        for batch in review['batches']:
+            fragment=batch['result']['response']
+            combined['decisions'].update(fragment['decisions']);combined['add'].extend(fragment['add']);combined['coverage'].update(fragment['coverage'])
+        try:
+            result=compile_review(combined,candidates,pipeline['catalog'],materials)
+        except ValueError:
+            for batch in review['batches']:
+                batch['status']='pending';record=batch['request'];record['status']='failed';record['response_epoch']=record.get('response_epoch',0)+1
+            review['status']='failed'
+            raise
+        review['status']='completed'
         pipeline.update({k:deepcopy(v) for k,v in result.items() if k not in {'names','coverage'}})
         pipeline['names']={'status':'completed','result':result['names']}
         pipeline['hierarchy']={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}}
@@ -129,7 +164,8 @@ async def run(svc, course_id, job_id):
         elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(job['created_at'])).total_seconds()
         tree.update(source_context_revision=context['revision_id'],source_scope_revision=context['scope_contract']['revision_id'],
             generation_job_id=job_id,model=provider.model_smart,
-            performance={'target_seconds':60,'elapsed_seconds':round(elapsed,3),'target_met':elapsed<=60})
+            performance={'target_seconds':60,'candidate_compiled_seconds':round(elapsed,3),
+                         'completion_measurement':'client_observed_durable_result'})
         tree['revision_id']=stable_hash({k:v for k,v in tree.items() if k!='revision_id'},prefix='kb_')
         await io(svc.authoring.update_job,course_id,job_id,status='completed',phase='completed',progress=100,
             checkpoint={'atomic_pipeline':deepcopy(pipeline),'candidate':tree},raw_response='',partial_text='',

@@ -4180,6 +4180,57 @@ class TeacherLessonAuthoringRepository:
             raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
         return job
 
+    def _knowledge_response_path(self, course_id, job_id, origin_id, request_key):
+        from course_document import stable_hash
+        if not isinstance(request_key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}',request_key):
+            raise ValueError('Invalid response attachment key')
+        job=self.get_job(course_id,job_id);origin=self.get_job(course_id,origin_id)
+        if (job.get('type')!='course_knowledge_tree_generation' or origin.get('type')!=job['type']
+            or any(job.get(k)!=origin.get(k) for k in ('actor','source_context_revision','source_document_revision','source_knowledge_revision'))):
+            raise ValueError('Response attachment belongs to a different frozen task scope')
+        return (self.root/'_knowledge_responses'/stable_hash(course_id,prefix='course_')/
+                stable_hash(origin_id,prefix='job_')/(request_key+'.json'))
+
+    def read_knowledge_response(self, course_id, job_id, origin_id, request_key):
+        """Read an immutable result attachment; never infer or change task state."""
+        with self._course_lock(course_id):
+            path=self._knowledge_response_path(course_id,job_id,origin_id,request_key)
+            if not path.exists():return None
+            value=json.loads(path.read_text(encoding='utf-8'))
+            if (set(value)!={'contract','course_id','origin_id','request_key','response'}
+                or value['contract']!='knowledge_response_attachment_v1' or value['course_id']!=course_id
+                or value['origin_id']!=origin_id or value['request_key']!=request_key or not isinstance(value['response'],str)):
+                raise ValueError('Response attachment identity mismatch')
+            return value['response']
+
+    def save_knowledge_response(self, course_id, job_id, origin_id, request_key, response):
+        """Same repository/lock, a small atomic attachment instead of all history."""
+        with self._course_lock(course_id):
+            path=self._knowledge_response_path(course_id,job_id,origin_id,request_key)
+            if self.get_job(course_id,job_id).get('status') not in TEACHER_JOB_ACTIVE_STATUSES:
+                raise TeacherLessonAuthoringError('teacher_job_not_active','任务已停止，迟到响应不再写入。')
+            previous=self.read_knowledge_response(course_id,job_id,origin_id,request_key)
+            if previous is not None:
+                if previous!=response:raise ValueError('Immutable model response cannot be replaced')
+                return
+            if not isinstance(response,str):raise ValueError('Response attachment must be text')
+            path.parent.mkdir(parents=True,exist_ok=True)
+            value={'contract':'knowledge_response_attachment_v1','course_id':course_id,'origin_id':origin_id,
+                   'request_key':request_key,'response':response}
+            fd,temp_name=tempfile.mkstemp(prefix='.response-',suffix='.tmp',dir=path.parent)
+            try:
+                with os.fdopen(fd,'w',encoding='utf-8') as handle:
+                    json.dump(value,handle,ensure_ascii=False,separators=(',',':'));handle.flush();os.fsync(handle.fileno())
+                os.replace(temp_name,path)
+            finally:
+                if os.path.exists(temp_name):os.unlink(temp_name)
+
+    def publish_knowledge_preview(self, course_id):
+        """Publish the original job's live projection without another disk owner."""
+        with self._course_lock(course_id):
+            stat=self._path(course_id).stat()
+            self.read_projection(course_id,lambda value:self._knowledge_observation.publish(course_id,value,(stat.st_mtime_ns,stat.st_size)))
+
     def expire_stale_job(
         self,
         course_id: str,
