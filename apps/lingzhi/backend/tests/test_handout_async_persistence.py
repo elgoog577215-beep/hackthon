@@ -3,7 +3,7 @@
 import asyncio
 import threading
 import time
-from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
@@ -137,9 +137,75 @@ async def test_cancel_waits_for_inflight_save_and_keeps_the_same_durable_job(tmp
         task.cancel()
         await asyncio.sleep(.02)
         assert not task.done(), "cancel returned while an orphan writer could still commit"
+        task.cancel()
+        await asyncio.sleep(.01)
+        assert not task.done(), "a second cancellation detached the same writer"
     finally:
         released.set()
         with pytest.raises(asyncio.CancelledError):
             await task
     assert finished.is_set()
     assert TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)["id"] == jid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_script_admission_and_publication_guards_stay_off_event_loop(tmp_path, monkeypatch, batch):
+    from backend.tests.test_teacher_lesson_authoring import single_section_course_data, standard_lesson_plan
+    from routers import teacher_lesson_authoring as routes
+
+    repo = TeacherLessonAuthoringRepository(tmp_path)
+    source = {**single_section_course_data(), "blueprint_revision_id": "outline-v1"}
+    repo.save_plan_revision("course-1", "L1-1", standard_lesson_plan(), source_outline_revision_id="outline-v1")
+    loop_thread = threading.get_ident()
+    calls = []
+    for name in ("view", "create_job", "update_job", "get_job"):
+        original = getattr(repo, name)
+        def recorded(*args, _name=name, _original=original, **kwargs):
+            calls.append((_name, threading.get_ident()))
+            return _original(*args, **kwargs)
+        monkeypatch.setattr(repo, name, recorded)
+
+    def material_evidence(*args):
+        calls.append(("material_evidence", threading.get_ident()))
+        return [], []
+
+    monkeypatch.setattr(routes, "_course_material_evidence", material_evidence)
+    monkeypatch.setattr(routes, "_capture_generation_source_snapshot", lambda **kwargs: None)
+    class Provider:
+        async def generate_teacher_handout(self, **kwargs):
+            return {"text": response(["L2-1-1"])}
+
+    tm = SimpleNamespace(storage=SimpleNamespace(load_course=lambda _: source), course_service=Provider(),
+                         get_generation_workspace_course=lambda _: None, get_generation_preview=lambda _: None)
+    request = SimpleNamespace(headers={"X-User-Id": "teacher"})
+    if batch:
+        result = await routes.generate_all_lesson_scripts("course-1", routes.GenerateAllLessonScriptsRequest(), request, tm, repo)
+        jid = result["jobs"][0]["id"]
+    else:
+        result = await routes.generate_lesson_script("course-1", "L1-1", routes.GenerateLessonScriptRequest(), request, tm, repo)
+        jid = result["job"]["id"]
+    await asyncio.gather(*list(repo._runtime_jobs["course-1"]))
+    assert not [name for name, thread in calls if thread == loop_thread], "admission/source guard blocked HTTP"
+    assert TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_script_runner_error_cleanup_is_not_a_synchronous_save(tmp_path, monkeypatch):
+    from routers.teacher_lesson_authoring import _run_lesson_plan_job
+
+    repo, _, _ = fixture(tmp_path)
+    jid = new_job(repo)
+    original = repo.update_job
+    threads = []
+    def recorded(*args, **kwargs):
+        threads.append(threading.get_ident())
+        return original(*args, **kwargs)
+    monkeypatch.setattr(repo, "update_job", recorded)
+
+    async def broken():
+        raise OSError("checkpoint could not be stored")
+
+    await _run_lesson_plan_job(course_id="course-1", job_id=jid, repository=repo, run=broken)
+    assert threading.get_ident() not in threads
+    assert repo.get_job("course-1", jid)["status"] == "failed"
