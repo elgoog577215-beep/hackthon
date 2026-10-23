@@ -173,7 +173,7 @@
       </aside>
 
       <p v-if="studyEntryError" class="study-entry-error" role="alert">{{ studyEntryError }} <button type="button" @click="openStudyRequest">{{ t('studyDialogue.retry') }}</button></p>
-      <StudyDialoguePanel v-if="aiStore.currentConversation?.study_workspace && !isTeacherMode" :key="aiStore.currentConversationId" ref="studyPanel" :inert="props.docked && conversationOpen ? true : undefined" :conversation="aiStore.currentConversation" @open-record="emit('openStudyRecord', $event)" @practice="emit('practice',$event)" />
+      <StudyDialoguePanel v-if="aiStore.currentConversation?.study_workspace && !isTeacherMode" :key="aiStore.currentConversationId" ref="studyPanel" @expand="emit('expandCompanion')" :compact="compact" :inert="props.docked && conversationOpen ? true : undefined" :conversation="aiStore.currentConversation" @open-record="emit('openStudyRecord', $event)" @practice="emit('practice',$event)" />
       <div v-else class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
 
       <div v-if="props.blockTarget || quoteVisible" class="context-panel">
@@ -832,6 +832,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  (event:'expandCompanion'):void
   (event:'practice',target:{nodeId:string;taskRevisionId:string}):void
   (event: 'close'): void
   (event: 'openStudyRecord', id:string):void

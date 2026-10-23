@@ -8594,10 +8594,12 @@
     "gradingPending": "本次作答尚未完成批改或仍待复核，对错暂未确认。"
   },
   "readingCompanion": {
-    "title": "学伴 · 正文辅学",
+    "longReply": "这部分需要更完整的说明，可以进入学伴查看并继续讨论。",
+    "moreHint": "需要更多帮助？",
+    "title": "学伴解释",
     "reopen": "展开补充",
     "collapse": "收起",
-    "expand": "展开完整讨论",
+    "expand": "进入学伴继续讨论",
     "return": "回到正文旁"
   },
   "companionPolicy": {

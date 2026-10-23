@@ -8594,10 +8594,12 @@
     "gradingPending": "Grading is incomplete or awaiting review. Correctness has not been confirmed."
   },
   "readingCompanion": {
-    "title": "Companion · Reading help",
+    "longReply": "This needs a fuller explanation. Open the companion to read it and continue discussing.",
+    "moreHint": "Need more help?",
+    "title": "Companion explanation",
     "reopen": "Reopen help",
     "collapse": "Collapse",
-    "expand": "Open full discussion",
+    "expand": "Continue with companion",
     "return": "Return beside the passage"
   },
   "companionPolicy": {

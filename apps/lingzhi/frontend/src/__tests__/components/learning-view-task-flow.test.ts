@@ -100,7 +100,8 @@ describe('LearningView 正文任务覆盖层', () => {
       await anchor.get('textarea').setValue('还没发出的追问')
       const request = wrapper.findComponent(panel).props('studyRequest')
       const loadCount = vi.mocked(useAITeacherStore().load).mock.calls.length
-      await anchor.get('[data-testid="companion-expand"]').trigger('click'); await flushPromises()
+      expect(anchor.find('.reading-companion-toolbar').exists()).toBe(false)
+      wrapper.findComponent(panel).vm.$emit('expandCompanion'); await flushPromises()
       expect(wrapper.findComponent(panel).element).toBe(original)
       expect(wrapper.findComponent(panel).props('studyRequest')).toBe(request)
       expect(wrapper.findComponent(panel).get('textarea').element).toHaveProperty('value', '还没发出的追问')

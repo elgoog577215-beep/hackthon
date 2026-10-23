@@ -1,24 +1,26 @@
 <template>
-  <section class="personal-assistant" :aria-label="c('assistant')">
-    <header><strong>{{ c('assistant') }}</strong><p v-if="!conversation?.messages.length">{{ c('aiIntro') }}</p><span>{{ context.section_title }}</span></header>
+  <section class="personal-assistant" :class="{'is-compact':compact}" :aria-label="c('assistant')">
+    <header v-if="!compact"><strong>{{ c('assistant') }}</strong><p v-if="!conversation?.messages.length">{{ c('aiIntro') }}</p><span>{{ context.section_title }}</span></header>
     <div ref="thread" class="assistant-thread" tabindex="0" aria-live="polite" @scroll="handleMessageScroll">
       <div ref="threadContent">
       <p v-if="historyLoading" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
-      <article v-for="message in conversation?.messages || []" :key="message.message_id" :class="['assistant-message', message.role]">
-        <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
+      <article v-for="message in displayedMessages" :key="message.message_id" :class="['assistant-message', message.role]">
+        <small v-if="!compact">{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
         <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
-        <MarkdownRenderer :content="message.content" :enable-code-run="false" />
+        <MarkdownRenderer :content="compact ? shortReply(message.content) : message.content" :enable-code-run="false" />
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
         <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><button :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</button></template>
       </article>
+      <p v-if="compact && longReply" class="assistant-empty">{{t('readingCompanion.longReply')}}</p>
       </div>
     </div>
-    <form class="assistant-compose" @submit.prevent="send()">
-      <button v-if="!followingLatest && conversation?.messages.length" type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
-      <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><button type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</button></div><p>{{ context.quote }}</p></div>
+    <div v-if="compact && !active && displayedMessages.length" class="inline-reply-actions"><button v-if="!compactComposer" type="button" @click="compactComposer=true">{{t('courseWorkspace.inlineAi.followUp')}}</button><button v-if="longReply" type="button" data-testid="companion-expand" @click="emit('expand')">{{t('readingCompanion.expand')}}</button></div>
+    <form v-if="!compact || compactComposer || input.trim() || !displayedMessages.length" class="assistant-compose" @submit.prevent="send()">
+      <button v-if="!compact && !followingLatest && conversation?.messages.length" type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
+      <div v-if="!compact && context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><button type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</button></div><p>{{ context.quote }}</p></div>
       <p v-if="error" role="alert">{{ error }}<button type="button" @click="load">{{ c('retry') }}</button></p>
-      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button><button v-for="action in ['contrast','step'] as const" :key="action" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(t(`companionTeaching.${action}`))">{{t(`companionTeaching.${action}`)}}</button></div>
-      <textarea v-model="input" rows="2" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
+      <div v-if="!compact" class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button><button v-for="action in ['contrast','step'] as const" :key="action" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(t(`companionTeaching.${action}`))">{{t(`companionTeaching.${action}`)}}</button></div>
+      <textarea v-model="input" :rows="compact ? 1 : 2" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><span>{{ active ? c('running') : historyReady && conversation?.messages.length ? c('aiSaved') : '' }}</span><button type="submit" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id">{{ busy ? c('busy') : c('aiSend') }}</button></footer>
     </form>
   </section>
@@ -31,15 +33,19 @@ import { studyApi, StudyApiError, type AssistantContext, type AssistantConversat
 import { activeLocale, t } from '../shared/i18n'
 import { studyCopy as c } from '../shared/study-copy'
 import { useFollowingScroll } from '../composables/useFollowingScroll'
-const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext }>()
-const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError] }>()
+const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext;compact?:boolean }>()
+const emit = defineEmits<{ expand:[];clearQuote: []; sessionExpired: [error: StudyApiError] }>()
 const prompts = ['aiExplain','aiExample','aiDiagram'] as const
 const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' && props.context.quote ? 'aiExplainQuote' : key)
 const conversation = ref<AssistantConversation | null>(null), input = ref(''), error = ref(''), busy = ref(false), thread = ref<HTMLElement | null>(null)
+const compactComposer=ref(false)
 const historyLoading = ref(false), historyReady = ref(false)
 const threadContent = ref<HTMLElement | null>(null)
 const { followingLatest, handleMessageScroll, scrollToBottom } = useFollowingScroll(thread,
   () => [conversation.value?.messages.length, conversation.value?.messages.at(-1)?.content], () => true, threadContent)
+const displayedMessages=computed(()=>props.compact ? (conversation.value?.messages||[]).filter(m=>m.role==='assistant').slice(-1) : conversation.value?.messages||[])
+const longReply=computed(()=>props.compact && (displayedMessages.value.at(-1)?.content.length||0)>700)
+function shortReply(text:string){if(text.length<=700)return text;const paragraph=text.split(/\n\s*\n/)[0]||'';return paragraph.length<=500&&!paragraph.includes('```')?paragraph:''}
 const active = computed(() => conversation.value?.messages.some(m => ['pending','running'].includes(m.status)) || false)
 const key = `lingzhi-study-ai:${props.ownerId}:${props.materialId}:${props.revisionId}`
 let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), fingerprint = '', observation = 0
@@ -63,7 +69,7 @@ async function send(prompt?: string) {
   const body = { revision_id: props.revisionId, section_id: props.context.section_id, block_id: props.context.block_id, quote: props.context.quote, text, language: activeLocale.value }
   const next = JSON.stringify(body); if (fingerprint && fingerprint !== next) requestId = crypto.randomUUID(); fingerprint = next; keepDraft()
   busy.value = true; error.value = ''; observation++; clearTimeout(timer); scrollToBottom()
-  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; conversation.value = result; if (input.value.trim() === text) input.value = ''; requestId = crypto.randomUUID(); fingerprint = ''; keepDraft(); await load() }
+  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; conversation.value = result; if (input.value.trim() === text) {input.value = '';compactComposer.value=false}; requestId = crypto.randomUUID(); fingerprint = ''; keepDraft(); await load() }
   catch (cause) { fail(cause) }
   finally { if (!disposed) busy.value = false }
 }
@@ -73,6 +79,15 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 </script>
 
 <style scoped>
+.inline-reply-actions{display:flex;gap:16px;align-items:center;padding:0 18px 12px}.inline-reply-actions button{border:0;background:transparent;padding:0;color:#5145aa;font-size:14px}
+.personal-assistant.is-compact{flex:none;color:#263247;font-size:16px;line-height:1.8}
+.is-compact .assistant-thread{flex:none;min-height:0;overflow:visible;padding:16px 18px}
+.is-compact .assistant-message{border:0;background:transparent;padding:0;margin:0;border-radius:0}
+.is-compact .assistant-compose{background:white;padding:10px 16px}
+.is-compact .assistant-compose textarea{min-height:44px;max-height:96px;padding:9px 11px}
+.is-compact .assistant-compose footer{margin-top:6px}
+.is-compact .assistant-compose footer span{color:#58657a}
+
 .personal-assistant{display:flex;flex-direction:column;flex:1;min-height:0;font:15px/1.7 var(--handout-sans);color:#34435d}.personal-assistant header{padding:18px 20px;border-bottom:1px solid #e3e5ef}.personal-assistant header strong{font-size:19px;color:#6350aa}.personal-assistant header p{margin:8px 0;color:#8791a2}.personal-assistant header span{color:#738198}.assistant-thread{flex:1;min-height:130px;overflow:auto;padding:16px}.assistant-empty{color:#8b95a4}.assistant-message{margin:0 0 18px;padding:12px 14px;border:1px solid #e1e5f0;border-radius:12px;background:white;overflow-wrap:anywhere}.assistant-message.user{background:#f1edfb;border-color:#e2dbf4}.assistant-message small{display:block;font-size:15px;color:#8c94a5;margin-bottom:7px}.assistant-message blockquote{margin:0 0 12px;padding-left:10px;border-left:3px solid #b8a8dc;color:#788197}.assistant-compose{padding:15px;border-top:1px solid #dfe5ef;background:#fcfdff}.assistant-compose textarea{box-sizing:border-box;width:100%;font:15px/1.7 var(--handout-sans);padding:11px;border:1px solid #d4dced;border-radius:10px;resize:vertical}.personal-assistant button{font:15px/1.5 var(--handout-sans);border:1px solid #dadfee;border-radius:8px;background:white;color:#6651a7;padding:7px 10px;cursor:pointer}.personal-assistant button:disabled{opacity:.5;cursor:default}.personal-assistant button:focus-visible,.assistant-compose textarea:focus-visible{outline:3px solid #9280df;outline-offset:2px}.assistant-prompts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}.assistant-compose footer{display:flex;align-items:center;justify-content:space-between;margin-top:9px}.assistant-compose footer span{color:#8595a0}.assistant-compose footer button{background:var(--lz-action-bg);color:var(--lz-action-text);padding:9px 22px;border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);box-shadow:var(--lz-action-shadow)}.assistant-quote{margin-bottom:12px;background:#f3f0fa;padding:12px;border-radius:9px}.assistant-quote p{max-height:100px;overflow:auto;margin:7px 0;color:#7a8396}.assistant-compose [role=alert]{color:#ab4b60}
 .personal-assistant header{padding:12px 16px}.personal-assistant header strong,.personal-assistant header span{display:block}.assistant-compose{padding:12px}.assistant-compose textarea{min-height:74px;max-height:160px}.assistant-quote-header{display:flex;align-items:center;justify-content:space-between;gap:8px}.assistant-quote p{margin:4px 0 0;max-height:52px;overflow:auto}.assistant-thread:focus-visible{outline:2px solid #8b6cc3;outline-offset:-2px}
 </style>

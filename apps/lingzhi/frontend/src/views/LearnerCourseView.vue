@@ -130,10 +130,10 @@
         <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
-        <ReadingCompanionSurface :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
+        <ReadingCompanionSurface minimal v-slot="{expand}" :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
         <SideAIPanel
           data-companion-obstacle
-          id="reading-assistant-panel"
+          id="reading-assistant-panel" @expand-companion="expand()"
           role="region"
           :aria-label="t('companionWorkspace.title')"
           v-if="!isGenerationPreview"

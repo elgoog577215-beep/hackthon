@@ -25,6 +25,8 @@ describe('study dialogue editing', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain(long)
     expect(wrapper.text()).toContain('readingCompanion.longReply')
+    await wrapper.get('[data-testid="companion-expand"]').trigger('click')
+    expect(wrapper.emitted('expand')).toHaveLength(1)
     await wrapper.setProps({compact:false})
     expect(wrapper.find('.study-tabs').exists()).toBe(true)
     expect(wrapper.text()).toContain(long)

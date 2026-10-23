@@ -50,7 +50,7 @@ async function main() {
             await new Promise(resolve => { completeAnswer = resolve })
             conversation = { ...conversation, messages: [
               { message_id: 'u1', role: 'user', content: body.text, status: 'complete', context_ref: body },
-              { message_id: 'a1', role: 'assistant', content: '合成回复：内层函数为 $3x+1$，其导数为 $3$。', status: 'complete', context_ref: body },
+              { message_id: 'a1', role: 'assistant', content: '合成回复：内层函数为 $3x+1$，其导数为 $3$。'.repeat(40), status: 'complete', context_ref: body },
             ] }
           } else reads++
           data = conversation
@@ -67,17 +67,17 @@ async function main() {
       await inline.locator('form').evaluate(form => form.requestSubmit())
       await sent
       await inline.locator('textarea').fill('保留这条尚未发送的追问')
+      while(!completeAnswer)await page.waitForTimeout(10)
+      completeAnswer()
       await page.getByTestId('companion-expand').click()
       const full = page.locator('.study-reading-tools .personal-assistant')
       await full.waitFor({ state: 'visible' })
       assert.equal(await full.locator('textarea').inputValue(), '保留这条尚未发送的追问')
-      completeAnswer()
       await full.getByText('合成回复：', { exact: false }).waitFor()
       assert.equal(await full.locator('textarea').inputValue(), '保留这条尚未发送的追问')
       await page.getByTestId('companion-return-inline').click()
       await inline.waitFor({ state: 'visible' })
-      await page.getByTestId('companion-collapse').click()
-      await page.getByTestId('companion-reopen').click()
+      assert.equal(await inline.locator('.reading-companion-toolbar,.reading-companion-more').count(),0)
       assert.equal(await inline.locator('textarea').inputValue(), '保留这条尚未发送的追问')
       assert.equal(posts, 1); assert.equal(reads, 2)
       assert.deepEqual(errors, [])

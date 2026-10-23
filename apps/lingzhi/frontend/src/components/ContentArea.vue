@@ -1884,8 +1884,7 @@ const handleMouseUp = (_e: MouseEvent | KeyboardEvent) => {
             range: range
         }
 
-        // Carry the reference into the existing assistant without sending a question.
-        emit('quoteAsk', quote)
+        // Selection exposes the existing menu only. AI opens on an explicit action.
 
         // Precise Adjustment after Render (Fix for P1: Scaling/Overflow Alignment)
         nextTick(async () => {
@@ -1989,6 +1988,7 @@ const handleAsk = () => {
     
     // Hide menu
     selectionMenu.value.visible = false
+    window.getSelection()?.removeAllRanges()
 }
 
 const handleLater = async (recordType: 'issue' | 'review_task' | 'bookmark') => {
