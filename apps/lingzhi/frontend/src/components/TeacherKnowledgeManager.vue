@@ -447,7 +447,7 @@ const displayTree = computed(() => {
 function jobPhase(job: any) {
   if (atomicRun.value?.pipeline?.generation_mode === 'core_v1' && job.status !== 'completed') {
     if (job.transport_retry_active_count > 0) return t('knowledgeFirst.modelReconnecting')
-    return t(job.pipeline_stage === 'candidate_core_identity' ? 'knowledgeFirst.coreIdentity'
+    return t(['candidate_core_identity','candidate_core_identity_catalog'].includes(job.pipeline_stage || '') ? 'knowledgeFirst.coreIdentity'
       : job.pipeline_stage === 'candidate_core_review' ? 'knowledgeFirst.coreReview' : 'knowledgeFirst.coreExtract')
   }
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
