@@ -4,6 +4,25 @@ import LearningCompanion from '@/components/LearningCompanion.vue'
 const mountCompanion = () => mount(LearningCompanion, { global: { stubs: { Teleport: true } } })
 
 describe('learning companion safe dragging', () => {
+  it('places the existing help bubble beside the selected sentence and follows reading scroll', async () => {
+    const text=document.createTextNode('selected sentence')
+    document.body.append(text)
+    const range=document.createRange();range.selectNodeContents(text)
+    let top=160
+    range.getBoundingClientRect=()=>({left:120,right:240,top,bottom:top+24,width:120,height:24} as DOMRect)
+    const wrapper=mount(LearningCompanion,{attachTo:document.body,props:{helpOpen:true,helpRange:range}})
+    await flushPromises()
+    const bubble=new DOMWrapper(document.querySelector('.companion-welcome')!)
+    expect((bubble.element as HTMLElement).style.left).toBe('252px')
+    expect((bubble.element as HTMLElement).style.top).toBe('160px')
+    top=220;document.dispatchEvent(new Event('scroll'));await flushPromises()
+    expect((bubble.element as HTMLElement).style.top).toBe('220px')
+    top=-100;document.dispatchEvent(new Event('scroll'));await flushPromises()
+    expect((bubble.element as HTMLElement).style.visibility).toBe('hidden')
+    await wrapper.setProps({helpOpen:false})
+    expect(wrapper.emitted('open')).toBeUndefined()
+    wrapper.unmount();text.remove()
+  })
   it('reuses the existing welcome bubble as the explicit help host and preserves it across closing',async()=>{
     const wrapper=mount(LearningCompanion,{attachTo:document.body,props:{helpOpen:true,welcome:true}})
     const bubble=new DOMWrapper(document.querySelector('.companion-welcome')!)

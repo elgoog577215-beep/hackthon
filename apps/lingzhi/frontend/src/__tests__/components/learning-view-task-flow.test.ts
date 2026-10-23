@@ -271,7 +271,18 @@ describe('LearningView 正文任务覆盖层', () => {
     } })
     await flushPromises()
     expect(wrapper.findComponent({ name:'LearningCompanion' }).props('welcome')).toBe(!preview)
-    if(!preview){wrapper.findComponent(ContentAreaStub).vm.$emit('quoteAsk',{text:'问题',nodeId:'n1'});await flushPromises();expect(wrapper.findComponent({name:'LearningCompanion'}).props('welcome')).toBe(false)}
+    if(!preview){
+      const text=document.createTextNode('问题');document.body.append(text)
+      const range=document.createRange();range.selectNodeContents(text)
+      wrapper.findComponent(ContentAreaStub).vm.$emit('quoteAsk',{text:'问题',nodeId:'n1',selectionRange:range})
+      await flushPromises()
+      expect(wrapper.findComponent({name:'LearningCompanion'}).props('welcome')).toBe(false)
+      expect(wrapper.findComponent({name:'LearningCompanion'}).props('helpRange')).toBe(range)
+      const request=wrapper.findComponent({name:'SideAIPanel'}).props('studyRequest')
+      expect(request.quote).toBe('问题')
+      expect(request.prompt).toBeTruthy()
+      text.remove()
+    }
     if (preview) expect(useCourseStore().fetchCourseList).not.toHaveBeenCalled()
     else expect(useCourseStore().fetchCourseList).toHaveBeenCalledWith({ surface: 'student', background: true })
     wrapper.unmount()

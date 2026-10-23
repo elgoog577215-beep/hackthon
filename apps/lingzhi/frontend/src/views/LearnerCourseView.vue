@@ -176,6 +176,7 @@
       :expanded="aiVisible && !inlineCompanion"
       :modal="aiFloating && aiVisible && !inlineCompanion"
       :help-open="aiVisible && inlineCompanion"
+      :help-range="companionHelpRange"
       @close-help="closeAi"
       :active="!courseStore.isFocusMode"
       :reminder="companionReminder"
@@ -208,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
@@ -272,6 +273,7 @@ const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
 const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
+const companionHelpRange = shallowRef<Range | null>(null)
 const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 const companionPreferences=useCompanionPreferencesStore()
 const companionSettingsOpen=ref(false)
@@ -794,18 +796,19 @@ function openReadingNote(payload: { note: Note; x: number; y: number }) {
 function createReadingNote(_event: MouseEvent) {
   if (courseStore.currentNode) void openStudyDialogue({ kind:'note', nodeId:courseStore.currentNode.node_id, quote:'' })
 }
-async function openStudyDialogue(request:StudyRequest) {
+async function openStudyDialogue(request:StudyRequest, selectionRange?:Range) {
   const sequence = ++studyEntrySequence, courseId = courseStore.currentCourseId
   await contentAreaRef.value?.closeInlineRecord?.()
   if (sequence !== studyEntrySequence || courseId !== courseStore.currentCourseId) return
   openAi({ text:request.quote, nodeId:request.nodeId, anchor:request.anchor })
+  companionHelpRange.value = selectionRange || null
   if (request.kind === 'explain' && !isNarrow.value) {
     readingCompanionAnchor.value = companionRef.value?.helpHost || null
   }
   studyRequest.value = { ...request, token:Date.now() + Math.random() }
 }
-function openSelectionStudy(payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
-  void openStudyDialogue({ kind: 'explain', nodeId: payload.nodeId, quote: payload.text, anchor: payload.anchor })
+function openSelectionStudy(payload: { text: string; nodeId: string; anchor?: Record<string, unknown>; selectionRange?:Range }) {
+  void openStudyDialogue({ kind: 'explain', nodeId: payload.nodeId, quote: payload.text, anchor: payload.anchor, prompt:t('courseWorkspace.inlineAi.selectionExplain','请简要解释选中的内容，先说清含义，再给一个必要的小例子。') },payload.selectionRange)
 }
 function openStudyRecord(id:string) {
   const note = noteStore.notes.find(item=>item.id===id)
@@ -813,6 +816,7 @@ function openStudyRecord(id:string) {
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
+  companionHelpRange.value = null
   studyEntrySequence++
   readingCompanionAnchor.value = null
   studyRequest.value = undefined

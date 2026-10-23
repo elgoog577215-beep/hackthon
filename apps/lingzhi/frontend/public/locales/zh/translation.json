@@ -6114,6 +6114,7 @@
       "summaryOnly": "网页内容仅使用摘要核验"
     },
     "inlineAi": {
+      "selectionExplain": "请简要解释选中的内容，先说清含义，再给一个必要的小例子。",
       "open": "打开此内容块的 AI 助手",
       "menu": "内容块 AI 操作",
       "explain": "解释",
@@ -6236,6 +6237,7 @@
     },
     "records": {
       "title": "学习记录",
+      "companion": "AI 学伴",
       "ask": "问 AI",
       "note": "记笔记",
       "later": "稍后处理",

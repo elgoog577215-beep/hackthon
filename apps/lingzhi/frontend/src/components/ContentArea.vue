@@ -244,10 +244,10 @@
             
             <!-- Row 1: Quick Actions -->
             <div class="flex items-center gap-1 pb-1.5 mb-1.5 border-b border-slate-100">
-                <el-tooltip :content="t('courseWorkspace.records.ask', '问 AI')" placement="top" :show-after="500">
-                    <button @click="handleAsk" class="flex-1 relative z-10 flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50 transition-all group active:scale-95">
+                <el-tooltip :content="t('companionWorkspace.title', '灵知学伴')" placement="top" :show-after="500">
+                    <button data-testid="selection-companion" @mousedown.prevent @click="handleAsk" class="flex-1 relative z-10 flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50 transition-all group active:scale-95">
                         <el-icon class="text-lg mb-0.5"><ChatDotRound /></el-icon> 
-                        <span class="text-[10px] font-bold">{{ t('courseWorkspace.records.ask', '问 AI') }}</span>
+                        <span class="text-sm font-semibold">{{ t('courseWorkspace.records.companion', 'AI 学伴') }}</span>
                     </button>
                 </el-tooltip>
                 
@@ -433,7 +433,7 @@ const emit = defineEmits<{
   (e: 'retryLoad'): void
   (e: 'returnWorkbench'): void
   (e: 'studyDialogue', payload: StudyRequest): void
-  (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
+  (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown>; selectionRange?: Range }): void
   (e: 'startPractice', node: any, taskRevisionId?: string): void
   (e: 'improveBlock', payload: CourseBlockEditTarget): void
   (e: 'activeBlockChange', payload: { nodeId: string; blockId: string }): void
@@ -1984,7 +1984,7 @@ const handleAsk = () => {
         ? (props.studyDialogues ? studySelectionAnchor : buildTextQuoteAnchor)(selectionMenu.value.range, nodeElement, text)
         : undefined
 
-    emit('quoteAsk', { text, nodeId, anchor })
+    emit('quoteAsk', { text, nodeId, anchor, selectionRange: selectionMenu.value.range?.cloneRange() })
     
     // Hide menu
     selectionMenu.value.visible = false
@@ -3080,6 +3080,12 @@ defineExpose({
 .note-preview-content :deep(table) {
     margin: 0.5rem 0 !important;
     font-size: 0.75rem !important;
+}
+
+:global(body:has(#selection-menu) .inline-course-block-ai .block-ai-menu) {
+    visibility:hidden !important;
+    pointer-events:none !important;
+    opacity:0 !important;
 }
 
 .note-preview-content :deep(.katex) {

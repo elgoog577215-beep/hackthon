@@ -6114,6 +6114,7 @@
       "summaryOnly": "Web pages are used as summaries only"
     },
     "inlineAi": {
+      "selectionExplain": "Briefly explain the selected text, clarify its meaning, and add a small example if useful.",
       "open": "Open AI for this content block",
       "menu": "Content block AI actions",
       "explain": "Explain",
@@ -6236,6 +6237,7 @@
     },
     "records": {
       "title": "Learning records",
+      "companion": "AI companion",
       "ask": "Ask AI",
       "note": "Add note",
       "later": "Handle later",

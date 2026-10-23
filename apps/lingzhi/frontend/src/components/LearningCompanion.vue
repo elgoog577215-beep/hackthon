@@ -52,7 +52,7 @@ import { t } from '../shared/i18n'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 import { placeCompanion, type CompanionPoint, type CompanionRect } from '../utils/companion-placement'
 
-const props = withDefaults(defineProps<{ expanded?: boolean; active?: boolean; modal?: boolean; reminder?:CompanionReminder|null; remindersEnabled?:boolean; welcome?:boolean;helpOpen?:boolean }>(), { expanded: false, active: true, remindersEnabled:undefined })
+const props = withDefaults(defineProps<{ expanded?: boolean; active?: boolean; modal?: boolean; reminder?:CompanionReminder|null; remindersEnabled?:boolean; welcome?:boolean;helpOpen?:boolean;helpRange?:Range|null }>(), { expanded: false, active: true, remindersEnabled:undefined })
 const emit = defineEmits<{ (event: 'open'): void; (event:'close-help'):void;(event:'reminder', reminder:CompanionReminder):void; (event:'dismiss-reminder',mode?:'not_now'|'never'):void; (event:'toggle-reminders'):void; (event:'dismiss-welcome'):void }>()
 function dismissWelcome() { emit('dismiss-welcome'); void nextTick(focus) }
 const avatarUrl = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
@@ -69,7 +69,24 @@ const dragging = ref(false)
 const edge = ref('right')
 const x = ref(0)
 const y = ref(0)
-const reminderStyle = computed(() => ({ left:`${Math.max(8, Math.min(x.value - 304, window.innerWidth - 328))}px`, top:`${Math.max(8, Math.min(y.value - 230, window.innerHeight - 380))}px` }))
+const selectionStyle = ref<Record<string,string> | null>(null)
+const reminderStyle = computed(() => props.helpOpen && selectionStyle.value ? selectionStyle.value : ({ left:`${Math.max(8, Math.min(x.value - 304, window.innerWidth - 328))}px`, top:`${Math.max(8, Math.min(y.value - 230, window.innerHeight - 380))}px` }))
+function placeSelectionHelp() {
+  const range=props.helpRange
+  if (!props.helpOpen || !range?.startContainer.isConnected) { selectionStyle.value=null;return }
+  const rect=range.getBoundingClientRect()
+  const viewport={width:window.innerWidth,height:window.innerHeight}
+  const bubble=helpHost.value?.parentElement
+  const width=Math.min(480,viewport.width-24), gap=12
+  const height=Math.min(bubble?.offsetHeight || 300,370,viewport.height-24)
+  let left=rect.right+gap, top=rect.top
+  if(left+width>viewport.width-gap){
+    if(rect.left-width-gap>=gap)left=rect.left-width-gap
+    else {left=rect.left;top=rect.bottom+gap;if(top+height>viewport.height-gap)top=rect.top-height-gap}
+  }
+  const offscreen=rect.bottom<0 || rect.top>viewport.height || rect.right<0 || rect.left>viewport.width
+  selectionStyle.value={left:`${Math.max(gap,Math.min(left,viewport.width-width-gap))}px`,top:`${Math.max(gap,Math.min(top,viewport.height-height-gap))}px`,width:`${width}px`,visibility:offscreen?'hidden':'visible'}
+}
 let preferred: CompanionPoint | null = null
 let observer: ResizeObserver | undefined
 let mutations: MutationObserver | undefined
@@ -99,6 +116,7 @@ function geometry() {
   return { viewport: { width: bounds.width, height: bounds.height }, occupied }
 }
 function settle() {
+  placeSelectionHelp()
   if (!props.active || dragging.value || disposed) return
   if (props.expanded) {
     const perch = Array.from(document.querySelectorAll<HTMLElement>('[data-companion-perch]')).find(el => el.getBoundingClientRect().width > 0)
@@ -200,11 +218,13 @@ async function restore(event: MouseEvent) {
   focus()
 }
 watch(() => [props.active, props.expanded, props.modal], () => { cancelDrag(); scheduleSettle() })
+watch(() => [props.helpRange,props.helpOpen],scheduleSettle,{flush:'post'})
 onMounted(() => {
   settle()
   if (typeof ResizeObserver !== 'undefined') {
     observer = new ResizeObserver(scheduleSettle)
     if (surface.value) observer.observe(surface.value)
+    if (helpHost.value?.parentElement) observer.observe(helpHost.value.parentElement)
     document.querySelectorAll('[data-companion-obstacle]').forEach(el => observer?.observe(el))
   }
   mutations = new MutationObserver(records => {
