@@ -68,6 +68,16 @@ def test_core_math_transport_escapes_tex_only_in_explicit_math_and_preserves_str
             parse_core_response(invalid)
 
 
+def test_review_cannot_keep_a_candidate_it_identifies_as_multiple_independent_claims():
+    from knowledge_core_contract import review_schema
+    from jsonschema import Draft202012Validator
+    value={'decisions':{'P1':{'type':'rule','grain':'multiple','action':'keep','test':'两个运算可独立掌握'}},'add':[],'coverage':{}}
+    validator=Draft202012Validator(review_schema([{'key':'P1'}],[]))
+    assert list(validator.iter_errors(value))
+    value['decisions']['P1']['grain']='single'
+    assert not list(validator.iter_errors(value))
+
+
 def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
     from knowledge_core_contract import group_materials
     sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
