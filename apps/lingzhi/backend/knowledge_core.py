@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from course_document import stable_hash
 from generic_knowledge import sources, require
 from knowledge_core_contract import CONTRACT, KNOWLEDGE_TYPES, group_materials, extraction_prompt, parse_extraction, review_prompt, compile_review, compile_fragment
-from knowledge_registry_contract import parse_json
+from knowledge_core_contract import parse_core_response as parse_json
 from knowledge_registry_identity import existing_catalog
 from knowledge_registry_projection import build_tree
 from knowledge_transport import REQUEST_SCOPE

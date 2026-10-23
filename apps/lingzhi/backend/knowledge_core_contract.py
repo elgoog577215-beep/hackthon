@@ -9,6 +9,12 @@ CONTRACT = 'knowledge_core_v1'
 KNOWLEDGE_TYPES = {'definition','rule','method','comparison'}
 
 
+def parse_core_response(response):
+    from knowledge_registry_contract import parse_json
+    from math_json_transport import normalize_math_json_transport
+    return parse_json(normalize_math_json_transport(response))
+
+
 def _control_free_schema(schema):
     """Constrain transport text before decoding; never repair formula commands."""
     if isinstance(schema, dict):
