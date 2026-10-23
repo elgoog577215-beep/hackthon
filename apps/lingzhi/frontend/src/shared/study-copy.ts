@@ -5,6 +5,8 @@ const messages = {
   brand: ['我的学习空间', 'My study space'], subtitle: ['课程学习、练习与个人讲义', 'Courses, practice and personal handouts'],
   library: ['我的学习材料', 'My materials'], create: ['生成个人讲义', 'Create a handout'], teacher: ['教师工作台', 'Teacher workspace'],
   welcome: ['从你的资料，开始学习', 'Start with your own materials'], intro: ['选择资料和学习目的，生成一份属于自己的讲义。', 'Choose your sources and learning purpose to create your own handout.'],
+  project: ['项目实践讲义','Project learning'],
+  projectHint: ['围绕明确任务组织必要知识、方案、可检查的产出和验证。','Organize essential knowledge, a plan, a concrete deliverable and verification around a task.'],
   exam_prep: ['应试讲义', 'Exam preparation'], systematic: ['整体理解讲义', 'Deep understanding'],
   examHint: ['抓住考点、题型和解题方法，练习与解答分开呈现。', 'Focus on topics, question types and methods, with separate exercises and answers.'],
   understandingHint: ['串起概念、推导和应用，弄清为什么与如何使用。', 'Connect concepts, derivations and applications to understand why and how.'],

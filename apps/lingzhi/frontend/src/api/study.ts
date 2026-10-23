@@ -2,7 +2,7 @@ import { getQizhiAccessToken, withApiBase } from '../utils/http'
 import { STUDY_SESSION_KEY, setStudyIdentity } from '../utils/study-identity'
 import type { NextLearningAction } from '../stores/learningProgress'
 
-export type StudyPurpose = 'systematic' | 'exam_prep'
+export type StudyPurpose = 'systematic' | 'exam_prep' | 'project'
 export interface StudyUser { id: string; username: string; role: string }
 export interface StudySource { id: string; filename: string; sha256: string; status: string; warnings: string[]; error: string; sections: { id: string; title: string; characters: number }[] }
 export interface StudyBlock { block_id: string; content_type: string; type_label: string; title: string; content: string; knowledge_names: string[]; answer_to: string }
@@ -48,6 +48,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 export const studyApi = {
+  course: (id:string) => request<{course_name:string;current_course_version_id:string}>(`/courses/${encodeURIComponent(id)}`),
   courses: () => request<StudyCourse[]>('/courses'),
   path: (id: string) => request<StudyLearningPath>(`/courses/${encodeURIComponent(id)}/path`),
   courseSource: (id: string, revision_id: string) => request<StudySource>(`/courses/${encodeURIComponent(id)}/sources`, json({ revision_id })),
