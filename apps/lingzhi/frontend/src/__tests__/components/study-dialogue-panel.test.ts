@@ -18,8 +18,16 @@ describe('study dialogue editing', () => {
     expect(wrapper.find('.study-teaching-actions').exists()).toBe(false)
     expect(wrapper.find('.study-source').exists()).toBe(false)
     expect(wrapper.get('.study-body').text()).toContain('先找内层')
+    expect(wrapper.find('.study-composer').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="companion-expand"]').exists()).toBe(false)
+    const long='较长的数学说明'.repeat(120)
+    ai.currentConversation!.messages[0]!.content=long
+    await flushPromises()
+    expect(wrapper.text()).not.toContain(long)
+    expect(wrapper.text()).toContain('readingCompanion.longReply')
     await wrapper.setProps({compact:false})
     expect(wrapper.find('.study-tabs').exists()).toBe(true)
+    expect(wrapper.text()).toContain(long)
   })
   it('offers an explicit one-step teaching action without changing the source or saving a note', async () => {
     const view=start()

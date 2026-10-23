@@ -56,6 +56,11 @@ describe('one reading companion across inline and full presentation', () => {
     expect(anchor.textContent).toContain('complete')
     expect(mounted).toHaveBeenCalledTimes(1)
   })
+  it('adds no title bar or fixed action footer to the original passage interaction', async()=>{
+    const view=await start();await view.setProps({minimal:true})
+    expect(anchor.querySelector('.reading-companion-toolbar')).toBeNull()
+    expect(anchor.querySelector('.reading-companion-more')).toBeNull()
+  })
   it('hiding and reopening the panel does not terminate its session', async () => {
     const view = await start()
     await view.setProps({ visible: false }); await view.setProps({ visible: true })
