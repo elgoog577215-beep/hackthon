@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn() }))
+const api = vi.hoisted(() => ({ course:vi.fn(),courseSource:vi.fn(),courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api, studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
 import zh from '../../../public/locales/zh/translation.json'
@@ -27,11 +27,21 @@ async function page(path = '/study') {
 beforeEach(async () => {
   vi.clearAllMocks(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/en/') ? en : zh }))); await setLocale('zh')
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
-  api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
+  api.course.mockResolvedValue({course_name:'两章资料',current_course_version_id:'cv1'});api.courseSource.mockResolvedValue(source);api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('prepares the existing generation form from a course goal without starting generation',async()=>{
+    const {wrapper}=await page('/study?fromCourse=course-a&purpose=project')
+    expect(api.course).toHaveBeenCalledWith('course-a')
+    expect(api.courseSource).toHaveBeenCalledWith('course-a','cv1')
+    expect(wrapper.find('.study-create').exists()).toBe(true)
+    expect(wrapper.get('.study-purpose-options button.selected').text()).toContain('项目实践')
+    expect(wrapper.findAll('.source-selection input:checked')).toHaveLength(2)
+    expect(api.generate).not.toHaveBeenCalled()
+  })
+
   it('offers passage-level companion help in the personal handout without replacing the assistant instance', async () => {
     const { wrapper } = await page('/study/material-a')
     const assistant = wrapper.findComponent({ name: 'PersonalHandoutAssistant' }).element
@@ -39,7 +49,7 @@ describe('personal study handouts', () => {
     const anchor = wrapper.get('[data-study-companion-anchor]')
     expect(anchor.find('personal-handout-assistant-stub').exists()).toBe(true)
     expect(anchor.get('personal-handout-assistant-stub').element).toBe(assistant)
-    await anchor.get('[data-testid="companion-expand"]').trigger('click'); await flushPromises()
+    wrapper.findComponent({name:'PersonalHandoutAssistant'}).vm.$emit('expand'); await flushPromises()
     expect(wrapper.findComponent({ name: 'PersonalHandoutAssistant' }).element).toBe(assistant)
     expect(api.generate).not.toHaveBeenCalled()
   })
@@ -76,7 +86,7 @@ describe('personal study handouts', () => {
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.findAll('.source-selection')).toHaveLength(2)
-    expect(wrapper.findAll('.study-purpose-options button')).toHaveLength(2)
+    expect(wrapper.findAll('.study-purpose-options button')).toHaveLength(3)
     expect(wrapper.text()).not.toMatch(/教师预览|课程代码|学分|教案确认|teacherPreview/)
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
     expect(wrapper.findAll('.study-purpose-options button')[1]!.attributes('aria-pressed')).toBe('true')
