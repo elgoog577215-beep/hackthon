@@ -46,6 +46,8 @@ def _path(value):
 
 
 def parse_row(row, *, allow_draft_types=False):
+    if isinstance(row,dict) and set(row)=={'n','s','t','c','y','p','k'}:
+        row=[row[key] for key in ('n','s','t','c','y','p','k')]
     if not isinstance(row, list) or len(row) != 7:
         raise ValueError('知识行须依次给名称、完整知识、类型、条件、符号、分类路径和检查角度')
     name, statement, kind, conditions, symbols, path, checks = row
@@ -81,13 +83,24 @@ def extraction_prompt(raw, context, materials):
         '同义表述、换符号、具体算例步骤不重复算知识。必要条件不能省略；不要把常见错误当独立规律。'
         '同时写简短知识名和主题分类路径，名称用学生能懂的概念或规律名，不用问句或完整长句。'
         '检查角度附在知识上，不写学生已犯错或已掌握。不生成关系、题目和教学档案。'
-        '直接返回紧凑JSON，无过程解释。points每行依次为'
-        '[短名称,完整陈述,definition/rule/method/comparison,条件数组,符号说明数组,主题路径数组,检查角度数组]。'
-        '路径可有多级，不固定深度；同义主题统一命名。数组不能缺位，空字段用[]。'
-        '输出{"points":[["名称","含公式及限定的完整知识","rule",[],[],["主题"],[]]],"context_note":""}。'
+        '直接返回紧凑JSON，无过程解释。每个points对象恰好含七个短键：'
+        'n短名称，s完整陈述，t知识类型definition/rule/method/comparison，c条件数组，y符号说明数组，p主题路径数组，k检查角度数组。'
+        '路径可有多级，不固定深度；同义主题统一命名。字段不能缺位，空数组用[]。'
+        '输出{"points":[{"n":"名称","s":"含公式及限定的完整知识","t":"rule","c":[],"y":[],"p":["主题"],"k":[]}],"context_note":""}。'
         '数量由独立知识决定，不为提速压缩或合并不同结论。公式须正确JSON转义。',
         {'stage': 'candidate_core_extract', 'contract': CONTRACT, 'course_title': raw.get('course_name',''),
          'lesson_title': context['handout_lessons'][0]['title'], 'materials': materials})
+
+
+def extraction_schema():
+    text={'type':'string','minLength':1,'maxLength':1800}
+    array={'type':'array','maxItems':20,'items':text}
+    row={'type':'object','additionalProperties':False,'required':['n','s','t','c','y','p','k'],
+        'properties':{'n':{'type':'string','minLength':1,'maxLength':40},'s':text,
+            't':{'type':'string','minLength':1,'maxLength':40},'c':array,'y':array,'k':array,
+            'p':{'type':'array','minItems':1,'maxItems':8,'items':{'type':'string','minLength':1,'maxLength':80}}}}
+    return {'type':'object','additionalProperties':False,'required':['points','context_note'],
+        'properties':{'points':{'type':'array','maxItems':160,'items':row},'context_note':{'type':'string'}}}
 
 
 def review_prompt(raw, context, materials, points, catalog, *, references=(), coverage_materials=None):
