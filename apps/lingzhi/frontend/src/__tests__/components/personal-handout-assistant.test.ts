@@ -14,6 +14,17 @@ function page(owner = 'student-a') { wrapper = mount(Assistant, { props: { owner
 beforeEach(() => { vi.clearAllMocks(); sessionStorage.clear(); activeLocale.value = 'zh'; api.assistant.mockResolvedValue({ conversation_id: 'conv', messages: [] }) })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 describe('personal handout assistant', () => {
+  it('keeps inline help focused on the answer and reveals full tools only after expansion',async()=>{
+    api.assistant.mockResolvedValue(conversation('complete','这是一个简短解释'))
+    const view=page();await view.setProps({compact:true});await flushPromises()
+    expect(view.find('.assistant-prompts').exists()).toBe(false)
+    expect(view.find('.assistant-quote').exists()).toBe(false)
+    expect(view.find('header').exists()).toBe(false)
+    expect(view.findAll('.assistant-message')).toHaveLength(1)
+    expect(view.text()).toContain('这是一个简短解释')
+    await view.setProps({compact:false})
+    expect(view.find('.assistant-prompts').exists()).toBe(true)
+  })
   it('describes the selected passage instead of offering a misleading whole-chapter shortcut', async () => {
     const view = page(); await flushPromises()
     expect(view.get('.assistant-prompts button').text()).toBe('解释选中内容')
