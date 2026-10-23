@@ -157,13 +157,15 @@ def test_core_admission_atomically_binds_recovery_batches_before_running(svc,mon
 
 
 @pytest.mark.asyncio
-async def test_core_finishes_with_one_extraction_and_one_combined_audit(svc, monkeypatch):
+async def test_core_finishes_with_one_extraction_one_combined_audit_and_global_identity(svc, monkeypatch):
     setup_course(svc, monkeypatch)
     calls = []
     async def model(prompt, **kwargs):
         payload = json.loads(prompt.split('\nINPUT_JSON:\n')[1]); calls.append(payload['stage'])
         if payload['stage'] == 'candidate_core_extract':
             return json.dumps({'points': [row(), row('出栈', '出栈移除并返回栈顶元素。')], 'context_note': ''})
+        if payload['stage'] == 'candidate_core_identity_catalog':
+            return json.dumps({'identities':{p['key']:p['key'] for p in payload['points']}})
         assert payload['stage'] == 'candidate_core_review'
         return json.dumps(transport_review(payload['points'], payload.get('coverage_materials',payload['materials'])))
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=model, model_smart='test-qwen', client=None)
@@ -186,7 +188,7 @@ async def test_core_finishes_with_one_extraction_and_one_combined_audit(svc, mon
     assert all(len(p['name']) < 15 and p['conditions'] == [] for p in tree['knowledge_points'])
     assert tree['generation_contract'] == 'knowledge_core_v1'
     assert tree['relations'] == [] and not any(p.get('kc_skill_profile') for p in tree['knowledge_points'])
-    assert calls == ['candidate_core_extract', 'candidate_core_review']
+    assert calls == ['candidate_core_extract', 'candidate_core_review', 'candidate_core_identity_catalog']
     assert svc.repository.load_raw('c-pilot') == before
     assert svc.view('c-pilot', source_mode='handouts')['candidate']['revision_id'] == tree['revision_id']
 
@@ -250,8 +252,8 @@ async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypat
         if p['stage']=='candidate_core_extract':
             await asyncio.sleep(.02*int(p['materials'][0]['key'][1:]))
             return json.dumps({'points':[row(p['materials'][0]['key'],'独立操作的完整规则。')],'context_note':''})
-        if p['stage']=='candidate_core_identity':
-            return json.dumps({'pairs':{pair['key']:'different'for pair in p['pairs']}})
+        if p['stage']=='candidate_core_identity_catalog':
+            return json.dumps({'identities':{point['key']:point['key']for point in p['points']}})
         return json.dumps(transport_review(p['points'],p.get('coverage_materials',p['materials'])))
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
     view=svc.view('c-pilot',source_mode='handouts')

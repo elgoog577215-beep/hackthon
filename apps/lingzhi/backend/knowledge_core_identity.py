@@ -11,6 +11,41 @@ def _text(value):
     return ''.join(c for c in unicodedata.normalize('NFKC',value).casefold() if c.isalnum())
 
 
+def catalog_prompt(result):
+    return render('比较本讲全部已核对知识的完整命题、适用范围及符号含义。不要改写、拆分或丢弃知识。'
+        'identities恰好为每个key给出一个身份目标：独立知识指向自己；完整命题、范围、符号含义全部相同的知识指向同一个代表key。'
+        '指向他者明确声明上述三个条件全部一致。允许公式/文字、换符号等价，不能只按名称判断。'
+        '不同量、定义/关系/表示、不同运算规律及不同条件不能合并；同一independence_group的不同独立子结论不能合并。'
+        '不能确认用uncertain。每个等价组优先保留有registered_identity的代表，不能合并两个已有身份。'
+        '只输出{"identities":{"每个key":"自身或等价代表key或uncertain"}}，不复述正文。',
+        {'stage':'candidate_core_identity_catalog','points':[
+            {**{k:deepcopy(p.get(k)) for k in ('key','statement','conditions','symbol_definitions')},
+             'name':result['names'][p['key']]['name'],
+             'independence_group':p.get('semantic_review',{}).get('independence_group'),
+             'registered_identity':p.get('knowledge_id') if p.get('_registered_point') else None}
+            for p in result['registry']['points']]})
+
+
+def catalog_schema(keys):
+    return {'type':'object','additionalProperties':False,'required':['identities'],'properties':{
+        'identities':{'type':'object','additionalProperties':False,'required':keys,
+            'properties':{key:{'enum':[*keys,'uncertain']} for key in keys}}}}
+
+
+def apply_catalog(result,value,catalog):
+    from jsonschema import Draft202012Validator
+    keys=[p['key'] for p in result['registry']['points']]
+    if list(Draft202012Validator(catalog_schema(keys)).iter_errors(value)):
+        raise ValueError('全讲同义核对必须恰好覆盖全部完整知识')
+    pairs=[];decisions={}
+    for key,target in value['identities'].items():
+        if key==target:continue
+        pair_key=f'EQ{len(pairs)+1}'
+        pairs.append({'key':pair_key,'left':key,'right':key if target=='uncertain' else target})
+        decisions[pair_key]='uncertain' if target=='uncertain' else 'same_claim_scope_symbols'
+    return apply_pairs(result,pairs,{'pairs':decisions},catalog)
+
+
 def candidate_pairs(result):
     points=result['registry']['points'];pairs=[]
     for i,left in enumerate(points):
