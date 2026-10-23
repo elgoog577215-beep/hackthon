@@ -537,7 +537,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         request_budget['max_output_tokens'] = options['max_tokens']
     quality_job = svc.authoring.read_projection(course_id, lambda state:
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') in
-        {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5'})
+        {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'})
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
     if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair'} and structure is not None):
         structure = None
@@ -897,7 +897,7 @@ def project_preview(job, course_id):
     if job.get('knowledge_pipeline') != PIPELINE or job.get('status') not in {'pending', 'running', 'failed', 'paused', 'cancelled'}:
         return None
     pipeline = (job.get('checkpoint') or {}).get('atomic_pipeline') or {}
-    if pipeline.get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5'}:
+    if pipeline.get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'}:
         return deepcopy(pipeline.get('preview_tree'))
     batches = [b for b in pipeline.get('batches', []) if b.get('status') == 'completed']
     points = [deepcopy(p) for b in batches for p in b.get('tree', {}).get('knowledge_points', [])]
@@ -952,7 +952,7 @@ def project_runs(state, raw):
     for job in latest.values():
         pipeline=job['checkpoint']['atomic_pipeline']
         from knowledge_observation import progress_summary
-        value = (progress_summary(pipeline) if str(pipeline.get('generation_contract','')).startswith('knowledge_registry_')
+        value = (progress_summary(pipeline) if str(pipeline.get('generation_contract','')).startswith(('knowledge_registry_','knowledge_core_'))
                  else deepcopy(pipeline))
         for batch in [*value['inventory_batches'], *value['batches']]: batch.pop('raw_response', None)
         hierarchy = value.get('hierarchy') or {}

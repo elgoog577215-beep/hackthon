@@ -1,0 +1,201 @@
+"""Complete lesson cores: compact transport, one explicit combined review."""
+from copy import deepcopy
+import math
+
+from knowledge_registry_contract import FIELDS, render, validate_point
+from knowledge_truth_review import CORE_FIELDS
+
+CONTRACT = 'knowledge_core_v1'
+
+
+def group_materials(materials):
+    """Balance complete input units; never truncate or sample the lesson."""
+    if not materials:
+        raise ValueError('没有可读取的讲义材料')
+    total = sum(len(m['text']) for m in materials)
+    target = max(1, math.ceil(total / min(8, max(1, math.ceil(total / 3500)))))
+    groups, current, size = [], [], 0
+    for material in materials:
+        if current and size + len(material['text']) > target and len(groups) < 7:
+            groups.append(current); current, size = [], 0
+        current.append(deepcopy(material)); size += len(material['text'])
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _texts(value, label):
+    if not isinstance(value, list) or len(value) > 20 or any(not isinstance(s, str) or not s.strip() or len(s) > 1800 for s in value):
+        raise ValueError(label + '必须为完整字符串列表')
+    return deepcopy(value)
+
+
+def _name(value):
+    if not isinstance(value, str) or not value.strip() or len(value) > 40 or value.rstrip().endswith(('?', '？', '。')):
+        raise ValueError('知识名须简短明确，不能用问句或完整长句代替')
+    return value.strip()
+
+
+def _path(value):
+    result = _texts(value, '分类路径')
+    if not result or len(result) > 8 or any(len(s) > 80 for s in result):
+        raise ValueError('分类须给出非空主题路径，不固定层数')
+    return result
+
+
+def parse_row(row):
+    if not isinstance(row, list) or len(row) != 7:
+        raise ValueError('知识行须依次给名称、完整知识、类型、条件、符号、分类路径和检查角度')
+    name, statement, kind, conditions, symbols, path, checks = row
+    point = validate_point(dict(statement=statement, knowledge_type=kind,
+        conditions=conditions, symbol_definitions=symbols, teaching_context=[], examples=[]))
+    return {**point, 'short_name': _name(name), 'branch_path': _path(path),
+            'check_intents': _texts(checks, '检查角度'), 'profile_focus': ''}
+
+
+def parse_extraction(value, batch_id, material_keys):
+    if not isinstance(value, dict) or set(value) != {'points', 'context_note'}:
+        raise ValueError('提取须给出points和context_note')
+    rows = value['points']
+    if not isinstance(rows, list) or len(rows) > 160 or not isinstance(value['context_note'], str):
+        raise ValueError('知识候选格式或容量无效')
+    if not rows and not value['context_note'].strip():
+        raise ValueError('无知识的材料也须说明其背景作用')
+    return [{**parse_row(row), 'key': f'{batch_id}P{i}', 'input_material_keys': list(material_keys),
+             'coverage_unit_ids': [f'{batch_id}P{i}']} for i, row in enumerate(rows, 1)]
+
+
+def extraction_prompt(raw, context, materials):
+    return render(
+        '逐句读取本批完整讲义，提取可独立讲解、判断和补学的全部知识，不挑代表点或按主题只留一条。'
+        '定义、独立运算规律、对象的斜率/方程/特殊情形分别完整保留；同一个完整公式内部不拆因子。'
+        '同义表述、换符号、具体算例步骤不重复算知识。必要条件不能省略；不要把常见错误当独立规律。'
+        '同时写简短知识名和主题分类路径，名称用学生能懂的概念或规律名，不用问句或完整长句。'
+        '检查角度附在知识上，不写学生已犯错或已掌握。不生成关系、题目和教学档案。'
+        '直接返回紧凑JSON，无过程解释。points每行依次为'
+        '[短名称,完整陈述,definition/rule/method/comparison,条件数组,符号说明数组,主题路径数组,检查角度数组]。'
+        '路径可有多级，不固定深度；同义主题统一命名。数组不能缺位，空字段用[]。'
+        '输出{"points":[["名称","含公式及限定的完整知识","rule",[],[],["主题"],[]]],"context_note":""}。'
+        '数量由独立知识决定，不为提速压缩或合并不同结论。公式须正确JSON转义。',
+        {'stage': 'candidate_core_extract', 'contract': CONTRACT, 'course_title': raw.get('course_name',''),
+         'lesson_title': context['handout_lessons'][0]['title'], 'materials': materials})
+
+
+def review_prompt(raw, context, materials, points, catalog):
+    return render(
+        '一次集中核对全部知识的独立性、正确性、必要条件、同义身份和讲义覆盖。'
+        '逐项主动尝试边界或反例，特别核对充分/必要、零值、定义域、正负方向及奇偶结论。'
+        '每个候选key恰好进入keep/correct/split/match/checks/context/uncertain的一处，不能漏项或重复。'
+        '正确且独立者keep；correct只改statement、conditions、symbol_definitions三个核心字段，其他字段冻结；'
+        '混合的独立知识用split，值为与提取相同的七列知识行数组；拆开的独立子结论不能再合并。'
+        '同义知识match，只有完整命题、范围及符号含义一致才允许，须明确same_claim/same_scope/same_symbols均true，'
+        'target为本轮其他候选或冻结已有目录E键，不能只因同主题或一起使用而合并；已有目录正文不可修改。'
+        '纯操作失误comparison归checks，给target、intent、reason、same_scope:true、adds_knowledge:false、operational_only:true；'
+        '真实概念辨析保留知识。纯算例或背景归context，给理由；不确定归uncertain并给理由。'
+        '对照全部materials检查是否漏掉独立规则，缺失项通过add补齐，不用减少知识数掩盖遗漏。'
+        'names和paths仅为需要调整的显示名称/分类路径映射，不改知识；其他名称和路径保留。'
+        'coverage恰好覆盖每个材料key，值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
+        '不要复述无问题的知识，keep只列key；不要输出核对过程。只输出紧凑JSON：'
+        '{"keep":["候选key"],"correct":{},"split":{},"match":{},"checks":{},"context":{},"uncertain":{},'
+        '"add":[],"names":{},"paths":{},"coverage":{}}。'
+        'correct值为三个核心字段；match值为{target,same_claim:true,same_scope:true,same_symbols:true,reason}；'
+        'add每项为{"sources":[材料key],"point":[七列知识行]}。',
+        {'stage': 'candidate_core_review', 'contract': CONTRACT, 'course_title':raw.get('course_name',''),
+         'lesson_title':context['handout_lessons'][0]['title'], 'materials':materials,
+         'points': [{k:deepcopy(p[k]) for k in ('key',*FIELDS,'short_name','branch_path','check_intents')} for p in points],
+         'existing_knowledge': [{k:deepcopy(p.get(k)) for k in ('key','name',*FIELDS)} for p in catalog]})
+
+
+def compile_review(value, originals, catalog, materials):
+    from knowledge_identity_matching import resolve_matches
+    required = {'keep','correct','split','match','checks','context','uncertain','add','names','paths','coverage'}
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError('集中核对字段不完整')
+    by_key = {p['key']:deepcopy(p) for p in originals}
+    keep = value['keep']
+    if not isinstance(keep,list) or any(not isinstance(k,str) for k in keep):
+        raise ValueError('keep须列出候选key')
+    handled = list(keep)
+    for action in ('correct','split','match','checks','context','uncertain'):
+        if not isinstance(value[action],dict):
+            raise ValueError(action+'必须按候选key组织')
+        handled.extend(value[action])
+    if len(handled) != len(set(handled)) or set(handled) != set(by_key):
+        raise ValueError('每个知识候选必须且只能核对一次')
+    for kind in ('names','paths'):
+        if not isinstance(value[kind],dict) or not set(value[kind]) <= set(by_key):
+            raise ValueError('显示调整不能更换知识身份')
+    for key, name in value['names'].items(): by_key[key]['short_name'] = _name(name)
+    for key, path in value['paths'].items(): by_key[key]['branch_path'] = _path(path)
+    for key, patch in value['correct'].items():
+        if not isinstance(patch,dict) or set(patch) != set(CORE_FIELDS):
+            raise ValueError('真值修正只能包含三个知识核心字段')
+        by_key[key].update(validate_point({**{k:by_key[key][k] for k in FIELDS},**patch}))
+        by_key[key]['truth_review']={'contract':CONTRACT,'verdict':'corrected','semantics_verified':False}
+    points, decisions, dispositions = [], {}, []
+    for key, point in by_key.items():
+        if key in value['context']:
+            reason=value['context'][key]
+            if not isinstance(reason,str) or not reason.strip():raise ValueError('背景处理须说明理由')
+            dispositions.append({'coverage_unit_ids':[key],'disposition':'context','reason':reason})
+            continue
+        if key in value['split']:
+            rows=value['split'][key]
+            if not isinstance(rows,list) or not 2<=len(rows)<=8:raise ValueError('拆分须给出独立完整知识')
+            for i,row in enumerate(rows,1):
+                child={**deepcopy(point),**parse_row(row),'key':f'{key}_{i}',
+                    'semantic_review':{'contract':CONTRACT,'independence_group':key}}
+                points.append(child);decisions[child['key']]={'action':'keep','reason':'已核对独立子结论'}
+            continue
+        point.setdefault('truth_review',{'contract':CONTRACT,'verdict':'reviewed','semantics_verified':False})
+        points.append(point)
+        if key in value['match']:
+            decision=value['match'][key]
+            if (not isinstance(decision,dict) or set(decision)!={'target','same_claim','same_scope','same_symbols','reason'}
+                or not all(decision.get(f) is True for f in ('same_claim','same_scope','same_symbols'))
+                or not isinstance(decision['reason'],str) or not decision['reason'].strip()):
+                raise ValueError('合并须明确核对完整命题、范围及符号含义')
+            decisions[key]={'action':'match',**deepcopy(decision)}
+        elif key in value['checks']:
+            record=value['checks'][key]
+            if (not isinstance(record,dict) or set(record)!={'target','intent','reason','same_scope','adds_knowledge','operational_only'}
+                or point['knowledge_type']!='comparison'
+                or record['same_scope'] is not True or record['adds_knowledge'] is not False or record['operational_only'] is not True
+                or any(not isinstance(record[f],str) or not record[f].strip() for f in ('target','intent','reason'))):
+                raise ValueError('检查项须绑定目标并给出检查角度与理由')
+            point['semantic_review']={'contract':CONTRACT,'conclusion_role':'comparison'}
+            decisions[key]={'action':'check','target':record['target'],'check_intent':record['intent'],'reason':record['reason'],
+                **{k:record[k] for k in ('same_scope','adds_knowledge','operational_only')}}
+        elif key in value['uncertain']:
+            reason=value['uncertain'][key]
+            if not isinstance(reason,str) or not reason.strip():raise ValueError('待确认知识须说明原因')
+            decisions[key]={'action':'uncertain','reason':reason}
+        else:
+            decisions[key]={'action':'keep','reason':'集中核对已检查独立结论与必要条件'}
+    if not isinstance(value['add'],list) or len(value['add'])>80:raise ValueError('覆盖补充格式无效')
+    material_keys={m['key'] for m in materials}
+    for i, added in enumerate(value['add'],1):
+        if (not isinstance(added,dict) or set(added)!={'sources','point'} or not isinstance(added['sources'],list)
+            or not added['sources'] or not all(isinstance(k,str) and k in material_keys for k in added['sources'])):
+            raise ValueError('补充须记录本次读取的材料编号')
+        key=f'AP{i}';point={**parse_row(added['point']),'key':key,'input_material_keys':added['sources'],'coverage_unit_ids':[key]}
+        by_key[key]=deepcopy(point);points.append(point);decisions[key]={'action':'keep','reason':'覆盖核对补充的独立知识'}
+    coverage=value['coverage']
+    if not isinstance(coverage,dict) or set(coverage)!=material_keys:raise ValueError('必须核对全部输入材料的覆盖')
+    for row in coverage.values():
+        if (not isinstance(row,list) or len(row)!=2 or row[0] not in {'complete','context','gap'}
+            or not isinstance(row[1],str) or not row[1].strip()):raise ValueError('覆盖结论须有状态和理由')
+    registry=resolve_matches(points,catalog,decisions)
+    if any(v[0]=='gap' for v in coverage.values()):
+        registry['issues'].append({'code':'knowledge_core_coverage_gap','severity':'blocking','message':'完整讲义仍有待补齐知识'})
+    names,paths={},{}
+    for point in registry['points']:
+        member=next(iter(point.get('identity_members') or []),point)
+        names[point['key']]={'name':member.get('short_name',point.get('name','')),
+                            'meta_question':'请解释：'+point['statement']}
+        paths[point['key']]=deepcopy(member.get('branch_path') or ['本讲知识'])
+    units=[{'key':p['key'],'statement':p['statement'],'branch':' / '.join(p['branch_path']),
+            'knowledge_type':p['knowledge_type'],'profile_focus':'','check_intent':next(iter(p['check_intents']),'独立解释该知识')}
+           for p in by_key.values()]
+    return {'registry':registry,'names':names,'paths':paths,'frozen_units':units,
+            'extraction_resolutions':dispositions,'coverage':deepcopy(coverage)}

@@ -14,14 +14,14 @@ _FIELDS=('id','type','lesson_unit_id','knowledge_lesson_id','status','phase','pr
 
 def progress_summary(pipeline):
     result={k:deepcopy(pipeline[k]) for k in ('schema_version','generation_contract','processing_contract',
-        'revision','organize_hierarchy','include_relations','semantic_equivalence_contract') if k in pipeline}
+        'revision','organize_hierarchy','include_relations','semantic_equivalence_contract','generation_mode') if k in pipeline}
     result.update(summary_contract='knowledge_progress_summary_v1',items=[])
     def rows(values):
         return [{k:deepcopy(row[k]) for k in ('id','key','status','validation_error') if k in row} for row in values]
     result['inventory_batches']=rows(pipeline.get('inventory_batches',[]))
     result['batches']=rows(pipeline.get('batches',[]))
     for key in ('semantic_review','truth_review','identity_review','check_placement','names','hierarchy',
-                'registry_relations','relations','semantic_equivalence','kc_profiles'):
+                'registry_relations','relations','semantic_equivalence','kc_profiles','core_review'):
         if key not in pipeline:continue
         stage=pipeline[key]
         result[key]={k:deepcopy(stage[k]) for k in ('status','contract') if k in stage}

@@ -2638,6 +2638,7 @@ class TeacherLessonAuthoringRepository:
         request_id: str = "",
         source_outline_revision_id: str = "",
         return_created: bool = False,
+        initial_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any] | tuple[dict[str, Any], bool]:
         if job_type not in JOB_TYPES:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
@@ -2711,6 +2712,12 @@ class TeacherLessonAuthoringRepository:
                 "heartbeat_at": _now(),
                 "updated_at": _now(),
             }
+            if initial_fields:
+                protected = {'id','course_id','lesson_unit_id','lesson_id','type','state_owner','request_id',
+                    'idempotency_key','created_at','status','progress','phase','stage','cancel_requested'}
+                if protected.intersection(initial_fields):
+                    raise ValueError('Initial job fields cannot replace lifecycle or identity')
+                job.update(deepcopy(initial_fields))
             value.setdefault("jobs", {})[job_id] = job
             self._save(value)
             return (deepcopy(job), True) if return_created else deepcopy(job)
@@ -4168,15 +4175,10 @@ class TeacherLessonAuthoringRepository:
             return deepcopy(candidate)
 
     def get_job(self, course_id: str, job_id: str) -> dict[str, Any]:
-        with self._course_lock(course_id):
-            live_job = (self._live_stream_jobs.get(course_id) or {}).get(job_id)
-            if isinstance(live_job, dict):
-                return deepcopy(live_job)
-        value = self.load(course_id)
-        job = (value.get("jobs") or {}).get(job_id)
+        job = self.read_projection(course_id, lambda value: deepcopy((value.get("jobs") or {}).get(job_id)))
         if not isinstance(job, dict):
             raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
-        return deepcopy(job)
+        return job
 
     def expire_stale_job(
         self,

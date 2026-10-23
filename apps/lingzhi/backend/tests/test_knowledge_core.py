@@ -30,11 +30,13 @@ def test_core_material_groups_retain_every_unabridged_input():
 
 def test_core_review_keeps_conditions_splits_and_explicit_shared_checks():
     from knowledge_core_contract import parse_extraction, compile_review
-    points = parse_extraction({'points': [row(), row('组合结论', '和与常数倍分别求导。'), row('误乘导数', '乘积的导数不是导数的乘积。')], 'context_note': ''}, 'B1', ['S1'])
+    reminder=row('操作提醒', '应用完整规则时漏写一个操作位置。');reminder[2]='comparison'
+    points = parse_extraction({'points': [row(), row('组合结论', '和与常数倍分别求导。'), reminder], 'context_note': ''}, 'B1', ['S1'])
     value = review(points, [{'key': 'S1'}])
     value['keep'] = [points[0]['key']]
     value['split'][points[1]['key']] = [row('和求导', '可导函数的和的导数等于导数的和。'), row('常数倍求导', '常数倍函数的导数等于常数乘原函数的导数。')]
-    value['checks'][points[2]['key']] = {'target': points[0]['key'], 'intent': '独立辨别操作规则', 'reason': '错误表现作为检查，不另建叶子'}
+    value['checks'][points[2]['key']] = {'target': points[0]['key'], 'intent': '独立辨别操作规则', 'reason': '错误表现作为检查，不另建叶子',
+        'same_scope':True,'adds_knowledge':False,'operational_only':True}
     result = compile_review(value, points, [], [{'key': 'S1'}])
     assert len(result['registry']['points']) == 3
     assert result['registry']['check_resolutions']
