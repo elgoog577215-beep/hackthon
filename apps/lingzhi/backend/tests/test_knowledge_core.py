@@ -97,6 +97,21 @@ def test_combined_review_schema_separates_material_keys_from_candidate_decisions
     with pytest.raises(ValueError):compile_review(value,points,[],[{'key':'S1'}])
 
 
+def test_non_owning_review_grammar_has_no_impossible_empty_enumeration():
+    from knowledge_core_contract import review_schema
+    schema=review_schema([{'key':'P'}],[])
+    assert schema['properties']['add']=={'type':'array','maxItems':0}
+
+
+def test_core_admission_atomically_binds_recovery_batches_before_running(svc,monkeypatch):
+    setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts')
+    job=svc.start('c-pilot','tree','atomic-core-start',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    fresh=type(svc.authoring)(svc.authoring.root)
+    pipeline=fresh.get_job('c-pilot',job['id'])['checkpoint']['atomic_pipeline']
+    assert pipeline['identity_job_id']==job['id'] and pipeline['inventory_batches']
+
+
 @pytest.mark.asyncio
 async def test_core_finishes_with_one_extraction_and_one_combined_audit(svc, monkeypatch):
     setup_course(svc, monkeypatch)
@@ -174,3 +189,62 @@ async def test_parallel_batches_do_not_each_commit_the_full_course(svc,monkeypat
     await svc.run('c-pilot',job['id'])
     assert svc.authoring.get_job('c-pilot',job['id'])['status']=='completed'
     assert len(writes)<=4, 'completed batches should persist small attachments before the phase commit'
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_after_lost_live_state_reuses_durable_model_results(svc,monkeypatch):
+    from knowledge_first import KnowledgeFirstService
+    setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts')
+    async def first(prompt,**kwargs):
+        return json.dumps({'points':[row()],'context_note':''})
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=first,model_smart='test',client=None)
+    job=svc.start('c-pilot','tree','crash-before-phase-commit',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    update=svc.authoring.update_job
+    def crash(*args,**kwargs):
+        if kwargs.get('progress')==65:raise asyncio.CancelledError
+        return update(*args,**kwargs)
+    monkeypatch.setattr(svc.authoring,'update_job',crash)
+    with pytest.raises(asyncio.CancelledError):await svc.run('c-pilot',job['id'])
+    fresh=type(svc.authoring)(svc.authoring.root,canonical_storage=svc.storage)
+    fresh.update_job('c-pilot',job['id'],status='failed',error={'code':'process_interrupted','retryable':True})
+    resumed=KnowledgeFirstService(svc.repository,fresh);calls=[]
+    async def second(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1]);calls.append(p['stage'])
+        assert p['stage']=='candidate_core_review','a completed extraction was sent to the model again'
+        return json.dumps(transport_review(p['points'],p['coverage_materials']))
+    resumed.provider_factory=lambda:SimpleNamespace(_call_llm=second,model_smart='test',client=None)
+    continued=resumed.start('c-pilot','tree','resume-cache',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',resume_job_id=job['id'])[0]
+    await resumed.run('c-pilot',continued['id'])
+    result=fresh.get_job('c-pilot',continued['id'])
+    assert result['status']=='completed',result.get('error')
+    assert calls==['candidate_core_review']
+    assert fresh.get_job('c-pilot',job['id'])['status']=='failed'
+
+
+def test_attachment_scope_and_initial_job_fields_cannot_override_ownership(svc):
+    job=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation',initial_fields={'actor':'owner','source_context_revision':'A'})
+    other=svc.authoring.create_job('c-pilot','tree',job_type='course_knowledge_tree_generation',initial_fields={'actor':'foreign','source_context_revision':'A'})
+    before=svc.authoring._path('c-pilot').read_bytes()
+    with pytest.raises(ValueError):svc.authoring.read_knowledge_response('c-pilot',other['id'],job['id'],'known')
+    with pytest.raises(ValueError):svc.authoring.create_job('c-pilot','tree',initial_fields={'status':'completed'})
+    assert svc.authoring._path('c-pilot').read_bytes()==before
+
+
+@pytest.mark.asyncio
+async def test_core_source_change_and_cancel_never_publish_late_candidates(svc,monkeypatch):
+    setup_course(svc,monkeypatch);view=svc.view('c-pilot',source_mode='handouts')
+    async def model(prompt,**kwargs):
+        p=json.loads(prompt.split('\nINPUT_JSON:\n')[1])
+        if p['stage']=='candidate_core_extract':return json.dumps({'points':[row()],'context_note':''})
+        await asyncio.to_thread(svc.authoring.cancel_job,'c-pilot',job['id'])
+        return json.dumps(transport_review(p['points'],p['coverage_materials']))
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=model,model_smart='test',client=None)
+    before=deepcopy(svc.repository.load_raw('c-pilot'))
+    job=svc.start('c-pilot','tree','late-after-cancel',view['knowledge_revision'],view['document_revision'],
+        source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',generation_mode='core_v1')[0]
+    await svc.run('c-pilot',job['id'])
+    saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='cancelled' and 'candidate' not in saved.get('checkpoint',{})
+    assert svc.repository.load_raw('c-pilot')==before
