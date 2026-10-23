@@ -55,6 +55,19 @@ def test_transport_grammar_preserves_formula_escapes_and_forbids_literal_control
     assert list(validator.iter_errors(value))
 
 
+def test_core_math_transport_escapes_tex_only_in_explicit_math_and_preserves_structure():
+    from knowledge_core_contract import parse_core_response
+    from knowledge_registry_contract import parse_json
+    raw = r'{"s":"当 $\Delta x\to0$，$\frac{dy}{dx}$ 存在。","u":"\u516c","key":"S1"}'
+    value = parse_core_response(raw)
+    assert value == {'s':r'当 $\Delta x\to0$，$\frac{dy}{dx}$ 存在。','u':'公','key':'S1'}
+    canonical = json.dumps(value, ensure_ascii=False)
+    assert parse_core_response(canonical) == parse_json(canonical)
+    for invalid in [r'{"s":"outside \Delta"}', r'{"s":"$\Delta$","s":"duplicate"}', raw[:-1]]:
+        with pytest.raises(ValueError):
+            parse_core_response(invalid)
+
+
 def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
     from knowledge_core_contract import group_materials
     sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
