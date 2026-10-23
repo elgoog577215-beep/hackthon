@@ -1,17 +1,13 @@
 <template>
   <section class="study-dialogue" :class="{'is-compact':compact}" :aria-label="t('studyDialogue.title')">
-    <header v-if="!compact" class="study-source">
-      <strong>{{ t(`studyDialogue.${workspace.kind}`) }} · {{ workspace.node_name }}</strong>
-      <blockquote>{{ workspace.quote || t('studyDialogue.quickNote') }}</blockquote>
-      <span v-if="historical" class="study-error">{{ t('studyDialogue.historical') }}</span>
-      <span v-if="preview" class="study-preview">{{ t('studyDialogue.preview') }}</span>
-    </header>
-    <nav v-if="!compact" class="study-tabs" :aria-label="t('studyDialogue.title')">
-      <button v-for="tab in tabs" :key="tab" type="button" :aria-pressed="view === tab" @click="view = tab">{{ t(`studyDialogue.${tab}`) }}</button>
-    </nav>
-    <div v-if="!compact && view==='conversation'" class="study-teaching-actions">
-      <button v-for="action in ['explain','contrast','step'] as const" :key="action" type="button" :data-teaching-action="action" :disabled="!canAct" @click="run('discuss',{text:t(`companionTeaching.${action}`),teaching_action:action})">{{t(`companionTeaching.${action}`)}}</button>
-      <button type="button" data-teaching-action="verify" :disabled="!canAct || !selectedPoint || preview" @click="independentCheck">{{t('companionTeaching.verify')}}</button>
+    <details v-if="!compact" class="study-source">
+      <summary>{{t('studyDialogue.source')}} · {{workspace.node_name}}</summary>
+      <blockquote><MarkdownRenderer :content="workspace.quote || t('studyDialogue.quickNote')" :enable-code-run="false" /></blockquote>
+    </details>
+    <span v-if="historical" class="study-error">{{ t('studyDialogue.historical') }}</span>
+    <span v-if="preview" class="study-preview">{{ t('studyDialogue.preview') }}</span>
+    <div v-if="!compact && view!=='conversation'" class="study-tool-heading">
+      <button type="button" data-study-back @click="backToChat">← {{t('studyDialogue.backToChat')}}</button><strong>{{t(view==='draft'?'studyDialogue.noteDraft':'studyDialogue.understanding')}}</strong>
     </div>
     <div ref="messageList" class="study-body" tabindex="0" @scroll="handleMessageScroll">
       <div v-if="compact || view === 'conversation'" ref="messageContent">
@@ -62,14 +58,25 @@
     <form v-if="compact ? compactComposer || input.trim() || (!displayedMessages.length && !busy) : view === 'conversation'" class="study-composer" @submit.prevent="run('discuss', { text:input })">
       <button v-if="!compact && !followingLatest && conversation.messages.length" type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
       <textarea v-model="input" :disabled="historical" :rows="compact ? 1 : 2" maxlength="12000" :aria-label="t('studyDialogue.message')" :placeholder="t('studyDialogue.message')" />
-      <div><button v-if="!compact" type="button" @click="view = 'draft'">{{ t('studyDialogue.draft') }}</button><button type="submit" class="primary" :disabled="!canAct || !input.trim()">{{ t(busy ? 'studyDialogue.working' : 'studyDialogue.send') }}</button></div>
+      <div>
+        <details v-if="!compact" ref="moreTools" class="study-more" @keydown.esc.stop.prevent="closeTools(true)" @focusout="leaveTools">
+          <summary>{{t('studyDialogue.more')}}</summary>
+          <div class="study-more-options">
+            <button type="button" data-study-tool="draft" @click="openTool('draft')">{{t('studyDialogue.noteDraft')}}</button>
+            <button type="button" data-study-tool="understanding" @click="openTool('understanding')">{{t('studyDialogue.understanding')}}</button>
+            <button v-for="action in ['explain','contrast','step'] as const" :key="action" type="button" :data-teaching-action="action" :disabled="!canAct" @click="closeTools();run('discuss',{text:t(`companionTeaching.${action}`),teaching_action:action})">{{t(`companionTeaching.${action}`)}}</button>
+            <button type="button" data-teaching-action="verify" :disabled="!canAct || !selectedPoint || preview" @click="closeTools();independentCheck()">{{t('companionTeaching.verify')}}</button>
+          </div>
+        </details>
+        <button type="submit" class="primary" :disabled="!canAct || !input.trim()">{{ t(busy ? 'studyDialogue.working' : 'studyDialogue.send') }}</button>
+      </div>
     </form>
     <p v-else-if="busy" class="study-notice" role="status">{{ t('studyDialogue.working') }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { AIConversation } from '../stores/aiTeacher'
 import { useAITeacherStore } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
@@ -95,6 +102,11 @@ const preview = computed(() => isTeacherPreviewCourse(props.conversation.course_
 const historical = computed(() => workspace.value.course_version_id !== (course.currentCourseVersionId || ''))
 const tabs = ['conversation','draft','understanding'] as const
 const view = ref<typeof tabs[number]>('conversation')
+const moreTools=ref<HTMLDetailsElement|null>(null)
+function closeTools(focus=false){if(moreTools.value){moreTools.value.open=false;if(focus)moreTools.value.querySelector('summary')?.focus()}}
+async function openTool(tool:'draft'|'understanding'){closeTools();view.value=tool;await nextTick();messageList.value?.querySelector<HTMLElement>('textarea,select,button')?.focus({preventScroll:true})}
+function leaveTools(event:FocusEvent){if(!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node|null))closeTools()}
+async function backToChat(){view.value='conversation';await nextTick();moreTools.value?.querySelector('summary')?.focus({preventScroll:true})}
 const draft = ref(workspace.value.draft), input = ref(''), answer = ref('')
 const knowledgeId = ref(workspace.value.knowledge[0]?.knowledge_id || '')
 const selectedPoint = computed(() => workspace.value.knowledge.find(point=>point.knowledge_id===knowledgeId.value))
@@ -163,7 +175,6 @@ async function run(action:string, extra:Record<string,unknown> = {}) {
     if (action === 'discuss' || action === 'restore') {
       if (draft.value === submittedDraft) {
         draft.value = next.draft
-        if (action === 'discuss' && next.draft !== submittedDraft) notice.value = t('studyDialogue.autoDraftUpdated')
       } else notice.value = t('studyDialogue.manualDraftKept')
     }
     if (action === 'discuss' && input.value === submittedText) {input.value = '';compactComposer.value=false}
@@ -219,5 +230,18 @@ button:disabled { opacity:.5; cursor:default; }.study-tabs button[aria-pressed=t
 .study-composer textarea { display:block; min-height:64px; max-height:140px; padding:8px 10px; }
 .study-error,.study-notice { padding:8px 16px; margin:0; font-size:13px; color:#98565e; }.study-notice { color:#655088; }
 .study-question { padding:12px; background:#f5f1fb; border-radius:10px; }.study-body select { display:block; width:100%; margin:8px 0; padding:8px; border:1px solid #dfd5ea; border-radius:8px; background:#fff; color:inherit; }
+.study-source{padding:10px 16px;background:#faf9fd;border-bottom:1px solid #ece8f2}
+.study-source summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:#645b76}
+.study-source blockquote{font-size:15px;color:#4c4658;max-height:180px;line-height:1.7;margin:12px 0 2px}
+.study-tool-heading{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #ece8f2;flex:none}
+.study-tool-heading button{border:0;background:transparent;padding:2px 0;font-size:14px}
+.study-tool-heading strong{font-size:15px}
+.study-more{position:relative}
+.study-more summary{padding:7px 2px;list-style:none;font-size:14px;color:#645b76}
+.study-more summary::-webkit-details-marker{display:none}
+.study-composer .study-more-options{display:grid;gap:4px;position:absolute;left:0;bottom:calc(100% + 8px);min-width:205px;z-index:5;padding:6px;border:1px solid #ded8ea;border-radius:10px;background:white;box-shadow:0 8px 24px #34224918}
+.study-more-options button{border:0;background:white;text-align:left;padding:8px 10px;white-space:nowrap;font-size:15px}
+.study-more-options button:hover:not(:disabled){background:#f5f0ff}
+.study-more-options button:first-child{border-bottom:1px solid #f0ecf5;border-radius:0}
 summary { cursor:pointer; color:#705397; }button:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible { outline:2px solid #8b6cc3; outline-offset:2px; }.study-body:focus-visible{outline:2px solid #8b6cc3;outline-offset:-2px}
 </style>

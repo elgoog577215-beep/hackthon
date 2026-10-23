@@ -47,6 +47,11 @@
     "hint": "Drag to resize; use arrow keys to adjust; double-click or press Enter to reset"
   },
   "studyDialogue": {
+    "source": "Referenced passage",
+    "more": "More",
+    "noteDraft": "Make a note",
+    "backToChat": "Back to chat",
+
     "gatewayError": "The model gateway returned 502 and cannot reach the inference service. Your input is preserved; retry after service recovers.",
     "localConflict": "A recovered local draft differs from the latest server version. Your text is preserved; load the latest conversation and compare before saving.",
     "solutionSeen": "A complete AI draft was shown. This check gives feedback without mastery credit; use a new practice question from the knowledge tree to verify independently.",
