@@ -42,7 +42,7 @@ const tone = computed(() => {
   const tones: Record<string, string> = {
     definition: 'definition', 定义: 'definition',
     theorem: 'theorem', 定理: 'theorem', result: 'result', 结论: 'result', summary: 'result',
-    example: 'example', 例题: 'example', exercise: 'exercise', 练习: 'exercise',
+    example: 'example', 例题: 'example', exercise: 'exercise', 练习: 'exercise', case:'exercise', question:'theorem',
     misconception: 'warning', 辨析: 'warning', warning: 'warning', 易错点: 'warning',
   }
   return tones[props.contentType] || 'prose'

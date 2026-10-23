@@ -49,6 +49,18 @@ def teaching_design(purpose, *, profile=None, knowledge_refs=None):
             ),
             default=-1,
         )
+        if last_pass == len(evidence) - 1 and last_pass >= 0 and point.get("status") == "needs_review":
+            focus.append(
+                {
+                    "knowledge_id": kid,
+                    "knowledge_revision_id": knowledge_refs[kid],
+                    "name": point.get("name") or kid,
+                    "reason": "review_after_independent_pass",
+                    "evidence_refs": deepcopy(evidence[-3:]),
+                    "instruction": "已有新的独立通过，但正式画像仍需复查。保持基础讲解简洁，安排不同情境的新检查；不要重复同一种补讲或宣称已掌握。",
+                }
+            )
+            continue
         evidence = evidence[last_pass + 1 :]
         failed = {
             e.get("source_id") or e.get("attempt_id")
@@ -85,21 +97,21 @@ def design_requirements(design):
     return (
         "\n本份个人讲义采用以下教学编排。按每节的实际知识和来源实现这些教学作用，不能只换标题；"
         "允许相邻讲解合并，保留题目与解答分离；应用场景的假设要明确标记。"
+        "块标记的标题只写自然语言，不含小于号、大于号或 HTML；例如标题写‘严格与包含边界’，具体比较表达式放正文。"
         "材料中的练习只是学习材料，展示或阅读不得宣称产生正式作答与掌握证据。\n"
         + json.dumps(design, ensure_ascii=False)
     )
 
 
-def source_knowledge_refs(course, node_id, visible_blocks):
-    base = course.get("course_knowledge_base") or {}
-    if not node_id or base.get("lifecycle_status") != "active":
+def source_knowledge_refs(profile, node_id, visible_blocks):
+    """Use the freshly recomputed formal profile's exact current identities."""
+    if not node_id:
         return {}
     return {
-        p["knowledge_id"]: p["revision_id"]
-        for p in base.get("knowledge_points", [])
+        p["knowledge_id"]: p["knowledge_revision_id"]
+        for p in (profile.get("knowledge_profile") or {}).get("nodes", [])
         if p.get("knowledge_id")
-        and p.get("revision_id")
-        and p.get("status") == "active"
+        and p.get("knowledge_revision_id")
         and node_id in (p.get("section_refs") or [])
-        and (not p.get("course_block_refs") or set(p["course_block_refs"]) & set(visible_blocks))
+        and (not p.get("block_refs") or set(p["block_refs"]) & set(visible_blocks))
     }

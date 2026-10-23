@@ -33,6 +33,8 @@ HANDOUT_CONTENT_TYPES = {
     "derivation": ("推导", "reasoning"),
     "example": ("例题", "example"),
     "exercise": ("练习", "activity"),
+    "question": ("提问", "activity"),
+    "case": ("实践任务", "application"),
     "answer": ("解答", "feedback"),
     "misconception": ("辨析", "misconception"),
     "summary": ("总结", "summary"),
@@ -166,7 +168,9 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
                 if not isinstance(value, dict):
                     raise ValueError
                 for key, limit in (("type", 40), ("title", 160)):
-                    if not isinstance(value.get(key), str) or not value[key].strip() or len(value[key]) > limit or re.search(r"[\r\n<>]", value[key]):
+                    if not isinstance(value.get(key), str) or not value[key].strip() or len(value[key]) > limit or re.search(r"[\r\n]", value[key]):
+                        raise ValueError
+                    if (key == "type" and re.search(r"[<>]", value[key])) or re.search(r"<\s*(?:[!?]|/?[A-Za-z][^<>]*>)", value[key]):
                         raise ValueError
                     value[key] = value[key].strip()
                 for key in ("key", "answer_to"):

@@ -291,9 +291,12 @@ def teaching_decision(model, *, question, knowledge_refs, node_id, requested_act
     elif evidence and evidence[-1].get("outcome") == "passed" and evidence[-1].get("support") != "independent":
         action = "verify"
         basis = "assisted_success"
-    elif focus:
+    elif any(item["reason"] == "repeated_independent_difficulty" for item in focus):
         action = "step"
         basis = "repeated_independent_difficulty"
+    elif focus:
+        action = "verify"
+        basis = "independent_pass_needs_recheck"
     if evidence:
         uncertainty = "bounded_evidence"
     return {

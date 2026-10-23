@@ -560,9 +560,9 @@ describe('formal practice attempt store', () => {
   it('keeps an explicitly chosen independent question visible while a diagnostic workflow remains resumable',async()=>{
     const workflow={phase:'diagnostic',case:{diagnostic_case_id:'case'},session:null,current_task:{...question,task_revision_id:'probe',revision_id:'probe'}}
     httpMock.get.mockResolvedValueOnce({data:{course_id:'c1',course_version_id:'cv1',scope:'node',questions:[question],active_attempts:[],summary:{}}}).mockResolvedValueOnce({data:workflow}).mockResolvedValue({data:runtimeResponse})
-    const store=useCourseWorkspaceStore();store.preparePracticeTask('c1','n1',question.task_revision_id||question.revision_id)
+    const store=useCourseWorkspaceStore();store.preparePracticeTask('c1','n1',question.revision_id)
     await store.loadPractice('c1','n1')
-    expect(store.currentPracticeQuestion?.task_revision_id||store.currentPracticeQuestion?.revision_id).toBe(question.task_revision_id||question.revision_id)
+    expect(store.currentPracticeQuestion?.task_revision_id||store.currentPracticeQuestion?.revision_id).toBe(question.revision_id)
     store.applyDiagnosticWorkflow(workflow as any)
     expect(store.currentPracticeQuestion?.task_revision_id).not.toBe('probe')
     store.endExplicitPracticeTask();store.applyDiagnosticWorkflow(workflow as any)

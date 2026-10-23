@@ -130,7 +130,7 @@
         <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
-        <ReadingCompanionSurface minimal bubble v-slot="{expand}" :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
+        <ReadingCompanionSurface ref="companionSurfaceRef" minimal bubble v-slot="{expand}" :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
         <SideAIPanel
           data-companion-obstacle
           id="reading-assistant-panel" @expand-companion="expand()"
@@ -285,6 +285,7 @@ const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
 const readingCompanionAnchor = ref<HTMLElement | null>(null)
 const inlineCompanion = ref(false)
+const companionSurfaceRef = ref<InstanceType<typeof ReadingCompanionSurface> | null>(null)
 let studyEntrySequence = 0
 const aiFloating = useCompanionLayout()
 const selectedKnowledge = ref<KnowledgeProfileNode | null>(null)
@@ -1029,6 +1030,7 @@ function closeStats() {
 }
 
 function toggleAi() {
+  if(inlineCompanion.value){showAssistant();void companionSurfaceRef.value?.expand();return}
   if (aiVisible.value) { closeAi(); return }
   showAssistant()
   if (isNarrow.value) navigatorOpen.value = false
@@ -1082,6 +1084,7 @@ function openTask(node?: Node | null, taskRevisionId = '', scope: 'node' | 'fina
 
 async function closeTask() {
   taskOpen.value = false
+  workspaceStore.endExplicitPracticeTask()
   await refreshRuntime()
   await nextTick()
   requestAnimationFrame(() => {

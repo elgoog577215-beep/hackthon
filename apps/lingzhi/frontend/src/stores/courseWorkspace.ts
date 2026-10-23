@@ -142,6 +142,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     versionDiff: null as any,
     practice: null as FormalPracticeResponse | null,
     diagnosticWorkflow: null as DiagnosticWorkflow | null,
+    explicitPracticeTask: null as {courseId:string;nodeId:string;revisionId:string}|null,
     currentQuestionIndex: 0,
     currentAttempt: null as PracticeAttempt | null,
     currentDraft: {} as Record<string, any>,
@@ -225,6 +226,8 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       ) > 0
     },
     async loadPractice(courseId: string, nodeId?: string, scope: 'node' | 'final' | 'all' = 'node') {
+      if(this.explicitPracticeTask && !this.explicitPracticeTask.courseId)this.explicitPracticeTask.courseId=courseId
+      if(this.explicitPracticeTask && (this.explicitPracticeTask.courseId!==courseId || scope!=='node' || (nodeId && this.explicitPracticeTask.nodeId!==nodeId)))this.endExplicitPracticeTask()
       if (isTeacherPreviewCourse(courseId)) {
         const questions = this.previewQuestions(scope === 'node' ? nodeId : undefined)
         this.practice = { course_id: courseId, node_id: nodeId, scope, questions, batch_size: questions.length,
@@ -249,7 +252,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         const requestedTaskRevisionId = (
           this.requestedTaskRef?.kind === 'practice'
             ? this.requestedTaskRef.task_revision_id
-            : ''
+            : this.explicitPracticeTask?.revisionId || ''
         )
         const res = await http.get(`/api/courses/${courseId}/practice`, {
           params: {
@@ -312,9 +315,13 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return res.data as DiagnosticWorkflow
     },
     applyDiagnosticWorkflow(workflow: DiagnosticWorkflow | null) {
-      this.diagnosticWorkflow = workflow
+      // Choosing a concrete question controls the current view only. The
+      // original diagnostic workflow stays persisted and can be resumed later.
+      this.diagnosticWorkflow = this.explicitPracticeTask ? null : workflow
     },
+    endExplicitPracticeTask(){this.explicitPracticeTask=null},
     prepareLearningAction(action: NextLearningAction) {
+      this.explicitPracticeTask=action.task_ref?.kind==='practice'?{courseId:action.task_ref.context.course_id||'',nodeId:action.task_ref.context.node_id||'',revisionId:action.task_ref.task_revision_id||''}:null
       this.requestedTaskRef = action.task_ref || null
       this.taskResumeError = ''
       this.practiceLandingView = 'current'
@@ -322,6 +329,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     preparePracticeTask(courseId: string, nodeId: string, taskRevisionId: string) {
       if (!taskRevisionId) return
+      this.explicitPracticeTask={courseId,nodeId,revisionId:taskRevisionId}
       this.requestedTaskRef = {
         kind: 'practice',
         object_id: '',
@@ -354,6 +362,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
           return
         }
         this.currentQuestionIndex = questionIndex
+        this.diagnosticWorkflow = null
         if (attempt) this.applyPracticeAttempt(courseId, attempt)
         else {
           this.currentAttempt = null
