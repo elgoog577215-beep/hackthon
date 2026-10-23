@@ -27,12 +27,13 @@
       </template>
       <button v-if="remindersEnabled !== undefined" type="button" class="companion-reminder-toggle" :aria-label="t(remindersEnabled ? 'companionReminder.pause' : 'companionReminder.resume')" :title="t(remindersEnabled ? 'companionReminder.pause' : 'companionReminder.resume')" :aria-pressed="remindersEnabled" @click="emit('toggle-reminders')"><Bell v-if="remindersEnabled" :size="16" /><BellOff v-else :size="16" /></button>
     </div>
-    <aside v-if="welcome && !dragging" class="companion-reminder companion-welcome" :style="reminderStyle" aria-live="polite" :aria-label="t('companionWorkspace.title')" @keydown.esc.stop.prevent="dismissWelcome">
-      <div class="reminder-heading"><strong>{{ t('companionWorkspace.title') }}</strong><button type="button" :aria-label="t('common.close', '关闭')" @click="dismissWelcome">×</button></div>
-      <p>{{ t('companionWelcome.message') }}</p>
-      <footer><button type="button" @click="dismissWelcome">{{ t('companionWelcome.dismiss') }}</button></footer>
+    <aside key="companion-speech" v-show="(helpOpen || welcome) && !dragging" :class="{'companion-reminder companion-welcome':helpOpen||welcome,'is-help':helpOpen}" :style="reminderStyle" aria-live="polite" :aria-label="t('companionWorkspace.title')" @keydown.esc.stop.prevent="helpOpen ? emit('close-help') : dismissWelcome()">
+      <div v-if="helpOpen || welcome" class="reminder-heading"><strong>{{ t('companionWorkspace.title') }}</strong><button type="button" :aria-label="t('common.close', '关闭')" @click="helpOpen ? emit('close-help') : dismissWelcome()">×</button></div>
+      <div key="companion-help" v-show="helpOpen" ref="helpHost" data-companion-help-host></div>
+      <template v-if="welcome && !helpOpen"><p>{{ t('companionWelcome.message') }}</p>
+      <footer><button type="button" @click="dismissWelcome">{{ t('companionWelcome.dismiss') }}</button></footer></template>
     </aside>
-    <aside v-else-if="reminder && available && !dragging" class="companion-reminder" :style="reminderStyle" aria-live="polite" :aria-label="t('companionReminder.label')">
+    <aside v-if="!helpOpen && !welcome && reminder && available && !dragging" class="companion-reminder" :style="reminderStyle" aria-live="polite" :aria-label="t('companionReminder.label')">
       <div class="reminder-heading"><strong>{{ reminder.title }}</strong><button type="button" :aria-label="t('companionReminder.dismiss')" @click="emit('dismiss-reminder')">×</button></div>
       <button type="button" class="reminder-body" @click="emit('reminder', reminder)"><span v-if="reminder.quote" class="reminder-quote">“{{ reminder.quote }}”</span><span>{{ reminder.message }}</span><span class="reminder-link">{{ t('companionReminder.open') }} →</span></button>
       <details v-if="reminder.source"><summary>{{ t('companionReminder.source') }}</summary><p>{{ reminder.source }}</p></details>
@@ -51,13 +52,14 @@ import { t } from '../shared/i18n'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 import { placeCompanion, type CompanionPoint, type CompanionRect } from '../utils/companion-placement'
 
-const props = withDefaults(defineProps<{ expanded?: boolean; active?: boolean; modal?: boolean; reminder?:CompanionReminder|null; remindersEnabled?:boolean; welcome?:boolean }>(), { expanded: false, active: true, remindersEnabled:undefined })
-const emit = defineEmits<{ (event: 'open'): void; (event:'reminder', reminder:CompanionReminder):void; (event:'dismiss-reminder',mode?:'not_now'|'never'):void; (event:'toggle-reminders'):void; (event:'dismiss-welcome'):void }>()
+const props = withDefaults(defineProps<{ expanded?: boolean; active?: boolean; modal?: boolean; reminder?:CompanionReminder|null; remindersEnabled?:boolean; welcome?:boolean;helpOpen?:boolean }>(), { expanded: false, active: true, remindersEnabled:undefined })
+const emit = defineEmits<{ (event: 'open'): void; (event:'close-help'):void;(event:'reminder', reminder:CompanionReminder):void; (event:'dismiss-reminder',mode?:'not_now'|'never'):void; (event:'toggle-reminders'):void; (event:'dismiss-welcome'):void }>()
 function dismissWelcome() { emit('dismiss-welcome'); void nextTick(focus) }
 const avatarUrl = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 const fullSize = { width: 112, height: 144 }
 const smallSize = { width: 48, height: 44 }
 const surface = ref<HTMLElement | null>(null)
+const helpHost=ref<HTMLElement|null>(null)
 const openButton = ref<HTMLButtonElement | null>(null)
 const restoreButton = ref<HTMLButtonElement | null>(null)
 const resting = ref(false)
@@ -223,7 +225,7 @@ onUnmounted(() => {
   document.removeEventListener('scroll', scheduleSettle, true)
   window.removeEventListener('blur', cancelDrag)
 })
-defineExpose({ focus })
+defineExpose({ focus,helpHost })
 </script>
 
 <style scoped>

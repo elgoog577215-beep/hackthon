@@ -90,12 +90,13 @@ describe('LearningView 正文任务覆盖层', () => {
       template: '<aside class="same-study-panel"><textarea v-model="draft" /><span>{{studyRequest?.quote}}</span></aside>' })
     const wrapper = mount(LearningView, { attachTo: document.body, global: {
       plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
-      stubs: { ContentArea: content, SideAIPanel: panel, CourseNavigator: true, LearningCompanion: true,
+      stubs: { ContentArea: content, SideAIPanel: panel, CourseNavigator: true, LearningCompanion: false,
         LearningTaskOverlay: true, LearningStats: true, NotesPanel: true, CourseKnowledgeStudy: true },
     } })
     try {
       await flushPromises(); await wrapper.get('.ask-inline').trigger('click'); await flushPromises()
-      const anchor = wrapper.get('[data-study-companion-anchor]')
+      const anchor = new DOMWrapper(document.querySelector('[data-companion-help-host]')!)
+      expect(wrapper.get('[data-study-companion-anchor]').find('.same-study-panel').exists()).toBe(false)
       const original = anchor.get('.same-study-panel').element
       await anchor.get('textarea').setValue('还没发出的追问')
       const request = wrapper.findComponent(panel).props('studyRequest')

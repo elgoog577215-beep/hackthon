@@ -130,7 +130,7 @@
         <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
-        <ReadingCompanionSurface minimal v-slot="{expand}" :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
+        <ReadingCompanionSurface minimal bubble v-slot="{expand}" :anchor="readingCompanionAnchor" :full-target="aiFloating ? '#course-companion-window-chat' : ''" :visible="aiVisible && !courseStore.isFocusMode" @presentation-change="inlineCompanion = $event">
         <SideAIPanel
           data-companion-obstacle
           id="reading-assistant-panel" @expand-companion="expand()"
@@ -173,8 +173,10 @@
     <LearningCompanion
       v-if="!isNarrow && !isGenerationPreview"
       ref="companionRef"
-      :expanded="aiVisible"
-      :modal="aiFloating && aiVisible"
+      :expanded="aiVisible && !inlineCompanion"
+      :modal="aiFloating && aiVisible && !inlineCompanion"
+      :help-open="aiVisible && inlineCompanion"
+      @close-help="closeAi"
       :active="!courseStore.isFocusMode"
       :reminder="companionReminder"
       :reminders-enabled="companionPreferences.proactive"
@@ -796,9 +798,8 @@ async function openStudyDialogue(request:StudyRequest) {
   await contentAreaRef.value?.closeInlineRecord?.()
   if (sequence !== studyEntrySequence || courseId !== courseStore.currentCourseId) return
   openAi({ text:request.quote, nodeId:request.nodeId, anchor:request.anchor })
-  if (request.kind === 'explain' && request.anchor?.block_id) {
-    readingCompanionAnchor.value = Array.from(learningLayoutRoot.value?.querySelectorAll<HTMLElement>('[data-study-companion-anchor]') || [])
-      .find(element => element.dataset.studyNodeId === request.nodeId && element.dataset.studyBlockId === request.anchor?.block_id) || null
+  if (request.kind === 'explain' && !isNarrow.value) {
+    readingCompanionAnchor.value = companionRef.value?.helpHost || null
   }
   studyRequest.value = { ...request, token:Date.now() + Math.random() }
 }

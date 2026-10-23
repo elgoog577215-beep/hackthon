@@ -1,6 +1,6 @@
 <template>
   <Teleport :to="inline ? anchor! : fullTarget || 'body'" :disabled="!inline && !fullTarget">
-    <section v-show="visible" class="reading-companion-surface" :class="{ 'is-inline': inline, 'is-collapsed': collapsed && inline }" :aria-label="t('readingCompanion.title')">
+    <section v-show="visible" class="reading-companion-surface" :class="{ 'is-inline': inline, 'is-bubble':bubble && inline, 'is-collapsed': collapsed && inline }" :aria-label="t('readingCompanion.title')">
       <header v-if="usableAnchor && (!minimal || !inline)" class="reading-companion-toolbar">
         <span><Sparkles :size="16" />{{ t('readingCompanion.title') }}</span>
         <template v-if="inline">
@@ -25,6 +25,7 @@ const props = withDefaults(defineProps<{
   fullTarget?: string
   visible?: boolean
   minimal?: boolean
+  bubble?: boolean
 }>(), { anchor: null, fullTarget: '', visible: true })
 const emit = defineEmits<{ presentationChange: [inline: boolean] }>()
 const connected = ref(false), expanded = ref(false), collapsed = ref(false)
@@ -68,6 +69,10 @@ defineExpose({ expand: () => move(false) })
 .reading-companion-more{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 16px;border-top:1px solid #e4e7ef;font-size:14px;color:#58657a;background:#fafbfe;border-radius:0 0 10px 10px}
 .reading-companion-more button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:#5145aa;font:inherit;font-size:15px;font-weight:600;cursor:pointer;padding:5px 0}
 .reading-companion-surface.is-collapsed{height:auto;max-height:none}
+.reading-companion-surface.is-bubble{margin:0;border:0;border-radius:0;box-shadow:none;background:transparent}
+.is-bubble :deep(.study-body){padding:10px 0}
+.is-bubble :deep(.inline-reply-actions){padding:0 0 8px}
+.is-bubble :deep(.study-composer){padding:8px 0 0}
 .is-inline .reading-companion-content{flex:none;overflow:visible}
 .is-inline :deep(.ai-teacher-panel),.is-inline :deep(.ai-teacher-surface){width:100%;height:auto;max-height:none;min-height:0;flex:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
 .is-inline :deep(.personal-assistant){width:100%;height:auto;border:0}

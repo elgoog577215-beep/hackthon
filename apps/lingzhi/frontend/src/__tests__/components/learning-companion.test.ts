@@ -1,19 +1,21 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper,flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import LearningCompanion from '@/components/LearningCompanion.vue'
 const mountCompanion = () => mount(LearningCompanion, { global: { stubs: { Teleport: true } } })
 
 describe('learning companion safe dragging', () => {
   it('reuses the existing welcome bubble as the explicit help host and preserves it across closing',async()=>{
-    const wrapper=mount(LearningCompanion,{props:{helpOpen:true,welcome:true},global:{stubs:{Teleport:true}}})
-    expect(wrapper.findAll('.companion-reminder')).toHaveLength(1)
-    expect(wrapper.find('.companion-welcome p').exists()).toBe(false)
-    const host=wrapper.get('[data-companion-help-host]').element
-    await wrapper.get('.reminder-heading button').trigger('click')
+    const wrapper=mount(LearningCompanion,{attachTo:document.body,props:{helpOpen:true,welcome:true}})
+    const bubble=new DOMWrapper(document.querySelector('.companion-welcome')!)
+    expect(document.querySelectorAll('.companion-reminder')).toHaveLength(1)
+    expect(bubble.find('p').exists()).toBe(false)
+    const host=bubble.get('[data-companion-help-host]').element
+    host.setAttribute('data-sentinel','yes')
+    await bubble.get('.reminder-heading button').trigger('click')
     expect(wrapper.emitted('close-help')).toHaveLength(1)
     await wrapper.setProps({helpOpen:false,welcome:false})
     await wrapper.setProps({helpOpen:true})
-    expect(wrapper.get('[data-companion-help-host]').element).toBe(host)
+    expect(document.querySelector('[data-companion-help-host]')).toBe(host)
     wrapper.unmount()
   })
   let resize: ResizeObserverCallback
