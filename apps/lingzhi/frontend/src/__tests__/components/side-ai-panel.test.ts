@@ -99,6 +99,20 @@ function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseB
 }
 
 describe('SideAIPanel', () => {
+  it('hides the previous content while opening help for a new selection',async()=>{
+    const wrapper=mountPanel()
+    await flushPromises()
+    const ai=useAITeacherStore()
+    let finish:(value:any)=>void=()=>{}
+    vi.spyOn(ai,'openStudyDialogue').mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+    await wrapper.setProps({studyRequest:{kind:'explain',nodeId:'node-1',quote:'new selection',token:21}})
+    await flushPromises()
+    expect(wrapper.get('[data-testid="selection-help-loading"]').isVisible()).toBe(true)
+    expect(wrapper.get('.assistant-main').isVisible()).toBe(false)
+    finish(undefined);await flushPromises()
+    expect(wrapper.find('[data-testid="selection-help-loading"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('runs an explicit new block shortcut in the existing study conversation, without rerunning it on presentation changes', async () => {
     const wrapper = mountPanel([], '', undefined, course => { course.currentCourseVersionId = 'cv' })
     await flushPromises()

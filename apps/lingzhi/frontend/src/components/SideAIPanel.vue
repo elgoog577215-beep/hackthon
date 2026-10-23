@@ -172,9 +172,10 @@
         </div>
       </aside>
 
+      <p v-if="studyEntryPending" role="status" data-testid="selection-help-loading">{{ t('courseWorkspace.inlineAi.thinking', '正在结合当前内容块思考') }}</p>
       <p v-if="studyEntryError" class="study-entry-error" role="alert">{{ studyEntryError }} <button type="button" @click="openStudyRequest">{{ t('studyDialogue.retry') }}</button></p>
-      <StudyDialoguePanel v-if="aiStore.currentConversation?.study_workspace && !isTeacherMode" :key="aiStore.currentConversationId" ref="studyPanel" @expand="emit('expandCompanion')" :compact="compact" :inert="props.docked && conversationOpen ? true : undefined" :conversation="aiStore.currentConversation" @open-record="emit('openStudyRecord', $event)" @practice="emit('practice',$event)" />
-      <div v-else class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
+      <StudyDialoguePanel v-if="aiStore.currentConversation?.study_workspace && !isTeacherMode" v-show="!studyEntryPending" :key="aiStore.currentConversationId" ref="studyPanel" @expand="emit('expandCompanion')" :compact="compact" :inert="props.docked && conversationOpen ? true : undefined" :conversation="aiStore.currentConversation" @open-record="emit('openStudyRecord', $event)" @practice="emit('practice',$event)" />
+      <div v-else v-show="!studyEntryPending" class="assistant-main" :inert="props.docked && conversationOpen ? true : undefined">
 
       <div v-if="props.blockTarget || quoteVisible" class="context-panel">
         <div v-if="props.blockTarget" class="block-target-line">
@@ -845,6 +846,7 @@ const emit = defineEmits<{
 }>()
 const studyPanel = ref<InstanceType<typeof StudyDialoguePanel> | null>(null)
 const studyEntryError = ref('')
+const studyEntryPending = ref(false)
 const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
@@ -1839,15 +1841,18 @@ async function openStudyRequest() {
   const request = props.studyRequest
   if (!request || isTeacherMode.value) return
   studyEntryError.value = ''
+  studyEntryPending.value = true
   try {
     await initialize()
     if (request !== props.studyRequest) return
     const conversation = await aiStore.openStudyDialogue(request)
     if (!conversation || request !== props.studyRequest) return
     conversationOpen.value = false
+    studyEntryPending.value = false
     await nextTick()
     if (request.prompt) await studyPanel.value?.startDiscussion(request.prompt)
-  } catch { studyEntryError.value = t('studyDialogue.openFailed') }
+  } catch { if (request === props.studyRequest) studyEntryError.value = t('studyDialogue.openFailed') }
+  finally { if (request === props.studyRequest) studyEntryPending.value=false }
 }
 watch(() => [props.quoteText, props.quoteAnchor, props.entrypoint], () => {
   quoteEntryActive.value = Boolean(props.quoteText && props.entrypoint === 'selection')
@@ -1861,7 +1866,7 @@ watch(() => [props.knowledgeContext?.knowledge_id, props.blockTarget?.block.bloc
     } catch { studyEntryError.value = t('studyDialogue.openFailed') }
   }
 })
-watch(() => props.studyRequest?.token, () => { if (props.studyRequest) void openStudyRequest() }, { immediate:true })
+watch(() => props.studyRequest?.token, () => { if (props.studyRequest) void openStudyRequest(); else studyEntryPending.value=false }, { immediate:true })
 
 watch(() => props.quoteText, value => {
   quoteVisible.value = Boolean(value)
