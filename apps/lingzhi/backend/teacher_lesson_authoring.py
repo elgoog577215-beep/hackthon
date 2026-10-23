@@ -5624,6 +5624,7 @@ class TeacherLessonAuthoringService:
                 response = str(result.get("text") or "")
                 if response != raw:
                     raw = response
+                    self.repository.receive_handout_text(course_id, job_id, raw)
                 parsed = await emit(force=True, provider_complete=True)
                 if parsed["error"] or any(key not in completed for key in requested):
                     raise TeacherLessonAuthoringError("lesson_script_output_incomplete", "讲义结构尚未完整，已保留完成小节和片段，请继续。",
