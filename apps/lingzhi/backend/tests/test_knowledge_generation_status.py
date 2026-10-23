@@ -134,3 +134,33 @@ async def test_streaming_progress_reports_real_characters_and_keeps_original_dat
         await task
     assert svc.repository.load_raw("c-pilot") == before
     assert svc.status("c-pilot")["jobs"][0]["status"] == "completed"
+
+
+
+def test_status_uses_last_committed_projection_while_checkpoint_writer_holds_course_lock(svc,monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    initialize(svc);job=start(svc,'tree');svc.status('c-pilot')
+    entered=threading.Event();release=threading.Event();save=svc.authoring._save
+    def slow_save(value):
+        entered.set();assert release.wait(4);return save(value)
+    monkeypatch.setattr(svc.authoring,'_save',slow_save)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writer=executor.submit(svc.authoring.update_job,'c-pilot',job['id'],status='running')
+        assert entered.wait(2)
+        try:
+            status=executor.submit(svc.status,'c-pilot').result(timeout=.3)
+            assert status['jobs'][0]['status']=='pending'
+        finally:release.set();writer.result(timeout=4)
+    assert svc.status('c-pilot')['jobs'][0]['status']=='running'
+
+
+def test_checkpoint_revisions_do_not_invalidate_whole_view_while_generation_is_active(svc):
+    initialize(svc);job=start(svc,'tree')
+    first=svc.status('c-pilot')['result_version']
+    svc.authoring.update_job('c-pilot',job['id'],status='running',knowledge_pipeline='inventory_atomic_v1',checkpoint={'atomic_pipeline':{'revision':1}})
+    assert svc.status('c-pilot')['result_version']==first
+    svc.authoring.update_job('c-pilot',job['id'],checkpoint={'atomic_pipeline':{'revision':2}})
+    assert svc.status('c-pilot')['result_version']==first
+    svc.authoring.update_job('c-pilot',job['id'],status='failed')
+    assert svc.status('c-pilot')['result_version']!=first

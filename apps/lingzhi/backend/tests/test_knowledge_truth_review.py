@@ -32,3 +32,20 @@ def test_ineffective_truth_repair_and_silent_rewrites_are_rejected():
     pending=compile_audits(record('uncertain'),[old])
     assert pending['issues'][0]['severity']=='blocking'
     assert pending['points'][0]['statement']==old['statement']
+
+
+
+def test_truth_correction_accepts_only_core_and_keeps_all_other_fields_frozen():
+    from knowledge_truth_review import compile_audits, truth_prompt
+    old=candidate('错误结论');old.update(teaching_context=['原教学场景'],examples=['原例子'],custom_attachment={'keep':True})
+    before=deepcopy(old)
+    core={'statement':'修正结论','conditions':['适用前提'],'symbol_definitions':['x 表示输入']}
+    result=compile_audits(record('corrected',core),[old])['points'][0]
+    assert {k:result[k] for k in core}==core
+    assert all(result[k]==v for k,v in before.items() if k not in core)
+    assert old==before
+    for extra in ['teaching_context','examples','knowledge_type','name']:
+        with pytest.raises(ValueError):compile_audits(record('corrected',{**core,extra:'不允许改'}),[old])
+    prompt=truth_prompt([old],{})
+    assert 'knowledge_truth_review_v2' in prompt
+    assert 'point含statement,knowledge_type' not in prompt

@@ -514,3 +514,23 @@ def test_name_only_retry_keeps_legacy_candidate_revisions_for_unchanged_meaning(
     old={'candidate':{'knowledge_points':[point]},'atomic_pipeline':{'inventory_batches':[]}}
     new=continued_pipeline(old,'names')['atomic_pipeline']
     assert new['point_revisions']['existing-id']['revision_id']=='legacy-frozen-revision'
+
+
+@pytest.mark.asyncio
+async def test_durable_checkpoint_io_does_not_block_the_application_event_loop(svc,monkeypatch):
+    import asyncio,time
+    setup_course(svc,monkeypatch)
+    svc.provider_factory=lambda:SimpleNamespace(_call_llm=stopped,client=None,model_smart='qwen3.8-27b')
+    async def stopped(*args,**kwargs):raise RuntimeError('diagnostic provider: no real model')
+    v=svc.view('c-pilot',source_mode='handouts');job,_=svc.start('c-pilot','tree','io-loop',v['knowledge_revision'],v['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1')
+    update=svc.authoring.update_job
+    def slow_update(*args,**kwargs):
+        if kwargs.get('phase')=='preparing':time.sleep(.25)
+        return update(*args,**kwargs)
+    monkeypatch.setattr(svc.authoring,'update_job',slow_update)
+    task=asyncio.create_task(svc.run('c-pilot',job['id']))
+    began=time.perf_counter()
+    try:
+        await asyncio.sleep(.01)
+        assert time.perf_counter()-began<.15
+    finally:await task
