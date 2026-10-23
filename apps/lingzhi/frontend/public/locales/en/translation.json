@@ -8131,6 +8131,8 @@
     "previousLesson": "Previous lecture",
     "nextLesson": "Next lecture",
     "generateLessonTree": "Generate this lecture’s tree",
+    "generateFullTree": "Generate with relations and teaching profiles",
+    "coreTreeScope": "Generate complete knowledge points, short names, and categories first. Analyze relations after adoption, or choose complete generation to include selected teaching profiles; this takes longer.",
     "lessonTreeEmpty": "No knowledge tree for this lecture yet. Generate it from the saved handout.",
     "lessonHandoutRequired": "Save a handout for this lecture before generating its knowledge tree.",
     "crossLessonLinks": "Cross-lecture links",

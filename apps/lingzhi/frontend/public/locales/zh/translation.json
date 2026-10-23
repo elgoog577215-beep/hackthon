@@ -8131,6 +8131,8 @@
     "previousLesson": "上一讲",
     "nextLesson": "下一讲",
     "generateLessonTree": "生成本讲知识树",
+    "generateFullTree": "完整生成（含关系与教学档案）",
+    "coreTreeScope": "先生成完整知识点、短名称和分类。采用后可单独分析知识关系；完整生成还包含所选分支的教学档案，耗时较长。",
     "lessonTreeEmpty": "本讲还没有知识树，点击“生成本讲知识树”开始。",
     "lessonHandoutRequired": "本讲尚无可用讲义，请先生成本讲讲义。",
     "crossLessonLinks": "跨讲关联",

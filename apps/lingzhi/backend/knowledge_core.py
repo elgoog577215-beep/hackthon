@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from course_document import stable_hash
 from generic_knowledge import sources, require
-from knowledge_core_contract import CONTRACT, group_materials, extraction_prompt, parse_extraction, review_prompt, compile_review
+from knowledge_core_contract import CONTRACT, KNOWLEDGE_TYPES, group_materials, extraction_prompt, parse_extraction, review_prompt, compile_review
 from knowledge_registry_contract import parse_json
 from knowledge_registry_identity import existing_catalog
 from knowledge_registry_projection import build_tree
@@ -33,9 +33,12 @@ def hierarchy_for(points, paths, raw, context):
 
 def compile_tree(raw, context, pipeline, job_id, *, preview):
     candidates=(pipeline.get('registry') or {}).get('points') or [p for b in pipeline['inventory_batches'] for p in b.get('points',[])]
+    if preview:
+        candidates=[p for p in candidates if p['knowledge_type'] in KNOWLEDGE_TYPES]
     paths=pipeline.get('paths') or {p['key']:p['branch_path'] for p in candidates}
     hierarchy=hierarchy_for(candidates,paths,raw,context) if candidates else None
-    tree=build_tree(raw,context,pipeline,job_id,hierarchy=hierarchy,preview=preview)
+    display={**pipeline,'registry':{**(pipeline.get('registry') or {}),'points':candidates}}
+    tree=build_tree(raw,context,display,job_id,hierarchy=hierarchy,preview=preview)
     tree.update(generation_contract=CONTRACT,generation_mode='core_v1',
                 enrichment={'relations':'not_requested','kc_profiles':'not_requested'})
     tree['atomic_assessment']['schema_version']=CONTRACT

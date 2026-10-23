@@ -6,6 +6,7 @@ from knowledge_registry_contract import FIELDS, render, validate_point
 from knowledge_truth_review import CORE_FIELDS
 
 CONTRACT = 'knowledge_core_v1'
+KNOWLEDGE_TYPES = {'definition','rule','method','comparison'}
 
 
 def group_materials(materials):
@@ -44,12 +45,17 @@ def _path(value):
     return result
 
 
-def parse_row(row):
+def parse_row(row, *, allow_draft_types=False):
     if not isinstance(row, list) or len(row) != 7:
         raise ValueError('知识行须依次给名称、完整知识、类型、条件、符号、分类路径和检查角度')
     name, statement, kind, conditions, symbols, path, checks = row
-    point = validate_point(dict(statement=statement, knowledge_type=kind,
+    unresolved = kind not in KNOWLEDGE_TYPES if isinstance(kind,str) else True
+    if unresolved and (not allow_draft_types or not isinstance(kind,str) or not kind.strip() or len(kind)>40):
+        raise ValueError('知识类型尚未归入正式分类')
+    point = validate_point(dict(statement=statement, knowledge_type='rule' if unresolved else kind,
         conditions=conditions, symbol_definitions=symbols, teaching_context=[], examples=[]))
+    if unresolved:
+        point.update(knowledge_type=kind,unresolved_type=True)
     return {**point, 'short_name': _name(name), 'branch_path': _path(path),
             'check_intents': _texts(checks, '检查角度'), 'profile_focus': ''}
 
@@ -62,7 +68,7 @@ def parse_extraction(value, batch_id, material_keys):
         raise ValueError('知识候选格式或容量无效')
     if not rows and not value['context_note'].strip():
         raise ValueError('无知识的材料也须说明其背景作用')
-    return [{**parse_row(row), 'key': f'{batch_id}P{i}', 'input_material_keys': list(material_keys),
+    return [{**parse_row(row,allow_draft_types=True), 'key': f'{batch_id}P{i}', 'input_material_keys': list(material_keys),
              'coverage_unit_ids': [f'{batch_id}P{i}']} for i, row in enumerate(rows, 1)]
 
 
@@ -94,11 +100,12 @@ def review_prompt(raw, context, materials, points, catalog):
         '纯操作失误comparison归checks，给target、intent、reason、same_scope:true、adds_knowledge:false、operational_only:true；'
         '真实概念辨析保留知识。纯算例或背景归context，给理由；不确定归uncertain并给理由。'
         '对照全部materials检查是否漏掉独立规则，缺失项通过add补齐，不用减少知识数掩盖遗漏。'
+        'types把需要确认的类别明确映射到definition/rule/method/comparison；所有非正式类别必须确认，不能留空或猜测。'
         'names和paths仅为需要调整的显示名称/分类路径映射，不改知识；其他名称和路径保留。'
         'coverage恰好覆盖每个材料key，值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
         '不要复述无问题的知识，keep只列key；不要输出核对过程。只输出紧凑JSON：'
         '{"keep":["候选key"],"correct":{},"split":{},"match":{},"checks":{},"context":{},"uncertain":{},'
-        '"add":[],"names":{},"paths":{},"coverage":{}}。'
+        '"add":[],"names":{},"paths":{},"types":{},"coverage":{}}。'
         'correct值为三个核心字段；match值为{target,same_claim:true,same_scope:true,same_symbols:true,reason}；'
         'add每项为{"sources":[材料key],"point":[七列知识行]}。',
         {'stage': 'candidate_core_review', 'contract': CONTRACT, 'course_title':raw.get('course_name',''),
@@ -109,10 +116,17 @@ def review_prompt(raw, context, materials, points, catalog):
 
 def compile_review(value, originals, catalog, materials):
     from knowledge_identity_matching import resolve_matches
-    required = {'keep','correct','split','match','checks','context','uncertain','add','names','paths','coverage'}
+    required = {'keep','correct','split','match','checks','context','uncertain','add','names','paths','types','coverage'}
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError('集中核对字段不完整')
     by_key = {p['key']:deepcopy(p) for p in originals}
+    if not isinstance(value['types'],dict) or not set(value['types'])<=set(by_key):
+        raise ValueError('类别确认不能更换候选身份')
+    for key,kind in value['types'].items():
+        if not isinstance(kind,str) or kind not in KNOWLEDGE_TYPES:raise ValueError('类别必须属于正式知识分类')
+        by_key[key]['knowledge_type']=kind;by_key[key].pop('unresolved_type',None)
+    if any(p['knowledge_type'] not in KNOWLEDGE_TYPES for p in by_key.values()):
+        raise ValueError('仍有未确认的知识类别，不能发布基础树')
     keep = value['keep']
     if not isinstance(keep,list) or any(not isinstance(k,str) for k in keep):
         raise ValueError('keep须列出候选key')

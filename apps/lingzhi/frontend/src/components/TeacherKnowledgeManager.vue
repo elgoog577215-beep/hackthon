@@ -45,8 +45,10 @@
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
           <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
+          <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-full-knowledge-tree" :disabled="busy || blockingJobs.length > 0 || !selectedLesson?.can_generate" @click="generate('tree','full_v1')">{{ t('knowledgeFirst.generateFullTree') }}</button>
           <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-knowledge-relations" :disabled="busy || blockingJobs.length > 0 || !canGenerateRelations" :title="t('knowledgeFirst.relationRequiresBaseline')" @click="generateRelations()">{{ t('knowledgeFirst.generateRelations') }}</button>
         </div>
+        <p v-if="perLesson && data.can_edit" class="hint" data-testid="knowledge-core-scope">{{ t('knowledgeFirst.coreTreeScope') }}</p>
         <div v-if="perLesson" class="knowledge-lesson-switch">
           <button type="button" :disabled="lessonOptions[0]?.lesson_id === knowledgeLessonId" @click="stepLesson(-1)">{{ t('knowledgeFirst.previousLesson') }}</button>
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
@@ -672,10 +674,10 @@ async function mutate(path: string, extra = {}) {
   }
   finally { busy.value = false }
 }
-async function generate(topic: string) {
+async function generate(topic: string, generationMode: 'core_v1' | 'full_v1' = 'core_v1') {
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', organize_hierarchy: true, include_relations: true } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', generation_mode:generationMode, organize_hierarchy: true, include_relations: generationMode === 'full_v1' } : {}) })
 }
 async function saveDisplayName() {
   if (!selectedPoint.value || !data.value.can_edit || activeJobs.value.length || !draftDisplayName.value.trim()) return

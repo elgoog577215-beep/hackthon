@@ -63,6 +63,8 @@ def test_truth_patch_cannot_overwrite_ancillary_fields_or_skip_any_claim():
     assert result['registry']['points'][0]['examples'] == ['保留的示例']
     value['correct'][key]['examples'] = []
     with pytest.raises(ValueError): compile_review(value, points, [], [{'key': 'S1'}])
+    value['correct'] = {}
+    with pytest.raises(ValueError): compile_review(value, points, [], [{'key': 'S1'}])
 
 
 def test_open_draft_type_requires_explicit_classification_before_publication():
@@ -74,8 +76,6 @@ def test_open_draft_type_requires_explicit_classification_before_publication():
     with pytest.raises(ValueError):compile_review(value,points,[],[{'key':'S1'}])
     value['types']={points[0]['key']:'rule'}
     assert compile_review(value,points,[],[{'key':'S1'}])['registry']['points'][0]['knowledge_type']=='rule'
-    value['correct'] = {}
-    with pytest.raises(ValueError): compile_review(value, points, [], [{'key': 'S1'}])
 
 
 @pytest.mark.asyncio
