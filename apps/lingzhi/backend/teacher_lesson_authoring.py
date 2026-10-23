@@ -4998,6 +4998,32 @@ class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
 
+    async def _authoring_io(self, operation, /, *args, **kwargs):
+        """Await one repository transaction without leaving an orphan writer.
+
+        The repository's course lock and atomic replacement remain the only
+        write authority. Cancellation cannot release this caller until the
+        transaction has finished, including a second cancellation during drain.
+        """
+        worker = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+        cancellation = None
+        while True:
+            try:
+                result = await asyncio.shield(worker)
+                break
+            except asyncio.CancelledError as exc:
+                if worker.cancelled():
+                    raise
+                cancellation = exc
+            except Exception:
+                if cancellation is not None:
+                    logger.exception("Authoring transaction failed while cancellation was draining")
+                    raise cancellation
+                raise
+        if cancellation is not None:
+            raise cancellation
+        return result
+
     async def _run_generation_step(
         self, course_id: str, job_id: str, unit_id: str,
         generate: Callable[[], Awaitable[Any]], *, source_plan_revision_id: str = "",
@@ -5397,7 +5423,7 @@ class TeacherLessonAuthoringService:
         def states() -> dict[str, str]:
             return {str(c["modules"][0]["block_id"]): "completed" if key in completed else "pending"
                     for key, c in contracts.items()}
-        started = self.repository.update_job(
+        started = await self._authoring_io(self.repository.update_job,
             course_id, job_id, status="running", phase="lesson_script_generation", progress=5,
             message="正在一次生成本讲讲义", total_blocks=len(contracts), completed_blocks=len(completed),
             block_states=states(), result_sections=sections(), stream_complete=False, error=None,
@@ -5467,7 +5493,7 @@ class TeacherLessonAuthoringService:
                 checkpoint={"result_sections": sections(), "raw_response": raw,
                             "requested_section_ids": requested, "fragments": parsed["fragments"]},
             )
-        async def emit(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
+        def emit_sync(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
             nonlocal last_emit
             check_active()
             if not force and time.monotonic() - last_emit < 0.3:
@@ -5512,18 +5538,27 @@ class TeacherLessonAuthoringService:
                     streamed[bid] = prose
             snapshot(parsed, force=force)
             return parsed
+        # Stream parsing also touches the shared course lock. Move the whole
+        # transaction off the loop, not just the final os.replace/fsync calls.
+        # Await it before receiving the next delta: no unbounded save queue and
+        # no stale checkpoint racing a later publication or terminal status.
+        stream_lock = asyncio.Lock()
+        async def emit(force: bool = False, provider_complete: bool = False) -> dict[str, Any] | None:
+            async with stream_lock:
+                return await self._authoring_io(emit_sync, force, provider_complete)
+
         async def on_delta(delta: str) -> None:
             nonlocal raw
             raw += str(delta or "")
             await emit()
         async def on_reset() -> None:
-            check_active()
+            await self._authoring_io(check_active)
         async def on_scope(ids: list[str]) -> None:
             nonlocal requested
             if not ids or ids != requested[:len(ids)]:
                 raise TeacherLessonAuthoringError("lesson_script_scope_invalid", "讲义请求范围不能改变小节顺序。")
             requested = list(ids)
-            self.repository.update_job(course_id, job_id, requested_section_ids=requested)
+            await self._authoring_io(self.repository.update_job, course_id, job_id, requested_section_ids=requested)
         try:
             if requested:
                 async def generate() -> dict[str, Any]:
@@ -5546,23 +5581,23 @@ class TeacherLessonAuthoringService:
                                                      details={"structure_error": parsed["error"]})
             if len(completed) != len(contracts):
                 raise TeacherLessonAuthoringError("lesson_script_budget_continuation", "本次范围已完成，请继续生成因容量限制未请求的小节。")
-            check_active()
+            await self._authoring_io(check_active)
             final_sections = sections()
             quality = validate_teacher_script_revision(final_sections, generation_source="model_lecture")
             if not quality["passed"]:
                 raise TeacherLessonAuthoringError("lesson_script_quality_failed", "讲义存储结构不完整。", details={"quality_report": quality})
             # Candidate checkpoint precedes publication; a save failure resumes with zero model calls.
-            self.repository.update_job(course_id, job_id, result_sections=final_sections,
+            await self._authoring_io(self.repository.update_job, course_id, job_id, result_sections=final_sections,
                                        generation_telemetry=telemetry, phase="lesson_script_saving")
             if before_save:
                 await before_save()
-            lesson = self.repository.save_script_revision(
+            lesson = await self._authoring_io(self.repository.save_script_revision,
                 course_id, lesson_unit_id, final_sections,
                 source_lesson_plan_revision_id=source_plan_revision_id, generation_source="model_lecture",
                 requirements=requirements, material_asset_ids=material_asset_ids or [], actor=actor,
                 active_job_id=job_id, expected_working_revision_id=expected_script_revision,
             )
-            return self.repository.update_job(
+            return await self._authoring_io(self.repository.update_job,
                 course_id, job_id, status="completed", phase="lesson_script_ready", progress=100,
                 message="本讲讲义已生成", result_sections=final_sections, completed_blocks=len(contracts),
                 block_states={**states(), **{bid: "completed" for bid in block_metadata}}, result_revision_id=lesson.get("working_script_revision_id"),
@@ -5575,14 +5610,14 @@ class TeacherLessonAuthoringService:
             # Never downgrade a completed last section after a save failure.
             if raw:
                 parsed = parse_handout_stream(raw, requested)
-                previous = self.repository.get_job(course_id, job_id)
+                previous = await self._authoring_io(self.repository.get_job, course_id, job_id)
                 parsed["unassigned_fragment"] = parsed.get("unassigned_fragment") or previous.get("unassigned_fragment", "")
-                snapshot(parsed, force=True)
-            current = self.repository.get_job(course_id, job_id)
+                await self._authoring_io(snapshot, parsed, force=True)
+            current = await self._authoring_io(self.repository.get_job, course_id, job_id)
             if current.get("status") not in TEACHER_JOB_ACTIVE_STATUSES:
                 return current
             code = getattr(exc, "code", "lesson_script_generation_failed")
-            return self.repository.update_job(
+            return await self._authoring_io(self.repository.update_job,
                 course_id, job_id, status="failed", phase="lesson_script_failed",
                 message=f"讲义未完成，已保留 {len(completed)}/{len(contracts)} 个小节及收到的片段",
                 completed_blocks=len(completed), block_states={**states(), **block_statuses}, result_sections=sections(),
