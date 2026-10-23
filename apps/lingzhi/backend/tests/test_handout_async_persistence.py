@@ -209,3 +209,54 @@ async def test_script_runner_error_cleanup_is_not_a_synchronous_save(tmp_path, m
     await _run_lesson_plan_job(course_id="course-1", job_id=jid, repository=repo, run=broken)
     assert threading.get_ident() not in threads
     assert repo.get_job("course-1", jid)["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_provider_can_finish_receiving_while_checkpoint_disk_is_slow(tmp_path, monkeypatch):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    save = repo._save
+    receiving = False
+    callback_seconds = []
+
+    def slow_save(value):
+        if receiving:
+            time.sleep(.15)
+        return save(value)
+
+    monkeypatch.setattr(repo, "_save", slow_save)
+    text = response(["L2-1-1", "L2-1-2"])
+    async def generate(**request):
+        nonlocal receiving
+        receiving = True
+        for chunk in [text[:90], text[90:140], text[140:]]:
+            began = time.monotonic()
+            await request["on_content_delta"](chunk)
+            callback_seconds.append(time.monotonic() - began)
+            await asyncio.sleep(.005)
+        return {"text": text}
+
+    result = await service.run_script_job(**kwargs, job_id=jid, generator=generate)
+    assert result["status"] == "completed"
+    assert max(callback_seconds) < .08, "provider receive path waited for a durable checkpoint"
+    fresh = TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)
+    assert fresh["raw_response"] == text
+    assert len(fresh["result_sections"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_pause_keeps_received_text_even_if_stream_projection_is_waiting_for_disk(tmp_path, monkeypatch):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    text = "<!-- section:L2-1-1 -->\n" + BLOCK + "所有收到的文字"
+    async def generate(**request):
+        await request["on_content_delta"](text)
+        # No wait for a projection, parsing pass, or periodic checkpoint.
+        await asyncio.to_thread(repo.pause_job, "course-1", jid)
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.run_script_job(**kwargs, job_id=jid, generator=generate)
+    fresh = TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)
+    assert fresh["status"] == "paused"
+    assert fresh["raw_response"] == text
