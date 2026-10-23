@@ -34,6 +34,17 @@ def test_core_material_groups_retain_every_unabridged_input():
     assert [m for g in groups for m in g] == material
 
 
+def test_extraction_transport_closes_field_positions_without_guessing_knowledge():
+    from knowledge_core_contract import extraction_schema,parse_extraction
+    from jsonschema import Draft202012Validator
+    value={'points':[{'n':'入栈','s':'入栈将元素加入栈顶。','t':'domain-label','c':[], 'y':[], 'p':['栈'],'k':[]}],'context_note':''}
+    validator=Draft202012Validator(extraction_schema());assert not list(validator.iter_errors(value))
+    points=parse_extraction(value,'B1',['S1'])
+    assert points[0]['statement']=='入栈将元素加入栈顶。' and points[0]['unresolved_type']
+    value['points'][0]['extra']='不能丢弃或猜补额外列'
+    assert list(validator.iter_errors(value))
+
+
 def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
     from knowledge_core_contract import group_materials
     sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
