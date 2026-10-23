@@ -2,6 +2,7 @@
 import asyncio
 from copy import deepcopy
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -32,7 +33,7 @@ def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
     from knowledge_core_contract import group_materials
     sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
     material=[{'key':f'S{i}','text':'a'*size} for i,size in enumerate(sizes)]
-    groups=group_materials(material)
+    groups=group_materials(material,target_chars=3500)
     assert len(groups)==4
     assert [m for group in groups for m in group]==material
 
@@ -105,7 +106,14 @@ async def test_core_finishes_with_one_extraction_and_one_combined_audit(svc, mon
     before = deepcopy(svc.repository.load_raw('c-pilot')); view = svc.view('c-pilot', source_mode='handouts')
     job = svc.start('c-pilot', 'tree', 'core', view['knowledge_revision'], view['document_revision'], source_mode='handouts',
                     lesson_id='cpu', pipeline='inventory_atomic_v1', generation_mode='core_v1', organize_hierarchy=True)[0]
+    event_thread=threading.get_ident();on_loop=[];project=svc.authoring.read_projection
+    def recorded(*args,**kwargs):
+        if threading.get_ident()==event_thread:on_loop.append('read_projection')
+        return project(*args,**kwargs)
+    monkeypatch.setattr(svc.authoring,'read_projection',recorded)
     await svc.run('c-pilot', job['id'])
+    assert not on_loop, 'the model request path waited for the course lock on the HTTP loop'
+    monkeypatch.setattr(svc.authoring,'read_projection',project)
     saved = svc.authoring.get_job('c-pilot', job['id'])
     assert saved['status'] == 'completed', saved.get('error')
     tree = saved['checkpoint']['candidate']
