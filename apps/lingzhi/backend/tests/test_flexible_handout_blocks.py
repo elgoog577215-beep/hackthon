@@ -212,3 +212,11 @@ def test_first_manual_draft_accepts_flexible_blocks_after_model_format_failure()
     assert validate_teacher_script_section(recovered, contract)['passed']
     assert [b['block_id'] for b in recovered['blocks']] == [b['block_id'] for b in blocks]
     assert recovered['blocks'][-1]['answer_to'] == blocks[-2]['block_id']
+
+def test_comparison_operators_in_plain_titles_are_not_html_markup():
+    text='<!-- block:{"type":"comparison","title":"边界：i<n 与 i<=n","key":"boundary"} -->\n比较严格与包含边界。'
+    parsed=parse_handout_blocks(text,'s',complete=True)
+    assert parsed['error']==''
+    assert parsed['blocks'][0]['title']=='边界：i<n 与 i<=n'
+    unsafe='<!-- block:{"type":"explanation","title":"<script>bad</script>","key":"unsafe"} -->\n正文'
+    assert parse_handout_blocks(unsafe,'s',complete=True)['error']=='block_metadata_invalid'
