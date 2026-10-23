@@ -205,3 +205,29 @@ def test_help_outcomes_come_from_later_official_attempts_and_keep_uncertainty():
     assert row["status"] == "evidence_available" and row["attempts"][0]["independent"] is False
     assert help_followups(links, attempts, "other")[0]["status"] == "historical"
     assert help_followups(links, [], "cv")[0]["status"] == "verification_requested"
+
+def test_repeated_independent_difficulty_gets_a_bounded_hint_and_later_pass_is_respected():
+    evidence=[{'source_id':'a1','support':'independent','outcome':'not_passed'}, {'source_id':'a2','support':'independent','outcome':'not_passed'}]
+    result=teaching_decision(model(evidence),question='帮我理一下',knowledge_refs={'k1':'kr1'},node_id='n1')
+    assert result['action']=='step'
+    assert result['basis']=='repeated_independent_difficulty'
+    assert result['mastery_write'] is False
+    result=teaching_decision(model(evidence+[{'source_id':'a3','support':'independent','outcome':'passed'}]),question='解释一下',knowledge_refs={'k1':'kr1'},node_id='n1')
+    assert result['basis']!='repeated_independent_difficulty'
+
+
+def test_check_followup_separates_assisted_success_from_independent_result_and_current_profile():
+    links={'q':{'created_at':'2026-10-23T01:00:00Z','course_version_id':'cv','help_message_id':'h','knowledge_id':'k','knowledge_revision_id':'kr'}}
+    attempt={'attempt_id':'a','task_revision_id':'q','course_version_id':'cv','created_at':'2026-10-23T02:00:00Z','status':'graded','result':{'passed':True,'grading_confidence':.9}}
+    profile={'model_revision_id':'m2','knowledge_profile':{'nodes':[{'knowledge_id':'k','knowledge_revision_id':'kr','status':'checking','independent_count':1}]}}
+    result=help_followups(links,[attempt],'cv',model=profile)[0]
+    assert result['verification_state']=='independent_pass'
+    assert result['current_profile']['status']=='checking'
+    assert result['current_model_revision_id']=='m2'
+    assert result['causal_effect_verified'] is False
+    assisted=deepcopy(attempt);assisted['ai_support_level']=1
+    assert help_followups(links,[assisted],'cv',model=profile)[0]['verification_state']=='assisted_only'
+    uncertain=deepcopy(attempt);uncertain['result']['grading_confidence']=.2
+    assert help_followups(links,[uncertain],'cv',model=profile)[0]['verification_state']=='uncertain'
+    assert help_followups(links,[],'cv',model=profile)[0]['verification_state']=='awaiting_check'
+    assert help_followups(links,[attempt],'new',model=profile)[0]['current_profile'] is None
