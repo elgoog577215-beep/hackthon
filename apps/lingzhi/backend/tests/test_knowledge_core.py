@@ -22,7 +22,7 @@ def review(points, materials):
 
 
 def transport_review(points,materials):
-    return {'decisions':{p['key']:{'type':'rule','action':'keep','test':'已检查边界条件与独立规则'} for p in points},
+    return {'decisions':{p['key']:{'type':'rule','grain':'single','action':'keep','test':'已检查边界条件与独立规则'} for p in points},
             'add':[],'coverage':{m['key']:['complete','独立知识完整'] for m in materials}}
 
 
@@ -134,7 +134,7 @@ def test_combined_review_schema_separates_material_keys_from_candidate_decisions
     schema=review_schema(points,[{'key':'S1'}]);decisions=schema['properties']['decisions']
     assert decisions['required']==['B1P1'] and decisions['additionalProperties'] is False
     assert set(decisions['properties']['B1P1']['properties']['type']['enum'])=={'definition','rule','method','comparison'}
-    value={'decisions':{'B1P1':{'type':'rule','action':'keep','test':'检查空栈与非空栈的插入位置'}},
+    value={'decisions':{'B1P1':{'type':'rule','grain':'single','action':'keep','test':'检查空栈与非空栈的插入位置'}},
            'add':[],'coverage':{'S1':['complete','完整操作已承载']}}
     assert compile_review(value,points,[],[{'key':'S1'}])['registry']['points'][0]['truth_review']['test_case']
     value['decisions']['S1']={'type':'rule','action':'keep','test':'材料不是候选'}

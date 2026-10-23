@@ -102,6 +102,7 @@ def extraction_prompt(raw, context, materials):
         '逐句读取本批完整讲义，提取可独立讲解、判断和补学的全部知识，不挑代表点或按主题只留一条。'
         '逐一分辨不同对象的定义、每一种记号的含义、每一种运算的独立性质、量之间的关系、表示方程和各个退化条件。'
         '同属某体系、同一组法则或同一段落，不代表只能保留一条；学生可能会前一条却不会后一条时，应分别保留完整结论。'
+        '不生成“记号系统”“运算法则合集”这类汇总叶子；各记号的意义、各运算的性质分别形成知识。'
         '定义、独立运算规律、对象的斜率/方程/特殊情形分别完整保留；同一个完整公式内部不拆因子。'
         '同义表述、换符号、具体算例步骤不重复算知识。必要条件不能省略；不要把常见错误当独立规律。'
         '同时写简短知识名和主题分类路径，名称用学生能懂的概念或规律名，不用问句或完整长句。'
@@ -131,10 +132,13 @@ def review_prompt(raw, context, materials, points, catalog, *, references=(), co
     return render(
         '一次集中核对全部知识的独立性、正确性、必要条件、同义身份和讲义覆盖。'
         '逐项主动尝试边界或反例，test简短记录实际检验的边界和结果，特别核对充分/必要、零值、定义域、方向及奇偶结论。'
+        'test只用一句简短中文记录关键检验结果，不复述原公式或算例过程。'
         'decisions只且恰好包含每个候选key，材料S键只能出现在coverage，已有目录E键只能作为匹配目标。'
-        '每个决定含type、action、test；type必须是definition/rule/method/comparison，不得沿用输入中其他类型名。'
+        '每个决定先判grain：single为一个完整知识；multiple为多个可独立掌握的结论；non_knowledge为操作失误或背景。'
+        '用“学生掌握其中一条但不会另一条是否可能”判断，可能则multiple。一个公式的因子、一个方法的必要步骤仍是一条。'
+        '每个决定含type、grain、action、test；type必须是definition/rule/method/comparison，不得沿用输入中其他类型名。'
         '正确且独立者keep；correct只改statement、conditions、symbol_definitions三个核心字段，其他字段冻结；'
-        'correct额外给core对象。混合的独立知识用split，额外给points七列知识行数组；拆开的独立子结论不能再合并。'
+        'correct额外给core对象。multiple必须split，额外给points知识对象数组；拆开的独立子结论不能再合并。'
         '不同对象的定义、多个记号的各自含义、多种运算的各自性质、关系/方程/退化情况不能只因同属体系而混成一条。'
         '同义知识match，只有完整命题、范围及符号含义一致才允许，须明确same_claim/same_scope/same_symbols均true，'
         'target为本轮其他候选或冻结已有目录E键，不能只因同主题或一起使用而合并；已有目录正文不可修改。'
@@ -145,13 +149,13 @@ def review_prompt(raw, context, materials, points, catalog, *, references=(), co
         'reference_candidates用于全讲同义匹配，不给它们做决定。coverage只且恰好覆盖coverage_materials中的材料key，'
         '其他材料只是本批核对背景，不重复补充知识。值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
         '不要复述无问题的知识或输出核对过程。只输出紧凑JSON：'
-        '{"decisions":{"候选key":{"type":"rule","action":"keep","test":"明确的边界检验及结果"}},"add":[],"coverage":{}}。'
+        '{"decisions":{"候选key":{"type":"rule","grain":"single","action":"keep","test":"明确的边界检验及结果"}},"add":[],"coverage":{}}。'
         'split的points和add的point使用完整对象{name,statement,knowledge_type,conditions,symbol_definitions,path,checks}；'
         'knowledge_type同样只用四种正式类别。add每项另给sources，且只能补充coverage_materials中的独立知识。',
         {'stage': 'candidate_core_review', 'contract': CONTRACT, 'course_title':raw.get('course_name',''),
          'lesson_title':context['handout_lessons'][0]['title'], 'materials':materials,
          'coverage_materials':coverage_materials,
-         'points': [{k:deepcopy(p[k]) for k in ('key',*FIELDS,'short_name','branch_path','check_intents')} for p in points],
+         'points': [{k:deepcopy(p[k]) for k in ('key','statement','knowledge_type','conditions','symbol_definitions','short_name','branch_path','check_intents')} for p in points],
          'reference_candidates':[{k:deepcopy(p[k]) for k in ('key','statement','conditions','symbol_definitions')} for p in references],
          'existing_knowledge': [{k:deepcopy(p.get(k)) for k in ('key','name',*FIELDS)} for p in catalog]})
 
@@ -168,19 +172,20 @@ def review_schema(points, materials, catalog=(), references=()):
     keys=[p['key'] for p in points];targets=[*keys,*[p['key'] for p in references],*[p['key'] for p in catalog]]
     decisions={}
     for key in keys:
-        properties={'type':{'enum':sorted(KNOWLEDGE_TYPES)},'action':{'enum':['keep','correct','split','match','check','context','uncertain']},
+        properties={'type':{'enum':sorted(KNOWLEDGE_TYPES)},'grain':{'enum':['single','multiple','non_knowledge']},'action':{'enum':['keep','correct','split','match','check','context','uncertain']},
             'test':text,'core':core,'points':{'type':'array','minItems':2,'maxItems':8,'items':row},
             'same_claim':{'const':True},'same_scope':{'const':True},'same_symbols':{'const':True},
             'adds_knowledge':{'const':False},'operational_only':{'const':True},'intent':text,'name':text,
             'path':{'type':'array','minItems':1,'items':text}}
         if any(k!=key for k in targets):properties['target']={'enum':[k for k in targets if k!=key]}
         branches=[]
-        for actions,fields in [(['keep','context','uncertain'],[]),(['correct'],['core']),(['split'],['points']),
+        for actions,fields in [(['keep'],[]),(['context'],[]),(['uncertain'],[]),(['correct'],['core']),(['split'],['points']),
             (['match'],['target','same_claim','same_scope','same_symbols']),(['check'],['target','same_scope','adds_knowledge','operational_only','intent'])]:
             if 'target' in fields and 'target' not in properties:continue
-            allowed={'type','action','test','name','path',*fields}
-            branches.append({'type':'object','additionalProperties':False,'required':['type','action','test',*fields],
-                'properties':{**{k:v for k,v in properties.items() if k in allowed},'action':{'enum':actions}}})
+            allowed={'type','grain','action','test','name','path',*fields}
+            grains=['multiple'] if actions==['split'] else ['non_knowledge'] if actions in [['context'],['check']] else ['single','multiple','non_knowledge'] if actions==['uncertain'] else ['single']
+            branches.append({'type':'object','additionalProperties':False,'required':['type','grain','action','test',*fields],
+                'properties':{**{k:v for k,v in properties.items() if k in allowed},'action':{'enum':actions},'grain':{'enum':grains}}})
         decisions[key]={'anyOf':branches,'properties':properties}
     material_keys=[m['key'] for m in materials]
     result={'type':'object','additionalProperties':False,'required':['decisions','add','coverage'],'properties':{
@@ -210,13 +215,16 @@ def _decisions(value, originals):
     result.update(keep=[],add=[{**a,'point':_review_row(a['point'])} for a in additions],coverage=value['coverage'])
     tests={}
     for key,decision in value['decisions'].items():
-        if (not isinstance(decision,dict) or not {'type','action','test'}<=set(decision)
+        if (not isinstance(decision,dict) or not {'type','grain','action','test'}<=set(decision)
             or not isinstance(decision['test'],str) or not decision['test'].strip()):
             raise ValueError('每条知识须明确类别、决定与边界检验')
         action=decision['action'];extra={'name','path'}&set(decision)
         required={'keep':set(),'correct':{'core'},'split':{'points'},'match':{'target','same_claim','same_scope','same_symbols'},
             'check':{'target','same_scope','adds_knowledge','operational_only','intent'},'context':set(),'uncertain':set()}.get(action)
-        if required is None or set(decision)!={'type','action','test',*extra,*required}:raise ValueError('决定与字段不一致')
+        if required is None or set(decision)!={'type','grain','action','test',*extra,*required}:raise ValueError('决定与字段不一致')
+        grain=decision['grain']
+        allowed_grains={'split':{'multiple'},'check':{'non_knowledge'},'context':{'non_knowledge'},'uncertain':{'single','multiple','non_knowledge'}}.get(action,{'single'})
+        if grain not in allowed_grains:raise ValueError('混合知识必须拆分，检查表现与背景不能直接保留为知识')
         result['types'][key]=decision['type'];tests[key]=decision['test']
         if 'name' in decision:result['names'][key]=decision['name']
         if 'path' in decision:result['paths'][key]=decision['path']
