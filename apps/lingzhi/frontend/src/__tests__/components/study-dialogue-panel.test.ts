@@ -10,6 +10,17 @@ import { useLearnerModelStore } from '@/stores/learnerModel'
 
 const initial = ():AIConversation => ({ conversation_id:'study1', course_id:'c', revision:1, title:'Note', created_at:'', updated_at:'', messages:[], study_workspace:{ kind:'note',revision:1,course_version_id:'cv',node_id:'n',node_name:'Lecture',quote:'The passage',anchor:{block_id:'b'},record_id:'note1',saved_revision:0,draft:'',assisted:false,proposal:null,versions:[],nearby:[],knowledge:[],checks:[] } })
 describe('study dialogue editing', () => {
+  it('uses a readable short answer in the passage without workspace tabs and teaching toolbars',async()=>{
+    const ai=useAITeacherStore()
+    ai.currentConversation!.messages=[{message_id:'reply',role:'assistant',content:'先找内层 3x+1，再看外层平方。',status:'complete'}] as AIConversation['messages']
+    wrapper=mount(StudyDialoguePanel,{props:{conversation:ai.currentConversation!,compact:true},global:{stubs:{MarkdownRenderer:{props:['content'],template:'<div>{{content}}</div>'}}}})
+    expect(wrapper.find('.study-tabs').exists()).toBe(false)
+    expect(wrapper.find('.study-teaching-actions').exists()).toBe(false)
+    expect(wrapper.find('.study-source').exists()).toBe(false)
+    expect(wrapper.get('.study-body').text()).toContain('先找内层')
+    await wrapper.setProps({compact:false})
+    expect(wrapper.find('.study-tabs').exists()).toBe(true)
+  })
   it('offers an explicit one-step teaching action without changing the source or saving a note', async () => {
     const view=start()
     await view.get('[data-teaching-action="step"]').trigger('click');await flushPromises()
