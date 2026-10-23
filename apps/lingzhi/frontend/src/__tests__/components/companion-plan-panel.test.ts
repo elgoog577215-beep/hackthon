@@ -61,6 +61,15 @@ describe('owned learning plan and companion preferences',()=>{
    expect(http.post).toHaveBeenCalledTimes(1)
   } finally {w.unmount()}
  })
+ it('opens material preparation with the saved adopted purpose, without generating from unsaved edits',async()=>{
+  vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:{...state(),goal:{text:'完成项目',purpose:'project'},source_revision:'cv',plan:{status:'active',source_revision:'cv',steps:[]}}}))
+  const w=mount(CompanionPlanPanel,{props:{courseId:'c'},attachTo:document.body})
+  await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+  const button=document.querySelector<HTMLButtonElement>('[data-testid="prepare-goal-material"]')!
+  expect(button).not.toBeNull();button.click();await flushPromises()
+  expect(w.emitted('prepareMaterial')?.[0]).toEqual([{courseId:'c',purpose:'project'}])
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+ })
  it('does not read or write personal context from teacher preview',async()=>{
   const w=mount(CompanionPlanPanel,{props:{courseId:'c',preview:true}})
   expect(w.find('[data-testid="companion-plan-open"]').exists()).toBe(false)
