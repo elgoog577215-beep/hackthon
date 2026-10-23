@@ -44,6 +44,15 @@ it('keeps complete generation as an explicit action',async()=>{
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',include_relations:true}))
   w.unmount()
 })
+it('labels core review without the retired source-validation wording',async()=>{
+  const v:any=view();v.atomic_runs[0].pipeline.generation_mode='core_v1';v.atomic_runs[0].status='running'
+  v.active_jobs=[{id:'atomic-job',status:'running',knowledge_lesson_id:'cpu',phase:'structure_check',pipeline_stage:'candidate_core_review',progress:70}];v.jobs=v.active_jobs
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('核对完整知识')
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).not.toContain('来源引用')
+  w.unmount()
+})
 it('organizes only saved leaf batches after an explicit click',async()=>{
   const v:any=view();v.atomic_runs[0].status='completed';v.atomic_runs[0].pipeline.batches[1].status='completed'
   vi.spyOn(http,'get').mockResolvedValue({data:v})
