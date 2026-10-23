@@ -17,7 +17,7 @@
       <button v-if="!followingLatest && conversation?.messages.length" type="button" class="latest-reply" @click="scrollToBottom">{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
       <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><button type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</button></div><p>{{ context.quote }}</p></div>
       <p v-if="error" role="alert">{{ error }}<button type="button" @click="load">{{ c('retry') }}</button></p>
-      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button></div>
+      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button><button v-for="action in ['contrast','step'] as const" :key="action" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(t(`companionTeaching.${action}`))">{{t(`companionTeaching.${action}`)}}</button></div>
       <textarea v-model="input" rows="2" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><span>{{ active ? c('running') : historyReady && conversation?.messages.length ? c('aiSaved') : '' }}</span><button type="submit" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id">{{ busy ? c('busy') : c('aiSend') }}</button></footer>
     </form>

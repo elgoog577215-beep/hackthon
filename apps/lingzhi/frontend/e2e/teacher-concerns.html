@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>Isolated teacher concerns acceptance</title></head>
+<body style="margin:24px;font:16px/1.6 sans-serif;color:#354052;background:#f5f4fb"><p>隔离验收页面 · 仅使用明确标记的合成班级记录</p><div id="teacher-concern-check"></div>
+<script type="module">
+import {createApp,ref,h} from 'vue'
+import {createPinia} from 'pinia'
+import TeacherLearningConcerns from '/src/components/TeacherLearningConcerns.vue'
+import CourseEvolutionWorkspace from '/src/components/CourseEvolutionWorkspace.vue'
+import {setActiveRequestIdentityScope} from '/src/utils/http.ts'
+import {useCourseStore} from '/src/stores/course.ts'
+import {setLocale} from '/src/shared/i18n.ts'
+setActiveRequestIdentityScope('teacher')
+await setLocale(new URLSearchParams(location.search).get('lang')==='en'?'en':'zh')
+const pinia=createPinia()
+createApp({components:{TeacherLearningConcerns,CourseEvolutionWorkspace},setup(){
+ const focus=ref(new URLSearchParams(location.search).get('plan')||''),open=ref(Boolean(focus.value)); const courseId=new URLSearchParams(location.search).get('course')||'pilot-teacher-course'
+ const course=useCourseStore();void course.loadCourse(courseId,{includeLearningRecords:false}).catch(()=>{})
+ return()=>h('div',[
+   h(TeacherLearningConcerns,{courseId,onOpenPlan(target){focus.value=target.planId;open.value=true}}),
+   h(CourseEvolutionWorkspace,{modelValue:open.value,courseId,focusPlanId:focus.value,'onUpdate:modelValue':value=>{open.value=value}})
+ ])
+}}).use(pinia).mount('#teacher-concern-check')
+</script></body></html>

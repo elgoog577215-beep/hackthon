@@ -12,6 +12,7 @@ export const useCompanionPreferencesStore = defineStore('companionPreferences', 
     const actor=getLearnerIdentity()
     if(!force && ready.value && actor===owner.value) return
     if(pending && actor===owner.value && !force) return pending
+    if(actor!==owner.value)suppressions.value={}
     const token=++sequence;owner.value=actor;ready.value=false;error.value=false
     const request=(async()=>{try {
       const {data}=await http.get('/api/study/companion/preferences')
@@ -32,7 +33,7 @@ export const useCompanionPreferencesStore = defineStore('companionPreferences', 
       mode.value=data.mode;revision.value=data.revision;ready.value=true
     }catch(e){await load(true);throw e}finally{busy.value=false}
   }
-  async function loadSuppressions(course:string){const actor=getLearnerIdentity();try{const {data}=await http.get(`/api/courses/${encodeURIComponent(course)}/learning-records/companion/suppressions`);if(actor!==getLearnerIdentity())return;suppressions.value={...suppressions.value,[course]:Array.isArray(data)?data.filter(s=>s.mode==='never'||s.mode==='not_now').map(s=>s.suppression_key):[]}}catch{suppressionError.value=true}}
+  async function loadSuppressions(course:string){const actor=getLearnerIdentity();try{const {data}=await http.get(`/api/courses/${encodeURIComponent(course)}/learning-records/companion/suppressions`);if(actor!==getLearnerIdentity())return;suppressionError.value=false;suppressions.value={...suppressions.value,[course]:Array.isArray(data)?data.filter(s=>s.mode==='never'||s.mode==='not_now').map(s=>s.suppression_key):[]}}catch{suppressionError.value=true}}
   async function suppress(course:string,key:string,choice:'not_now'|'never'){suppressions.value={...suppressions.value,[course]:[...(suppressions.value[course]||[]),key]};try{await http.post(`/api/courses/${encodeURIComponent(course)}/learning-records/companion/suppressions`,{key,mode:choice});suppressionError.value=false}catch{suppressionError.value=true}}
   return {mode,revision,ready,owner,error,busy,proactive,suppressions,suppressionError,load,change,loadSuppressions,suppress}
 })

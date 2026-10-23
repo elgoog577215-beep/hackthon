@@ -28,6 +28,13 @@ import file_lock
 SCHEMA = "lingzhi_course_exchange_v1"
 LEDGER = "course_exchange.json"
 INTERNAL_PREFIX = "/api/exchange/internal/"
+_learning_summary_validator = None
+
+
+def register_learning_summary_validator(validator):
+    """Application wiring supplies consent policy; transport owns no learner store."""
+    global _learning_summary_validator
+    _learning_summary_validator = validator
 remote_course_context = ContextVar("remote_course_context", default=None)
 
 
@@ -421,6 +428,14 @@ class ExchangeRepository:
         item = self.ledger().get("outbox", {}).get(feedback_id)
         if not item or item["envelope"]["actor_id"] != actor:
             raise HTTPException(404, "反馈不存在")
+        if item['envelope']['kind']=='learning_summary':
+            payload=item['envelope']['payload']
+            if _learning_summary_validator is None or not _learning_summary_validator(actor,item['local_course_id'],payload):
+                def supersede(value):
+                    value['outbox'][feedback_id]['status']='superseded'
+                    return value
+                self.update(supersede)
+                raise HTTPException(409,'Learning-summary consent or revision changed; send the current summary')
         if item["status"] == "delivered":
             return deepcopy(item)
         try:

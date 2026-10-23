@@ -76,8 +76,9 @@ async def companion_review(course_id: str, record_id: str, payload: CompanionRev
     user_id = require_user_id(request.headers.get("X-User-Id"))
     from companion_learning import CompanionService
     from ai_teacher_state import ai_teacher_repository
-    if payload.automatic and CompanionService(ai_teacher_repository).preferences(user_id)['mode']=='on_request':
-        return {'status':'on_request','finding':None}
+    try:
+        if payload.automatic and CompanionService(ai_teacher_repository).preferences(user_id)['mode']=='on_request':return {'status':'on_request','finding':None}
+    except (ValueError,OSError):return {'status':'preference_unavailable','finding':None}
     records = await run_in_threadpool(learning_record_repository.list, user_id, course_id)
     record = next((item for item in records if item.get("record_id") == record_id), None)
     if record is None:

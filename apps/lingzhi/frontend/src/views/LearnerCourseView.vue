@@ -21,7 +21,7 @@
 
     <ColumnResizeHandle v-if="!isNarrow && navigatorVisible" v-bind="leftColumnHandle" />
     <main class="learning-main glass-panel-elevated" data-companion-obstacle>
-      <div v-if="!isGenerationPreview" class="learning-plan-tools"><CompanionPlanPanel :course-id="courseStore.currentCourseId" :preview="isTeacherPreview" @navigate="navigatePlanStep" /><span v-if="companionPreferences.suppressionError" role="status">{{ t('companionPolicy.saveFailed') }}</span></div>
+      <div v-if="!isGenerationPreview" class="learning-plan-tools"><CompanionPlanPanel :course-id="courseStore.currentCourseId" :preview="isTeacherPreview" @visibility-change="companionSettingsOpen=$event" @navigate="navigatePlanStep" /><span v-if="companionPreferences.suppressionError" role="status">{{ t('companionPolicy.saveFailed') }}</span></div>
       <AITeacherSuggestion
         v-if="companionEligible"
         :suggestion="aiTeacherStore.suggestion"
@@ -272,6 +272,7 @@ const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(
 const companionRef = ref<InstanceType<typeof LearningCompanion> | null>(null)
 const companionAvatar = resolvePublicAssetUrl('images/learning-companion.png', import.meta.env.BASE_URL)
 const companionPreferences=useCompanionPreferencesStore()
+const companionSettingsOpen=ref(false)
 const companionEditing=ref(false), companionPageVisible=ref(document.visibilityState!=='hidden')
 function updateCompanionAttention(){companionEditing.value=Boolean(document.activeElement?.matches('input,textarea,[contenteditable="true"]'));companionPageVisible.value=document.visibilityState!=='hidden'}
 async function toggleCompanionMode(){try{await companionPreferences.change(companionPreferences.proactive?'on_request':'gentle')}catch{/* Keep the last verified server setting. */}}
@@ -408,13 +409,13 @@ const isTeacherCurrentProjection = computed(() => (
   courseStore.currentCourseProjection === 'generation_preview' && isTeacherPreview.value
 ))
 const { visible: companionWelcome, dismiss: dismissCompanionWelcome } = useCompanionWelcome(
-  computed(() => companionPreferences.proactive && !companionEditing.value && !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
+  computed(() => companionPreferences.proactive && !companionSettingsOpen.value && !companionEditing.value && !aiVisible.value && !taskOpen.value && !notebookOpen.value && !isTeacherPreview.value && !isGenerationPreview.value && !isNarrow.value
     && !courseStore.isFocusMode && Boolean(courseStore.currentCourseId)
     && loadedLearningCourseId.value === courseStore.currentCourseId
     && String(route.params.courseId || '') === courseStore.currentCourseId),
   computed(() => isTeacherPreview.value ? '' : getLearnerIdentity()),
 )
-const companionEligible=computed(()=>companionPreferences.proactive && companionPageVisible.value && !companionEditing.value && !taskOpen.value && !aiVisible.value && !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value)
+const companionEligible=computed(()=>companionPreferences.proactive && !companionSettingsOpen.value && companionPageVisible.value && !companionEditing.value && !taskOpen.value && !aiVisible.value && !isTeacherPreview.value && !isGenerationPreview.value && !courseStore.isFocusMode && !isNarrow.value)
 const { reminder:companionReminder, dismiss:dismissReminder } = useCompanionReminders(companionEligible,{suppressed:computed(()=>new Set(companionPreferences.suppressions[courseStore.currentCourseId]||[])),dismiss:(key,mode)=>{void companionPreferences.suppress(courseStore.currentCourseId,key,mode)}})
 watch(()=>[courseStore.currentCourseId,isTeacherPreview.value],()=>{if(courseStore.currentCourseId&&!isTeacherPreview.value){void companionPreferences.load();void companionPreferences.loadSuppressions(courseStore.currentCourseId)}},{immediate:true})
 async function openCompanionReminder(reminder:CompanionReminder) {

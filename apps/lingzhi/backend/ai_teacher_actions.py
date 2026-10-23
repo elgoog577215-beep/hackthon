@@ -450,8 +450,9 @@ def build_trigger_candidate(
     if moment not in SUGGESTION_MOMENTS:
         return None
     from companion_learning import CompanionService
-    if CompanionService(repository).preferences(user_id)['mode']=='on_request':
-        return None
+    try:
+        if CompanionService(repository).preferences(user_id)['mode']=='on_request':return None
+    except (ValueError,OSError):return None
     course_id = str(course.get("course_id") or "")
     runtime = build_learning_runtime(course, user_id=user_id, node_id=node_id)
     action = (runtime.get("continuation") or {}).get("primary_action") or {}

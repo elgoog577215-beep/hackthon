@@ -65,7 +65,7 @@
 
       <template v-else>
         <div class="study-reading-pane">
-          <div class="study-reading-toolbar"><CompanionPlanPanel :material-id="materialId" @navigate="navigatePersonalPlan" /><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button><button v-if="inlineCompanion" type="button" @click="readingCompanionAnchor = null; toolTab = 'note'">{{ c('note') }}</button></div>
+          <div class="study-reading-toolbar"><CompanionPlanPanel :material-id="materialId" @navigate="navigatePersonalPlan" @navigate-course="openSourceMainline" /><button @click="goLibrary"><ArrowLeft :size="17" />{{ c('back') }}</button><span v-if="material" class="study-status" :class="materialStatus">{{ statusLabel(materialStatus) }}</span><button v-if="material?.revisions[0]?.sections.length" @click="exportHandout"><Download :size="17" />{{ c('export') }}</button><button v-if="inlineCompanion" type="button" @click="readingCompanionAnchor = null; toolTab = 'note'">{{ c('note') }}</button></div>
           <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openPassageHelp()">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
           <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
             <article class="study-handout">
@@ -159,6 +159,7 @@ function openPassageHelp() {
   readingCompanionAnchor.value = passage?.block_id ? Array.from(readingTarget.value?.querySelectorAll<HTMLElement>('[data-study-companion-anchor]') || [])
     .find(element => element.dataset.studyNodeId === passage.section_id && element.dataset.studyBlockId === passage.block_id) || null : null
 }
+function openSourceMainline(courseId:string){void router.push({name:'learning',params:{courseId},query:{returnTo:route.fullPath}})}
 function navigatePersonalPlan(id:string){document.getElementById(sectionAnchor(id))?.scrollIntoView({block:'start'})}
 function openBlockHelp(sectionId: string, blockId: string) {
   const section = material.value?.revisions[0]?.sections.find(item => item.id === sectionId)

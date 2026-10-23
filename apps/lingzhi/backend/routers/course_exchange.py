@@ -15,6 +15,7 @@ from course_exchange import (
     digest,
     now,
     require_peer,
+    register_learning_summary_validator,
 )
 from dependencies import get_course_or_404
 from routers.course_learning_access import owner_course
@@ -24,6 +25,16 @@ from course_exchange_ppt import public_ppt_options, published_ppt_path
 
 router = APIRouter(tags=["course-exchange"])
 PEER_ROUTE_PREFIX = INTERNAL_PREFIX.removeprefix("/api")
+
+
+def _learning_summary_allowed(actor, local_course_id, payload):
+    from companion_learning import CompanionService
+    from ai_teacher_state import ai_teacher_repository
+    state=CompanionService(ai_teacher_repository).read(actor,local_course_id)
+    return payload.get('consent_revision')==state['revision'] and bool(payload.get('withdrawn'))!=bool(state['feedback_consent'])
+
+
+register_learning_summary_validator(_learning_summary_allowed)
 
 
 class StrictModel(BaseModel):
@@ -292,6 +303,7 @@ async def grade_locked(body, config):
         "task_revision_id": body.task_revision_id,
         "answer_payload": attempt.get("submitted_answer_payload") or {},
         "result": result,
+        "support": {"ai_support_level":attempt.get('ai_support_level',0),"hint_used":bool(attempt.get('revealed_hint_levels')),"solution_revealed":bool(attempt.get('solution_revealed'))},
         "created_at": now(),
     }
 
@@ -424,6 +436,7 @@ def teacher_feedback(course_id: str, request: Request):
             row["assessment"] = {
                 key: deepcopy(grade_record.get(key)) for key in ("task_revision_id", "answer_payload", "result")
             }
+            row['assessment']['support'] = deepcopy(grade_record.get('support') or {})
             row["assessment"]["task"] = {
                 key: deepcopy(task[key]) for key in ("prompt", "question_type", "options", "node_id", "concept_ids", "knowledge_revision_refs", "knowledge_name") if key in task
             }

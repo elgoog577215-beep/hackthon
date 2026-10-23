@@ -411,13 +411,15 @@ class AITeacherRepository:
         with self._locks_guard:
             return self._locks.setdefault(key, threading.RLock())
 
-    def _read(self, path: Path) -> dict[str, Any]:
+    def _read(self, path: Path, *, strict: bool = False) -> dict[str, Any]:
         if not path.exists():
             return _blank()
         try:
             with path.open(encoding="utf-8") as handle:
                 data = json.load(handle)
             if not isinstance(data, dict):
+                if strict:
+                    raise ValueError('Invalid saved companion preferences')
                 return _blank()
             normalized = _blank()
             normalized['companion'] = data.get('companion') if isinstance(data.get('companion'), dict) else {}
@@ -430,6 +432,8 @@ class AITeacherRepository:
                     )
             return normalized
         except (OSError, json.JSONDecodeError):
+            if strict:
+                raise ValueError('Saved companion preferences unavailable') from None
             corrupt = path.with_suffix(f".corrupt-{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
             try:
                 os.replace(path, corrupt)
@@ -456,6 +460,7 @@ class _RepositoryGuard:
         self.key = repository._key(user_id, course_id, resource_type)
         self.path = repository._path(self.key)
         self.write = write
+        self.resource_type = resource_type
         self.lock = repository._lock(self.key)
         self.data: dict[str, Any] | None = None
 
@@ -471,13 +476,15 @@ class _RepositoryGuard:
             self.scope['write'] = self.scope['write'] or self.write
             self.data = self.scope['data']
             return self.data
-        self.file_guard = self.path.with_suffix('.lock').open('a+b')
+        self.file_guard = None
         try:
+            self.file_guard = self.path.with_suffix('.lock').open('a+b')
             file_lock.flock(self.file_guard,file_lock.LOCK_EX)
-            self.data = self.repository._read(self.path)
+            self.data = self.repository._read(self.path,strict=self.resource_type=='companion_preferences')
             self.scope = scopes[self.scope_key] = {'data': self.data, 'write': self.write, 'failed': False}
         except BaseException:
-            self.file_guard.close()
+            if self.file_guard is not None:
+                self.file_guard.close()
             self.lock.release()
             raise
         return self.data
