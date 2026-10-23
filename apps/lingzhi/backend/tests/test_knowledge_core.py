@@ -28,6 +28,15 @@ def test_core_material_groups_retain_every_unabridged_input():
     assert [m for g in groups for m in g] == material
 
 
+def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
+    from knowledge_core_contract import group_materials
+    sizes=[600,900,500,450,1300,800,500,600,1000,800,1000,750,1300,350,1200,650]
+    material=[{'key':f'S{i}','text':'a'*size} for i,size in enumerate(sizes)]
+    groups=group_materials(material)
+    assert len(groups)==4
+    assert [m for group in groups for m in group]==material
+
+
 def test_core_review_keeps_conditions_splits_and_explicit_shared_checks():
     from knowledge_core_contract import parse_extraction, compile_review
     reminder=row('操作提醒', '应用完整规则时漏写一个操作位置。');reminder[2]='comparison'
