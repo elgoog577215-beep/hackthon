@@ -260,3 +260,17 @@ async def test_pause_keeps_received_text_even_if_stream_projection_is_waiting_fo
     fresh = TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)
     assert fresh["status"] == "paused"
     assert fresh["raw_response"] == text
+
+
+@pytest.mark.asyncio
+async def test_provider_final_response_supersedes_partial_received_buffer(tmp_path):
+    repo, service, kwargs = fixture(tmp_path)
+    jid = new_job(repo)
+    text = response(["L2-1-1", "L2-1-2"])
+    async def generate(**request):
+        await request["on_content_delta"](text[:95])
+        return {"text": text}
+
+    result = await service.run_script_job(**kwargs, job_id=jid, generator=generate)
+    assert result["status"] == "completed"
+    assert TeacherLessonAuthoringRepository(tmp_path).get_job("course-1", jid)["raw_response"] == text
