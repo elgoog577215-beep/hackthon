@@ -47,6 +47,20 @@ describe('owned learning plan and companion preferences',()=>{
    expect(document.querySelector('textarea')!.value).not.toContain('OLD COURSE')
   } finally {w.unmount()}
  })
+ it('does not send a delayed withdrawal to a different course',async()=>{
+  let finish!:(value:any)=>void
+  vi.mocked(http.get).mockImplementation(async url=>({data:String(url).includes('preferences')?{revision:1,mode:'gentle'}:{...state(),feedback_consent:true}}))
+  vi.mocked(http.post).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
+  const w=mount(CompanionPlanPanel,{props:{courseId:'exchange_old'},attachTo:document.body})
+  try {
+   await w.get('[data-testid="companion-plan-open"]').trigger('click');await flushPromises()
+   const checkbox=document.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+   checkbox.checked=false;checkbox.dispatchEvent(new Event('change',{bubbles:true}));await flushPromises()
+   await w.setProps({courseId:'exchange_new'})
+   finish({data:{...state(),revision:2,feedback_consent:false}});await flushPromises()
+   expect(http.post).toHaveBeenCalledTimes(1)
+  } finally {w.unmount()}
+ })
  it('does not read or write personal context from teacher preview',async()=>{
   const w=mount(CompanionPlanPanel,{props:{courseId:'c',preview:true}})
   expect(w.find('[data-testid="companion-plan-open"]').exists()).toBe(false)
