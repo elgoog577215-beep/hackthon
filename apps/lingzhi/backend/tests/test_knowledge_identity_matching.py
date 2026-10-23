@@ -101,3 +101,24 @@ def test_check_placement_is_a_separate_small_pass_over_comparison_candidates():
     assert [r['key'] for r in p['rule_catalog']]==['A']
     assert parse_placements({'placements':{'B':{'action':'keep','reason':'独立辨析'}}},rows[1:],rows,[])['B']['action']=='keep'
     with pytest.raises(ValueError):parse_placements({'placements':{'B':match('A')}},rows[1:],rows,[])
+
+
+
+def test_transitive_identity_conflicts_are_localized_without_rewriting_frozen_decisions():
+    from knowledge_identity_matching import conflicting_identity_keys, parse_reconciled_identity
+    from copy import deepcopy
+    points=[{'key':f'P{i}','statement':f'完整知识{i}','knowledge_type':'rule','conditions':[],
+        'symbol_definitions':[],'teaching_context':[],'examples':[],'input_material_keys':['S1'],
+        'semantic_review':{'independence_group':'split' if i in [1,2] else None}} for i in range(1,5)]
+    match=lambda target:{'action':'match','target':target,'same_claim':True,'same_scope':True,'same_symbols':True,'reason':'模型认为相同'}
+    decisions={'P1':match('P3'),'P2':match('P3'),'P3':{'action':'keep','reason':'保留'},'P4':{'action':'keep','reason':'冻结决定'}}
+    before=deepcopy(decisions)
+    keys=conflicting_identity_keys(points,[],decisions)
+    assert keys==['P1','P2','P3']
+    focus=points[:3]
+    response={'decisions':{p['key']:{'action':'keep','reason':'保留独立知识'} for p in focus}}
+    result=parse_reconciled_identity(response,focus,points,[],decisions)
+    assert result['decisions']['P4']==before['P4'] and len(result['registry']['points'])==4
+    assert decisions==before
+    with pytest.raises(ValueError):parse_reconciled_identity({'decisions':{k:decisions[k] for k in keys}},focus,points,[],decisions)
+    with pytest.raises(ValueError):parse_reconciled_identity({'decisions':{**response['decisions'],'P4':{'action':'keep','reason':'越界'}}},focus,points,[],decisions)
