@@ -9,6 +9,19 @@ CONTRACT = 'knowledge_core_v1'
 KNOWLEDGE_TYPES = {'definition','rule','method','comparison'}
 
 
+def _control_free_schema(schema):
+    """Constrain transport text before decoding; never repair formula commands."""
+    if isinstance(schema, dict):
+        if schema.get('type') == 'string':
+            schema['pattern'] = r'^[^\u0000-\u001f]*$'
+        for value in schema.values():
+            _control_free_schema(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            _control_free_schema(value)
+    return schema
+
+
 def group_materials(materials, *, target_chars=1800):
     """Balance complete input units; never truncate or sample the lesson."""
     if not materials:
@@ -63,6 +76,10 @@ def parse_row(row, *, allow_draft_types=False):
 
 
 def parse_extraction(value, batch_id, material_keys):
+    from jsonschema import Draft202012Validator
+    errors = list(Draft202012Validator(extraction_schema()).iter_errors(value))
+    if errors:
+        raise ValueError('提取响应结构无效：' + '；'.join(e.message for e in errors[:3]))
     if not isinstance(value, dict) or set(value) != {'points', 'context_note'}:
         raise ValueError('提取须给出points和context_note')
     rows = value['points']
@@ -99,8 +116,8 @@ def extraction_schema():
         'properties':{'n':{'type':'string','minLength':1,'maxLength':40},'s':text,
             't':{'type':'string','minLength':1,'maxLength':40},'c':array,'y':array,'k':array,
             'p':{'type':'array','minItems':1,'maxItems':8,'items':{'type':'string','minLength':1,'maxLength':80}}}}
-    return {'type':'object','additionalProperties':False,'required':['points','context_note'],
-        'properties':{'points':{'type':'array','maxItems':160,'items':row},'context_note':{'type':'string'}}}
+    return _control_free_schema({'type':'object','additionalProperties':False,'required':['points','context_note'],
+        'properties':{'points':{'type':'array','maxItems':160,'items':row},'context_note':{'type':'string'}}})
 
 
 def review_prompt(raw, context, materials, points, catalog, *, references=(), coverage_materials=None):
@@ -167,7 +184,7 @@ def review_schema(points, materials, catalog=(), references=()):
         'coverage':{'type':'object','additionalProperties':False,'required':material_keys,
             'properties':{k:{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}} for k in material_keys}}}}
     if not material_keys:result['properties']['add']={'type':'array','maxItems':0}
-    return result
+    return _control_free_schema(result)
 
 
 def _review_row(row):

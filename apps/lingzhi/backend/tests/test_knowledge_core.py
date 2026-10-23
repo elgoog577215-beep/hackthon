@@ -12,7 +12,7 @@ from backend.tests.test_knowledge_atomic import setup_course
 
 
 def row(name='入栈', statement='入栈将新元素放到栈顶。'):
-    return [name, statement, 'rule', [], [], ['栈', '基本操作'], ['判断新元素加入的位置']]
+    return dict(n=name, s=statement, t='rule', c=[], y=[], p=['栈', '基本操作'], k=['判断新元素加入的位置'])
 
 
 def review(points, materials):
@@ -66,7 +66,7 @@ def test_balancing_does_not_create_an_extra_serial_wave_for_uneven_units():
 
 def test_core_review_keeps_conditions_splits_and_explicit_shared_checks():
     from knowledge_core_contract import parse_extraction, compile_review
-    reminder=row('操作提醒', '应用完整规则时漏写一个操作位置。');reminder[2]='comparison'
+    reminder=row('操作提醒', '应用完整规则时漏写一个操作位置。');reminder['t']='comparison'
     points = parse_extraction({'points': [row(), row('组合结论', '和与常数倍分别求导。'), reminder], 'context_note': ''}, 'B1', ['S1'])
     value = review(points, [{'key': 'S1'}])
     value['keep'] = [points[0]['key']]
@@ -96,7 +96,7 @@ def test_truth_patch_cannot_overwrite_ancillary_fields_or_skip_any_claim():
 
 def test_open_draft_type_requires_explicit_classification_before_publication():
     from knowledge_core_contract import parse_extraction, compile_review
-    source=row();source[2]='domain-specific-label'
+    source=row();source['t']='domain-specific-label'
     points=parse_extraction({'points':[source],'context_note':''},'B1',['S1'])
     assert points[0]['knowledge_type']=='domain-specific-label'
     value=review(points,[{'key':'S1'}])
