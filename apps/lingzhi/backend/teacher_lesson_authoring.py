@@ -2638,7 +2638,7 @@ class TeacherLessonAuthoringRepository:
         request_id: str = "",
         source_outline_revision_id: str = "",
         return_created: bool = False,
-        initial_fields: dict[str, Any] | None = None,
+        initial_fields: dict[str, Any] | Callable[[str], dict[str, Any]] | None = None,
     ) -> dict[str, Any] | tuple[dict[str, Any], bool]:
         if job_type not in JOB_TYPES:
             raise TeacherLessonAuthoringError("unsupported_teacher_job", "不支持的教师讲次任务。")
@@ -2713,6 +2713,8 @@ class TeacherLessonAuthoringRepository:
                 "updated_at": _now(),
             }
             if initial_fields:
+                if callable(initial_fields):initial_fields=initial_fields(job_id)
+                if not isinstance(initial_fields,dict):raise ValueError('Initial job fields must be an object')
                 protected = {'id','course_id','lesson_unit_id','lesson_id','type','state_owner','request_id',
                     'idempotency_key','created_at','status','progress','phase','stage','cancel_requested'}
                 if protected.intersection(initial_fields):

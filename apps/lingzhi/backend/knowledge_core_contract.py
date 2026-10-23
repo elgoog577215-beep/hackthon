@@ -147,12 +147,14 @@ def review_schema(points, materials, catalog=(), references=()):
                 'properties':{**{k:v for k,v in properties.items() if k in allowed},'action':{'enum':actions}}})
         decisions[key]={'anyOf':branches,'properties':properties}
     material_keys=[m['key'] for m in materials]
-    return {'type':'object','additionalProperties':False,'required':['decisions','add','coverage'],'properties':{
+    result={'type':'object','additionalProperties':False,'required':['decisions','add','coverage'],'properties':{
         'decisions':{'type':'object','additionalProperties':False,'required':keys,'properties':decisions},
         'add':{'type':'array',**({'maxItems':0} if not material_keys else {}),'items':{'type':'object','additionalProperties':False,'required':['sources','point'],
             'properties':{'sources':{'type':'array','minItems':1,'items':{'enum':material_keys}},'point':row}}},
         'coverage':{'type':'object','additionalProperties':False,'required':material_keys,
             'properties':{k:{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}} for k in material_keys}}}}
+    if not material_keys:result['properties']['add']={'type':'array','maxItems':0}
+    return result
 
 
 def _review_row(row):

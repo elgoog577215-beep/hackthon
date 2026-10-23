@@ -596,7 +596,10 @@ class KnowledgeFirstService:
                     'organize_hierarchy':True,'extraction_mode':extraction_mode,'include_relations':False,
                     'checkpoint':continued_checkpoint or {},'resume_from_job_id':resume_job_id,
                     'parent_job_id':resume_job_id,'retry_batch_id':retry_batch_id}
-                return self.authoring.create_job(course_id,topic,job_type=kind,request_id=request_id,initial_fields=frozen),True
+                from knowledge_core import initial_pipeline
+                return self.authoring.create_job(course_id,topic,job_type=kind,request_id=request_id,
+                    initial_fields=lambda identity:{**frozen,'checkpoint':continued_checkpoint or {
+                        'atomic_pipeline':initial_pipeline(raw,context,identity)}}),True
             job = self.authoring.create_job(course_id, topic, job_type=kind, request_id=request_id)
             state = self.authoring.load(course_id)
             lesson = state["lessons"].get(lesson_id or topic) or {}

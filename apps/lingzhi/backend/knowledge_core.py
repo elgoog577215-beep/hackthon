@@ -13,6 +13,15 @@ from knowledge_transport import REQUEST_SCOPE
 from teacher_lesson_authoring import TeacherLessonAuthoringService, generation_failure
 
 
+def initial_pipeline(raw,context,job_id):
+    materials=[{'key':key,'text':unit['source_text']} for key,unit in sources(context).items()]
+    return {'schema_version':'inventory_atomic_v1','generation_contract':CONTRACT,'prompt_contract':CONTRACT,
+        'processing_contract':CONTRACT,'generation_mode':'core_v1','revision':0,'identity_job_id':job_id,
+        'organize_hierarchy':True,'include_relations':False,'items':[],'batches':[],
+        'inventory_batches':[{'id':f'core-{i}','source_keys':[m['key'] for m in group],'status':'pending'}
+            for i,group in enumerate(group_materials(materials),1)],'names':{'result':{}},'catalog':existing_catalog(raw)}
+
+
 def hierarchy_for(points, paths, raw, context):
     from knowledge_hierarchy import compile_hierarchy
     title=context['handout_lessons'][0]['title']
@@ -58,11 +67,7 @@ async def run(svc, course_id, job_id):
     materials=[{'key':key,'text':unit['source_text']} for key,unit in sources(context).items()]
     pipeline=deepcopy((job.get('checkpoint') or {}).get('atomic_pipeline'))
     if not pipeline or pipeline.get('generation_contract')!=CONTRACT:
-        pipeline={'schema_version':'inventory_atomic_v1','generation_contract':CONTRACT,'prompt_contract':CONTRACT,
-            'processing_contract':CONTRACT,'generation_mode':'core_v1','revision':0,'identity_job_id':job_id,
-            'organize_hierarchy':True,'include_relations':False,'items':[],'batches':[],
-            'inventory_batches':[{'id':f'core-{i}','source_keys':[m['key'] for m in group], 'status':'pending'}
-                for i,group in enumerate(group_materials(materials),1)],'names':{'result':{}},'catalog':existing_catalog(raw)}
+        pipeline=initial_pipeline(raw,context,job_id)
     provider=None
     def validate_version():
         svc._active(course_id,job_id)
@@ -109,7 +114,7 @@ async def run(svc, course_id, job_id):
     token=REQUEST_SCOPE.set({'validate_source':validate_version,'retry_budget':{'used':0,'active':{}}})
     try:
         await io(validate_version)
-        await io(svc.authoring.update_job,course_id,job_id,status='running',generation_started_at=now(),
+        await io(svc.authoring.update_job_live,course_id,job_id,status='running',generation_started_at=now(),
             phase='preparing',progress=0,checkpoint={'atomic_pipeline':deepcopy(pipeline)})
         if svc.provider_factory:provider=svc.provider_factory()
         else:
