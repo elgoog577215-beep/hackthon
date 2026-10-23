@@ -530,16 +530,20 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
             from knowledge_extraction_repair import repair_schema
             structure = repair_schema(payload['targets'], {p['key']:p['text'] for p in payload['source_passages']},
                                       expression_contract=payload['expression_contract'])
+    if stage == 'candidate_core_review':
+        from knowledge_core_contract import review_schema
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
+        structure = review_schema(payload['points'],payload['materials'],payload['existing_knowledge'])
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.
         options['max_tokens'] = min(options['max_tokens'], max(2048, len(payload['points']) * 240 + 1024))
         request_budget['max_output_tokens'] = options['max_tokens']
-    quality_job = svc.authoring.read_projection(course_id, lambda state:
+    quality_job = await asyncio.to_thread(svc.authoring.read_projection,course_id, lambda state:
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') in
         {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'})
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
-    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair'} and structure is not None):
+    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_review'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, request_budget=request_budget,

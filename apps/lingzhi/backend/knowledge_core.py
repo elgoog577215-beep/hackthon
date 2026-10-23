@@ -114,7 +114,7 @@ async def run(svc, course_id, job_id):
             batch['status']='completed'
             pipeline['names']['result'].update({p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']} for p in batch['points']})
             await save()
-        await run_batches(pipeline['inventory_batches'],extract,width=4,stage='candidate_core_extract')
+        await run_batches(pipeline['inventory_batches'],extract,width=8,stage='candidate_core_extract')
         candidates=[p for b in pipeline['inventory_batches'] for p in b['points']]
         require(bool(candidates) and len(candidates)<=160,'本讲独立知识为空或超过单讲容量')
         record=pipeline.setdefault('core_review',{})

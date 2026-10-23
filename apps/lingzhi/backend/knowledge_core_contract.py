@@ -9,12 +9,12 @@ CONTRACT = 'knowledge_core_v1'
 KNOWLEDGE_TYPES = {'definition','rule','method','comparison'}
 
 
-def group_materials(materials):
+def group_materials(materials, *, target_chars=1800):
     """Balance complete input units; never truncate or sample the lesson."""
     if not materials:
         raise ValueError('没有可读取的讲义材料')
     total = sum(len(m['text']) for m in materials)
-    count = min(8, len(materials), max(1, math.ceil(total / 3500)))
+    count = min(8, len(materials), max(1, math.ceil(total / target_chars)))
     groups, current, consumed = [], [], 0
     for index, material in enumerate(materials):
         current.append(deepcopy(material)); consumed += len(material['text'])
@@ -75,6 +75,8 @@ def parse_extraction(value, batch_id, material_keys):
 def extraction_prompt(raw, context, materials):
     return render(
         '逐句读取本批完整讲义，提取可独立讲解、判断和补学的全部知识，不挑代表点或按主题只留一条。'
+        '逐一分辨不同对象的定义、每一种记号的含义、每一种运算的独立性质、量之间的关系、表示方程和各个退化条件。'
+        '同属某体系、同一组法则或同一段落，不代表只能保留一条；学生可能会前一条却不会后一条时，应分别保留完整结论。'
         '定义、独立运算规律、对象的斜率/方程/特殊情形分别完整保留；同一个完整公式内部不拆因子。'
         '同义表述、换符号、具体算例步骤不重复算知识。必要条件不能省略；不要把常见错误当独立规律。'
         '同时写简短知识名和主题分类路径，名称用学生能懂的概念或规律名，不用问句或完整长句。'
@@ -91,22 +93,21 @@ def extraction_prompt(raw, context, materials):
 def review_prompt(raw, context, materials, points, catalog):
     return render(
         '一次集中核对全部知识的独立性、正确性、必要条件、同义身份和讲义覆盖。'
-        '逐项主动尝试边界或反例，特别核对充分/必要、零值、定义域、正负方向及奇偶结论。'
-        '每个候选key恰好进入keep/correct/split/match/checks/context/uncertain的一处，不能漏项或重复。'
+        '逐项主动尝试边界或反例，test简短记录实际检验的边界和结果，特别核对充分/必要、零值、定义域、方向及奇偶结论。'
+        'decisions只且恰好包含每个候选key，材料S键只能出现在coverage，已有目录E键只能作为匹配目标。'
+        '每个决定含type、action、test；type必须是definition/rule/method/comparison，不得沿用输入中其他类型名。'
         '正确且独立者keep；correct只改statement、conditions、symbol_definitions三个核心字段，其他字段冻结；'
-        '混合的独立知识用split，值为与提取相同的七列知识行数组；拆开的独立子结论不能再合并。'
+        'correct额外给core对象。混合的独立知识用split，额外给points七列知识行数组；拆开的独立子结论不能再合并。'
+        '不同对象的定义、多个记号的各自含义、多种运算的各自性质、关系/方程/退化情况不能只因同属体系而混成一条。'
         '同义知识match，只有完整命题、范围及符号含义一致才允许，须明确same_claim/same_scope/same_symbols均true，'
         'target为本轮其他候选或冻结已有目录E键，不能只因同主题或一起使用而合并；已有目录正文不可修改。'
-        '纯操作失误comparison归checks，给target、intent、reason、same_scope:true、adds_knowledge:false、operational_only:true；'
+        '纯操作失误comparison用check，额外给target、intent、same_scope:true、adds_knowledge:false、operational_only:true；'
         '真实概念辨析保留知识。纯算例或背景归context，给理由；不确定归uncertain并给理由。'
         '对照全部materials检查是否漏掉独立规则，缺失项通过add补齐，不用减少知识数掩盖遗漏。'
-        'types把需要确认的类别明确映射到definition/rule/method/comparison；所有非正式类别必须确认，不能留空或猜测。'
-        'names和paths仅为需要调整的显示名称/分类路径映射，不改知识；其他名称和路径保留。'
+        '每个决定的name/path可选，仅在需要调整显示名称或分类路径时填写，其他名称和路径保留。'
         'coverage恰好覆盖每个材料key，值为[complete/context/gap,核对理由]，有未补齐知识时填gap。'
-        '不要复述无问题的知识，keep只列key；不要输出核对过程。只输出紧凑JSON：'
-        '{"keep":["候选key"],"correct":{},"split":{},"match":{},"checks":{},"context":{},"uncertain":{},'
-        '"add":[],"names":{},"paths":{},"types":{},"coverage":{}}。'
-        'correct值为三个核心字段；match值为{target,same_claim:true,same_scope:true,same_symbols:true,reason}；'
+        '不要复述无问题的知识或输出核对过程。只输出紧凑JSON：'
+        '{"decisions":{"候选key":{"type":"rule","action":"keep","test":"明确的边界检验及结果"}},"add":[],"coverage":{}}。'
         'add每项为{"sources":[材料key],"point":[七列知识行]}。',
         {'stage': 'candidate_core_review', 'contract': CONTRACT, 'course_title':raw.get('course_name',''),
          'lesson_title':context['handout_lessons'][0]['title'], 'materials':materials,
@@ -114,8 +115,62 @@ def review_prompt(raw, context, materials, points, catalog):
          'existing_knowledge': [{k:deepcopy(p.get(k)) for k in ('key','name',*FIELDS)} for p in catalog]})
 
 
+def review_schema(points, materials, catalog=()):
+    """A shallow grammar closes namespaces and categories, not domain wording."""
+    from knowledge_registry_contract import point_schema
+    text={'type':'string','minLength':1}
+    row={'type':'array','minItems':7,'maxItems':7,'items':{}}
+    core=point_schema();core['required']=list(CORE_FIELDS)
+    core['properties']={k:v for k,v in core['properties'].items() if k in CORE_FIELDS}
+    keys=[p['key'] for p in points];targets=[*keys,*[p['key'] for p in catalog]]
+    decisions={}
+    for key in keys:
+        properties={'type':{'enum':sorted(KNOWLEDGE_TYPES)},'action':{'enum':['keep','correct','split','match','check','context','uncertain']},
+            'test':text,'core':core,'points':{'type':'array','minItems':2,'maxItems':8,'items':row},
+            'same_claim':{'const':True},'same_scope':{'const':True},'same_symbols':{'const':True},
+            'adds_knowledge':{'const':False},'operational_only':{'const':True},'intent':text,'name':text,
+            'path':{'type':'array','minItems':1,'items':text}}
+        if any(k!=key for k in targets):properties['target']={'enum':[k for k in targets if k!=key]}
+        decisions[key]={'type':'object','additionalProperties':False,'required':['type','action','test'],'properties':properties}
+    material_keys=[m['key'] for m in materials]
+    return {'type':'object','additionalProperties':False,'required':['decisions','add','coverage'],'properties':{
+        'decisions':{'type':'object','additionalProperties':False,'required':keys,'properties':decisions},
+        'add':{'type':'array','items':{'type':'object','additionalProperties':False,'required':['sources','point'],
+            'properties':{'sources':{'type':'array','minItems':1,'items':{'enum':material_keys}},'point':row}}},
+        'coverage':{'type':'object','additionalProperties':False,'required':material_keys,
+            'properties':{k:{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}} for k in material_keys}}}}
+
+
+def _decisions(value, originals):
+    keys={p['key'] for p in originals}
+    if set(value)!={'decisions','add','coverage'} or not isinstance(value['decisions'],dict) or set(value['decisions'])!=keys:
+        raise ValueError('集中核对必须且只能逐项决定本轮候选，不能混用材料身份')
+    result={k:{} for k in ('correct','split','match','checks','context','uncertain','names','paths','types')}
+    result.update(keep=[],add=value['add'],coverage=value['coverage'])
+    tests={}
+    for key,decision in value['decisions'].items():
+        if (not isinstance(decision,dict) or not {'type','action','test'}<=set(decision)
+            or not isinstance(decision['test'],str) or not decision['test'].strip()):
+            raise ValueError('每条知识须明确类别、决定与边界检验')
+        action=decision['action'];extra={'name','path'}&set(decision)
+        required={'keep':set(),'correct':{'core'},'split':{'points'},'match':{'target','same_claim','same_scope','same_symbols'},
+            'check':{'target','same_scope','adds_knowledge','operational_only','intent'},'context':set(),'uncertain':set()}.get(action)
+        if required is None or set(decision)!={'type','action','test',*extra,*required}:raise ValueError('决定与字段不一致')
+        result['types'][key]=decision['type'];tests[key]=decision['test']
+        if 'name' in decision:result['names'][key]=decision['name']
+        if 'path' in decision:result['paths'][key]=decision['path']
+        if action=='keep':result['keep'].append(key)
+        elif action=='correct':result['correct'][key]=decision['core']
+        elif action=='split':result['split'][key]=decision['points']
+        elif action in {'context','uncertain'}:result[action][key]=decision['test']
+        else:result['checks' if action=='check' else 'match'][key]={**{k:decision[k] for k in required},'reason':decision['test']}
+    return result,tests
+
+
 def compile_review(value, originals, catalog, materials):
     from knowledge_identity_matching import resolve_matches
+    tests={}
+    if isinstance(value,dict) and 'decisions' in value:value,tests=_decisions(value,originals)
     required = {'keep','correct','split','match','checks','context','uncertain','add','names','paths','types','coverage'}
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError('集中核对字段不完整')
@@ -146,7 +201,7 @@ def compile_review(value, originals, catalog, materials):
         if not isinstance(patch,dict) or set(patch) != set(CORE_FIELDS):
             raise ValueError('真值修正只能包含三个知识核心字段')
         by_key[key].update(validate_point({**{k:by_key[key][k] for k in FIELDS},**patch}))
-        by_key[key]['truth_review']={'contract':CONTRACT,'verdict':'corrected','semantics_verified':False}
+        by_key[key]['truth_review']={'contract':CONTRACT,'verdict':'corrected','semantics_verified':False,'test_case':tests.get(key,'')}
     points, decisions, dispositions = [], {}, []
     for key, point in by_key.items():
         if key in value['context']:
@@ -162,7 +217,7 @@ def compile_review(value, originals, catalog, materials):
                     'semantic_review':{'contract':CONTRACT,'independence_group':key}}
                 points.append(child);decisions[child['key']]={'action':'keep','reason':'已核对独立子结论'}
             continue
-        point.setdefault('truth_review',{'contract':CONTRACT,'verdict':'reviewed','semantics_verified':False})
+        point.setdefault('truth_review',{'contract':CONTRACT,'verdict':'reviewed','semantics_verified':False,'test_case':tests.get(key,'')})
         points.append(point)
         if key in value['match']:
             decision=value['match'][key]
