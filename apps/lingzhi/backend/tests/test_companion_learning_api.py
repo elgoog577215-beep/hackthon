@@ -141,6 +141,15 @@ def test_independent_target_is_exact_private_and_linked_to_the_help(client, monk
     }
     assert "secret" not in response.text
     assert repo.companion_state("u", "c")["check_links"]["q"]["conversation_id"] == "conversation"
+    link = repo.companion_state("u", "c")["check_links"]["q"]
+    assert link["knowledge_id"] == "k" and link["knowledge_revision_id"] == "kr"
+    assert link["kind"] == "independent_check" and link["help_message_id"] is None
+    c.post(
+        "/api/courses/c/learning-records/companion/check-target",
+        json={"conversation_id": "conversation", "knowledge_id": "k", "knowledge_revision": "kr"},
+    )
+    assert repo.companion_state("u", "c")["check_links"]["q"]["created_at"] == link["created_at"]
+
     assert (
         c.post(
             "/api/courses/c/learning-records/companion/check-target",
