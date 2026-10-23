@@ -55,16 +55,16 @@ async def recover_connection(svc, course_id, job_id, stage, operation):
     if budget is None: budget = {'used': 0, 'active': {}}
     key = object(); registered = False
 
-    def publish():
+    async def publish():
         active = budget['active']
-        svc.authoring.update_job_live(course_id, job_id, transport_retry_count=budget['used'],
+        await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, transport_retry_count=budget['used'],
             transport_retry_limit=JOB_RETRY_LIMIT, transport_retry_active_count=len(active),
             transport_retry_stage=next(iter(active.values()), ''))
 
     try:
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            svc._active(course_id, job_id)
-            if scope.get('validate_source'): scope['validate_source']()
+            await asyncio.to_thread(svc._active, course_id, job_id)
+            if scope.get('validate_source'): await asyncio.to_thread(scope['validate_source'])
             try:
                 with model_scope(transport_attempt=attempt):
                     return await operation()
@@ -78,9 +78,9 @@ async def recover_connection(svc, course_id, job_id, stage, operation):
                     raise
                 # No await between checking and reserving the shared retry budget.
                 budget['used'] += 1; budget['active'][key] = stage; registered = True
-                publish()
-                svc.authoring.update_job_live(course_id, job_id, phase='model_retry_wait')
+                await publish()
+                await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, phase='model_retry_wait')
                 await retry_pause((0.5, 1.5)[attempt - 1])
     finally:
         if registered:
-            budget['active'].pop(key, None); publish()
+            budget['active'].pop(key, None); await publish()

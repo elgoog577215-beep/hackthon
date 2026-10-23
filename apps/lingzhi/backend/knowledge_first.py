@@ -582,12 +582,12 @@ class KnowledgeFirstService:
         return job
 
     async def run(self, course_id, job_id):
-        pipeline = self.authoring.load(course_id)['jobs'][job_id].get('knowledge_pipeline')
+        pipeline = (await asyncio.to_thread(self.authoring.get_job,course_id,job_id)).get('knowledge_pipeline')
         if pipeline == 'knowledge_relations_v1':
             from knowledge_relation_generation import run
             return await run(self,course_id,job_id)
         if pipeline:
-            if self.authoring.get_job(course_id, job_id).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5'}:
+            if (await asyncio.to_thread(self.authoring.get_job,course_id,job_id)).get('generation_contract') in {'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5'}:
                 from knowledge_registry_pipeline import run
                 return await run(self, course_id, job_id)
             from knowledge_atomic import run_atomic
@@ -857,7 +857,7 @@ class KnowledgeFirstService:
     def status(self, course_id, *, source_mode="", raw=None):
         from knowledge_generation_status import project_status
         raw = self.repository.load_raw(course_id) if raw is None else raw
-        return self.authoring.read_projection(course_id, lambda state: project_status(
+        return self.authoring.read_knowledge_observation(course_id, lambda state: project_status(
             state, raw, tree_generation_blockers, source_mode=source_mode))
 
     def source(self, course_id, tree_revision, knowledge_id, evidence_id, *, raw=None):

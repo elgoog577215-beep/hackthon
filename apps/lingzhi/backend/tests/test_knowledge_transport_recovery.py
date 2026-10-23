@@ -46,6 +46,8 @@ async def test_retries_are_bounded_and_never_repeat_partial_output(svc, monkeypa
 async def test_saved_nine_relation_shards_stay_frozen_and_only_seven_eight_recover(svc, monkeypatch, persistent):
     setup_course(svc, monkeypatch); fake_provider(svc)
     job = start(svc, extraction_mode='single_pass_v1', organize_hierarchy=True, include_relations=True)
+    # Exercise the frozen historical relation fixture explicitly, not a new registry task.
+    svc.authoring.update_job('c-pilot',job['id'],generation_contract='legacy_validation')
     await svc.run('c-pilot', job['id']); original = svc.authoring.get_job('c-pilot', job['id'])
     assert original['status'] == 'completed'
     pipeline = deepcopy(original['checkpoint']['atomic_pipeline'])
@@ -178,5 +180,6 @@ async def test_relation_validation_failure_keeps_its_stage_when_hierarchy_finish
     def reject(*args,**kwargs):raise CourseDocumentConflict('关系语义未通过')
     monkeypatch.setattr('knowledge_tree_relations.compile_relations',reject)
     job=start(svc,extraction_mode='single_pass_v1',organize_hierarchy=True,include_relations=True)
+    svc.authoring.update_job('c-pilot',job['id'],generation_contract='legacy_validation')
     await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
     assert saved['status']=='failed' and saved['error']['stage']==saved['pipeline_stage']=='tree_relations'

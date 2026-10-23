@@ -2003,6 +2003,8 @@ class TeacherLessonAuthoringRepository:
         self._runtime_jobs: dict[str, set[asyncio.Task]] = {}
         self._live_stream_jobs: dict[str, dict[str, dict[str, Any]]] = {}
         self._live_stream_touched_at: dict[tuple[str, str], float] = {}
+        from knowledge_observation import KnowledgeObservation
+        self._knowledge_observation = KnowledgeObservation(self._path)
         self._load_cache: OrderedDict[
             str,
             tuple[tuple[int, int], dict[str, Any]],
@@ -2141,6 +2143,7 @@ class TeacherLessonAuthoringRepository:
                     revision["publication_eligible"] = bool(report.get("publication_eligible"))
                     revision["quality_contract_version"] = SCRIPT_QUALITY_VERSION
         self._load_cache[course_id] = (signature, value)
+        self._knowledge_observation.publish(course_id,value,signature)
         self._load_cache.move_to_end(course_id)
         while len(self._load_cache) > AUTHORING_LOAD_CACHE_MAX_COURSES:
             self._load_cache.popitem(last=False)
@@ -2170,6 +2173,9 @@ class TeacherLessonAuthoringRepository:
                     },
                 }
             return projector(value)
+
+    def read_knowledge_observation(self, course_id, projector):
+        return self._knowledge_observation.read(course_id,projector)
 
     def _save(self, value: dict[str, Any]) -> dict[str, Any]:
         started = time.monotonic()
@@ -2216,6 +2222,8 @@ class TeacherLessonAuthoringRepository:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
         logger.info("teacher_timing phase=save elapsed_ms=%.3f", (time.monotonic() - started) * 1000)
+        stat=path.stat()
+        self._knowledge_observation.publish(course_id,payload,(stat.st_mtime_ns,stat.st_size))
         return payload
 
     def set_outline(
@@ -2923,7 +2931,18 @@ class TeacherLessonAuthoringRepository:
             job = self._apply_job_changes_locked(job, changes)
             live_jobs[job_id] = job
             self._live_stream_touched_at[(course_id, job_id)] = time.monotonic()
+            self._knowledge_observation.live(course_id,job)
             return deepcopy(job)
+
+    def record_model_observation(self, course_id, job_id, observation, telemetry, **activity):
+        """Append parallel model observations under one repository transaction."""
+        with self._course_lock(course_id):
+            job=self.get_job(course_id,job_id)
+            observations=[*job.get('stage_observations',[]),observation]
+            return self.update_job_live(course_id,job_id,
+                model_telemetry=[*job.get('model_telemetry',[]),*telemetry],
+                stage_observations=observations,model_call_count=len(observations),
+                total_model_seconds=round(sum(o.get('seconds',0) for o in observations),3),**activity)
 
     def update_job_stream(
         self,

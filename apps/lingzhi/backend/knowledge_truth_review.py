@@ -2,7 +2,8 @@
 from copy import deepcopy
 from knowledge_registry_contract import FIELDS, render, validate_point
 
-CONTRACT='knowledge_truth_review_v1'
+CONTRACT='knowledge_truth_review_v2'
+CORE_FIELDS=('statement','conditions','symbol_definitions')
 
 
 def truth_prompt(points, context):
@@ -12,10 +13,12 @@ def truth_prompt(points, context):
         '区分知识结论和教学建议；教材当前例子可用的方法不能升级为所有情况必须使用的方法。'
         '保留冻结课程领域、量含义及版本，不通过换领域规避错误。每个key恰好给一个audit。'
         'verdict为valid表示本轮未发现反例，point必须为null；uncertain保留待核对，point为null。'
-        '确有错误才用corrected，point给出修正后的单条完整知识，不额外新增知识，不改变身份。'
+        '确有错误才用corrected，point只含修正后的statement、conditions、symbol_definitions。'
+        'statement为字符串；conditions、symbol_definitions为字符串数组。不得返回其他字段。'
+        '知识类型、名称、例子、教学背景、检查目标、附件与身份由程序保留，不重新生成。'
         'reason一句话，test_case给实际检验或反例及比较结果；不是形式检查，不把未验证自评当证明。'
         '输出{"audits":{"key":{"verdict":"valid","reason":"核对结论","test_case":"具体检验",'
-        '"point":null}}}。corrected的point含statement,knowledge_type,conditions,symbol_definitions,teaching_context,examples。',
+        '"point":null}}}。corrected示例point={"statement":"修正后的完整结论","conditions":[],"symbol_definitions":[]}。',
         {'stage':'candidate_truth_review','contract':CONTRACT,'course_context':deepcopy(context),
          'points':[{k:p.get(k) for k in ('key','statement','conditions','symbol_definitions','knowledge_type')} for p in points]})
 
@@ -33,10 +36,13 @@ def compile_audits(value, originals):
             raise ValueError(key+'：真值核对字段或结论无效')
         point=deepcopy(original)
         if row['verdict']=='corrected':
-            facts=validate_point(row['point'])
-            if all(facts[k]==original[k] for k in ('statement','conditions')):
+            core=row['point']
+            if not isinstance(core,dict) or set(core)!=set(CORE_FIELDS):
+                raise ValueError(key+'：真值修正只能返回statement、conditions、symbol_definitions')
+            facts=validate_point({**{k:deepcopy(original[k]) for k in FIELDS},**core})
+            if all(facts[k]==original[k] for k in CORE_FIELDS):
                 raise ValueError(key+'：无效修正，必须修改被推翻的知识核心')
-            point.update(facts)
+            point.update({k:facts[k] for k in CORE_FIELDS})
         elif row['point'] is not None:
             raise ValueError(key+'：valid/uncertain不能夹带改写')
         if row['verdict']=='uncertain':

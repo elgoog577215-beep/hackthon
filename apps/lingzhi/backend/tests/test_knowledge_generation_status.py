@@ -180,3 +180,18 @@ def test_progress_summary_omits_model_responses_and_does_not_copy_historical_pip
     assert runs[0]['job_id']=='new'
     assert len(json.dumps(runs))<10000
     assert runs[0]['pipeline']['truth_review']['batches'][0]['id']=='truth-1'
+
+
+
+def test_observation_rebuilds_after_another_repository_commits_without_becoming_an_owner(svc):
+    import time
+    from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+    initialize(svc);job=start(svc,'tree');svc.status('c-pilot')
+    other=TeacherLessonAuthoringRepository(svc.authoring.root,canonical_storage=svc.storage)
+    other.update_job('c-pilot',job['id'],status='failed')
+    deadline=time.monotonic()+2
+    while time.monotonic()<deadline:
+        if svc.status('c-pilot')['jobs'][0]['status']=='failed':break
+        time.sleep(.01)
+    else:pytest.fail('derived observation did not reconcile another worker commit')
+    assert svc.authoring.get_job('c-pilot',job['id'])['status']=='failed'

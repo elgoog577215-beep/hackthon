@@ -557,7 +557,7 @@ watch(() => [courseId.value, knowledgeLessonId.value, activeJob.value?.id], () =
 async function observeStream() {
   const job = activeJob.value
   const key = job ? `${courseId.value}:${job.id}` : ''
-  if (key === streamKey) return
+  if (key === streamKey && streamController && !streamController.signal.aborted) return
   streamController?.abort(); streamKey = key
   if (!job || !data.value?.can_edit) return
   const controller = new AbortController(); streamController = controller
@@ -579,7 +579,8 @@ async function observeStream() {
       data.value = { ...current, jobs, active_jobs: active, generation_previews: previews }
       if (payload.preview) treeChoice.value = 'candidate'
     })
-  } catch { /* The existing status observer recovers connection failures. */ }
+  } catch { /* The status observer reconnects this read stream without restarting generation. */ }
+  finally { if (streamController === controller) { streamController = undefined; streamKey = '' } }
 }
 function scheduleObservation() {
   clearTimeout(timer)
@@ -628,6 +629,7 @@ async function pollStatus(manual = false) {
       blocking_job_ids: snapshot.blocking_job_ids || [],
       lesson_options: (data.value.lesson_options || []).map((option: any) => ({ ...option,
         blocking_job_ids: snapshot.lesson_blocking_job_ids?.[option.lesson_id] || [] })) }
+    if (activeJob.value && !streamController) void observeStream()
   } catch (e) { if (!disposed && seq === requestSequence) observationFailed(e) }
   finally { if (!disposed && seq === requestSequence) { readInFlight = false; scheduleObservation() } }
 }

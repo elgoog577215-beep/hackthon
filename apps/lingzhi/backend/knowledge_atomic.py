@@ -542,7 +542,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
     if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
-    svc.authoring.update_job_live(course_id, job_id, request_budget=request_budget,
+    await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, request_budget=request_budget,
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
     formatting = {'inside': False, 'escaped': False, 'whitespace': 0, 'invalid': False}
@@ -570,12 +570,12 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         formatting.update(inside=False, escaped=False, whitespace=0, invalid=False)
     async def pulse():
         while True:
-            await asyncio.sleep(2); svc._active(course_id, job_id)
+            await asyncio.sleep(2); await asyncio.to_thread(svc._active, course_id, job_id)
             if formatting['invalid']:
                 raise KnowledgeModelDegenerateOutput('千问持续输出大量无意义JSON空白，已停止本次请求并保留片段和完成批次；不会自动重跑。')
             if time.perf_counter()-last_content > idle_limit:
                 raise KnowledgeModelIdleTimeout(f'千问连续{idle_limit}秒没有新增有效正文（空白不计），已保留片段与完成批次；请核对模型服务后主动继续。')
-            svc.authoring.update_job_live(course_id, job_id, partial_text=''.join(partial),
+            await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, partial_text=''.join(partial),
                 phase='model_streaming' if activity['received_chars'] else 'model_wait', **activity)
     checkpoint = asyncio.create_task(pulse())
     call = asyncio.create_task(provider._call_llm(prompt, system_prompt=system, max_attempts=1, retry_count=1,
@@ -598,7 +598,6 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         for task in (checkpoint, call):
             if not task.done(): task.cancel()
         await asyncio.gather(checkpoint, call, return_exceptions=True)
-        saved = svc.authoring.get_job(course_id,job_id);previous = saved.get('model_telemetry',[])
         safe_telemetry = [{k:event[k] for k in ('model_id','provider_route','status','duration_ms','input_tokens','output_tokens','tokens_source','physical_request_count','queue_wait_ms') if k in event} for event in telemetry if isinstance(event,dict)]
         event = safe_telemetry[-1] if safe_telemetry else {}
         observation = {'stage':stage,'batch_index':observed_batch_index,'batch_id':request_scope.get('batch_id'),
@@ -609,11 +608,10 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
             'requested_output_tokens':options['max_tokens'],**{k:event[k] for k in ('input_tokens','output_tokens','tokens_source','physical_request_count','status','queue_wait_ms') if k in event}}
         observation['status'] = 'failed' if failure else observation.get('status', 'completed')
         if failure: observation['error_code'] = type(failure).__name__
-        observations = [*saved.get('stage_observations',[]),observation]
-        svc.authoring.update_job_live(course_id, job_id, partial_text=''.join(partial), model_telemetry=[*previous,*safe_telemetry],
-            stage_observations=observations,model_call_count=len(observations),total_model_seconds=round(sum(o['seconds'] for o in observations),3),**activity)
-    svc._active(course_id, job_id)
-    svc.authoring.update_job_live(course_id, job_id, raw_response=response, phase='structure_check')
+        await asyncio.to_thread(svc.authoring.record_model_observation,course_id,job_id,observation,safe_telemetry,
+                                partial_text=''.join(partial),**activity)
+    await asyncio.to_thread(svc._active, course_id, job_id)
+    await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, raw_response=response, phase='structure_check')
     return response
 
 
@@ -622,7 +620,7 @@ async def run_atomic(svc, course_id, job_id):
     from knowledge_compact import parse_complete_json
     provider = None; scope_token = None
     try:
-        job = svc._active(course_id, job_id); raw = svc.repository.load_raw(course_id)
+        job = await asyncio.to_thread(svc._active, course_id, job_id); raw = svc.repository.load_raw(course_id)
         context = job['request_snapshot']['knowledge_generation_context']
         def validate_source():
             fresh = svc.repository.load_raw(course_id)
@@ -631,7 +629,7 @@ async def run_atomic(svc, course_id, job_id):
                 and svc._context(fresh, 'handouts', job['knowledge_lesson_id'])['revision_id'] == context['revision_id'], '课程、知识或讲义来源已变化，保留原批次')
         scope_token = REQUEST_SCOPE.set({'validate_source': validate_source,
             'retry_budget': {'used': int(job.get('transport_retry_count') or 0), 'active': {}}})
-        validate_source()
+        await asyncio.to_thread(validate_source)
         from knowledge_extract import extraction_groups, CONTRACT as EXTRACT_CONTRACT
         fast = job.get('extraction_mode') == 'single_pass_v1'
         from knowledge_granularity import CONTRACT as GRANULARITY_CONTRACT
@@ -667,18 +665,18 @@ async def run_atomic(svc, course_id, job_id):
             svc.authoring.update_job(course_id, job_id, checkpoint=cp, inventory_count=len(pipeline['items']),
                 completed_batches=sum(b['status'] == 'completed' for b in pipeline['batches']), batch_total=len(pipeline['batches']),
                 progress=pipeline_progress(pipeline), **extra)
-        svc.authoring.update_job_live(course_id, job_id, status='running', generation_started_at=now(), phase='preparing',
+        await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, status='running', generation_started_at=now(), phase='preparing',
             transport_retry_active_count=0, transport_retry_stage='')
         if svc.provider_factory is None:
             from ai_base import AIBase
             provider = AIBase()
         else: provider = svc.provider_factory()
-        svc.authoring.update_job_live(course_id, job_id, model=provider.model_smart)
+        await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, model=provider.model_smart)
         save()
         from course_generation_budget import _env_int
         concurrency = _env_int('COURSE_KNOWLEDGE_EXTRACT_CONCURRENCY' if fast else 'COURSE_KNOWLEDGE_BATCH_CONCURRENCY', 4 if fast else 2, minimum=1, maximum=4 if fast else 4)
         async def inventory_batch(i, batch):
-            validate_source(); svc.authoring.update_job_live(course_id, job_id, batch_index=i, pipeline_stage='inventory')
+            await asyncio.to_thread(validate_source); await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, batch_index=i, pipeline_stage='inventory')
             if fast:
                 from knowledge_extract import extraction_prompt, compile_extraction
                 if batch.get('frozen_extract_response'):
@@ -688,7 +686,7 @@ async def run_atomic(svc, course_id, job_id):
                     response = await call_stage(svc, course_id, job_id, provider,
                         extraction_prompt(raw, context, batch['source_keys'], contract=pipeline['prompt_contract']), 'extract')
                     batch['generation_origin'] = 'model_extract'
-                validate_source()
+                await asyncio.to_thread(validate_source)
                 if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4':
                     batch['raw_response'] = response
                     save()  # Commit a complete extraction independently of later review/format validation.
@@ -700,12 +698,12 @@ async def run_atomic(svc, course_id, job_id):
                         from knowledge_content_review import review_content, prior_question_context
                         batch['content_review'] = {'status': 'pending'}
                         try:
-                            svc.authoring.update_job_live(course_id, job_id, batch_index=i)
+                            await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, batch_index=i)
                             parsed = await review_content(svc, course_id, job_id, provider, raw, context,
                                 batch['source_keys'], parsed, batch['content_review'], feedback=batch.get('retry_feedback'),
                                 reference_points=prior_question_context(pipeline, i, parsed),
                                 frozen=batch.get('frozen_content_review'))
-                            validate_source()
+                            await asyncio.to_thread(validate_source)
                             if pipeline.get('processing_contract') == 'knowledge_validation_pipeline_v4': save()
                         except Exception:
                             batch['content_review']['status'] = 'failed'
@@ -720,7 +718,7 @@ async def run_atomic(svc, course_id, job_id):
                         from knowledge_extraction_repair import correct_points, KnowledgeCorrectionNotApplicable
                         batch['repair'] = {'status': 'pending'}
                         try:
-                            svc.authoring.update_job_live(course_id, job_id, batch_index=i)
+                            await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, batch_index=i)
                             def compile_corrected(corrected):
                                 result = compile_extraction(raw, context, batch['source_keys'], i, corrected)
                                 require(not result.get('report') or not any(issue['code'] == 'duplicate_meta_question'
@@ -744,7 +742,7 @@ async def run_atomic(svc, course_id, job_id):
                     save()
                     if isinstance(error, CourseDocumentConflict):
                         # Source/ownership changes are hard stops, never batch-local failures.
-                        validate_source()
+                        await asyncio.to_thread(validate_source)
                         raise KnowledgeBatchValidationError(batch['id'], str(error)) from error
                     raise
                 batch.pop('validation_error', None)
@@ -763,7 +761,7 @@ async def run_atomic(svc, course_id, job_id):
                 return
             response = await call_stage(svc, course_id, job_id, provider,
                 stage_prompt(raw, context, 'inventory', source_keys=batch['source_keys']), 'inventory')
-            validate_source()
+            await asyncio.to_thread(validate_source)
             parsed = parse_complete_json(response)
             items, coverage = compile_inventory(parsed, context, batch['source_keys'], i)
             from knowledge_compact import source_issues
@@ -796,11 +794,11 @@ async def run_atomic(svc, course_id, job_id):
                 target['item_keys'].append(item['key'])
             save()
         async def atomize_batch(i, batch):
-            validate_source(); svc.authoring.update_job_live(course_id, job_id, batch_index=i, pipeline_stage='atomize')
+            await asyncio.to_thread(validate_source); await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, batch_index=i, pipeline_stage='atomize')
             items = [v for v in pipeline['items'] if v['key'] in batch['item_keys']]
             keys = list(dict.fromkeys(s['key'] for v in items for s in v['sources']))
             response = await call_stage(svc, course_id, job_id, provider, stage_prompt(raw, context, 'atomize', source_keys=keys, items=items, feedback=batch.get('retry_feedback')), 'atomize')
-            validate_source()
+            await asyncio.to_thread(validate_source)
             tree, report = compile_batch(raw, context, items, parse_complete_json(response))
             batch.update(status='completed', tree=tree, report=report, raw_response=response); save()
         await run_batches(pipeline['batches'], atomize_batch, width=concurrency, stage='atomize')
@@ -842,15 +840,15 @@ async def run_atomic(svc, course_id, job_id):
             from knowledge_hierarchy import organize
             hierarchy = await organize(svc, course_id, job_id, provider, raw, context, pipeline, flat_points, save, validate_source,
                                        **({'concurrency': concurrency} if fast else {}))
-        validate_source(); result = assemble(raw, context, pipeline, hierarchy)
+        await asyncio.to_thread(validate_source); result = assemble(raw, context, pipeline, hierarchy)
         if relation_result:
             from knowledge_tree_relations import attach
             result = attach(result, relation_result)
         result.update(source_context_revision=context['revision_id'], source_evidence_package_revision=context['evidence_package']['package_revision_id'],
             source_scope_revision=context['scope_contract']['revision_id'], generation_job_id=job_id, model=provider.model_smart)
         cp = svc.authoring.read_projection(course_id, lambda state: deepcopy(state['jobs'][job_id]['checkpoint'])); cp['candidate'] = result
-        svc._active(course_id, job_id)
-        svc.authoring.update_job(course_id, job_id, status='completed', phase='completed', progress=100, checkpoint=cp,
+        await asyncio.to_thread(svc._active, course_id, job_id)
+        await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='completed', phase='completed', progress=100, checkpoint=cp,
             raw_response='', partial_text='', stream_complete=True, message='分批知识候选已保存，覆盖检查与内容待审阅')
     except asyncio.CancelledError:
         raise
@@ -884,7 +882,7 @@ async def run_atomic(svc, course_id, job_id):
             else:
                 from knowledge_provider_errors import provider_failure
                 error.update(provider_failure(exc))
-            svc.authoring.update_job(course_id, job_id, status='failed', phase='failed', stream_complete=True,
+            await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='failed', phase='failed', stream_complete=True,
                 error=error, **({'failed_stage':failure_context['stage'],
                     'failed_batch_id':failure_context.get('batch_id'),
                     'pipeline_stage':'hierarchy' if failure_context['stage'].startswith('hierarchy') else failure_context['stage']}
@@ -949,14 +947,20 @@ def project_runs(state, raw):
     for job in state.get('jobs', {}).values():
         pipeline = (job.get('checkpoint') or {}).get('atomic_pipeline')
         if pipeline:
-            value = deepcopy(pipeline)
-            for batch in [*value['inventory_batches'], *value['batches']]: batch.pop('raw_response', None)
-            hierarchy = value.get('hierarchy') or {}
-            hierarchy.pop('raw_response', None)
-            for task in hierarchy.get('tasks', []): task.pop('raw_response', None)
-            if value.get('relations'):
-                value['relations'].pop('raw_response', None)
-                for batch in value['relations'].get('batches', []): batch.pop('raw_response', None)
-            latest[job.get('knowledge_lesson_id', '')] = {'job_id': job['id'], 'lesson_id': job.get('knowledge_lesson_id', ''), 'status': job['status'],
-                'adopted': any(h.get('generation_job_id') == job['id'] for h in (raw.get('knowledge_first_history') or {}).values()), 'pipeline': value}
-    return list(latest.values())
+            latest[job.get('knowledge_lesson_id', '')]=job
+    runs=[]
+    for job in latest.values():
+        pipeline=job['checkpoint']['atomic_pipeline']
+        from knowledge_observation import progress_summary
+        value = (progress_summary(pipeline) if str(pipeline.get('generation_contract','')).startswith('knowledge_registry_')
+                 else deepcopy(pipeline))
+        for batch in [*value['inventory_batches'], *value['batches']]: batch.pop('raw_response', None)
+        hierarchy = value.get('hierarchy') or {}
+        hierarchy.pop('raw_response', None)
+        for task in hierarchy.get('tasks', []): task.pop('raw_response', None)
+        if value.get('relations'):
+            value['relations'].pop('raw_response', None)
+            for batch in value['relations'].get('batches', []): batch.pop('raw_response', None)
+        runs.append({'job_id': job['id'], 'lesson_id': job.get('knowledge_lesson_id', ''), 'status': job['status'],
+            'adopted': any(h.get('generation_job_id') == job['id'] for h in (raw.get('knowledge_first_history') or {}).values()), 'pipeline': value})
+    return runs

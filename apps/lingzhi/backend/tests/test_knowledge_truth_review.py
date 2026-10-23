@@ -10,9 +10,9 @@ def record(verdict='valid',point=None):
 
 def test_truth_only_review_keeps_identity_and_accepts_a_scoped_core_correction():
     from knowledge_truth_review import compile_audits, truth_prompt
-    from knowledge_registry_contract import FIELDS
+    from knowledge_truth_review import CORE_FIELDS
     old=candidate('错误的全称命题');before=deepcopy(old)
-    corrected={k:deepcopy(old[k]) for k in FIELDS};corrected['statement']='补足必要范围后的正确命题'
+    corrected={k:deepcopy(old[k]) for k in CORE_FIELDS};corrected['statement']='补足必要范围后的正确命题'
     result=compile_audits(record('corrected',corrected),[old])
     assert result['points'][0]['key']=='P1'
     assert result['points'][0]['statement']==corrected['statement']
@@ -24,8 +24,8 @@ def test_truth_only_review_keeps_identity_and_accepts_a_scoped_core_correction()
 
 def test_ineffective_truth_repair_and_silent_rewrites_are_rejected():
     from knowledge_truth_review import compile_audits
-    from knowledge_registry_contract import FIELDS
-    old=candidate();facts={k:old[k] for k in FIELDS}
+    from knowledge_truth_review import CORE_FIELDS
+    old=candidate();facts={k:old[k] for k in CORE_FIELDS}
     with pytest.raises(ValueError):compile_audits(record('corrected',facts),[old])
     with pytest.raises(ValueError):compile_audits(record('valid',facts),[old])
     with pytest.raises(ValueError):compile_audits({'audits':{}},[old])

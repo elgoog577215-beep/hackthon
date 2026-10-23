@@ -77,7 +77,7 @@ async def run(svc, course_id, job_id):
     from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
     from knowledge_coverage import parse_plan, units_prompt, parse_unit_points
     from knowledge_discovery import material_batches, discovery_prompt, completion_prompt, parse_discovery, coverage_inputs, atomization_prompt, parse_atoms
-    job = svc._active(course_id, job_id)
+    job = await asyncio.to_thread(svc._active, course_id, job_id)
     raw = svc.repository.load_raw(course_id)
     context = job['request_snapshot']['knowledge_generation_context']
     provider = None
@@ -105,39 +105,41 @@ async def run(svc, course_id, job_id):
                 and svc._context(fresh, 'handouts', job['knowledge_lesson_id'])['revision_id'] == context['revision_id'],
                 '课程、知识或讲义版本已变化，保留候选')
 
-    def save(**updates):
-        validate_version()
-        pipeline['revision'] += 1
-        if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
-            pipeline['preview_tree'] = build_tree(raw, context, pipeline, job_id, preview=True)
-        batches=pipeline['inventory_batches']
-        done=0.0
-        for batch in batches:
-            if batch['status']=='completed':
-                done+=1
-            elif 'discovery_points' in batch:
-                groups=batch.get('atomization_batches',[])
-                done+=0.25+0.75*sum(g['status']=='completed' for g in groups)/max(len(groups),1)
-        progress=int(55*done/len(batches)) if batches else 0
-        reviews = pipeline.get('semantic_review', {}).get('batches', [])
-        if reviews:
-            progress = 55 + int(15 * sum(b['status']=='completed' for b in reviews) / len(reviews))
-        truth_batches=pipeline.get('truth_review',{}).get('batches',[])
-        if truth_batches:
-            progress=70+int(8*sum(b['status']=='completed' for b in truth_batches)/len(truth_batches))
-        if pipeline.get('registry'):
-            progress = 78
-        if pipeline.get('names', {}).get('status') == 'completed':
-            progress = 80
-        if pipeline.get('hierarchy', {}).get('status') == 'completed':
-            progress = 90
-        profiles=pipeline.get('kc_profiles',{}).get('batches',[])
-        if profiles:
-            progress=90+int(9*sum(b['status']=='completed' for b in profiles)/len(profiles))
-        svc.authoring.update_job(course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress, **updates)
+    save_lock = asyncio.Lock()
 
+    async def save(**updates):
+        async with save_lock:
+            await asyncio.to_thread(validate_version)
+            pipeline['revision'] += 1
+            if pipeline.get('registry') or any(b.get('points') for b in pipeline['inventory_batches']):
+                pipeline['preview_tree'] = build_tree(raw, context, pipeline, job_id, preview=True)
+            batches=pipeline['inventory_batches']
+            done=0.0
+            for batch in batches:
+                if batch['status']=='completed':
+                    done+=1
+                elif 'discovery_points' in batch:
+                    groups=batch.get('atomization_batches',[])
+                    done+=0.25+0.75*sum(g['status']=='completed' for g in groups)/max(len(groups),1)
+            progress=int(55*done/len(batches)) if batches else 0
+            reviews = pipeline.get('semantic_review', {}).get('batches', [])
+            if reviews:
+                progress = 55 + int(15 * sum(b['status']=='completed' for b in reviews) / len(reviews))
+            truth_batches=pipeline.get('truth_review',{}).get('batches',[])
+            if truth_batches:
+                progress=70+int(8*sum(b['status']=='completed' for b in truth_batches)/len(truth_batches))
+            if pipeline.get('registry'):
+                progress = 78
+            if pipeline.get('names', {}).get('status') == 'completed':
+                progress = 80
+            if pipeline.get('hierarchy', {}).get('status') == 'completed':
+                progress = 90
+            profiles=pipeline.get('kc_profiles',{}).get('batches',[])
+            if profiles:
+                progress=90+int(9*sum(b['status']=='completed' for b in profiles)/len(profiles))
+            await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, checkpoint={'atomic_pipeline': deepcopy(pipeline)}, progress=progress, **updates)
     async def request(prompt, stage, record, compile_result):
-        validate_version()
+        await asyncio.to_thread(validate_version)
         if record.get('status') == 'completed':
             return compile_result(deepcopy(record['response']))
         replay = replay_saved(record, compile_result)
@@ -146,11 +148,11 @@ async def run(svc, course_id, job_id):
             record.update(status='completed', response=value, validation_origin='recompiled_saved_response',
                           revalidated_by_job_id=job_id)
             record.pop('validation_error', None)
-            save()
+            await save()
             return result
         previous = None
         for attempt in range(2):
-            validate_version()
+            await asyncio.to_thread(validate_version)
             effective = prompt
             if attempt:
                 instruction, payload_text = prompt.split('\nINPUT_JSON:\n', 1)
@@ -165,17 +167,17 @@ async def run(svc, course_id, job_id):
                 entry['raw_response'] = response
                 value = parse_json(response)
                 result = compile_result(value)
-                validate_version()
+                await asyncio.to_thread(validate_version)
                 entry['status'] = 'completed'
                 record.update(status='completed', response=value)
                 record.pop('validation_error', None)
-                save()
+                await save()
                 return result
             except (ValueError, CourseDocumentConflict, TypeError, KeyError) as error:
-                validate_version()
+                await asyncio.to_thread(validate_version)
                 record.update(status='failed', validation_error=str(error))
                 entry.update(status='failed', validation_error=str(error))
-                save()
+                await save()
                 current = entry.get('raw_response')
                 if current is None or current == previous or attempt:
                     raise
@@ -184,8 +186,8 @@ async def run(svc, course_id, job_id):
     token = REQUEST_SCOPE.set({'validate_source': validate_version,
         'retry_budget': {'used': int(job.get('transport_retry_count') or 0), 'active': {}}})
     try:
-        validate_version()
-        svc.authoring.update_job(course_id, job_id, status='running', phase='preparing',
+        await asyncio.to_thread(validate_version)
+        await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='running', phase='preparing',
             generation_started_at=now(), generation_contract=CONTRACT, checkpoint={'atomic_pipeline': deepcopy(pipeline)})
         if svc.provider_factory:
             provider = svc.provider_factory()
@@ -209,7 +211,7 @@ async def run(svc, course_id, job_id):
             pipeline['plan_origin'] = 'material_discovery'
             if not pipeline['inventory_batches']:
                 pipeline['inventory_batches'] = material_batches(materials)
-        save()
+        await save()
 
         async def extract(index, batch):
             if supplied:
@@ -245,12 +247,12 @@ async def run(svc, course_id, job_id):
                         group['status']='completed'
                         batch['points']=[p for g in groups for p in g.get('result',[])]
                         pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(extraction_batches())
-                        save()
+                        await save()
                     batch.setdefault('points',[])
             except (ValueError, CourseDocumentConflict) as error:
-                validate_version()
+                await asyncio.to_thread(validate_version)
                 batch['validation_error'] = {'message':str(error)}
-                save()
+                await save()
                 raise KnowledgeBatchValidationError(batch['id'],str(error)) from error
             from knowledge_short_names import ensure_names
             await ensure_names(pipeline, batch['points'], request)
@@ -258,7 +260,7 @@ async def run(svc, course_id, job_id):
             batch.pop('validation_error',None)
             if not supplied:
                 pipeline['frozen_units'], pipeline['extraction_resolutions'] = coverage_inputs(extraction_batches())
-            save()
+            await save()
 
         await run_batches(pipeline['inventory_batches'],extract,width=3,stage='coverage_extract' if supplied else 'knowledge_discovery')
         if not supplied:
@@ -280,13 +282,16 @@ async def run(svc, course_id, job_id):
                 'lesson_title':context['handout_lessons'][0]['title'],'target_audience':raw.get('target_audience','')}), 'candidate_semantic_review',
                 batch.setdefault('request', {}), lambda value: compile_reviews(value, originals))
             batch['status'] = 'completed'
-            save()
+            await save()
         await run_batches(review['batches'], review_batch, width=3, stage='candidate_semantic_review')
         review['status'] = 'completed'
         candidates = [p for b in review['batches'] for p in b['result']['points']]
         require(bool(candidates) and len(candidates) <= 240, '内容核对后没有可保存知识或超过预算')
         from knowledge_truth_review import truth_prompt, compile_audits, CONTRACT as TRUTH_CONTRACT
         truth=pipeline.setdefault('truth_review',{'contract':TRUTH_CONTRACT,'batches':[]})
+        if truth.get('contract') != TRUTH_CONTRACT:
+            truth['previous_contract'] = truth.get('contract')
+            truth['contract'] = TRUTH_CONTRACT
         extend_batches(truth,candidates,'truth',4)
         domain={'course_title':raw.get('course_name',''),'lesson_title':context['handout_lessons'][0]['title'],
                 'target_audience':raw.get('target_audience','')}
@@ -294,7 +299,7 @@ async def run(svc, course_id, job_id):
             originals=[p for p in candidates if p['key'] in batch['keys']]
             batch['result']=await request(truth_prompt(originals,domain),'candidate_truth_review',batch.setdefault('request',{}),
                 lambda value:compile_audits(value,originals))
-            batch['status']='completed';save()
+            batch['status']='completed';await save()
         await run_batches(truth['batches'],truth_batch,width=3,stage='candidate_truth_review')
         truth['status']='completed'
         candidates=[p for b in truth['batches'] for p in b['result']['points']]
@@ -310,7 +315,7 @@ async def run(svc, course_id, job_id):
             focus=[p for p in candidates if p['key'] in batch['keys']]
             batch['result']=await request(placement_prompt(focus,candidates,pipeline['catalog']),'candidate_check_placement',
                 batch.setdefault('request',{}),lambda value:parse_placements(value,focus,candidates,pipeline['catalog']))
-            batch['status']='completed';save()
+            batch['status']='completed';await save()
         await run_batches(placements['batches'],place_batch,width=3,stage='candidate_check_placement')
         placements['status']='completed'
         check_decisions={key:value for b in placements['batches'] for key,value in b['result'].items() if value['action']=='check'}
@@ -329,14 +334,14 @@ async def run(svc, course_id, job_id):
                 focus=[p for p in knowledge_candidates if p['key'] in batch['keys']]
                 batch['result']=await request(matching_prompt(focus,knowledge_candidates,pipeline['catalog'],knowledge_only=True),'identity_review',
                     batch.setdefault('request',{}),lambda value:parse_equivalences(value,focus,knowledge_candidates,pipeline['catalog']))
-                batch['status']='completed';save()
+                batch['status']='completed';await save()
             await run_batches(matching['batches'],match_batch,width=3,stage='identity_review')
             decisions={**{key:value for b in matching['batches'] for key,value in b['result'].items()},**check_decisions}
             pipeline['registry']=resolve_matches(candidates,pipeline['catalog'],decisions)
             for stage in (review,truth):
                 pipeline['registry']['issues'].extend(issue for b in stage['batches'] for issue in b['result']['issues'])
             matching['status']='completed'
-            save()
+            await save()
         points = pipeline['registry']['points']
         new_points = [p for p in points if not p.get('_registered_point')]
         names = pipeline.setdefault('names', {})
@@ -351,7 +356,7 @@ async def run(svc, course_id, job_id):
             names['result'] = parse_names(names['response'], new_points)
         from knowledge_short_names import resolve_name_collisions
         names['result'] = await resolve_name_collisions(pipeline, points, names['result'], request)
-        save()
+        await save()
         tree = build_tree(raw, context, pipeline, job_id)
         # Whole-course unique keys also make reused cross-lesson identities unambiguous.
         for i, p in enumerate(tree['knowledge_points'], 1):
@@ -385,7 +390,7 @@ async def run(svc, course_id, job_id):
                 batch['result'] = await request(relation_prompt(tree, batch['focus_keys']), 'candidate_relations',
                     batch.setdefault('request', {}), lambda value: compile_edges(value, tree, batch['focus_keys'], context['scope_lesson_id']))
                 batch['status'] = 'completed'
-                save()
+                await save()
             await run_batches(relation_state['batches'], relate, width=4, stage='candidate_relations')
             tree = attach(tree, relation_state['batches'])
             relation_state['status'] = 'completed'
@@ -402,14 +407,14 @@ async def run(svc, course_id, job_id):
                     bundle=QuestionBankRepository().load_bundle(course_id)
                     groups=eligible_questions(raw['course_knowledge_base'],bundle)
                 state['sample_groups']=deepcopy(groups)
-                save()
+                await save()
             groups=state['sample_groups']
             async def profile_batch(index,batch):
                 targets=[p for p in selected if p['knowledge_id'] in batch['point_ids']]
                 batch['result']=await request(profile_prompt(targets,groups),'kc_profiles',
                     batch.setdefault('request',{}),lambda value:compile_profiles(value,targets,groups))
                 batch['status']='completed'
-                save()
+                await save()
             await run_batches(state['batches'],profile_batch,width=3,stage='kc_profiles')
             profiles={key:value for b in state['batches'] for key,value in b['result'].items()}
             for point in tree['knowledge_points']:
@@ -417,20 +422,20 @@ async def run(svc, course_id, job_id):
                     point['kc_skill_profile']=profiles[point['knowledge_id']]
             tree['kc_profile_summary']={'focus':pipeline['teaching_focus'],'profile_count':len(profiles),
                 'draft_count':len(profiles),'learner_evidence':False}
-        validate_version()
+        await asyncio.to_thread(validate_version)
         tree.update(source_context_revision=context['revision_id'],
                     source_scope_revision=context['scope_contract']['revision_id'], generation_job_id=job_id,
                     model=provider.model_smart, generation_contract=CONTRACT)
         tree['revision_id'] = stable_hash({k: v for k, v in tree.items() if k != 'revision_id'}, prefix='kb_')
-        svc.authoring.update_job(course_id, job_id, status='completed', phase='completed', progress=100,
+        await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='completed', phase='completed', progress=100,
             checkpoint={'atomic_pipeline': deepcopy(pipeline), 'candidate': tree}, raw_response='', partial_text='',
             stream_complete=True, message='知识树候选已生成，请核对待确认项后采用')
     except asyncio.CancelledError:
         raise
     except Exception as error:
-        current = svc.authoring.get_job(course_id, job_id)
+        current = await asyncio.to_thread(svc.authoring.get_job, course_id, job_id)
         if current['status'] in {'pending', 'running'}:
-            svc.authoring.update_job(course_id, job_id, status='failed', phase='failed',
+            await asyncio.to_thread(svc.authoring.update_job, course_id, job_id, status='failed', phase='failed',
                 checkpoint={'atomic_pipeline': deepcopy(pipeline)},
                 error={'code': type(error).__name__, 'message': str(error),
                        **deepcopy(getattr(error, 'knowledge_failure', {}))},
