@@ -46,8 +46,11 @@ def test_only_exact_current_formal_evidence_can_change_the_focus():
         {"source_id": "a3", "support": "independent", "outcome": "passed"}
     )
     assert teaching_design("project", profile=profile, knowledge_refs={"k": "kr"})["focus"] == []
-    profile["knowledge_profile"]["nodes"][0]["status"]="needs_review"
-    assert teaching_design("project",profile=profile,knowledge_refs={"k":"kr"})["focus"][0]["reason"]=="review_after_independent_pass"
+    profile["knowledge_profile"]["nodes"][0]["status"] = "needs_review"
+    assert (
+        teaching_design("project", profile=profile, knowledge_refs={"k": "kr"})["focus"][0]["reason"]
+        == "review_after_independent_pass"
+    )
 
 
 @pytest.mark.asyncio
@@ -140,6 +143,7 @@ def test_course_source_freezes_own_goal_memory_and_exact_evidence(setup_access, 
     )
     assert response.status_code == 200, response.text
     source = response.json()
+    assert len(source["sections"]) == 1  # A bare course heading is not a separate teachable range.
     from course_repository import CourseDocumentRepository
 
     monkeypatch.setattr(CourseDocumentRepository, "load_course_view", lambda self, cid: deepcopy(course))
@@ -160,19 +164,32 @@ def test_course_source_freezes_own_goal_memory_and_exact_evidence(setup_access, 
 
 from backend.tests.test_course_learning_access import setup_access
 
+
 @pytest.mark.asyncio
 async def test_completed_provider_text_can_be_reparsed_without_regenerating_it(setup_study):
-    from study.service import create_material,run_personal_handout
-    client,manager,repo,writer=setup_study
-    owner,headers=account(client);source=add_source(client,headers)
-    material=await create_material(manager,repo,owner,request_for(source,'project'))
-    raw='<!-- section:study-section-1 -->\n<!-- block:{"type":"comparison","title":"边界：i<n 与 i<=n","key":"boundary"} -->\n比较严格与包含边界。'
-    revision=material['revisions'][0]
-    revision['sections']=[{'id':'study-section-1','title':source['sections'][0]['title'],'complete':False,'provider_complete':True,'draft_text':raw,'blocks':[],'fragment':'比较严格与包含边界。'}]
-    repo.update(owner,material['id'],{'revisions':[revision]})
-    writer.fail_section='study-section-1'
-    await run_personal_handout(manager,material['task_id'])
-    saved=repo.get(owner,material['id'])
-    assert saved['status']=='completed'
-    assert not any(key=='study-section-1' for key,_ in writer.calls)
-    assert saved['revisions'][0]['sections'][0]['draft_text']==raw
+    from study.service import create_material, run_personal_handout
+
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    source = add_source(client, headers)
+    material = await create_material(manager, repo, owner, request_for(source, "project"))
+    raw = '<!-- section:study-section-1 -->\n<!-- block:{"type":"comparison","title":"边界：i<n 与 i<=n","key":"boundary"} -->\n比较严格与包含边界。'
+    revision = material["revisions"][0]
+    revision["sections"] = [
+        {
+            "id": "study-section-1",
+            "title": source["sections"][0]["title"],
+            "complete": False,
+            "provider_complete": True,
+            "draft_text": raw,
+            "blocks": [],
+            "fragment": "比较严格与包含边界。",
+        }
+    ]
+    repo.update(owner, material["id"], {"revisions": [revision]})
+    writer.fail_section = "study-section-1"
+    await run_personal_handout(manager, material["task_id"])
+    saved = repo.get(owner, material["id"])
+    assert saved["status"] == "completed"
+    assert not any(key == "study-section-1" for key, _ in writer.calls)
+    assert saved["revisions"][0]["sections"][0]["draft_text"] == raw
