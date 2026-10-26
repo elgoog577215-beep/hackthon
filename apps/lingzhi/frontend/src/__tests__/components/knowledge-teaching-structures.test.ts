@@ -43,3 +43,9 @@ it('shows specific review findings for teaching objects without turning them int
   for(const note of ['判据遗漏了合法的边界情况','复测答案需核对','需区分选学与普通变式'])expect(w.text()).toContain(note)
   expect(w.text()).not.toContain('0/2');w.unmount()
 })
+it('renders formulas in structured teaching names',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
+  const math=structuredClone(tree);math.misconceptions[0].name='遗漏阶乘 $k!$'
+  const w=mount(Panel,{props:{tree:math,knowledgeId:'K'},...options})
+  expect(w.find('[data-testid="structured-mistake"] h4 .katex').exists()).toBe(true);w.unmount()
+})
