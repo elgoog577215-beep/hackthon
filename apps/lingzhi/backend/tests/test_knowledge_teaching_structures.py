@@ -86,3 +86,29 @@ def test_compiler_rejects_foreign_references_and_model_invented_scores():
     with pytest.raises(ValueError):compile_batch(response,points,points,'batch')
     response=teaching_reply({'focus':points});response['points']['K1']['mastery']=100
     with pytest.raises(ValueError):compile_batch(response,points,points,'batch')
+
+
+def test_teaching_assets_survive_other_lesson_merge_and_do_not_leak_hidden_bindings():
+    from handout_knowledge import merge_lesson_tree,slice_lesson_tree,visible_handout_tree
+    p={'knowledge_id':'K','revision_id':'KR','key':'K1','name':'已知知识','statement':'完整结论',
+        'section_refs':['L1'],'parent_id':'C','source_refs':[],'source_quotes':[]}
+    c={'criterion_id':'criterion','knowledge_ids':['K'],'knowledge_revision_refs':{'K':'KR'},'section_refs':['L1'],
+        'contract':'knowledge_teaching_structures_v1','readiness':'ready','review_status':'owner_accepted'}
+    old={'knowledge_points':[p],'categories':[{'id':'C','name':'主题','parent_id':None}],
+        'relations':[],'lessons':[{'topic':'L1'}],'sources':[],'mastery_criteria':[c],
+        'teaching_coverage':{'K':{'knowledge_revision':'KR','status':'ready'}}}
+    other={'knowledge_points':[{**p,'knowledge_id':'J','revision_id':'JR','section_refs':['L2']}],
+        'categories':old['categories'],'relations':[],'lessons':[{'topic':'L2'}],'sources':[],
+        'mastery_criteria':[],'revision_id':'new-tree'}
+    merged=merge_lesson_tree(old,other,'L2')
+    assert merged['mastery_criteria']==[c]
+    assert slice_lesson_tree(merged,'L2').get('mastery_criteria')==[]
+    public=visible_handout_tree(merged,{'blocks':[]},{})
+    assert public.get('mastery_criteria')==[]
+
+
+def test_stream_limits_cover_array_fields_without_a_discipline_word_patch():
+    from knowledge_output_guard import JsonOutputGuard
+    guard=JsonOutputGuard({('extensions','*','explanation'):20})
+    with pytest.raises(ValueError,match='过长'):
+        guard.feed(json.dumps({'extensions':[{'explanation':'独立知识说明超过这个字段长度范围但不修改任何原始知识内容'}]}))
