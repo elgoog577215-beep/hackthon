@@ -58,7 +58,7 @@ const extensions = computed(() => bound(props.tree.extensions))
 const coverage = computed(() => { const value = props.tree.teaching_coverage?.[props.knowledgeId]; return value?.knowledge_revision === point.value?.revision_id ? value : null })
 function otherKnowledge(row: any) { return points.value.filter(p => p.knowledge_id !== props.knowledgeId && row.knowledge_ids?.includes(p.knowledge_id) && row.knowledge_revision_refs?.[p.knowledge_id] === p.revision_id) }
 function prerequisiteNames(row: any) { return points.value.filter(p => row.prerequisite_knowledge_refs?.[p.knowledge_id] === p.revision_id).map(p => p.name) }
-function format(key: string, values: Record<string, number>) { return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), t(`knowledgeTeaching.${key}`)) }
+function format(key: string, values: Record<string, number>) { return Object.entries(values).reduce((text, [name, value]) => text.split(`{${name}}`).join(String(value)), t(`knowledgeTeaching.${key}`)) }
 </script>
 
 <style scoped>

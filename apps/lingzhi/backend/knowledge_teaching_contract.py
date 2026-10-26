@@ -53,6 +53,7 @@ def prompt(tree,focus):
         'knowledge_keys可关联catalog的多个知识，但每个新对象至少关联一个focus。'
         '每字段一两句，最多300字符；拓展explanation最多600字符。公式引用已有形式，不展开长推导。只返回一个JSON对象，顶层仅points、mistakes、extensions；结束后停止输出。',
         {'stage':'candidate_teaching_structures','contract':CONTRACT,
+         'output_schema':response_schema([p['key']for p in focus],[p['key']for p in tree['knowledge_points']]),
          'focus':[{k:deepcopy(p.get(k))for k in ('key','name','statement','conditions','symbol_definitions','check_intents','kc_skill_profile')}for p in focus],
          'catalog':[{k:deepcopy(p.get(k))for k in ('key','name','statement','conditions')}for p in tree['knowledge_points']]})
 

@@ -531,7 +531,7 @@ const teachingSummary = computed(() => {
   const values:Record<string,number> = { covered:covered.size,total:points.length,
     mistakes:(tree.misconceptions || []).filter(bound).length,extensions:(tree.extensions || []).filter(bound).length,
     review:points.filter((p:any) => tree.teaching_coverage[p.knowledge_id]?.knowledge_revision === p.revision_id && tree.teaching_coverage[p.knowledge_id]?.status === 'needs_core_review').length }
-  return Object.entries(values).reduce((text,[key,value]) => text.replaceAll(`{${key}}`,String(value)),t('knowledgeTeaching.summary'))
+  return Object.entries(values).reduce((text,[key,value]) => text.split(`{${key}}`).join(String(value)),t('knowledgeTeaching.summary'))
 })
 function selectTeachingKnowledge(id:string) {
   const point = displayTree.value?.allKnowledgePoints?.find((p:any) => p.knowledge_id === id)

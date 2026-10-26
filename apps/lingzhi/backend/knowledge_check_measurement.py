@@ -5,7 +5,7 @@ POLICY={'rule_version':'criterion_evidence_v1','policy_status':'proposed','min_i
         'same_source_counts_once':True,'calibrated':False}
 
 
-def summarize_check(criterion,attempts,*,user_id,course_id):
+def summarize_check(criterion,attempts,*,user_id,course_id,course_version_id):
     result={'status':'unassessed','latest_score':None,'max_score':len(criterion['checkpoints']),
         'independent_successes':0,'independent_variants':0,'evidence':[], 'mastery_probability':None}
     if criterion.get('review_status')not in {'approved','owner_accepted'} or criterion.get('readiness')!='ready':
@@ -14,7 +14,10 @@ def summarize_check(criterion,attempts,*,user_id,course_id):
     independent={};seen=set()
     for attempt in sorted(attempts,key=lambda a:(str(a.get('created_at','')),str(a.get('attempt_id','')))):
         aid=attempt.get('attempt_id');key=attempt.get('assessment_evidence_key');graded=attempt.get('result')or{}
+        confidence=graded.get('grading_confidence')
         if (not user_id or attempt.get('user_id')!=user_id or attempt.get('course_id')!=course_id or not aid or aid in seen
+            or not course_version_id or attempt.get('course_version_id')!=course_version_id
+            or type(confidence)not in {int,float} or not .72<=confidence<=1
             or not key or not attempt.get('task_revision_id') or attempt.get('status')!='graded'
             or graded.get('status')=='pending_review' or graded.get('historical_only')
             or attempt.get('criterion_revision_refs',{}).get(cid)!=criterion['revision_id']

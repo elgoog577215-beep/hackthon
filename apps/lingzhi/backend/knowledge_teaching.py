@@ -24,6 +24,17 @@ def asset_signature(tree,ids):
     return stable_hash(sorted(rows,key=lambda row:str(sorted(row.items()))),prefix='ktassets_')
 
 
+def partition_failed_batches(state):
+    """On explicit resume, reduce only a failed request's transport scope."""
+    batches=[]
+    for batch in state['batches']:
+        if batch.get('status')!='completed' and len(batch['keys'])>1 and batch.get('request',{}).get('validation_error'):
+            state.setdefault('superseded_batches',[]).append(deepcopy(batch))
+            batches.extend({'id':f"{batch['id']}.{i}",'keys':[key],'status':'pending'}for i,key in enumerate(batch['keys'],1))
+        else:batches.append(batch)
+    state['batches']=batches
+
+
 async def run(svc,course_id,lesson_id,tree,pipeline,request,save):
     from knowledge_atomic import run_batches
     frozen=protected_body(tree);signature=input_signature(tree,lesson_id)
@@ -40,6 +51,7 @@ async def run(svc,course_id,lesson_id,tree,pipeline,request,save):
             'identity_origin':pipeline['identity_job_id'],'status':'pending','batches':[
                 {'id':f'teaching-{i//3+1}','keys':[p['key']for p in local[i:i+3]],'status':'pending'}for i in range(0,len(local),3)]}
         pipeline['teaching_structures']=state
+    else:partition_failed_batches(state)
     async def batch_run(index,batch):
         focus=[p for p in local if p['key']in batch['keys']]
         batch['result']=await request(prompt(catalog,focus),'candidate_teaching_structures',batch.setdefault('request',{}),
