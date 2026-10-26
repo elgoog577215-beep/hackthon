@@ -63,19 +63,19 @@ def test_quantified_checks_do_not_turn_no_data_hints_or_duplicate_attempts_into_
     criterion={'criterion_id':'C','revision_id':'CR','knowledge_revision_refs':{'K':'KR'},'readiness':'ready',
         'review_status':'owner_accepted','checkpoints':[{'checkpoint_id':'A'},{'checkpoint_id':'B'}],
         'evidence_policy':{'min_independent_successes':2,'min_distinct_variants':2}}
-    assert summarize_check(criterion,[],user_id='u',course_id='c')['latest_score'] is None
+    assert summarize_check(criterion,[],user_id='u',course_id='c',course_version_id='current')['latest_score'] is None
     def attempt(identity,variant,**changes):
-        return {'attempt_id':identity,'user_id':'u','course_id':'c','status':'graded','assessment_evidence_key':variant,
+        return {'attempt_id':identity,'user_id':'u','course_id':'c','course_version_id':'current','status':'graded','assessment_evidence_key':variant,
             'task_revision_id':variant,'knowledge_revision_refs':{'K':'KR'},'criterion_revision_refs':{'C':'CR'},
-            'result':{'criterion_results':{'C':{'A':True,'B':True}}},**changes}
+            'result':{'criterion_results':{'C':{'A':True,'B':True}},'grading_confidence':.95},**changes}
     rows=[attempt('1','v1'),attempt('2','v1'),attempt('3','v2',support_level=1),attempt('4','v3',solution_revealed=True),
         attempt('5','v4',user_id='other')]
-    result=summarize_check(criterion,rows,user_id='u',course_id='c')
+    result=summarize_check(criterion,rows,user_id='u',course_id='c',course_version_id='current')
     assert result['independent_successes']==1 and result['status']=='needs_more_evidence'
     rows.append(attempt('6','v2'))
-    assert summarize_check(criterion,rows,user_id='u',course_id='c')['status']=='check_supported'
+    assert summarize_check(criterion,rows,user_id='u',course_id='c',course_version_id='current')['status']=='check_supported'
     criterion['revision_id']='new-revision'
-    assert summarize_check(criterion,rows,user_id='u',course_id='c')['latest_score'] is None
+    assert summarize_check(criterion,rows,user_id='u',course_id='c',course_version_id='current')['latest_score'] is None
 
 
 def test_compiler_rejects_foreign_references_and_model_invented_scores():
@@ -161,3 +161,17 @@ async def test_failed_teaching_request_resumes_without_repeating_other_stages(sv
     await svc.run('c-pilot',retry['id']);saved=svc.authoring.get_job('c-pilot',retry['id'])
     assert saved['status']=='completed',saved.get('error')
     assert len(calls)==1
+
+
+def test_resume_partitions_only_failed_teaching_batch_and_preserves_raw_history():
+    from knowledge_teaching import partition_failed_batches
+    done={'id':'teaching-1','keys':['K1','K2'],'status':'completed','result':{'frozen':True}}
+    failed={'id':'teaching-2','keys':['K3','K4'],'status':'pending','request':{'validation_error':'invalid JSON','raw_response':'fragment'}}
+    unstarted={'id':'teaching-3','keys':['K5','K6'],'status':'pending'}
+    state={'batches':[done,failed,unstarted]}
+    partition_failed_batches(state)
+    assert state['batches'][0]==done and state['batches'][-1]==unstarted
+    assert [b['keys']for b in state['batches'][1:3]]==[['K3'],['K4']]
+    assert state['superseded_batches']==[failed]
+    before=deepcopy(state);partition_failed_batches(state)
+    assert before==state
