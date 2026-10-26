@@ -83,7 +83,8 @@ def test_compiler_rejects_foreign_references_and_model_invented_scores():
     points=[{'key':'K1','knowledge_id':'kid','revision_id':'rev'}]
     response=teaching_reply({'focus':points})
     response['mistakes'][0]['knowledge_keys']=['unknown']
-    with pytest.raises(ValueError):compile_batch(response,points,points,'batch')
+    with pytest.raises(ValueError) as caught:compile_batch(response,points,points,'batch')
+    assert caught.value.code=='knowledge_output_validation' and caught.value.retryable
     response=teaching_reply({'focus':points});response['points']['K1']['mastery']=100
     with pytest.raises(ValueError):compile_batch(response,points,points,'batch')
 
