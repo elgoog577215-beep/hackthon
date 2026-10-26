@@ -112,3 +112,52 @@ def test_stream_limits_cover_array_fields_without_a_discipline_word_patch():
     guard=JsonOutputGuard({('extensions','*','explanation'):20})
     with pytest.raises(ValueError,match='过长'):
         guard.feed(json.dumps({'extensions':[{'explanation':'独立知识说明超过这个字段长度范围但不修改任何原始知识内容'}]}))
+
+
+def test_measurement_excludes_other_course_versions_and_uncertain_grading():
+    from knowledge_check_measurement import summarize_check,POLICY
+    criterion={'criterion_id':'C','revision_id':'CR','knowledge_revision_refs':{'K':'KR'},'readiness':'ready',
+        'review_status':'owner_accepted','checkpoints':[{'checkpoint_id':'A'}],'evidence_policy':POLICY}
+    attempt={'attempt_id':'1','user_id':'u','course_id':'c','course_version_id':'old','status':'graded',
+        'assessment_evidence_key':'v1','task_revision_id':'T','knowledge_revision_refs':{'K':'KR'},
+        'criterion_revision_refs':{'C':'CR'},'result':{'criterion_results':{'C':{'A':True}},'grading_confidence':.95}}
+    def measure(row):return summarize_check(criterion,[row],user_id='u',course_id='c',course_version_id='current')
+    assert measure(attempt)['latest_score'] is None
+    attempt['course_version_id']='current';attempt['result']['grading_confidence']=.2
+    assert measure(attempt)['latest_score'] is None
+    attempt['result']['grading_confidence']=.95
+    assert measure(attempt)['independent_successes']==1
+
+
+def test_shared_error_identity_merges_only_explicit_semantic_matches():
+    from knowledge_teaching_assets import resolve_identities
+    drafts=[{'key':f'B{i}:M1','kind':'mistake','body':{'name':'相同标题'}}for i in range(3)]
+    value={'decisions':{'B0:M1':{'action':'keep','reason':'基准'},
+        'B1:M1':{'action':'match','target':'B0:M1','same_content':True,'same_scope':True,'same_discrimination':True,'reason':'同一假设'},
+        'B2:M1':{'action':'keep','reason':'同错答但原因不同'}}}
+    result=resolve_identities(value,drafts,[])
+    assert result['B0:M1']==result['B1:M1'] and result['B2:M1']!=result['B0:M1']
+    value['decisions']['B1:M1']['same_scope']=False
+    with pytest.raises(ValueError):resolve_identities(value,drafts,[])
+
+
+@pytest.mark.asyncio
+async def test_failed_teaching_request_resumes_without_repeating_other_stages(svc,monkeypatch):
+    await seed(svc,monkeypatch);calls=[];provider(svc,calls)
+    prior=start(svc,'resume-base',generation_mode='full_v1');await svc.run('c-pilot',prior['id'])
+    async def fail(payload):
+        if payload['stage']=='candidate_teaching_structures':return teaching_reply(payload)
+        raise ValueError('identity unavailable')
+    calls.clear();provider(svc,calls,fail)
+    job=start(svc,'fail-identity',generation_mode='full_v1',include_teaching_structures=True,base_job_id=prior['id'])
+    await svc.run('c-pilot',job['id']);failed=svc.authoring.get_job('c-pilot',job['id'])
+    assert failed['status']=='failed'
+    calls.clear()
+    async def finish(payload):
+        assert payload['stage']=='candidate_teaching_identity'
+        return identity_reply(payload)
+    provider(svc,calls,finish)
+    retry=start(svc,'resume-identity',resume_job_id=job['id'])
+    await svc.run('c-pilot',retry['id']);saved=svc.authoring.get_job('c-pilot',retry['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert len(calls)==1
