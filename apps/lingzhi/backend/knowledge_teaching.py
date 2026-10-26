@@ -17,7 +17,10 @@ def asset_signature(tree,ids):
     from knowledge_teaching_assets import COLLECTIONS
     rows=[]
     for collection,id_field in [*COLLECTIONS.values(),('teaching_bindings','binding_id')]:
-        rows.extend(deepcopy(row)for row in tree.get(collection,[])if row.get(id_field)in ids)
+        ignored={'status','review_status','name'}
+        if collection in {'misconceptions','extensions'}:ignored.update({'knowledge_ids','knowledge_revision_refs','primary_knowledge_id','related_knowledge_ids','section_refs','source_refs'})
+        rows.extend({k:deepcopy(v)for k,v in row.items()if k not in ignored}
+                    for row in tree.get(collection,[])if row.get(id_field)in ids)
     return stable_hash(sorted(rows,key=lambda row:str(sorted(row.items()))),prefix='ktassets_')
 
 
@@ -53,9 +56,8 @@ async def run(svc,course_id,lesson_id,tree,pipeline,request,save):
     result['knowledge_points']=deepcopy(tree['knowledge_points'])
     require(protected_body(result)==frozen,'教学结构不能改写知识主体、分类或覆盖清单')
     from knowledge_teaching_assets import COLLECTIONS
-    old_ids={row.get(id_field)for collection,id_field in [*COLLECTIONS.values(),('teaching_bindings','binding_id')]for row in tree.get(collection,[])}
-    scope_ids=[row[id_field]for collection,id_field in [*COLLECTIONS.values(),('teaching_bindings','binding_id')]
-        for row in result.get(collection,[])if row.get(id_field)not in old_ids or lesson_id in row.get('section_refs',[]) or row.get('scope_lesson_id')==lesson_id]
+    scope_ids=sorted({key for b in result.get('teaching_bindings',[])if b['scope_lesson_id']==lesson_id
+        for key in (b['binding_id'],b['object_id'])})
     result.setdefault('enrichment',{}).setdefault('teaching_structures',{})[lesson_id]={
         'contract':CONTRACT,'status':'completed','input_signature':signature,'asset_ids':scope_ids,
         'asset_signature':asset_signature(result,scope_ids)}

@@ -25,7 +25,7 @@ class JsonOutputGuard:
 
     def reset(self):
         self.stack=[];self.inside=False;self.escaped=False;self.unicode=None
-        self.path=();self.key=False;self.text='';self.length=0;self.reason=''
+        self.path=();self.key=False;self.text='';self.length=0;self.reason='';self.limit=None
 
     def _path(self):
         if not self.stack:return ()
@@ -57,7 +57,7 @@ class JsonOutputGuard:
             return
         self.length+=len(char)
         self.text=(self.text+char)[-2048:]
-        limit=self.field_limits.get(self.path) if not self.key else None
+        limit=self.limit
         if limit is not None and self.length>limit:self._fail('field_length',limit)
         if self.length%16==0:self._check_repetition()
 
@@ -85,6 +85,10 @@ class JsonOutputGuard:
             if char=='"':
                 self.key=bool(self.stack and self.stack[-1]['kind']=='object' and self.stack[-1]['expect']=='key')
                 self.path=(*self.stack[-1]['path'],'<key>') if self.key else self._path()
+                self.limit=None if self.key else self.field_limits.get(self.path)
+                if not self.key and self.limit is None:
+                    self.limit=next((limit for path,limit in self.field_limits.items()if len(path)==len(self.path)
+                        and all(a=='*'or a==b for a,b in zip(path,self.path))),None)
                 self.inside=True;self.escaped=False;self.unicode=None;self.text='';self.length=0
             elif char in '{[':
                 self.stack.append({'kind':'object' if char=='{' else 'array','path':self._path(),

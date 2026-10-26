@@ -562,18 +562,30 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         # not teaching bodies. Keep headroom proportional to the actual set.
         options['max_tokens'] = min(options['max_tokens'], max(2048, len(payload['points']) * 240 + 1024))
         request_budget['max_output_tokens'] = options['max_tokens']
+    if stage in {'candidate_teaching_structures','candidate_teaching_identity'}:
+        from knowledge_teaching_contract import response_schema,output_limits as teaching_limits
+        payload=json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
+        if stage=='candidate_teaching_structures':
+            structure=response_schema([p['key']for p in payload['focus']],[p['key']for p in payload['catalog']])
+        else:
+            from knowledge_teaching_assets import identity_schema
+            rows=[*payload['candidates'],*payload['existing']]
+            structure=identity_schema([p['key']for p in payload['candidates']],[p['key']for p in rows],{p['key']:p['kind']for p in rows})
+        output_limits=teaching_limits(structure)
+        options['max_tokens']=min(options['max_tokens'],12000)
+        request_budget['max_output_tokens']=options['max_tokens']
     quality_job = await asyncio.to_thread(svc.authoring.read_projection,course_id, lambda state:
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') in
         {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'})
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
-    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_extract','candidate_core_review','candidate_core_identity','candidate_core_identity_catalog','candidate_required_coverage','kc_profiles'} and structure is not None):
+    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_extract','candidate_core_review','candidate_core_identity','candidate_core_identity_catalog','candidate_required_coverage','kc_profiles','candidate_teaching_structures','candidate_teaching_identity'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, request_budget=request_budget,
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
     from knowledge_output_guard import JsonOutputGuard,OutputGuardViolation
-    output_guard=JsonOutputGuard(output_limits) if stage=='kc_profiles' else None
+    output_guard=JsonOutputGuard(output_limits) if stage in {'kc_profiles','candidate_teaching_structures','candidate_teaching_identity'} else None
     output_signal=asyncio.Event();output_failure={'error':None}
     formatting = {'inside': False, 'escaped': False, 'whitespace': 0, 'invalid': False}
     started = time.perf_counter();first_content = None;last_content = started

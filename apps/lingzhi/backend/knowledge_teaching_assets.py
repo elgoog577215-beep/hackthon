@@ -24,11 +24,15 @@ def existing_catalog(tree):
         [(kind,row)for kind in ['mistake','extension']for row in tree.get(COLLECTIONS[kind][0],[])],1)]
 
 
-def identity_schema(keys,targets):
+def identity_schema(keys,targets,kinds=None):
     keep=obj({'action':{'enum':['keep']},'reason':text(200)})
-    match=obj({'action':{'enum':['match']},'target':{'enum':targets},'same_content':{'const':True},
-               'same_scope':{'const':True},'same_discrimination':{'const':True},'reason':text(200)})
-    return obj({'decisions':obj({key:{'anyOf':[keep,match]}for key in keys})})
+    rows={}
+    for key in keys:
+        allowed=[t for t in targets if t!=key and (not kinds or kinds[t]==kinds[key])]
+        match=obj({'action':{'enum':['match']},'target':{'enum':allowed},'same_content':{'const':True},
+                   'same_scope':{'const':True},'same_discrimination':{'const':True},'reason':text(200)})
+        rows[key]={'anyOf':[keep,match]} if allowed else keep
+    return obj({'decisions':obj(rows)})
 
 
 def identity_prompt(drafts,existing):
@@ -43,7 +47,7 @@ def identity_prompt(drafts,existing):
 
 def resolve_identities(value,drafts,existing):
     by_key={r['key']:r for r in [*drafts,*existing]};keys=[r['key']for r in drafts]
-    if list(Draft202012Validator(identity_schema(keys,list(by_key))).iter_errors(value)):
+    if list(Draft202012Validator(identity_schema(keys,list(by_key),{k:r['kind']for k,r in by_key.items()})).iter_errors(value)):
         raise ValueError('教学对象身份核对缺失、越界或缺少等价依据')
     parents={k:k for k in by_key}
     def root(k):
@@ -76,7 +80,9 @@ def assemble(tree,batches,identities,existing,course_id,lesson_id,origin_id):
     for draft in drafts:
         target=identities[draft['key']];kind=draft['kind'];field,id_field=COLLECTIONS[kind]
         if target not in objects:
-            if target in old:record=deepcopy(old[target]['record'])
+            if target in old:
+                record=deepcopy(old[target]['record'])
+                record.setdefault('knowledge_ids',list(dict.fromkeys(k for k in [record.get('primary_knowledge_id'),*record.get('related_knowledge_ids',[])]if k)))
             else:
                 source=by_draft[target]['body'];identifier=stable_hash({'course':course_id,'origin':origin_id,'key':target,'kind':kind},prefix='kta_')
                 record={id_field:identifier,'course_id':course_id,'name':source['name'],'contract':CONTRACT,
@@ -113,19 +119,24 @@ def assemble(tree,batches,identities,existing,course_id,lesson_id,origin_id):
                     'source_refs':deepcopy(point.get('source_refs',[])),'skill_ids':[],
                     'misconception_ids':[resolved[batch['id']+':'+m]for m in source['mistake_keys']],
                     'checkpoints':checks,'scoring':{'rule':'all_checkpoints','max_score':len(checks),'pass_score':len(checks),'unknown_score':None},
-                    'evidence_policy':deepcopy(POLICY),'required_independence':'independent','required_transfer':'separate_check',
+                    'evidence_policy':deepcopy(POLICY),'required_independence':'independent','required_transfer':'transfer' if source['dimension']=='transfer' else 'variation',
                     'required_evidence_types':['graded_response'],'readiness':'ready' if entry['status']=='ready' else 'needs_core_review',
                     'review_status':'draft','status':'candidate','learner_evidence':False}
                 row['revision_id']=_revision(row,'ktcr_');criteria.append(row)
     bindings=[]
+    for target,(kind,record)in objects.items():
+        if target not in old and any(point_notes.get(k,{}).get('status')=='needs_core_review'for k in record['knowledge_ids']):
+            record['readiness']='needs_core_review';record['revision_id']=_revision(record,'ktar_')
     for kind,rows in [('criterion',criteria),*[(kind,[record])for kind,record in objects.values()]]:
         collection,id_field=COLLECTIONS[kind]
         for row in rows:
+            row['section_refs']=list(dict.fromkeys([*row.get('section_refs',[]),lesson_id]))
             if kind=='mistake':
                 row['primary_knowledge_id']=row.get('primary_knowledge_id')or row['knowledge_ids'][0]
                 row['related_knowledge_ids']=[k for k in row['knowledge_ids']if k!=row['primary_knowledge_id']]
             for kid in row['knowledge_ids']:
-                point=next(p for p in points.values()if p['knowledge_id']==kid)
+                point=next((p for p in points.values()if p['knowledge_id']==kid),None)
+                if point is None:continue
                 binding={'binding_id':stable_hash({'course':course_id,'kind':kind,'object':row[id_field],'knowledge':kid,'lesson':lesson_id},prefix='ktb_'),
                     'object_type':kind,'object_id':row[id_field],'object_revision':row['revision_id'],'knowledge_id':kid,
                     'knowledge_revision':point['revision_id'],'scope_lesson_id':lesson_id,'role':'direct','status':'candidate','review_status':'draft'}
@@ -148,7 +159,17 @@ def merge_fields(existing,candidate,points):
     result={};by_id={p['knowledge_id']:p for p in points}
     for collection,id_field in [*COLLECTIONS.values(),('teaching_bindings','binding_id')]:
         rows={r[id_field]:deepcopy(r)for r in existing.get(collection,[])if r.get(id_field)}
-        rows.update({r[id_field]:deepcopy(r)for r in candidate.get(collection,[])if r.get(id_field)})
+        for source in candidate.get(collection,[]):
+            if not source.get(id_field):continue
+            row=deepcopy(source);previous=rows.get(row[id_field])
+            if previous and collection!='teaching_bindings' and previous.get('revision_id')==row.get('revision_id'):
+                for field in ('knowledge_ids','section_refs','source_refs'):
+                    row[field]=list(dict.fromkeys([*previous.get(field,[]),*row.get(field,[])]))
+                row['knowledge_revision_refs']={**previous.get('knowledge_revision_refs',{}),**row.get('knowledge_revision_refs',{})}
+                if collection=='misconceptions':
+                    row['primary_knowledge_id']=previous.get('primary_knowledge_id')or row.get('primary_knowledge_id')
+                    row['related_knowledge_ids']=[k for k in row['knowledge_ids']if k!=row['primary_knowledge_id']]
+            rows[row[id_field]]=row
         result[collection]=list(rows.values())
     for binding in result['teaching_bindings']:
         if by_id.get(binding['knowledge_id'],{}).get('revision_id')!=binding['knowledge_revision']:binding['status']='needs_review'
@@ -163,10 +184,18 @@ def filter_fields(tree,points,*,published=False):
         for row in tree.get(collection,[]):
             refs=row.get('knowledge_revision_refs')or{}
             keys=set(row.get('knowledge_ids')or [row.get('primary_knowledge_id'),*row.get('related_knowledge_ids',[])])-{None,''}
-            if not keys or not keys<=set(ids):continue
-            if refs and any(ids.get(k)!=v for k,v in refs.items()):continue
+            if not keys.intersection(ids) or published and not keys<=set(ids):continue
+            if refs and any(k in ids and ids[k]!=v for k,v in refs.items()):continue
+            if published and any(ids.get(k)!=v for k,v in row.get('prerequisite_knowledge_refs',{}).items()):continue
             if published and row.get('contract')==CONTRACT and (row.get('review_status')!='owner_accepted' or row.get('readiness')!='ready'):continue
-            rows.append(deepcopy(row))
+            projected=deepcopy(row)
+            if not published:
+                projected['knowledge_ids']=[k for k in row.get('knowledge_ids',[])if k in ids]
+                projected['knowledge_revision_refs']={k:v for k,v in refs.items()if k in ids}
+                if collection=='misconceptions' and projected['knowledge_ids']:
+                    projected['primary_knowledge_id']=row.get('primary_knowledge_id')if row.get('primary_knowledge_id')in ids else projected['knowledge_ids'][0]
+                    projected['related_knowledge_ids']=[k for k in projected['knowledge_ids']if k!=projected['primary_knowledge_id']]
+            rows.append(projected)
         result[collection]=rows
     object_ids={r[id_field]for collection,id_field in COLLECTIONS.values()for r in result[collection]}
     result['teaching_bindings']=[deepcopy(b)for b in tree.get('teaching_bindings',[])if b.get('object_id')in object_ids

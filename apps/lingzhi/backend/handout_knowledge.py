@@ -164,6 +164,9 @@ def merge_lesson_tree(existing, candidate, lesson_id):
     result['scope_lesson_id'] = lesson_id
     result['base_knowledge_revision'] = existing.get('revision_id', '')
     result['provenance'] = '按讲次更新知识树；其他讲沿用已采用内容，关联建议待审阅'
+    if existing.get('teaching_coverage') or candidate.get('teaching_coverage'):
+        from knowledge_teaching_assets import merge_fields
+        result.update(merge_fields(existing,candidate,result['knowledge_points']))
     result['revision_id'] = stable_hash({k: v for k, v in result.items() if k != 'revision_id'}, prefix='kb_')
     return result
 
@@ -204,6 +207,9 @@ def slice_lesson_tree(tree, lesson_id):
     result['source_handouts'] = [l for l in result.get('source_handouts', []) if l['lesson_id'] == lesson_id]
     evidence_ids = {eid for p in result['knowledge_points'] for eid in p['source_refs']}
     result['sources'] = [s for s in result.get('sources', []) if s['evidence_id'] in evidence_ids]
+    if tree.get('teaching_coverage'):
+        from knowledge_teaching_assets import filter_fields
+        result.update(filter_fields(tree,result['knowledge_points']))
     return result
 
 
@@ -245,6 +251,10 @@ def visible_handout_tree(tree, document, handouts):
     result['source_handouts'] = [s for s in result.get('source_handouts', []) if s['lesson_id'] in lesson_ids]
     result['sources'] = [s for s in result.get('sources', []) if s['evidence_id'] in evidence_ids]
     result.update(gaps=[], gap_records=[], uncovered_evidence_ids=[], projection_scope='visible_handout_blocks')
+    if tree.get('teaching_coverage'):
+        from knowledge_teaching_assets import filter_fields
+        result.update(filter_fields(tree,result['knowledge_points'],published=True))
+        result.pop('teaching_structure_summary',None)
     from knowledge_relations import relation_index
     result['relation_index'] = relation_index(result)
     return result
