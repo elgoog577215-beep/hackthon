@@ -30,18 +30,22 @@ it('replaces inventory, batch diagnostics and timings with one percentage bar',a
   expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('37%')
   expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
-it('generates a complete core first without attaching relation/profile work',async()=>{
+it('uses one complete pipeline for new lesson knowledge',async()=>{
   const v=view();v.atomic_runs=[];vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
   await w.findAll('button').find(b=>b.text().includes('生成本讲知识树'))!.trigger('click');await flushPromises()
-  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'inventory_atomic_v1',lesson_id:'cpu',organize_hierarchy:true,generation_mode:'core_v1',include_relations:false}))
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({pipeline:'inventory_atomic_v1',lesson_id:'cpu',organize_hierarchy:true,generation_mode:'full_v1',include_relations:true}))
+  expect(w.find('[data-testid="generate-full-knowledge-tree"]').exists()).toBe(false)
   w.unmount()
 })
-it('keeps complete generation as an explicit action',async()=>{
-  const v=view();v.atomic_runs=[];vi.spyOn(http,'get').mockResolvedValue({data:v})
+it('passes the displayed completed body to additive enrichment',async()=>{
+  const v:any=view();v.atomic_runs=[]
+  v.candidates=[{job_id:'completed-core',lesson_id:'cpu',tree:{revision_id:'core-revision',status:'candidate',
+    knowledge_points:[],categories:[],atomic_assessment:{ready_for_adoption:true}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
-  await w.get('[data-testid="generate-full-knowledge-tree"]').trigger('click');await flushPromises()
-  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',include_relations:true}))
+  await w.findAll('button').find(b=>b.text().includes('补充关系与教学档案'))!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',base_job_id:'completed-core'}))
   w.unmount()
 })
 it.each([['candidate_core_review','核对完整知识'],['candidate_core_identity_catalog','合并同义知识']])('labels %s without the retired source-validation wording',async(stage,label)=>{
