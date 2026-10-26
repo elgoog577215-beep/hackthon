@@ -12,7 +12,7 @@ CONTRACT='knowledge_unified_v1'
 def protected_body(tree):
     """Every knowledge field is frozen; only its teaching profile may be added."""
     return {**{k:deepcopy(tree.get(k)) for k in ('categories','concept_groups','lessons','knowledge_coverage',
-        'knowledge_inventory','inventory_source_coverage','terminology_revision','gap_records','gaps')},
+        'knowledge_inventory','inventory_source_coverage','terminology_revision','gap_records','gaps','required_coverage')},
         'knowledge_points':[{k:deepcopy(v) for k,v in p.items() if k!='kc_skill_profile'}
                             for p in tree.get('knowledge_points',[])]}
 
@@ -30,6 +30,7 @@ def validate_core(tree,lesson_id):
     require(all(p.get('knowledge_id') and p.get('revision_id') and p.get('statement') and p.get('name')for p in points)
         and len({p['knowledge_id']for p in points})==len(points),'知识主体身份或完整知识缺失')
     require(not tree.get('knowledge_coverage',{}).get('missing_unit_ids'),'知识主体的覆盖缺口尚未处理')
+    require(not tree.get('required_coverage',{}).get('missing_unit_ids'),'指定知识清单仍有缺口')
 
 
 def select_core(raw,state,context,lesson_id,base_job_id=''):
@@ -50,7 +51,17 @@ def select_core(raw,state,context,lesson_id,base_job_id=''):
         require(adopted or job.get('source_knowledge_revision')==knowledge_revision(raw),
             '知识基线已变化，不能复用旧候选')
         validate_core(tree,lesson_id)
-        return {'tree':deepcopy(tree),'origin_job_id':job['id'],'origin_tree_revision':tree.get('revision_id'),
+        selected=deepcopy(tree)
+        prior=(job.get('checkpoint') or {}).get('atomic_pipeline',{})
+        relations=prior.get('registry_relations',{})
+        local_keys={p['key']for p in selected['knowledge_points']if lesson_id in p.get('section_refs',[])}
+        reviewed={k for b in relations.get('batches',[])if b.get('status')=='completed'for k in b.get('focus_keys',[])}
+        if (job.get('include_relations') and relations.get('status')=='completed' and local_keys<=reviewed
+            and selected.get('atomic_assessment',{}).get('relation_status')=='completed'
+            and protected_body(tree_of(job))==protected_body(tree)):
+            selected.setdefault('enrichment',{})['relations']={'status':'completed','body_signature':body_signature(selected),
+                'reviewed_knowledge_ids':[p['knowledge_id']for p in selected['knowledge_points']if p['key']in local_keys]}
+        return {'tree':selected,'origin_job_id':job['id'],'origin_tree_revision':tree.get('revision_id'),
                 'body_signature':body_signature(tree),'origin':'accepted' if adopted else 'candidate'}
     def tree_of(job):
         cp=job.get('checkpoint') or {}

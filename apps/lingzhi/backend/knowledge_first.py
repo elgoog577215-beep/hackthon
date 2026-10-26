@@ -598,7 +598,6 @@ class KnowledgeFirstService:
             if unified:
                 from knowledge_core_contract import CONTRACT as CORE
                 from knowledge_unified import select_core,prepare_pipeline
-                require(not coverage_units,'指定覆盖清单须先完成相应知识主体，再补充配套内容')
                 reuse=None if resume_job_id else select_core(raw,state,context,lesson_id,base_job_id)
                 lesson=state['lessons'].get(lesson_id) or {}
                 frozen={'actor':raw.get('owner_id'),'source_mode':source_mode,'knowledge_lesson_id':lesson_id,

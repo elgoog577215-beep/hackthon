@@ -193,6 +193,9 @@ async def run(svc, course_id, job_id):
             tree=await generate_core()
             pipeline['core_tree']=deepcopy(tree)
             if job.get('generation_mode')=='full_v1':await save(durable=True)
+        if job.get('coverage_units'):
+            from knowledge_required_coverage import check
+            await check(tree,job['coverage_units'],pipeline,request,save)
         if job.get('generation_mode')=='full_v1':
             from knowledge_enrichment import enrich
             tree=await enrich(svc,course_id,context['scope_lesson_id'],pipeline,request,save,io)
