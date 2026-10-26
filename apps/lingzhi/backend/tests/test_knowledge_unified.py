@@ -166,3 +166,22 @@ async def test_explicit_coverage_requirements_are_not_silently_discarded(svc,mon
     assert 'candidate_required_coverage'in [p['stage']for p in calls]
     assert 'candidate_relations'not in [p['stage']for p in calls]
     assert saved['checkpoint']['atomic_pipeline']['required_coverage']['result']['missing_unit_ids']
+
+
+@pytest.mark.asyncio
+async def test_reused_cross_lesson_display_keys_do_not_collide_in_model_catalog(svc,monkeypatch):
+    original=await seed(svc,monkeypatch);state=svc.authoring.load('c-pilot')
+    tree=state['jobs'][original['id']]['checkpoint']['candidate']
+    other={**deepcopy(tree['knowledge_points'][0]),'knowledge_id':'other-lesson-point','id':'other-lesson-point',
+        'revision_id':'other-revision','section_refs':['other'],'topic':'other'}
+    tree['knowledge_points'].append(other);expected=body(tree);svc.authoring._save(state)
+    calls=[]
+    async def model(payload):
+        if payload['stage']=='candidate_relations':
+            assert len({p['key']for p in payload['catalog']})==len(payload['catalog'])
+        return model_reply(payload)
+    provider(svc,calls,model);job=start(svc,'cross-lesson-keys',generation_mode='full_v1',base_job_id=original['id'])
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert body(saved['checkpoint']['candidate'])==expected
+    assert saved['checkpoint']['candidate']['knowledge_points'][-1]==other
