@@ -81,11 +81,20 @@ async def run(svc, course_id, job_id):
         async with save_lock:
             await io(validate_version)
             pipeline['revision']+=1
-            if any(b.get('points') for b in pipeline['inventory_batches']):
+            if pipeline.get('core_tree'):
+                pipeline['preview_tree']=deepcopy(pipeline['core_tree'])
+                pipeline['preview_tree']['generation_preview']=True
+                pipeline['preview_tree']['atomic_assessment']['ready_for_adoption']=False
+            elif any(b.get('points') for b in pipeline['inventory_batches']):
                 pipeline['preview_tree']=compile_tree(raw,context,pipeline,job_id,preview=True)
             snapshot=deepcopy(pipeline)
-            progress=65*sum(b['status']=='completed' for b in snapshot['inventory_batches'])//len(snapshot['inventory_batches'])
-            progress+=30*len(snapshot.get('core_review',{}).get('completed_groups',[]))//len(snapshot['inventory_batches'])
+            if snapshot.get('core_tree'):
+                from knowledge_enrichment import progress as enrichment_progress
+                progress=enrichment_progress(snapshot) if job.get('generation_mode')=='full_v1' else 95
+            else:
+                progress=65*sum(b['status']=='completed' for b in snapshot['inventory_batches'])//max(1,len(snapshot['inventory_batches']))
+                progress+=30*len(snapshot.get('core_review',{}).get('completed_groups',[]))//max(1,len(snapshot['inventory_batches']))
+                if job.get('generation_mode')=='full_v1':progress=int(progress*.6)
             await io(svc.authoring.update_job if durable else svc.authoring.update_job_live,
                 course_id,job_id,checkpoint={'atomic_pipeline':snapshot},progress=progress)
             if not durable:await io(svc.authoring.publish_knowledge_preview,course_id)
@@ -120,72 +129,88 @@ async def run(svc, course_id, job_id):
         else:
             from ai_base import AIBase
             provider=AIBase()
-        async def extract(index,batch):
-            selected=[m for m in materials if m['key'] in batch['source_keys']]
-            batch['points']=await request(extraction_prompt(raw,context,selected),'candidate_core_extract',
-                batch.setdefault('request',{}),lambda value:parse_extraction(value,batch['id'],batch['source_keys']))
-            batch['status']='completed'
-            pipeline['names']['result'].update({p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']} for p in batch['points']})
-            await save()
-        review=pipeline.get('core_review',{})
-        if review.get('contract')!='knowledge_core_review_v3':
-            review={'contract':'knowledge_core_review_v3','status':'pending','batches':[],'completed_groups':[]};pipeline['core_review']=review
-        async def review_batch(index,batch,group):
-            focus=[p for p in group['points'] if p['key'] in batch['keys']]
-            references=[p for p in group['points'] if p['key'] not in batch['keys']]
-            selected=[m for m in materials if m['key'] in batch['source_keys']]
-            coverage=[m for m in materials if m['key'] in batch['coverage_keys']]
-            batch['result']=await request(review_prompt(raw,context,selected,focus,pipeline['catalog'],references=references,coverage_materials=coverage),
-                'candidate_core_review',batch.setdefault('request',{}),lambda value:compile_fragment(value,focus,coverage,pipeline['catalog'],references))
-            batch['status']='completed';await save()
-        async def extract_and_review(index,work):
-            group=work['group']
-            if group['status']!='completed':await extract(index,group)
-            for offset in range(0,max(1,len(group['points'])),16):
-                batch_id=f"review-{group['id']}-{offset//16+1}"
-                batch=next((b for b in review['batches'] if b['id']==batch_id),None)
-                if batch is None:
-                    batch={'id':batch_id,'status':'pending','keys':[p['key'] for p in group['points'][offset:offset+16]],
-                        'source_keys':group['source_keys'],'coverage_keys':group['source_keys'] if offset==0 else []}
-                    review['batches'].append(batch)
-                if batch['status']!='completed':await review_batch(index,batch,group)
-            if group['id'] not in review['completed_groups']:review['completed_groups'].append(group['id'])
-            work['status']='completed';await save()
-        work=[{'id':group['id'],'status':'pending','group':group} for group in pipeline['inventory_batches']]
-        await run_batches(work,extract_and_review,width=8,stage='candidate_core_extract')
-        candidates=[p for b in pipeline['inventory_batches'] for p in b['points']]
-        require(bool(candidates) and len(candidates)<=160,'本讲独立知识为空或超过单讲容量')
-        combined={'decisions':{},'add':[],'coverage':{}}
-        for batch in review['batches']:
-            fragment=batch['result']['response']
-            combined['decisions'].update(fragment['decisions']);combined['add'].extend(fragment['add']);combined['coverage'].update(fragment['coverage'])
-        try:
-            result=compile_review(combined,candidates,pipeline['catalog'],materials)
-        except ValueError:
+        async def generate_core():
+            async def extract(index,batch):
+                selected=[m for m in materials if m['key'] in batch['source_keys']]
+                batch['points']=await request(extraction_prompt(raw,context,selected),'candidate_core_extract',
+                    batch.setdefault('request',{}),lambda value:parse_extraction(value,batch['id'],batch['source_keys']))
+                batch['status']='completed'
+                pipeline['names']['result'].update({p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']} for p in batch['points']})
+                await save()
+            review=pipeline.get('core_review',{})
+            if review.get('contract')!='knowledge_core_review_v3':
+                review={'contract':'knowledge_core_review_v3','status':'pending','batches':[],'completed_groups':[]};pipeline['core_review']=review
+            async def review_batch(index,batch,group):
+                focus=[p for p in group['points'] if p['key'] in batch['keys']]
+                references=[p for p in group['points'] if p['key'] not in batch['keys']]
+                selected=[m for m in materials if m['key'] in batch['source_keys']]
+                coverage=[m for m in materials if m['key'] in batch['coverage_keys']]
+                batch['result']=await request(review_prompt(raw,context,selected,focus,pipeline['catalog'],references=references,coverage_materials=coverage),
+                    'candidate_core_review',batch.setdefault('request',{}),lambda value:compile_fragment(value,focus,coverage,pipeline['catalog'],references))
+                batch['status']='completed';await save()
+            async def extract_and_review(index,work):
+                group=work['group']
+                if group['status']!='completed':await extract(index,group)
+                for offset in range(0,max(1,len(group['points'])),16):
+                    batch_id=f"review-{group['id']}-{offset//16+1}"
+                    batch=next((b for b in review['batches'] if b['id']==batch_id),None)
+                    if batch is None:
+                        batch={'id':batch_id,'status':'pending','keys':[p['key'] for p in group['points'][offset:offset+16]],
+                            'source_keys':group['source_keys'],'coverage_keys':group['source_keys'] if offset==0 else []}
+                        review['batches'].append(batch)
+                    if batch['status']!='completed':await review_batch(index,batch,group)
+                if group['id'] not in review['completed_groups']:review['completed_groups'].append(group['id'])
+                work['status']='completed';await save()
+            work=[{'id':group['id'],'status':'pending','group':group} for group in pipeline['inventory_batches']]
+            await run_batches(work,extract_and_review,width=8,stage='candidate_core_extract')
+            candidates=[p for b in pipeline['inventory_batches'] for p in b['points']]
+            require(bool(candidates) and len(candidates)<=160,'本讲独立知识为空或超过单讲容量')
+            combined={'decisions':{},'add':[],'coverage':{}}
             for batch in review['batches']:
-                batch['status']='pending';record=batch['request'];record['status']='failed';record['response_epoch']=record.get('response_epoch',0)+1
-            review['status']='failed'
-            raise
-        review['status']='completed'
-        from knowledge_core_identity import catalog_prompt,apply_catalog
-        if len(result['registry']['points'])>1:
-            await io(svc.authoring.update_job_live,course_id,job_id,progress=96)
-            result=await request(catalog_prompt(result),'candidate_core_identity_catalog',pipeline.setdefault('core_identity',{}),
-                lambda value:apply_catalog(result,value,pipeline['catalog']))
-        pipeline.update({k:deepcopy(v) for k,v in result.items() if k not in {'names','coverage'}})
-        pipeline['names']={'status':'completed','result':result['names']}
-        pipeline['hierarchy']={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}}
-        tree=compile_tree(raw,context,pipeline,job_id,preview=False)
+                fragment=batch['result']['response']
+                combined['decisions'].update(fragment['decisions']);combined['add'].extend(fragment['add']);combined['coverage'].update(fragment['coverage'])
+            try:
+                result=compile_review(combined,candidates,pipeline['catalog'],materials)
+            except ValueError:
+                for batch in review['batches']:
+                    batch['status']='pending';record=batch['request'];record['status']='failed';record['response_epoch']=record.get('response_epoch',0)+1
+                review['status']='failed'
+                raise
+            review['status']='completed'
+            from knowledge_core_identity import catalog_prompt,apply_catalog
+            if len(result['registry']['points'])>1:
+                await io(svc.authoring.update_job_live,course_id,job_id,progress=96)
+                result=await request(catalog_prompt(result),'candidate_core_identity_catalog',pipeline.setdefault('core_identity',{}),
+                    lambda value:apply_catalog(result,value,pipeline['catalog']))
+            pipeline.update({k:deepcopy(v) for k,v in result.items() if k not in {'names','coverage'}})
+            pipeline['names']={'status':'completed','result':result['names']}
+            pipeline['hierarchy']={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}}
+            return compile_tree(raw,context,pipeline,job_id,preview=False)
+
+        if pipeline.get('core_tree'):
+            tree=deepcopy(pipeline['core_tree'])
+        else:
+            tree=await generate_core()
+            pipeline['core_tree']=deepcopy(tree)
+            if job.get('generation_mode')=='full_v1':await save(durable=True)
+        if job.get('generation_mode')=='full_v1':
+            from knowledge_enrichment import enrich
+            tree=await enrich(svc,course_id,context['scope_lesson_id'],pipeline,request,save,io)
+        tree['status']='candidate'
+        tree.pop('generation_preview',None)
+        tree['generation_mode']=job.get('generation_mode','core_v1')
+        tree['execution_contract']='knowledge_unified_v1'
+        if pipeline.get('core_reuse'):tree['core_reuse']=deepcopy(pipeline['core_reuse'])
         await io(validate_version)
         elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(job['created_at'])).total_seconds()
         tree.update(source_context_revision=context['revision_id'],source_scope_revision=context['scope_contract']['revision_id'],
             generation_job_id=job_id,model=provider.model_smart,
-            performance={'target_seconds':60,'candidate_compiled_seconds':round(elapsed,3),
+            performance={'target_seconds':180 if job.get('generation_mode')=='full_v1' else 60,'candidate_compiled_seconds':round(elapsed,3),
                          'completion_measurement':'client_observed_durable_result'})
         tree['revision_id']=stable_hash({k:v for k,v in tree.items() if k!='revision_id'},prefix='kb_')
         await io(svc.authoring.update_job,course_id,job_id,status='completed',phase='completed',progress=100,
             checkpoint={'atomic_pipeline':deepcopy(pipeline),'candidate':tree},raw_response='',partial_text='',
-            stream_complete=True,message='基础知识树已生成，关系与教学档案可另行补充')
+            stream_complete=True,message='知识树及配套内容已生成，请审阅采用' if job.get('generation_mode')=='full_v1' else '知识主体已生成，可继续补充关系与教学档案')
     except asyncio.CancelledError:raise
     except Exception as error:
         current=await io(svc.authoring.get_job,course_id,job_id)

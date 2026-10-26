@@ -331,19 +331,24 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1'):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1', base_job_id=''):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
         require(extraction_mode in {'', 'single_pass_v1'}, '未知知识提取模式')
         require(type(include_relations) is bool, '关系生成选项无效')
         require(generation_mode in {'full_v1','core_v1'}, '未知知识树生成范围')
+        from knowledge_unified import CONTRACT as UNIFIED
+        unified=pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)
+        require(not base_job_id or unified and not resume_job_id,'指定知识主体只用于本讲配套生成，不能更换续跑基线')
         if resume_job_id:
-            previous_mode=self.authoring.get_job(course_id,resume_job_id).get('generation_mode','full_v1')
-            if previous_mode=='core_v1':generation_mode=previous_mode
+            previous_job=self.authoring.get_job(course_id,resume_job_id)
+            previous_mode=previous_job.get('generation_mode','full_v1')
+            unified=previous_job.get('execution_contract')==UNIFIED or previous_mode=='core_v1'
+            if unified:generation_mode=previous_mode
         require(generation_mode!='core_v1' or (pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)), '基础树仅用于单讲讲义')
-        if generation_mode=='core_v1':
-            include_relations=False
+        if unified:
+            include_relations=generation_mode=='full_v1'
             organize_hierarchy=True
         require(not pipeline or (source_mode == 'handouts' and topic == 'tree' and lesson_id), '分批细化仅用于本讲讲义知识树')
         require(not (resume_job_id or retry_batch_id) or pipeline in {PIPELINE, RELATIONS}, '继续批次需要原生成流程')
@@ -361,7 +366,7 @@ class KnowledgeFirstService:
             require(topic == "tree" or bool(expected_revision), "请先采用知识树，再生成讲义")
             require(topic == "tree" or (raw.get("course_knowledge_base") or {}).get("status") == "accepted", "当前知识树尚未采用")
             state = (self.authoring.read_projection(course_id,lambda value:value)
-                     if generation_mode=='core_v1' else self.authoring.load(course_id))
+                     if unified else self.authoring.load(course_id))
             existing_jobs = state["jobs"]
             previous=None
             if teaching_focus is None:
@@ -394,6 +399,7 @@ class KnowledgeFirstService:
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
                 require(duplicate.get('generation_mode','full_v1')==generation_mode,'请求标识对应不同知识树生成范围')
+                require(duplicate.get('base_job_id','')==base_job_id,'请求标识对应不同知识主体')
                 require(duplicate.get('coverage_units',[])==coverage_units,'请求标识对应不同知识清单')
                 require(duplicate.get('teaching_focus',[])==teaching_focus,'请求标识对应不同教学档案分支')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
@@ -422,7 +428,7 @@ class KnowledgeFirstService:
                     and original.get('source_document_revision') == expected_document
                     and original.get('source_knowledge_revision') == expected_revision, '课程或知识版本已变化，不能继续旧任务')
                 prior = (original.get('checkpoint') or {}).get('atomic_pipeline') or {}
-                if original.get('generation_mode')=='core_v1':
+                if original.get('generation_mode')=='core_v1' or original.get('execution_contract')==UNIFIED:
                     from knowledge_core_contract import CONTRACT as CORE
                     require(prior.get('generation_contract')==CORE,'基础树恢复合同已变化')
                     require(original.get('status')!='completed' or bool(retry_batch_id),'已完成任务请明确重做范围')
@@ -430,13 +436,21 @@ class KnowledgeFirstService:
                     continued_checkpoint=deepcopy(original['checkpoint']);continued_checkpoint.pop('candidate',None)
                     if retry_batch_id:
                         core=continued_checkpoint['atomic_pipeline']
-                        if retry_batch_id!='review':
+                        if retry_batch_id in {'relations','profiles'}:
+                            core.pop('registry_relations' if retry_batch_id=='relations' else 'kc_profiles',None)
+                            # A requested redo must not inherit the completion
+                            # certificate from the prior enriched candidate.
+                            if retry_batch_id=='relations':core.get('core_tree',{}).get('enrichment',{}).pop('relations',None)
+                            else:
+                                for point in core.get('core_tree',{}).get('knowledge_points',[]):point.pop('kc_skill_profile',None)
+                        elif retry_batch_id!='review':
                             selected=[b for b in core['inventory_batches'] if retry_batch_id in {b['id'],'all_atoms'}]
                             require(bool(selected),'基础树批次不存在')
                             for batch in selected:
                                 batch['status']='pending';batch.pop('points',None);batch.pop('request',None)
-                        for field in ('core_review','core_identity','registry','paths','frozen_units','extraction_resolutions','hierarchy','preview_tree'):
-                            core.pop(field,None)
+                        if retry_batch_id not in {'relations','profiles'}:
+                            for field in ('core_tree','core_reuse','registry_relations','kc_profiles','core_review','core_identity','registry','paths','frozen_units','extraction_resolutions','hierarchy','preview_tree'):
+                                core.pop(field,None)
                 elif prior.get('generation_contract') in {REGISTRY,'knowledge_registry_v4'}:
                     require(original.get('coverage_units',[])==coverage_units,'继续任务不能更换冻结知识清单')
                     require(original.get('teaching_focus',[])==teaching_focus,'继续任务不能更换已冻结教学档案分支')
@@ -581,9 +595,11 @@ class KnowledgeFirstService:
                 require((raw.get("course_knowledge_base") or {}).get("source_input_revision") == input_revision(raw, context), "课程信息或资料已变化，请重新生成并采用知识树后再生成讲义")
             require(not context["material_coverage"]["incomplete_assets"] and context["material_coverage"]["factual_evidence_count"] > 0,
                     "课程资料尚未完整解析或未选择，暂时不能生成知识内容")
-            if generation_mode=='core_v1':
+            if unified:
                 from knowledge_core_contract import CONTRACT as CORE
-                require(not coverage_units,'指定冻结知识清单请使用完整生成入口')
+                from knowledge_unified import select_core,prepare_pipeline
+                require(not coverage_units,'指定覆盖清单须先完成相应知识主体，再补充配套内容')
+                reuse=None if resume_job_id else select_core(raw,state,context,lesson_id,base_job_id)
                 lesson=state['lessons'].get(lesson_id) or {}
                 frozen={'actor':raw.get('owner_id'),'source_mode':source_mode,'knowledge_lesson_id':lesson_id,
                     'source_knowledge_revision':expected_revision,'source_document_revision':expected_document,
@@ -593,14 +609,14 @@ class KnowledgeFirstService:
                     'source_scope_revision':context['scope_contract']['revision_id'],
                     'request_snapshot':{'knowledge_generation_context':context},'asset_type':'knowledge_tree',
                     'message':'正在生成本讲基础知识树','knowledge_pipeline':pipeline,'generation_mode':generation_mode,
-                    'generation_contract':CORE,'teaching_focus':teaching_focus,'coverage_units':coverage_units,
-                    'organize_hierarchy':True,'extraction_mode':extraction_mode,'include_relations':False,
+                    'generation_contract':CORE,'execution_contract':UNIFIED,'base_job_id':base_job_id,
+                    'teaching_focus':teaching_focus,'coverage_units':coverage_units,
+                    'organize_hierarchy':True,'extraction_mode':extraction_mode,'include_relations':include_relations,
                     'checkpoint':continued_checkpoint or {},'resume_from_job_id':resume_job_id,
                     'parent_job_id':resume_job_id,'retry_batch_id':retry_batch_id}
-                from knowledge_core import initial_pipeline
                 return self.authoring.create_job(course_id,topic,job_type=kind,request_id=request_id,
                     initial_fields=lambda identity:{**frozen,'checkpoint':continued_checkpoint or {
-                        'atomic_pipeline':initial_pipeline(raw,context,identity)}}),True
+                        'atomic_pipeline':prepare_pipeline(raw,context,identity,generation_mode,reuse)}}),True
             job = self.authoring.create_job(course_id, topic, job_type=kind, request_id=request_id)
             state = self.authoring.load(course_id)
             lesson = state["lessons"].get(lesson_id or topic) or {}
@@ -627,7 +643,8 @@ class KnowledgeFirstService:
         return job
 
     async def run(self, course_id, job_id):
-        if (await asyncio.to_thread(self.authoring.get_job,course_id,job_id)).get('generation_mode')=='core_v1':
+        job=await asyncio.to_thread(self.authoring.get_job,course_id,job_id)
+        if job.get('generation_mode')=='core_v1' or job.get('execution_contract')=='knowledge_unified_v1':
             from knowledge_core import run
             return await run(self,course_id,job_id)
         pipeline = (await asyncio.to_thread(self.authoring.get_job,course_id,job_id)).get('knowledge_pipeline')
