@@ -95,7 +95,8 @@ async def test_completed_enrichment_is_reused_without_any_model_request(svc,monk
 
 
 @pytest.mark.asyncio
-async def test_partial_enrichment_resume_keeps_success_and_does_not_rebuild_core(svc,monkeypatch):
+@pytest.mark.parametrize('resume',[True,False])
+async def test_partial_enrichment_resume_keeps_success_and_does_not_rebuild_core(svc,monkeypatch,resume):
     original=await seed(svc,monkeypatch);profile_done=asyncio.Event();calls=[]
     async def first(payload):
         if payload['stage']=='candidate_relations':
@@ -106,9 +107,10 @@ async def test_partial_enrichment_resume_keeps_success_and_does_not_rebuild_core
     provider(svc,calls,first);job=start(svc,'partial-full',generation_mode='full_v1')
     await svc.run('c-pilot',job['id']);failed=svc.authoring.get_job('c-pilot',job['id'])
     assert failed['status']=='failed'
+    assert failed['error']['stage']=='candidate_relations'
     assert body(failed['checkpoint']['atomic_pipeline']['core_tree'])==body(original['checkpoint']['candidate'])
     calls.clear();provider(svc,calls)
-    resumed=start(svc,'resume-full',resume_job_id=job['id'])
+    resumed=start(svc,'resume-full',**({'resume_job_id':job['id']} if resume else {'generation_mode':'full_v1'}))
     await svc.run('c-pilot',resumed['id']);saved=svc.authoring.get_job('c-pilot',resumed['id'])
     assert saved['status']=='completed',saved.get('error')
     assert [p['stage']for p in calls]==['candidate_relations']
