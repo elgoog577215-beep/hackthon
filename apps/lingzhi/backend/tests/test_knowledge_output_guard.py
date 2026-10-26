@@ -98,3 +98,29 @@ async def test_failed_batch_keeps_its_own_partial_output_after_parallel_success(
     await svc.run('c-pilot',resumed['id'])
     assert svc.authoring.get_job('c-pilot',resumed['id'])['status']=='completed'
     assert [p['stage']for p in calls]==['kc_profiles']
+
+
+@pytest.mark.asyncio
+async def test_final_response_is_guarded_when_provider_does_not_emit_deltas(svc,monkeypatch):
+    from knowledge_atomic import call_stage
+    from knowledge_kc_profiles import profile_prompt
+    original=await seed(svc,monkeypatch);job=start(svc,'final-guard',generation_mode='full_v1')
+    async def model(*args,**kwargs):return payload('aBcD(x+1)/'*20)
+    with pytest.raises(ValueError,match='重复'):
+        await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),
+            profile_prompt(original['checkpoint']['candidate']['knowledge_points'],{}),'kc_profiles')
+
+
+@pytest.mark.asyncio
+async def test_completed_v1_profiles_are_reused_even_beyond_the_new_output_limit(svc,monkeypatch):
+    await seed(svc,monkeypatch);calls=[];provider(svc,calls)
+    job=start(svc,'completed-profiles',generation_mode='full_v1');await svc.run('c-pilot',job['id'])
+    state=svc.authoring.load('c-pilot');tree=state['jobs'][job['id']]['checkpoint']['candidate']
+    for point in tree['knowledge_points']:
+        point['kc_skill_profile']['contract']='knowledge_kc_profile_v1'
+        point['kc_skill_profile']['skill']['description']='旧说明'*150
+    svc.authoring._save(state);calls.clear()
+    resumed=start(svc,'reuse-v1-profiles',generation_mode='full_v1',base_job_id=job['id'])
+    await svc.run('c-pilot',resumed['id']);saved=svc.authoring.get_job('c-pilot',resumed['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert not calls and saved['checkpoint']['candidate']['knowledge_points']==tree['knowledge_points']
