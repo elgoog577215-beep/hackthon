@@ -74,6 +74,8 @@ def test_quantified_checks_do_not_turn_no_data_hints_or_duplicate_attempts_into_
     assert result['independent_successes']==1 and result['status']=='needs_more_evidence'
     rows.append(attempt('6','v2'))
     assert summarize_check(criterion,rows,user_id='u',course_id='c',course_version_id='current')['status']=='check_supported'
+    collisions=[attempt('7','v7',task_revision_id='same-task'),attempt('8','v8',task_revision_id='same-task')]
+    assert summarize_check(criterion,collisions,user_id='u',course_id='c',course_version_id='current')['independent_successes']==1
     criterion['revision_id']='new-revision'
     assert summarize_check(criterion,rows,user_id='u',course_id='c',course_version_id='current')['latest_score'] is None
 
