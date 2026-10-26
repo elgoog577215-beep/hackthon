@@ -8,6 +8,7 @@ class OutputGuardViolation(ValueError):
 
     def __init__(self,reason,path,limit=None):
         message=('模型在一个字段中持续重复同一片段，已停止本批并保留输出。' if reason=='repetition'
+                 else '模型输出的JSON结构异常，已停止本批并保留输出。' if reason=='json_structure'
                  else '教学档案字段过长，已停止本批并保留输出。')
         super().__init__(message)
         self.details={'reason':reason,'path':list(path),'limit':limit}
@@ -26,6 +27,7 @@ class JsonOutputGuard:
     def reset(self):
         self.stack=[];self.inside=False;self.escaped=False;self.unicode=None
         self.path=();self.key=False;self.text='';self.length=0;self.reason='';self.limit=None
+        self.complete=False
 
     def _path(self):
         if not self.stack:return ()
@@ -82,6 +84,7 @@ class JsonOutputGuard:
                     else:self._done()
                 else:self._append(char)
                 continue
+            if self.complete and not char.isspace():self._fail('json_structure')
             if char=='"':
                 self.key=bool(self.stack and self.stack[-1]['kind']=='object' and self.stack[-1]['expect']=='key')
                 self.path=(*self.stack[-1]['path'],'<key>') if self.key else self._path()
@@ -94,7 +97,10 @@ class JsonOutputGuard:
                 self.stack.append({'kind':'object' if char=='{' else 'array','path':self._path(),
                     'expect':'key' if char=='{' else 'value','key':'','index':0})
             elif char in '}]':
-                if self.stack:self.stack.pop()
+                if not self.stack or self.stack[-1]['kind']!=('object' if char=='}' else 'array'):
+                    self._fail('json_structure')
+                self.stack.pop()
+                if not self.stack:self.complete=True
                 self._done()
             elif char==':' and self.stack:self.stack[-1]['expect']='value'
             elif char==',' and self.stack:

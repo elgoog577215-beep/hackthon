@@ -8628,5 +8628,43 @@
     "verify": "Find a new independent check",
     "awaiting": "No qualified unused question has this exact binding. Verification remains pending; continue learning or check later.",
     "unavailable": "Check unavailable. No attempt was created; try later."
+  },
+  "knowledgeTeaching": {
+    "draftHint": "Shared teaching-design drafts. Error explanations are hypotheses; evidence thresholds are adjustable proposals, not personal mastery conclusions.",
+    "coreReview": "Review the knowledge core first:",
+    "checks": "Quantitative check standards",
+    "noChecks": "No usable check standard is available yet.",
+    "method": "Verification task",
+    "controls": "Provided conditions and confound controls",
+    "checkpoints": "Checkpoint decisions",
+    "scoreRule": "One point per checkpoint, {count} in total. All {count} must be satisfied for this attempt to pass. Ungraded checkpoints are not scored as zero.",
+    "evidenceRule": "Proposed target: {count} independent passes across {variants} distinct tasks or contexts, without hints or revealed answers. Repeated attempts on one task do not create independent evidence.",
+    "notReady": "The knowledge or standard needs review before it can be used for assessment.",
+    "noStudentScore": "This panel shows check definitions only. It does not read personal responses or display a learner score or mastery percentage.",
+    "mistakes": "Mistakes and distinguishing checks",
+    "noMistakes": "No mistake object is recorded for this point yet.",
+    "pattern": "Possible observable error",
+    "hypothesis": "Possible cause and alternative explanations",
+    "discrimination": "How to distinguish causes",
+    "repair": "Targeted support",
+    "retest": "Verify with a different task",
+    "sharedWith": "Also linked to:",
+    "extensions": "Extensions",
+    "noExtensions": "No independent extension is recorded for this point yet.",
+    "optional": "Optional · excluded from required mastery",
+    "goal": "Learning goal",
+    "prerequisites": "Prerequisites",
+    "task": "Suggested learning task",
+    "success": "Completion evidence",
+    "resourcesPending": "Extension resources are not linked yet. This is an optional learning draft.",
+    "generating": "Structuring mistakes, extensions and checks",
+    "matching": "Reviewing shared teaching identities",
+    "summary": "Check designs cover {covered}/{total} knowledge points; {mistakes} mistake objects and {extensions} optional extensions; {review} cores need review.",
+    "dimensions": {
+      "understanding": "Understanding and explanation",
+      "application": "Application and execution",
+      "boundary": "Conditions and boundaries",
+      "transfer": "Application in a changed context"
+    }
   }
 }

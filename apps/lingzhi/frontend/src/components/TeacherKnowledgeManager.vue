@@ -48,6 +48,7 @@
           <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-knowledge-relations" :disabled="busy || blockingJobs.length > 0 || !canGenerateRelations" :title="t('knowledgeFirst.relationRequiresBaseline')" @click="generateRelations()">{{ t('knowledgeFirst.generateRelations') }}</button>
         </div>
         <p v-if="perLesson && data.can_edit" class="hint" data-testid="knowledge-core-scope">{{ t('knowledgeFirst.coreTreeScope') }}</p>
+        <p v-if="teachingSummary" class="notice" data-testid="structured-teaching-summary">{{ teachingSummary }}</p>
         <div v-if="perLesson" class="knowledge-lesson-switch">
           <button type="button" :disabled="lessonOptions[0]?.lesson_id === knowledgeLessonId" @click="stepLesson(-1)">{{ t('knowledgeFirst.previousLesson') }}</button>
           <select v-model="knowledgeLessonId" :aria-label="t('knowledgeFirst.lessonPicker')"><option v-for="l in lessonOptions" :key="l.lesson_id" :value="l.lesson_id">{{ lessonLabels[l.lesson_id] }}</option></select>
@@ -164,7 +165,8 @@
                 <summary>{{ t('knowledgeFirst.checkIntents') }}</summary>
                 <ul><li v-for="intent in selectedPoint.check_intents" :key="intent"><MathText :content="intent" /></li></ul>
               </details>
-              <section v-if="selectedPoint.kc_skill_profile?.knowledge_id === selectedPoint.knowledge_id && selectedPoint.kc_skill_profile?.knowledge_revision === selectedPoint.revision_id" data-testid="knowledge-teaching-profile">
+              <KnowledgeTeachingStructures v-if="selectedStructuredTeaching" :tree="displayTree" :knowledge-id="selectedId" @select-knowledge="selectTeachingKnowledge" />
+              <section v-else-if="selectedPoint.kc_skill_profile?.knowledge_id === selectedPoint.knowledge_id && selectedPoint.kc_skill_profile?.knowledge_revision === selectedPoint.revision_id" data-testid="knowledge-teaching-profile">
                 <h3>{{ t('knowledgeFirst.teachingProfile') }}</h3>
                 <p class="notice">{{ t(selectedPoint.kc_skill_profile.basis === 'question_samples' ? 'knowledgeFirst.profileSampleDraft' : 'knowledgeFirst.profileKnowledgeDraft') }}</p>
                 <template v-for="field in ['description','assessment_focus','assessment_format','common_mistakes','difficulty_cues']" :key="field">
@@ -240,6 +242,7 @@ import { consumeEventStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import KnowledgeTeachingStructures from './KnowledgeTeachingStructures.vue'
 import MathText from './MathText.vue'
 import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
 import { createContentKnowledgeTree } from '../utils/knowledge-tree-layout'
@@ -452,7 +455,9 @@ const displayTree = computed(() => {
 function jobPhase(job: any) {
   if ((atomicRun.value?.pipeline?.generation_mode === 'core_v1' || atomicRun.value?.pipeline?.execution_contract === 'knowledge_unified_v1') && job.status !== 'completed') {
     if (job.transport_retry_active_count > 0) return t('knowledgeFirst.modelReconnecting')
-    const label = t(job.pipeline_stage === 'candidate_relations' ? 'knowledgeFirst.relationCandidates'
+    const label = t(job.pipeline_stage === 'candidate_teaching_structures' ? 'knowledgeTeaching.generating'
+      : job.pipeline_stage === 'candidate_teaching_identity' ? 'knowledgeTeaching.matching'
+      : job.pipeline_stage === 'candidate_relations' ? 'knowledgeFirst.relationCandidates'
       : job.pipeline_stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile'
       : job.pipeline_stage === 'candidate_required_coverage' ? 'knowledgeFirst.coreCoverage'
       : ['candidate_core_identity','candidate_core_identity_catalog'].includes(job.pipeline_stage || '') ? 'knowledgeFirst.coreIdentity'
@@ -516,6 +521,22 @@ const relationGraphRelations = computed(() => (displayTree.value?.relations || [
   conditions: relation.conditions || [], distinction: relation.distinction, derivation_steps: relation.derivation_steps || [], revision_id: relation.revision_id || '',
 })))
 const selectedPoint = computed(() => displayTree.value?.knowledge_points.find((p: any) => p.knowledge_id === selectedId.value))
+const selectedStructuredTeaching = computed(() => Boolean(selectedPoint.value && displayTree.value?.teaching_coverage?.[selectedId.value]?.knowledge_revision === selectedPoint.value.revision_id))
+const teachingSummary = computed(() => {
+  const tree = displayTree.value; if (!tree?.teaching_coverage) return ''
+  const points = tree.knowledge_points || []; const revisions = Object.fromEntries(points.map((p:any) => [p.knowledge_id,p.revision_id]))
+  const bound = (row:any) => row.knowledge_ids?.some((id:string) => revisions[id] && row.knowledge_revision_refs?.[id] === revisions[id])
+  const criteria = (tree.mastery_criteria || []).filter(bound)
+  const covered = new Set(criteria.flatMap((c:any) => c.knowledge_ids.filter((id:string) => revisions[id] === c.knowledge_revision_refs?.[id])))
+  const values:Record<string,number> = { covered:covered.size,total:points.length,
+    mistakes:(tree.misconceptions || []).filter(bound).length,extensions:(tree.extensions || []).filter(bound).length,
+    review:points.filter((p:any) => tree.teaching_coverage[p.knowledge_id]?.knowledge_revision === p.revision_id && tree.teaching_coverage[p.knowledge_id]?.status === 'needs_core_review').length }
+  return Object.entries(values).reduce((text,[key,value]) => text.replaceAll(`{${key}}`,String(value)),t('knowledgeTeaching.summary'))
+})
+function selectTeachingKnowledge(id:string) {
+  const point = displayTree.value?.allKnowledgePoints?.find((p:any) => p.knowledge_id === id)
+  if (point) void navigateRelated({knowledge_id:id,lesson_id:point.section_refs?.includes(knowledgeLessonId.value) ? knowledgeLessonId.value : point.section_refs?.[0] || point.topic})
+}
 const draftDisplayName = ref('')
 watch(selectedPoint, point => { draftDisplayName.value = knowledgeDisplayName(point) }, { immediate: true })
 const relations = computed(() => displayTree.value?.relations.filter((r: any) => [r.source_id, r.target_id].includes(selectedId.value)) || [])

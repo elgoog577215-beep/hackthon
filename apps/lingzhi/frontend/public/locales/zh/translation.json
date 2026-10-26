@@ -8628,5 +8628,43 @@
     "verify": "找一道新题独立检查",
     "awaiting": "当前没有精确关联且未使用过的合格新题，保持待验证；可以继续学习或稍后检查。",
     "unavailable": "检查入口暂不可用，未创建作答，请稍后再试。"
+  },
+  "knowledgeTeaching": {
+    "draftHint": "以下是共享教学设计草稿。错误解释是待验证假设，量化门槛是可调整的建议，不是个人掌握结论。",
+    "coreReview": "原知识需要先核对：",
+    "checks": "量化检查标准",
+    "noChecks": "尚未形成可用检查标准。",
+    "method": "怎样检查",
+    "controls": "已给条件与干扰控制",
+    "checkpoints": "逐项判定",
+    "scoreRule": "每项1分，共{count}分；全部{count}项满足才记本次通过。未判定的项不按0分处理。",
+    "evidenceRule": "建议在{variants}个不同任务或情境中取得{count}次无提示、未看答案的独立通过。同一任务重复作答不重复计证。",
+    "notReady": "原知识或标准仍待核对，暂不用于判定。",
+    "noStudentScore": "此处仅展示检查标准，不读取个人作答，也不显示个人得分或掌握率。",
+    "mistakes": "易错点与辨别方式",
+    "noMistakes": "本点尚无已记录的易错对象。",
+    "pattern": "可能出现的表现",
+    "hypothesis": "可能原因与其他解释",
+    "discrimination": "怎样区分原因",
+    "repair": "针对性补救",
+    "retest": "换个任务再验证",
+    "sharedWith": "同时关联：",
+    "extensions": "拓展内容",
+    "noExtensions": "本点尚无独立拓展内容。",
+    "optional": "选学 · 不计入必学达标",
+    "goal": "学习目标",
+    "prerequisites": "前置知识",
+    "task": "建议学习任务",
+    "success": "完成依据",
+    "resourcesPending": "拓展资料尚待关联；以上内容为选学草稿。",
+    "generating": "整理易错、拓展与检查标准",
+    "matching": "核对共享教学对象",
+    "summary": "已设计检查标准：{covered}/{total}个知识点；{mistakes}个易错对象，{extensions}个选学拓展；{review}项原知识待核对。",
+    "dimensions": {
+      "understanding": "理解与解释",
+      "application": "应用与操作",
+      "boundary": "条件与边界",
+      "transfer": "变化情境应用"
+    }
   }
 }

@@ -2,13 +2,13 @@
 from copy import deepcopy
 from course_document import stable_hash
 from generic_knowledge import require
-from knowledge_teaching_contract import CONTRACT,prompt,compile_batch
+from knowledge_teaching_contract import CONTRACT,PROMPT_REVISION,prompt,compile_batch
 from knowledge_teaching_assets import drafts_for,existing_catalog,identity_prompt,resolve_identities,assemble
 from knowledge_unified import protected_body,body_signature
 
 
 def input_signature(tree,lesson_id):
-    return stable_hash({'contract':CONTRACT,'lesson':lesson_id,'points':[
+    return stable_hash({'contract':CONTRACT,'prompt_revision':PROMPT_REVISION,'lesson':lesson_id,'points':[
         {k:p.get(k)for k in ('knowledge_id','revision_id','statement','conditions','symbol_definitions','check_intents','kc_skill_profile')}
         for p in tree['knowledge_points']if lesson_id in p.get('section_refs',[])]},prefix='kti_')
 

@@ -4,6 +4,7 @@ from jsonschema import Draft202012Validator
 from knowledge_registry_contract import render
 
 CONTRACT='knowledge_teaching_structures_v1'
+PROMPT_REVISION='teaching_design_20261026_2'
 
 
 def text(limit=300,empty=False):
@@ -43,11 +44,14 @@ def prompt(tree,focus):
         '发现核心条件矛盾、结论不严谨或同义重复时标needs_core_review并在note说明，检查标准保持待核对；不能偷偷改知识。'
         'mistakes保存一个具体错误假设，给可见错误、可能原因、其他可能解释、区分性检查、补救及独立复测；同一错误可关联多个知识key。'
         '不要把一个错误段落直接切分成已确认诊断，不声称学生已犯错或错误高频。局部key用M1、M2等，检查标准的mistake_keys只引用本批真实key。'
+        '这里生成的是供教学使用的潜在错误假设，不是某位学生的诊断；不需要已有学生作答。主动利用kc_skill_profile和知识条件设计可辨别的错误假设。'
+        '缺少学生证据、尚未采用候选、当前处于基础阶段，都不是省略易错设计的理由；学生是否犯错由未来真实作答判断。'
         'extensions是选学拓展：说明新知识/应用/对比的实际内容、目标、前置、具体学习任务和完成依据。'
         '仅增加数值难度、提高阶数、换复杂函数属于变式，不当作拓展。不要虚构资源链接、知识ID或题目ID。'
         'mistakes和extensions可为空，但对应点需用no_mistakes/no_extensions说明合理原因；不能为数量强凑。'
+        '主动寻找有内容的应用、条件对比或概念联系。基础知识也可以拓展；只有确实没有合适的本点拓展才说明具体原因，不以当前阶段无需为理由。'
         'knowledge_keys可关联catalog的多个知识，但每个新对象至少关联一个focus。'
-        '每字段一两句，最多300字符；拓展explanation最多600字符。公式引用已有形式，不展开长推导。只返回规定JSON。',
+        '每字段一两句，最多300字符；拓展explanation最多600字符。公式引用已有形式，不展开长推导。只返回一个JSON对象，顶层仅points、mistakes、extensions；结束后停止输出。',
         {'stage':'candidate_teaching_structures','contract':CONTRACT,
          'focus':[{k:deepcopy(p.get(k))for k in ('key','name','statement','conditions','symbol_definitions','check_intents','kc_skill_profile')}for p in focus],
          'catalog':[{k:deepcopy(p.get(k))for k in ('key','name','statement','conditions')}for p in tree['knowledge_points']]})
