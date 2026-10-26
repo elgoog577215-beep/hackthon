@@ -124,3 +124,14 @@ async def test_completed_v1_profiles_are_reused_even_beyond_the_new_output_limit
     await svc.run('c-pilot',resumed['id']);saved=svc.authoring.get_job('c-pilot',resumed['id'])
     assert saved['status']=='completed',saved.get('error')
     assert not calls and saved['checkpoint']['candidate']['knowledge_points']==tree['knowledge_points']
+
+
+@pytest.mark.asyncio
+async def test_profile_output_policy_does_not_restrict_other_knowledge_contracts(svc,monkeypatch):
+    from knowledge_atomic import call_stage
+    await seed(svc,monkeypatch);job=start(svc,'other-contract',generation_mode='full_v1')
+    text=json.dumps({'example':'aBcD(x+1)/'*80})
+    async def model(*args,**kwargs):
+        kwargs['on_content_delta'](text);return text
+    result=await call_stage(svc,'c-pilot',job['id'],SimpleNamespace(_call_llm=model),'冻结材料样例','knowledge_discovery')
+    assert result==text
