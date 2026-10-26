@@ -344,7 +344,7 @@ const selectedCandidateRecord = computed(() => {
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
 const reusableCoreJobId = computed(() => {
   const tree = treeChoice.value === 'candidate' ? selectedCandidate.value : data.value?.tree
-  if (!perLesson.value || !tree || tree.generation_preview || tree.atomic_assessment?.ready_for_adoption !== true) return ''
+  if (!perLesson.value || !tree || staleTreeSource.value || tree.generation_preview || tree.atomic_assessment?.ready_for_adoption !== true) return ''
   return treeChoice.value === 'candidate' ? selectedCandidateRecord.value?.job_id || '' : tree.generation_job_id || ''
 })
 const previewInterrupted = computed(() => selectedCandidate.value?.generation_preview
