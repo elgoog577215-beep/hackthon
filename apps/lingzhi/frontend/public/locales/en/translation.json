@@ -8630,6 +8630,7 @@
     "unavailable": "Check unavailable. No attempt was created; try later."
   },
   "knowledgeTeaching": {
+    "reviewContent": "Content needs review before grading or diagnosis.",
     "draftHint": "Shared teaching-design drafts. Error explanations are hypotheses; evidence thresholds are adjustable proposals, not personal mastery conclusions.",
     "coreReview": "Review the knowledge core first:",
     "checks": "Quantitative check standards",
@@ -8659,7 +8660,7 @@
     "resourcesPending": "Extension resources are not linked yet. This is an optional learning draft.",
     "generating": "Structuring mistakes, extensions and checks",
     "matching": "Reviewing shared teaching identities",
-    "summary": "Check designs cover {covered}/{total} knowledge points; {mistakes} mistake objects and {extensions} optional extensions; {review} cores need review.",
+    "summary": "Check designs cover {covered}/{total} knowledge points; {mistakes} mistake objects and {extensions} optional extensions; {review} cores need review. {reviewObjects} teaching items also need review.",
     "dimensions": {
       "understanding": "Understanding and explanation",
       "application": "Application and execution",

@@ -41,5 +41,5 @@ it('shows specific review findings for teaching objects without turning them int
   reviewed.extensions[0].review_notes=['需区分选学与普通变式']
   const w=mount(Panel,{props:{tree:reviewed,knowledgeId:'K'},...options})
   for(const note of ['判据遗漏了合法的边界情况','复测答案需核对','需区分选学与普通变式'])expect(w.text()).toContain(note)
-  expect(w.text()).not.toContain('0分');w.unmount()
+  expect(w.text()).not.toContain('0/2');w.unmount()
 })

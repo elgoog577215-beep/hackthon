@@ -529,6 +529,7 @@ const teachingSummary = computed(() => {
   const criteria = (tree.mastery_criteria || []).filter(bound)
   const covered = new Set(criteria.flatMap((c:any) => c.knowledge_ids.filter((id:string) => revisions[id] === c.knowledge_revision_refs?.[id])))
   const values:Record<string,number> = { covered:covered.size,total:points.length,
+    reviewObjects:[...(tree.mastery_criteria || []),...(tree.misconceptions || []),...(tree.extensions || [])].filter((row:any)=>bound(row) && row.readiness === 'needs_teaching_review').length,
     mistakes:(tree.misconceptions || []).filter(bound).length,extensions:(tree.extensions || []).filter(bound).length,
     review:points.filter((p:any) => tree.teaching_coverage[p.knowledge_id]?.knowledge_revision === p.revision_id && tree.teaching_coverage[p.knowledge_id]?.status === 'needs_core_review').length }
   return Object.entries(values).reduce((text,[key,value]) => text.split(`{${key}}`).join(String(value)),t('knowledgeTeaching.summary'))

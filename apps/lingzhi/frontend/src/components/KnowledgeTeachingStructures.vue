@@ -6,6 +6,7 @@
     <p v-if="!criteria.length">{{ t('knowledgeTeaching.noChecks') }}</p>
     <article v-for="criterion in criteria" :key="criterion.criterion_id" data-testid="structured-criterion">
       <h4>{{ criterion.name }}</h4>
+      <div v-if="criterion.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in criterion.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div>
       <span class="kind">{{ t(`knowledgeTeaching.dimensions.${criterion.dimension}`) }}</span>
       <MarkdownRenderer :content="criterion.observable_performance" />
       <h5>{{ t('knowledgeTeaching.method') }}</h5><MarkdownRenderer :content="criterion.verification_method" />
@@ -21,6 +22,7 @@
     <p v-if="!mistakes.length">{{ coverage?.no_mistakes || t('knowledgeTeaching.noMistakes') }}</p>
     <article v-for="mistake in mistakes" :key="mistake.misconception_id" data-testid="structured-mistake">
       <h4>{{ mistake.name }}</h4>
+      <div v-if="mistake.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in mistake.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div>
       <h5>{{ t('knowledgeTeaching.pattern') }}</h5><MarkdownRenderer :content="mistake.observable_error_pattern" />
       <h5>{{ t('knowledgeTeaching.hypothesis') }}</h5><MarkdownRenderer :content="mistake.hypothesis" />
       <ul><li v-for="reason in mistake.alternative_explanations" :key="reason"><MarkdownRenderer :content="reason" /></li></ul>
@@ -32,7 +34,8 @@
     <h3>{{ t('knowledgeTeaching.extensions') }}</h3>
     <p v-if="!extensions.length">{{ coverage?.no_extensions || t('knowledgeTeaching.noExtensions') }}</p>
     <article v-for="extension in extensions" :key="extension.extension_id" data-testid="structured-extension">
-      <h4>{{ extension.name }}</h4><span class="kind">{{ t('knowledgeTeaching.optional') }}</span>
+      <h4>{{ extension.name }}</h4>
+      <div v-if="extension.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in extension.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div><span class="kind">{{ t('knowledgeTeaching.optional') }}</span>
       <h5>{{ t('knowledgeTeaching.goal') }}</h5><MarkdownRenderer :content="extension.goal" />
       <MarkdownRenderer :content="extension.explanation" />
       <h5>{{ t('knowledgeTeaching.prerequisites') }}</h5><p>{{ prerequisiteNames(extension).join('、') }}</p><MarkdownRenderer v-if="extension.prerequisite_notes" :content="extension.prerequisite_notes" />

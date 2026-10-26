@@ -8630,6 +8630,7 @@
     "unavailable": "检查入口暂不可用，未创建作答，请稍后再试。"
   },
   "knowledgeTeaching": {
+    "reviewContent": "内容待核对，暂不作为判分或诊断依据。",
     "draftHint": "以下是共享教学设计草稿。错误解释是待验证假设，量化门槛是可调整的建议，不是个人掌握结论。",
     "coreReview": "原知识需要先核对：",
     "checks": "量化检查标准",
@@ -8659,7 +8660,7 @@
     "resourcesPending": "拓展资料尚待关联；以上内容为选学草稿。",
     "generating": "整理易错、拓展与检查标准",
     "matching": "核对共享教学对象",
-    "summary": "已设计检查标准：{covered}/{total}个知识点；{mistakes}个易错对象，{extensions}个选学拓展；{review}项原知识待核对。",
+    "summary": "已设计检查标准：{covered}/{total}个知识点；{mistakes}个易错对象，{extensions}个选学拓展；{review}项原知识待核对。另有 {reviewObjects} 项教学内容待核对。",
     "dimensions": {
       "understanding": "理解与解释",
       "application": "应用与操作",
