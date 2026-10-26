@@ -57,6 +57,9 @@ def body(tree):
 async def test_full_reuses_completed_body_and_only_enriches_frozen_points(svc,monkeypatch):
     original=await seed(svc,monkeypatch);before=deepcopy(svc.repository.load_raw('c-pilot'));calls=[];provider(svc,calls)
     job=start(svc,'enrich-existing',generation_mode='full_v1',base_job_id=original['id'])
+    preview=job['checkpoint']['atomic_pipeline'].get('preview_tree')
+    assert preview and preview['generation_preview'] and preview['atomic_assessment']['ready_for_adoption'] is False
+    assert body(preview)==body(original['checkpoint']['candidate'])
     await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
     assert saved['status']=='completed',saved.get('error')
     tree=saved['checkpoint']['candidate']
