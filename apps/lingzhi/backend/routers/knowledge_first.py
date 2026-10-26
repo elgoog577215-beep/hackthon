@@ -22,6 +22,7 @@ class SourceRequest(BaseModel):
 
 
 class GenerateRequest(SourceRequest):
+    include_teaching_structures: bool = True
     generation_mode: Literal['full_v1','core_v1'] = 'full_v1'
     base_job_id: str = Field(default='',max_length=200)
     lesson_id: str = Field(default="", max_length=200)
@@ -218,7 +219,7 @@ async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depend
     job, created = await run_in_threadpool(lambda: action(lambda: svc.start(course_id, topic, body.request_id, body.knowledge_revision, body.document_revision,
         source_mode=body.source_mode, lesson_id=body.lesson_id, pipeline=body.pipeline,
         resume_job_id=body.resume_job_id, retry_batch_id=body.retry_batch_id, organize_hierarchy=body.organize_hierarchy,
-        extraction_mode=body.extraction_mode, include_relations=body.include_relations,teaching_focus=body.teaching_focus,coverage_units=body.coverage_units,generation_mode=body.generation_mode,base_job_id=body.base_job_id)))
+        extraction_mode=body.extraction_mode, include_relations=body.include_relations,teaching_focus=body.teaching_focus,coverage_units=body.coverage_units,generation_mode=body.generation_mode,base_job_id=body.base_job_id,include_teaching_structures=body.include_teaching_structures)))
     if created:
         task = asyncio.create_task(svc.run(course_id, job["id"]), name=job["id"])
         svc.authoring.track_runtime_job(course_id, task)

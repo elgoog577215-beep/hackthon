@@ -21,7 +21,7 @@ def progress_summary(pipeline):
     result['inventory_batches']=rows(pipeline.get('inventory_batches',[]))
     result['batches']=rows(pipeline.get('batches',[]))
     for key in ('semantic_review','truth_review','identity_review','check_placement','names','hierarchy',
-                'registry_relations','relations','semantic_equivalence','kc_profiles','core_review'):
+                'registry_relations','relations','semantic_equivalence','kc_profiles','core_review','teaching_structures'):
         if key not in pipeline:continue
         stage=pipeline[key]
         result[key]={k:deepcopy(stage[k]) for k in ('status','contract') if k in stage}

@@ -201,6 +201,9 @@ async def run(svc, course_id, job_id):
         if job.get('generation_mode')=='full_v1':
             from knowledge_enrichment import enrich
             tree=await enrich(svc,course_id,context['scope_lesson_id'],pipeline,request,save,io)
+            if job.get('include_teaching_structures'):
+                from knowledge_teaching import run as structure_teaching
+                tree=await structure_teaching(svc,course_id,context['scope_lesson_id'],tree,pipeline,request,save)
         tree['status']='candidate'
         tree.pop('generation_preview',None)
         tree['generation_mode']=job.get('generation_mode','core_v1')

@@ -331,13 +331,14 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1', base_job_id=''):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1', base_job_id='', include_teaching_structures=False):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
         require(extraction_mode in {'', 'single_pass_v1'}, '未知知识提取模式')
         require(type(include_relations) is bool, '关系生成选项无效')
         require(generation_mode in {'full_v1','core_v1'}, '未知知识树生成范围')
+        require(type(include_teaching_structures)is bool,'教学结构生成选项无效')
         from knowledge_unified import CONTRACT as UNIFIED
         unified=pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)
         require(not base_job_id or unified and not resume_job_id,'指定知识主体只用于本讲配套生成，不能更换续跑基线')
@@ -346,6 +347,7 @@ class KnowledgeFirstService:
             previous_mode=previous_job.get('generation_mode','full_v1')
             unified=previous_job.get('execution_contract')==UNIFIED or previous_mode=='core_v1'
             if unified:generation_mode=previous_mode
+            include_teaching_structures=bool(previous_job.get('include_teaching_structures',False))
         require(generation_mode!='core_v1' or (pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)), '基础树仅用于单讲讲义')
         if unified:
             include_relations=generation_mode=='full_v1'
@@ -400,6 +402,7 @@ class KnowledgeFirstService:
             if duplicate:
                 require(duplicate.get('generation_mode','full_v1')==generation_mode,'请求标识对应不同知识树生成范围')
                 require(duplicate.get('base_job_id','')==base_job_id,'请求标识对应不同知识主体')
+                require(bool(duplicate.get('include_teaching_structures',False))==include_teaching_structures,'请求标识对应不同教学结构范围')
                 require(duplicate.get('coverage_units',[])==coverage_units,'请求标识对应不同知识清单')
                 require(duplicate.get('teaching_focus',[])==teaching_focus,'请求标识对应不同教学档案分支')
                 require(duplicate.get('knowledge_pipeline', '') == pipeline, '请求标识对应不同生成流程')
@@ -611,14 +614,14 @@ class KnowledgeFirstService:
                     'source_scope_revision':context['scope_contract']['revision_id'],
                     'request_snapshot':{'knowledge_generation_context':context},'asset_type':'knowledge_tree',
                     'message':'正在生成本讲基础知识树','knowledge_pipeline':pipeline,'generation_mode':generation_mode,
-                    'generation_contract':CORE,'execution_contract':UNIFIED,'base_job_id':base_job_id,
+                    'generation_contract':CORE,'execution_contract':UNIFIED,'base_job_id':base_job_id,'include_teaching_structures':include_teaching_structures,
                     'teaching_focus':teaching_focus,'coverage_units':coverage_units,
                     'organize_hierarchy':True,'extraction_mode':extraction_mode,'include_relations':include_relations,
                     'checkpoint':continued_checkpoint or {},'resume_from_job_id':resume_job_id,
                     'parent_job_id':resume_job_id,'retry_batch_id':retry_batch_id}
                 return self.authoring.create_job(course_id,topic,job_type=kind,request_id=request_id,
                     initial_fields=lambda identity:{**frozen,'checkpoint':continued_checkpoint or {
-                        'atomic_pipeline':prepare_pipeline(raw,context,identity,generation_mode,reuse)}}),True
+                        'atomic_pipeline':{**prepare_pipeline(raw,context,identity,generation_mode,reuse),'include_teaching_structures':include_teaching_structures}}}),True
             job = self.authoring.create_job(course_id, topic, job_type=kind, request_id=request_id)
             state = self.authoring.load(course_id)
             lesson = state["lessons"].get(lesson_id or topic) or {}
@@ -900,6 +903,8 @@ class KnowledgeFirstService:
                     require(knowledge_revision(raw) == expected_revision == job['source_knowledge_revision'] and raw.get('course_document_revision') == expected_document == job['source_document_revision'], '来源已变化，请重新生成知识树候选')
                 require(not any(j.get("status") in ACTIVE for j in self.authoring.load(course_id)["jobs"].values()), "有生成任务运行中，不能切换基线")
                 tree["status"] = "accepted"
+                from knowledge_teaching_assets import accept as accept_teaching
+                accept_teaching(tree)
                 tree["accepted_at"] = now()
                 tree["accepted_by"] = raw.get("owner_id")
                 history = raw.setdefault("knowledge_first_history", {})

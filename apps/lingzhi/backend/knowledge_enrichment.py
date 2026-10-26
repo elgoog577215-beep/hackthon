@@ -12,6 +12,8 @@ def progress(pipeline):
         if stage.get('status')=='completed':return 1
         rows=stage.get('batches',[])
         return sum(b['status']=='completed'for b in rows)/len(rows) if rows else 0
+    if pipeline.get('include_teaching_structures'):
+        return int(60+12*fraction(pipeline.get('registry_relations',{}))+8*fraction(pipeline.get('kc_profiles',{}))+15*fraction(pipeline.get('teaching_structures',{})))
     return int(60+20*fraction(pipeline.get('registry_relations',{}))+15*fraction(pipeline.get('kc_profiles',{})))
 
 
@@ -83,7 +85,7 @@ async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
         for kid,profile in batch['result'].items():by_id[kid]['kc_skill_profile']=deepcopy(profile)
     require(protected_body(tree)==frozen,'配套生成不能删除、合并或改写知识主体及覆盖')
     require(all(current_profile(by_id[p['knowledge_id']])for p in local),'本讲教学档案尚未完整覆盖')
-    tree['enrichment']={'relations':{'status':'completed','body_signature':signature,'reviewed_knowledge_ids':[p['knowledge_id']for p in local]},
+    tree['enrichment']={**deepcopy(base.get('enrichment',{})),'relations':{'status':'completed','body_signature':signature,'reviewed_knowledge_ids':[p['knowledge_id']for p in local]},
         'kc_profiles':{'status':'completed','body_signature':signature,'knowledge_ids':[p['knowledge_id']for p in local]}}
     tree['kc_profile_summary']={'scope':'all_lesson','profile_count':len(local),'draft_count':len(local),'learner_evidence':False}
     tree['core_reuse']=deepcopy(pipeline.get('core_reuse') or {'origin':'generated','body_signature':signature})

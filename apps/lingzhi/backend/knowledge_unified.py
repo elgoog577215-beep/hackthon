@@ -97,7 +97,7 @@ def select_core(raw,state,context,lesson_id,base_job_id=''):
                 'body_signature':body_signature(tree),'origin':'accepted' if adopted else 'candidate'}
         if (not adopted and job.get('execution_contract')==CONTRACT and job.get('status')in {'failed','paused','cancelled'}
             and job.get('source_context_revision')==context['revision_id']):
-            reused['enrichment_state']={k:deepcopy(prior[k]) for k in ('registry_relations','kc_profiles')
+            reused['enrichment_state']={k:deepcopy(prior[k]) for k in ('registry_relations','kc_profiles','teaching_structures')
                 if prior.get(k,{}).get('body_signature')==body_signature(selected)}
             reused['attachment_origin']=prior.get('identity_job_id',job['id'])
         return reused
