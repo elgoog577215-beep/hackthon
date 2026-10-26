@@ -69,8 +69,14 @@ def select_core(raw,state,context,lesson_id,base_job_id=''):
             and protected_body(tree_of(job))==protected_body(tree)):
             selected.setdefault('enrichment',{})['relations']={'status':'completed','body_signature':body_signature(selected),
                 'reviewed_knowledge_ids':[p['knowledge_id']for p in selected['knowledge_points']if p['key']in local_keys]}
-        return {'tree':selected,'origin_job_id':job['id'],'origin_tree_revision':tree.get('revision_id'),
+        reused={'tree':selected,'origin_job_id':job['id'],'origin_tree_revision':tree.get('revision_id'),
                 'body_signature':body_signature(tree),'origin':'accepted' if adopted else 'candidate'}
+        if (not adopted and job.get('execution_contract')==CONTRACT and job.get('status')in {'failed','paused','cancelled'}
+            and job.get('source_context_revision')==context['revision_id']):
+            reused['enrichment_state']={k:deepcopy(prior[k]) for k in ('registry_relations','kc_profiles')
+                if prior.get(k,{}).get('body_signature')==body_signature(selected)}
+            reused['attachment_origin']=prior.get('identity_job_id',job['id'])
+        return reused
     def tree_of(job):
         cp=job.get('checkpoint') or {}
         return cp.get('candidate') or cp.get('atomic_pipeline',{}).get('core_tree') or {}
@@ -97,8 +103,11 @@ def prepare_pipeline(raw,context,job_id,generation_mode,reuse=None):
     pipeline.update(execution_contract=CONTRACT,generation_mode=generation_mode,
                     include_relations=generation_mode=='full_v1')
     if reuse:
-        pipeline.update(core_tree=deepcopy(reuse['tree']),core_reuse={k:v for k,v in reuse.items()if k!='tree'},
+        pipeline.update(core_tree=deepcopy(reuse['tree']),core_reuse={k:v for k,v in reuse.items()if k not in {'tree','enrichment_state','attachment_origin'}},
             preview_tree=core_preview(reuse['tree'],job_id),
             inventory_batches=[],core_review={'status':'completed'},
             hierarchy={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}})
+        if reuse.get('enrichment_state'):
+            pipeline.update(deepcopy(reuse['enrichment_state']))
+            pipeline['identity_job_id']=reuse['attachment_origin']
     return pipeline

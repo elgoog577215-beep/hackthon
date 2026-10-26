@@ -217,8 +217,10 @@ async def run(svc, course_id, job_id):
     except Exception as error:
         current=await io(svc.authoring.get_job,course_id,job_id)
         if current['status'] in {'pending','running'}:
+            failure={**generation_failure(error,type(error).__name__),**deepcopy(getattr(error,'knowledge_failure',{}))}
             await io(svc.authoring.update_job,course_id,job_id,status='failed',phase='failed',
-                checkpoint={'atomic_pipeline':deepcopy(pipeline)},error=generation_failure(error,type(error).__name__),
+                checkpoint={'atomic_pipeline':deepcopy(pipeline)},error=failure,
+                pipeline_stage=failure.get('stage',current.get('pipeline_stage','')),
                 stream_complete=True,message='已保留完成批次与本次预览，可继续未完成阶段')
     finally:
         REQUEST_SCOPE.reset(token)
