@@ -633,6 +633,11 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         if checkpoint in done: await checkpoint
         response = await call
         if output_failure['error'] is not None:raise output_failure['error']
+        if response != ''.join(partial):
+            try:JsonOutputGuard(output_limits).feed(response)
+            except OutputGuardViolation as error:
+                error.partial_response=response
+                raise
         if formatting['invalid']:
             raise KnowledgeModelDegenerateOutput('千问输出包含大量无意义JSON空白，已保留原始响应；不会作为生成成功结果。')
     except BaseException as error:
