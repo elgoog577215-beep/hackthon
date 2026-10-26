@@ -9,6 +9,16 @@ from backend.tests.test_knowledge_first import svc
 from backend.tests.test_knowledge_atomic import setup_course
 
 
+def historical_start(svc,*args,**kwargs):
+    """Install a persisted registry-era fixture; new requests use the unified pipeline."""
+    job,created=svc.start(*args,**kwargs)
+    if created and not kwargs.get('resume_job_id'):
+        job=svc.authoring.update_job(args[0],job['id'],execution_contract='historical_registry_fixture',
+            generation_contract='knowledge_registry_v5',checkpoint={},
+            include_relations=kwargs.get('include_relations',False),organize_hierarchy=kwargs.get('organize_hierarchy',False))
+    return job,created
+
+
 def claim(statement='压栈把新元素放到栈顶', **values):
     return dict(statement=statement, knowledge_type='rule', conditions=[],
                 symbol_definitions=[], teaching_context=[], examples=[], **values)
@@ -98,7 +108,7 @@ def test_uncertain_is_a_visible_candidate_and_merge_cycles_are_rejected():
 @pytest.mark.parametrize('full',[False,True])
 @pytest.mark.parametrize('teaching',[False,True])
 @pytest.mark.parametrize('provided',[False,True])
-async def test_default_flow_never_calls_legacy_source_repair_and_preserves_course(svc,monkeypatch,full,teaching,provided):
+async def test_historical_registry_flow_never_calls_retired_source_repair_and_preserves_course(svc,monkeypatch,full,teaching,provided):
     setup_course(svc,monkeypatch)
     raw=deepcopy(svc.repository.load_raw('c-pilot'));calls=[]
     async def call(prompt,**kwargs):
@@ -125,7 +135,7 @@ async def test_default_flow_never_calls_legacy_source_repair_and_preserves_cours
         pytest.fail('Unexpected legacy stage '+payload['stage'])
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     view=svc.view('c-pilot',source_mode='handouts')
-    job,_=svc.start('c-pilot','tree','registry-new',view['knowledge_revision'],view['document_revision'],
+    job,_=historical_start(svc,'c-pilot','tree','registry-new',view['knowledge_revision'],view['document_revision'],
         source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',
         extraction_mode='single_pass_v1',organize_hierarchy=full,include_relations=full,teaching_focus=['线性法则'] if teaching else [],coverage_units=[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'线性法则' if teaching else '','check_intent':'独立描述入栈'}] if provided else [])
     await svc.run('c-pilot',job['id'])
@@ -212,7 +222,7 @@ async def test_failed_early_names_continue_reuses_extraction_and_old_job_is_unch
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     view=svc.view('c-pilot',source_mode='handouts')
     def start(rid,**kw):
-        return svc.start('c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],
+        return historical_start(svc,'c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],
             source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',
             organize_hierarchy=False,include_relations=False,**kw)[0]
     job=start('first');await svc.run('c-pilot',job['id'])
@@ -333,7 +343,7 @@ async def test_profile_failure_resumes_only_profile_and_keeps_frozen_identity(sv
         raise AssertionError(stage)
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     view=svc.view('c-pilot',source_mode='handouts')
-    def start(request,**kw):return svc.start('c-pilot','tree',request,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',organize_hierarchy=False,include_relations=False,**kw)[0]
+    def start(request,**kw):return historical_start(svc,'c-pilot','tree',request,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',organize_hierarchy=False,include_relations=False,**kw)[0]
     job=start('profile-first',teaching_focus=['基础操作']);await svc.run('c-pilot',job['id'])
     old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
     assert old['status']=='failed'
@@ -361,7 +371,7 @@ def test_fresh_generation_does_not_silently_inherit_a_supplied_plan(svc,monkeypa
     setup_course(svc,monkeypatch)
     view=svc.view('c-pilot',source_mode='handouts')
     units=[{'statement':claim()['statement'],'branch':'栈','knowledge_type':'rule','profile_focus':'','check_intent':'独立描述入栈'}]
-    def start(rid,**kw):return svc.start('c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',**kw)[0]
+    def start(rid,**kw):return historical_start(svc,'c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',**kw)[0]
     first=start('supplied',coverage_units=units);svc.authoring.update_job('c-pilot',first['id'],status='completed')
     inherited=start('inherited');assert inherited['coverage_units']==[]
     svc.authoring.update_job('c-pilot',inherited['id'],status='cancelled')
@@ -399,7 +409,7 @@ async def test_atomization_resume_reuses_discovery_and_completed_single_claim(sv
         raise AssertionError(stage)
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=call,client=None,model_smart='qwen3.8-27b')
     view=svc.view('c-pilot',source_mode='handouts')
-    def start(rid,**kw):return svc.start('c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',**kw)[0]
+    def start(rid,**kw):return historical_start(svc,'c-pilot','tree',rid,view['knowledge_revision'],view['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1',extraction_mode='single_pass_v1',**kw)[0]
     job=start('first-single');await svc.run('c-pilot',job['id']);old=deepcopy(svc.authoring.get_job('c-pilot',job['id']))
     assert old['status']=='failed';batch=old['checkpoint']['atomic_pipeline']['inventory_batches'][0]
     assert batch['atomization_batches'][0]['status']=='completed'
@@ -438,7 +448,7 @@ async def test_short_names_are_ready_before_first_extraction_batch_is_published(
         pytest.fail('Unexpected stage ' + stage)
     svc.provider_factory = lambda: SimpleNamespace(_call_llm=call, client=None, model_smart='qwen3.8-27b')
     view = svc.view('c-pilot', source_mode='handouts')
-    job, _ = svc.start('c-pilot', 'tree', 'early-names', view['knowledge_revision'], view['document_revision'],
+    job, _ = historical_start(svc,'c-pilot', 'tree', 'early-names', view['knowledge_revision'], view['document_revision'],
         source_mode='handouts', lesson_id='cpu', pipeline='inventory_atomic_v1')
     await svc.run('c-pilot', job['id'])
     assert snapshots and snapshots[0]['knowledge_points'][0]['name'] == '入栈规则'
@@ -522,7 +532,7 @@ async def test_durable_checkpoint_io_does_not_block_the_application_event_loop(s
     setup_course(svc,monkeypatch)
     svc.provider_factory=lambda:SimpleNamespace(_call_llm=stopped,client=None,model_smart='qwen3.8-27b')
     async def stopped(*args,**kwargs):raise RuntimeError('diagnostic provider: no real model')
-    v=svc.view('c-pilot',source_mode='handouts');job,_=svc.start('c-pilot','tree','io-loop',v['knowledge_revision'],v['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1')
+    v=svc.view('c-pilot',source_mode='handouts');job,_=historical_start(svc,'c-pilot','tree','io-loop',v['knowledge_revision'],v['document_revision'],source_mode='handouts',lesson_id='cpu',pipeline='inventory_atomic_v1')
     update=svc.authoring.update_job
     def slow_update(*args,**kwargs):
         if kwargs.get('phase')=='preparing':time.sleep(.25)

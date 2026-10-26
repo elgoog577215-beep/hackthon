@@ -82,9 +82,8 @@ async def run(svc, course_id, job_id):
             await io(validate_version)
             pipeline['revision']+=1
             if pipeline.get('core_tree'):
-                pipeline['preview_tree']=deepcopy(pipeline['core_tree'])
-                pipeline['preview_tree']['generation_preview']=True
-                pipeline['preview_tree']['atomic_assessment']['ready_for_adoption']=False
+                from knowledge_unified import core_preview
+                pipeline['preview_tree']=core_preview(pipeline['core_tree'],job_id)
             elif any(b.get('points') for b in pipeline['inventory_batches']):
                 pipeline['preview_tree']=compile_tree(raw,context,pipeline,job_id,preview=True)
             snapshot=deepcopy(pipeline)

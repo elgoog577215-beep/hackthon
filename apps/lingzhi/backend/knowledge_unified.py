@@ -21,6 +21,14 @@ def body_signature(tree):
     return stable_hash(protected_body(tree),prefix='kbody_')
 
 
+def core_preview(tree,job_id):
+    preview=deepcopy(tree)
+    preview.update(generation_preview=True,generation_job_id=job_id,
+        revision_id=stable_hash({'job':job_id,'body':body_signature(tree)},prefix='preview_'))
+    preview['atomic_assessment']['ready_for_adoption']=False
+    return preview
+
+
 def validate_core(tree,lesson_id):
     require(isinstance(tree,dict) and not tree.get('generation_preview')
         and tree.get('atomic_assessment',{}).get('ready_for_adoption') is True,
@@ -90,6 +98,7 @@ def prepare_pipeline(raw,context,job_id,generation_mode,reuse=None):
                     include_relations=generation_mode=='full_v1')
     if reuse:
         pipeline.update(core_tree=deepcopy(reuse['tree']),core_reuse={k:v for k,v in reuse.items()if k!='tree'},
+            preview_tree=core_preview(reuse['tree'],job_id),
             inventory_batches=[],core_review={'status':'completed'},
             hierarchy={'status':'completed','result':{'schema_version':'knowledge_hierarchy_v5'}})
     return pipeline
