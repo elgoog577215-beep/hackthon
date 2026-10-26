@@ -226,3 +226,23 @@ async def test_explicit_covered_requirements_are_retained_in_the_final_tree(svc,
     assert saved['status']=='completed',saved.get('error')
     coverage=saved['checkpoint']['candidate']['required_coverage']
     assert coverage['missing_unit_ids']==[] and len(coverage['decisions'])==1
+
+
+@pytest.mark.asyncio
+async def test_unready_core_resume_rechecks_the_uncertain_batch_without_reextracting(svc,monkeypatch):
+    setup_course(svc,monkeypatch);calls=[]
+    async def uncertain(payload):
+        value=model_reply(payload)
+        if payload['stage']=='candidate_core_review':
+            value['decisions'][payload['points'][0]['key']]['action']='uncertain'
+        return value
+    provider(svc,calls,uncertain);job=start(svc,'uncertain-core',generation_mode='full_v1')
+    await svc.run('c-pilot',job['id']);failed=svc.authoring.get_job('c-pilot',job['id'])
+    assert failed['status']=='failed'
+    calls.clear();provider(svc,calls)
+    next_job=start(svc,'recheck-uncertain',resume_job_id=job['id'])
+    await svc.run('c-pilot',next_job['id']);saved=svc.authoring.get_job('c-pilot',next_job['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert 'candidate_core_extract'not in [p['stage']for p in calls]
+    assert 'candidate_core_review'in [p['stage']for p in calls]
+    assert svc.authoring.get_job('c-pilot',job['id'])==failed
