@@ -434,6 +434,9 @@ class KnowledgeFirstService:
                     require(original.get('status')!='completed' or bool(retry_batch_id),'已完成任务请明确重做范围')
                     require(original.get('coverage_units',[])==coverage_units and original.get('teaching_focus',[])==teaching_focus,'恢复不能更换冻结输入')
                     continued_checkpoint=deepcopy(original['checkpoint']);continued_checkpoint.pop('candidate',None)
+                    if not retry_batch_id:
+                        from knowledge_unified import resume_core_review
+                        resume_core_review(continued_checkpoint['atomic_pipeline'])
                     if retry_batch_id:
                         core=continued_checkpoint['atomic_pipeline']
                         if retry_batch_id in {'relations','profiles'}:

@@ -49,4 +49,8 @@ async def check(tree,requirements,pipeline,request,save):
         tree['atomic_assessment']['ready_for_adoption']=False
         tree['atomic_assessment'].setdefault('issues',[]).append({'code':'required_knowledge_missing','severity':'blocking','message':'指定知识清单仍有未承载项'})
     pipeline['core_tree']=deepcopy(tree);await save()
-    require(not state['result']['missing_unit_ids'],'指定知识清单仍有缺口，保留主体等待补齐，不生成配套内容')
+    if state['result']['missing_unit_ids']:
+        from course_repository import CourseDocumentConflict
+        error=CourseDocumentConflict('指定知识清单仍有缺口，保留主体等待补齐，不生成配套内容')
+        error.code='required_knowledge_missing'
+        raise error

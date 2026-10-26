@@ -384,6 +384,7 @@ function pendingEquivalence(pipeline: any) {
 const atomicCanContinue = computed(() => {
   const run = atomicRun.value, pipeline = run?.pipeline
   return Boolean(!activeJob.value && run && !run.adopted
+    && progressJob.value?.error?.code !== 'required_knowledge_missing'
     && ['failed', 'paused', 'cancelled'].includes(run.status)
     && (!pipeline?.batches?.length || [...(pipeline?.inventory_batches || []), ...(pipeline?.batches || [])].some((batch: any) => batch.status !== 'completed')
       || pendingEquivalence(pipeline)

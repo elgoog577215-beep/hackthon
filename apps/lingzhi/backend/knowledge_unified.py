@@ -29,6 +29,30 @@ def core_preview(tree,job_id):
     return preview
 
 
+def resume_core_review(pipeline):
+    """An explicit continue reruns unresolved review, retaining all extraction."""
+    tree=pipeline.get('core_tree') or {}
+    if tree.get('atomic_assessment',{}).get('ready_for_adoption') is not False:return
+    require(not tree.get('required_coverage',{}).get('missing_unit_ids'),
+        '指定清单仍有缺口，请先补齐知识或调整清单；不会重复校验同一结果')
+    require(bool(pipeline.get('inventory_batches')),'该知识主体需要先修订，再补充配套内容')
+    review=pipeline.get('core_review',{})
+    for batch in review.get('batches',[]):
+        response=batch.get('result',{}).get('response',{})
+        if (any(d.get('action')=='uncertain'for d in response.get('decisions',{}).values())
+            or any(v[0]=='gap'for v in response.get('coverage',{}).values())):
+            batch['status']='pending'
+            record=batch.setdefault('request',{})
+            record.update(status='failed',response_epoch=record.get('response_epoch',0)+1)
+    review.update(status='pending',completed_groups=[])
+    identity=pipeline.setdefault('core_identity',{})
+    identity.update(status='failed',response_epoch=identity.get('response_epoch',0)+1)
+    for key in ('core_tree','registry','paths','frozen_units','extraction_resolutions','registry_relations','kc_profiles'):
+        pipeline.pop(key,None)
+    pipeline['names']={'result':{p['key']:{'name':p['short_name'],'meta_question':'请解释：'+p['statement']}
+        for batch in pipeline['inventory_batches'] for p in batch.get('points',[])}}
+
+
 def validate_core(tree,lesson_id):
     require(isinstance(tree,dict) and not tree.get('generation_preview')
         and tree.get('atomic_assessment',{}).get('ready_for_adoption') is True,
