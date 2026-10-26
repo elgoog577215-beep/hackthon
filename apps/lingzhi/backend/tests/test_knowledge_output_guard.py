@@ -39,6 +39,17 @@ def test_field_limit_counts_decoded_unicode_and_escaped_quotes_incrementally():
         JsonOutputGuard({path:12}).feed(payload(text+'额外'))
 
 
+def test_json_structure_guard_stops_trailing_output_and_mismatched_brackets():
+    from knowledge_output_guard import JsonOutputGuard
+    for raw in ['{"points":{}} } }', '{"points":[]]']:
+        guard=JsonOutputGuard()
+        with pytest.raises(ValueError,match='结构'):
+            for char in raw:guard.feed(char)
+        assert guard.reason=='json_structure'
+    guard=JsonOutputGuard()
+    for char in '{"formula":"} ] \\\"","items":[{},[]]} \n':guard.feed(char)
+
+
 def test_profile_schema_closes_keys_and_bounds_each_field_before_generation():
     from knowledge_kc_profiles import response_schema,PROFILE_FIELD_MAX_CHARS
     from jsonschema import Draft202012Validator
