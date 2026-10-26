@@ -5,14 +5,14 @@
     <h3>{{ t('knowledgeTeaching.checks') }}</h3>
     <p v-if="!criteria.length">{{ t('knowledgeTeaching.noChecks') }}</p>
     <article v-for="criterion in criteria" :key="criterion.criterion_id" data-testid="structured-criterion">
-      <h4>{{ criterion.name }}</h4>
+      <MathText tag="h4" :content="criterion.name" />
       <div v-if="criterion.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in criterion.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div>
       <span class="kind">{{ t(`knowledgeTeaching.dimensions.${criterion.dimension}`) }}</span>
       <MarkdownRenderer :content="criterion.observable_performance" />
       <h5>{{ t('knowledgeTeaching.method') }}</h5><MarkdownRenderer :content="criterion.verification_method" />
       <template v-if="criterion.controlled_conditions?.length"><h5>{{ t('knowledgeTeaching.controls') }}</h5><ul><li v-for="value in criterion.controlled_conditions" :key="value"><MarkdownRenderer :content="value" /></li></ul></template>
       <h5>{{ t('knowledgeTeaching.checkpoints') }}</h5>
-      <ol><li v-for="item in criterion.checkpoints" :key="item.checkpoint_id"><strong>{{ item.label }}</strong><MarkdownRenderer :content="item.pass_condition" /></li></ol>
+      <ol><li v-for="item in criterion.checkpoints" :key="item.checkpoint_id"><MathText tag="strong" :content="item.label" /><MarkdownRenderer :content="item.pass_condition" /></li></ol>
       <p class="rule">{{ format('scoreRule', { count: criterion.scoring.max_score }) }}</p>
       <p>{{ format('evidenceRule', { count: criterion.evidence_policy.min_independent_successes, variants: criterion.evidence_policy.min_distinct_variants }) }}</p>
       <p v-if="criterion.readiness !== 'ready'" class="review-note">{{ t('knowledgeTeaching.notReady') }}</p>
@@ -21,7 +21,7 @@
     <h3>{{ t('knowledgeTeaching.mistakes') }}</h3>
     <p v-if="!mistakes.length">{{ coverage?.no_mistakes || t('knowledgeTeaching.noMistakes') }}</p>
     <article v-for="mistake in mistakes" :key="mistake.misconception_id" data-testid="structured-mistake">
-      <h4>{{ mistake.name }}</h4>
+      <MathText tag="h4" :content="mistake.name" />
       <div v-if="mistake.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in mistake.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div>
       <h5>{{ t('knowledgeTeaching.pattern') }}</h5><MarkdownRenderer :content="mistake.observable_error_pattern" />
       <h5>{{ t('knowledgeTeaching.hypothesis') }}</h5><MarkdownRenderer :content="mistake.hypothesis" />
@@ -29,16 +29,16 @@
       <h5>{{ t('knowledgeTeaching.discrimination') }}</h5><MarkdownRenderer :content="mistake.discrimination" />
       <h5>{{ t('knowledgeTeaching.repair') }}</h5><MarkdownRenderer :content="mistake.repair_strategy" />
       <h5>{{ t('knowledgeTeaching.retest') }}</h5><MarkdownRenderer :content="mistake.retest" />
-      <div v-if="otherKnowledge(mistake).length" class="shared"><span>{{ t('knowledgeTeaching.sharedWith') }}</span><button v-for="point in otherKnowledge(mistake)" :key="point.knowledge_id" type="button" @click="$emit('select-knowledge', point.knowledge_id)">{{ point.name }}</button></div>
+      <div v-if="otherKnowledge(mistake).length" class="shared"><span>{{ t('knowledgeTeaching.sharedWith') }}</span><button v-for="point in otherKnowledge(mistake)" :key="point.knowledge_id" type="button" @click="$emit('select-knowledge', point.knowledge_id)"><MathText :content="point.name" /></button></div>
     </article>
     <h3>{{ t('knowledgeTeaching.extensions') }}</h3>
     <p v-if="!extensions.length">{{ coverage?.no_extensions || t('knowledgeTeaching.noExtensions') }}</p>
     <article v-for="extension in extensions" :key="extension.extension_id" data-testid="structured-extension">
-      <h4>{{ extension.name }}</h4>
+      <MathText tag="h4" :content="extension.name" />
       <div v-if="extension.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in extension.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div><span class="kind">{{ t('knowledgeTeaching.optional') }}</span>
       <h5>{{ t('knowledgeTeaching.goal') }}</h5><MarkdownRenderer :content="extension.goal" />
       <MarkdownRenderer :content="extension.explanation" />
-      <h5>{{ t('knowledgeTeaching.prerequisites') }}</h5><p>{{ prerequisiteNames(extension).join('、') }}</p><MarkdownRenderer v-if="extension.prerequisite_notes" :content="extension.prerequisite_notes" />
+      <h5>{{ t('knowledgeTeaching.prerequisites') }}</h5><MathText tag="p" :content="prerequisiteNames(extension).join('、')" /><MarkdownRenderer v-if="extension.prerequisite_notes" :content="extension.prerequisite_notes" />
       <h5>{{ t('knowledgeTeaching.task') }}</h5><MarkdownRenderer :content="extension.task" />
       <h5>{{ t('knowledgeTeaching.success') }}</h5><ul><li v-for="item in extension.success_criteria" :key="item"><MarkdownRenderer :content="item" /></li></ul>
       <p v-if="!extension.resource_refs?.length" class="unknown">{{ t('knowledgeTeaching.resourcesPending') }}</p>
@@ -50,6 +50,7 @@
 import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 const props = defineProps<{ tree: any; knowledgeId: string }>()
 defineEmits<{ 'select-knowledge': [id: string] }>()
 const points = computed<any[]>(() => props.tree.allKnowledgePoints || props.tree.knowledge_points || [])
