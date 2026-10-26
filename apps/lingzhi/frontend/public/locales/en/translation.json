@@ -8135,7 +8135,7 @@
     "coreExtract": "Extract knowledge and categories",
     "coreReview": "Review complete knowledge",
     "coreIdentity": "Consolidate equivalent knowledge",
-    "coreTreeScope": "Generate complete knowledge points, short names, and categories first. Analyze relations after adoption, or choose complete generation to include selected teaching profiles; this takes longer.",
+    "coreTreeScope": "Reuse the existing knowledge core and add only missing relationships and teaching profiles for this lesson. Generate the core first when none is reusable. Enrichment preserves names, content, and coverage.",
     "lessonTreeEmpty": "No knowledge tree for this lecture yet. Generate it from the saved handout.",
     "lessonHandoutRequired": "Save a handout for this lecture before generating its knowledge tree.",
     "crossLessonLinks": "Cross-lecture links",
@@ -8309,7 +8309,9 @@
     "discoverKnowledge": "Discovering knowledge from material blocks",
     "separateKnowledge": "Separating independent claims",
     "discoveryPlanNotice": "This checklist was discovered from the material and tracks the claims after splitting and equivalent-claim merging.",
-    "discoveryCoverageTitle": "Automatic candidate mapping"
+    "discoveryCoverageTitle": "Automatic candidate mapping",
+    "enrichExistingTree": "Add relationships and teaching profiles",
+    "coreCoverage": "Check required knowledge coverage"
   },
   "companionWorkspace": {
     "title": "Lingzhi Companion",

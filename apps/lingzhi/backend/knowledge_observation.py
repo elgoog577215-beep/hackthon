@@ -14,7 +14,7 @@ _FIELDS=('id','type','lesson_unit_id','knowledge_lesson_id','status','phase','pr
 
 def progress_summary(pipeline):
     result={k:deepcopy(pipeline[k]) for k in ('schema_version','generation_contract','processing_contract',
-        'revision','organize_hierarchy','include_relations','semantic_equivalence_contract','generation_mode') if k in pipeline}
+        'revision','organize_hierarchy','include_relations','semantic_equivalence_contract','generation_mode','execution_contract') if k in pipeline}
     result.update(summary_contract='knowledge_progress_summary_v1',items=[])
     def rows(values):
         return [{k:deepcopy(row[k]) for k in ('id','key','status','validation_error') if k in row} for row in values]

@@ -44,8 +44,7 @@
           <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || staleTreeSource || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false || !atomicAdoptionReady" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
-          <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? 'knowledgeFirst.generateLessonTree' : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
-          <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-full-knowledge-tree" :disabled="busy || blockingJobs.length > 0 || !selectedLesson?.can_generate" @click="generate('tree','full_v1')">{{ t('knowledgeFirst.generateFullTree') }}</button>
+          <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? (reusableCoreJobId ? 'knowledgeFirst.enrichExistingTree' : 'knowledgeFirst.generateLessonTree') : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
           <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-knowledge-relations" :disabled="busy || blockingJobs.length > 0 || !canGenerateRelations" :title="t('knowledgeFirst.relationRequiresBaseline')" @click="generateRelations()">{{ t('knowledgeFirst.generateRelations') }}</button>
         </div>
         <p v-if="perLesson && data.can_edit" class="hint" data-testid="knowledge-core-scope">{{ t('knowledgeFirst.coreTreeScope') }}</p>
@@ -343,6 +342,11 @@ const selectedCandidateRecord = computed(() => {
     || (!Array.isArray(data.value?.candidates) && pending(data.value?.candidate) && !data.value.candidate.scope_lesson_id ? { tree: data.value.candidate, job_id: data.value.candidate_job_id, lesson_id: '' } : null)
 })
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
+const reusableCoreJobId = computed(() => {
+  const tree = treeChoice.value === 'candidate' ? selectedCandidate.value : data.value?.tree
+  if (!perLesson.value || !tree || tree.generation_preview || tree.atomic_assessment?.ready_for_adoption !== true) return ''
+  return treeChoice.value === 'candidate' ? selectedCandidateRecord.value?.job_id || '' : tree.generation_job_id || ''
+})
 const previewInterrupted = computed(() => selectedCandidate.value?.generation_preview
   && !activeJobs.value.some(j => j.id === selectedCandidateRecord.value?.job_id))
 const atomicRun = computed(() => {
@@ -445,10 +449,14 @@ const displayTree = computed(() => {
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
 function jobPhase(job: any) {
-  if (atomicRun.value?.pipeline?.generation_mode === 'core_v1' && job.status !== 'completed') {
+  if ((atomicRun.value?.pipeline?.generation_mode === 'core_v1' || atomicRun.value?.pipeline?.execution_contract === 'knowledge_unified_v1') && job.status !== 'completed') {
     if (job.transport_retry_active_count > 0) return t('knowledgeFirst.modelReconnecting')
-    return t(['candidate_core_identity','candidate_core_identity_catalog'].includes(job.pipeline_stage || '') ? 'knowledgeFirst.coreIdentity'
+    const label = t(job.pipeline_stage === 'candidate_relations' ? 'knowledgeFirst.relationCandidates'
+      : job.pipeline_stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile'
+      : job.pipeline_stage === 'candidate_required_coverage' ? 'knowledgeFirst.coreCoverage'
+      : ['candidate_core_identity','candidate_core_identity_catalog'].includes(job.pipeline_stage || '') ? 'knowledgeFirst.coreIdentity'
       : job.pipeline_stage === 'candidate_core_review' ? 'knowledgeFirst.coreReview' : 'knowledgeFirst.coreExtract')
+    return ['failed','paused','cancelled'].includes(job.status) ? `${label} · ${t(`knowledgeFirst.phase_${job.status}`)}` : label
   }
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']
@@ -679,10 +687,11 @@ async function mutate(path: string, extra = {}) {
   }
   finally { busy.value = false }
 }
-async function generate(topic: string, generationMode: 'core_v1' | 'full_v1' = 'core_v1') {
+async function generate(topic: string, generationMode: 'core_v1' | 'full_v1' = 'full_v1') {
+  const baseJobId = topic === 'tree' ? reusableCoreJobId.value : ''
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', generation_mode:generationMode, organize_hierarchy: true, include_relations: generationMode === 'full_v1' } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', generation_mode:generationMode, ...(baseJobId ? {base_job_id:baseJobId} : {}), organize_hierarchy: true, include_relations: generationMode === 'full_v1' } : {}) })
 }
 async function saveDisplayName() {
   if (!selectedPoint.value || !data.value.can_edit || activeJobs.value.length || !draftDisplayName.value.trim()) return
