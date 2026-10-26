@@ -573,7 +573,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
     from knowledge_output_guard import JsonOutputGuard,OutputGuardViolation
-    output_guard=JsonOutputGuard(output_limits)
+    output_guard=JsonOutputGuard(output_limits) if stage=='kc_profiles' else None
     output_signal=asyncio.Event();output_failure={'error':None}
     formatting = {'inside': False, 'escaped': False, 'whitespace': 0, 'invalid': False}
     started = time.perf_counter();first_content = None;last_content = started
@@ -583,7 +583,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         # callbacks as optional sinks and may swallow their exceptions, so a
         # separate task terminates the request instead of raising here.
         partial.append(delta); activity['received_chars'] += len(delta)
-        if output_failure['error'] is None:
+        if output_guard is not None and output_failure['error'] is None:
             try:output_guard.feed(delta)
             except OutputGuardViolation as error:
                 output_failure['error']=error;output_signal.set()
@@ -606,7 +606,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         if output_failure['error'] is not None:return
         partial.clear(); activity.update(received_chars=0, last_content_at=None)
         formatting.update(inside=False, escaped=False, whitespace=0, invalid=False)
-        output_guard.reset()
+        if output_guard is not None:output_guard.reset()
     async def guard_output():
         await output_signal.wait()
         raise output_failure['error']
@@ -633,7 +633,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         if checkpoint in done: await checkpoint
         response = await call
         if output_failure['error'] is not None:raise output_failure['error']
-        if response != ''.join(partial):
+        if output_guard is not None and response != ''.join(partial):
             try:JsonOutputGuard(output_limits).feed(response)
             except OutputGuardViolation as error:
                 error.partial_response=response
