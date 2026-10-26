@@ -2,7 +2,7 @@
 from copy import deepcopy
 from course_document import stable_hash
 from knowledge_check_measurement import POLICY
-from knowledge_teaching_contract import CONTRACT,obj,text
+from knowledge_teaching_contract import CONTRACT,obj,text,TeachingDesignInvalid
 from knowledge_registry_contract import render
 from jsonschema import Draft202012Validator
 
@@ -48,7 +48,7 @@ def identity_prompt(drafts,existing):
 def resolve_identities(value,drafts,existing):
     by_key={r['key']:r for r in [*drafts,*existing]};keys=[r['key']for r in drafts]
     if list(Draft202012Validator(identity_schema(keys,list(by_key),{k:r['kind']for k,r in by_key.items()})).iter_errors(value)):
-        raise ValueError('教学对象身份核对缺失、越界或缺少等价依据')
+        raise TeachingDesignInvalid('教学对象身份核对缺失、越界或缺少等价依据')
     parents={k:k for k in by_key}
     def root(k):
         while parents[k]!=k:parents[k]=parents[parents[k]];k=parents[k]
@@ -56,14 +56,14 @@ def resolve_identities(value,drafts,existing):
     for key,row in value['decisions'].items():
         if row['action']=='match':
             target=row['target']
-            if key==target or by_key[key]['kind']!=by_key[target]['kind']:raise ValueError('教学身份不能指向自身或混合对象类型')
+            if key==target or by_key[key]['kind']!=by_key[target]['kind']:raise TeachingDesignInvalid('教学身份不能指向自身或混合对象类型')
             parents[root(key)]=root(target)
     groups={}
     for key in keys:groups.setdefault(root(key),[]).append(key)
     result={}
     for canonical,members in groups.items():
         old=[r['key']for r in existing if root(r['key'])==canonical]
-        if len(old)>1:raise ValueError('不能自动合并多个已有教学对象身份')
+        if len(old)>1:raise TeachingDesignInvalid('不能自动合并多个已有教学对象身份')
         representative=old[0] if old else sorted(members)[0]
         for key in members:result[key]=representative
     return result

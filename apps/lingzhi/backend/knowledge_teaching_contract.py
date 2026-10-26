@@ -7,6 +7,11 @@ CONTRACT='knowledge_teaching_structures_v1'
 PROMPT_REVISION='teaching_design_20261026_2'
 
 
+class TeachingDesignInvalid(ValueError):
+    code='knowledge_output_validation'
+    retryable=True
+
+
 def text(limit=300,empty=False):
     return {'type':'string','minLength':0 if empty else 1,'maxLength':limit,'pattern':r'^[^\u0000-\u001f]*$'}
 
@@ -60,21 +65,21 @@ def prompt(tree,focus):
 
 def compile_batch(value,focus,catalog,batch_id):
     errors=list(Draft202012Validator(response_schema([p['key']for p in focus],[p['key']for p in catalog])).iter_errors(value))
-    if errors:raise ValueError('教学结构响应不符合字段或引用范围：'+errors[0].message)
+    if errors:raise TeachingDesignInvalid('教学结构响应不符合字段或引用范围：'+errors[0].message)
     focus_keys={p['key']for p in focus};result=deepcopy(value)
     for collection in ('mistakes','extensions'):
         rows=result[collection]
-        if len({r['key']for r in rows})!=len(rows):raise ValueError('教学对象临时键重复')
-        if any(not focus_keys.intersection(r['knowledge_keys']) for r in rows):raise ValueError('不能修改无关知识的教学对象')
+        if len({r['key']for r in rows})!=len(rows):raise TeachingDesignInvalid('教学对象临时键重复')
+        if any(not focus_keys.intersection(r['knowledge_keys']) for r in rows):raise TeachingDesignInvalid('不能修改无关知识的教学对象')
     mistakes={r['key']:r for r in result['mistakes']}
     for key,row in result['points'].items():
-        if row['status']=='ready' and not row['criteria']:raise ValueError('可用知识必须有明确检查标准')
-        if row['status']=='needs_core_review' and not row['note'].strip():raise ValueError('待核对知识须说明具体问题')
+        if row['status']=='ready' and not row['criteria']:raise TeachingDesignInvalid('可用知识必须有明确检查标准')
+        if row['status']=='needs_core_review' and not row['note'].strip():raise TeachingDesignInvalid('待核对知识须说明具体问题')
         for c in row['criteria']:
             if any(m not in mistakes or key not in mistakes[m]['knowledge_keys']for m in c['mistake_keys']):
-                raise ValueError('检查标准引用了未关联到该知识的错误对象')
-        if not any(key in m['knowledge_keys']for m in result['mistakes']) and not row['no_mistakes'].strip():raise ValueError('没有易错对象时须说明原因')
-        if not any(key in x['knowledge_keys']for x in result['extensions']) and not row['no_extensions'].strip():raise ValueError('没有拓展时须说明原因')
+                raise TeachingDesignInvalid('检查标准引用了未关联到该知识的错误对象')
+        if not any(key in m['knowledge_keys']for m in result['mistakes']) and not row['no_mistakes'].strip():raise TeachingDesignInvalid('没有易错对象时须说明原因')
+        if not any(key in x['knowledge_keys']for x in result['extensions']) and not row['no_extensions'].strip():raise TeachingDesignInvalid('没有拓展时须说明原因')
     result['batch_id']=batch_id
     return result
 
