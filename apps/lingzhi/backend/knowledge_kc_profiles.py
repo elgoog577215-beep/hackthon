@@ -3,7 +3,9 @@ from third_party.learningmap.kc import KCSkill, group_questions_by_route, sample
 from third_party.learningmap.prompts.loader import render_kc_skill_block, render_prompt
 from knowledge_registry_contract import render
 
-CONTRACT='knowledge_kc_profile_v1'
+CONTRACT='knowledge_kc_profile_v2'
+READABLE_CONTRACTS={'knowledge_kc_profile_v1',CONTRACT}
+PROFILE_FIELD_MAX_CHARS=300
 UPSTREAM='ai-for-edu/LearningMAP@bb17f6a7e8c105248d80126b2bf07ff07209b83f'
 
 
@@ -49,11 +51,28 @@ def profile_prompt(points, groups):
     return render(
         '为冻结知识生成教学档案，不修改知识或条件。逐点按instructions填写五个字符串字段，'
         '不要输出诊断、掌握度或学生记录，不把候选失误说成高频或已发生事实。'
+        f'每字段用一至两句简短说明，最多{PROFILE_FIELD_MAX_CHARS}字符；引用已有公式，不展开长公式或推导，不重复书写同一片段。'
         '输出{"profiles":{"K1":{"description":"适用场景","assessment_focus":"考查重点",'
         '"assessment_format":"题型与问法","common_mistakes":"易错候选","difficulty_cues":"难度变化"}}}。',
         {'stage':'kc_profiles','contract':CONTRACT,'profiles':[
             {'key':p['key'],'instructions':render_prompt('kc_skill_from_bank_zh',point=p,
                 samples=select_samples(groups.get(p['knowledge_id'],[])))} for p in points]})
+
+
+def response_schema(keys):
+    field={'type':'string','minLength':1,'maxLength':PROFILE_FIELD_MAX_CHARS,'pattern':r'^[^\u0000-\u001f]*$'}
+    row={'type':'object','additionalProperties':False,'required':list(KCSkill.model_fields),
+         'properties':{key:field for key in KCSkill.model_fields}}
+    return {'type':'object','additionalProperties':False,'required':['profiles'],'properties':{
+        'profiles':{'type':'object','additionalProperties':False,'required':keys,'properties':{key:row for key in keys}}}}
+
+
+def field_limits(keys):
+    return {('profiles',key,field):PROFILE_FIELD_MAX_CHARS for key in keys for field in KCSkill.model_fields}
+
+
+def output_tokens(count):
+    return 512+count*(len(KCSkill.model_fields)*PROFILE_FIELD_MAX_CHARS*2+128)
 
 
 def compile_profiles(value, points, groups):
@@ -66,7 +85,7 @@ def compile_profiles(value, points, groups):
         if not isinstance(row,dict) or set(row)!=set(KCSkill.model_fields):
             raise ValueError('教学档案仅允许KCSkill五字段')
         skill=KCSkill.model_validate(row)
-        if any(not value.strip() or len(value)>1800 for value in skill.model_dump().values()):
+        if any(not value.strip() or len(value)>PROFILE_FIELD_MAX_CHARS for value in skill.model_dump().values()):
             raise ValueError('教学档案字段为空或过长')
         samples=select_samples(groups.get(p['knowledge_id'],[]))
         result[p['knowledge_id']]={'contract':CONTRACT,'upstream':UPSTREAM,

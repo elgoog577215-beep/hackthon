@@ -118,6 +118,9 @@ async def run(svc, course_id, job_id):
             return result
         except Exception as error:
             record.update(status='failed',validation_error=str(error))
+            fragment=getattr(error,'partial_response',None)
+            if isinstance(fragment,str):record['raw_response']=fragment
+            if getattr(error,'details',None):record['output_failure']=deepcopy(error.details)
             raise
     token=REQUEST_SCOPE.set({'validate_source':validate_version,'retry_budget':{'used':0,'active':{}}})
     try:

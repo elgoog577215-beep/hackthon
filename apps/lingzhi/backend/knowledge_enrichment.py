@@ -18,7 +18,7 @@ def progress(pipeline):
 async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
     from knowledge_atomic import run_batches
     from knowledge_registry_relations import prompt as relation_prompt,compile_edges,attach
-    from knowledge_kc_profiles import profile_prompt,compile_profiles,eligible_questions,CONTRACT as PROFILE_CONTRACT
+    from knowledge_kc_profiles import profile_prompt,compile_profiles,eligible_questions,CONTRACT as PROFILE_CONTRACT,READABLE_CONTRACTS,PROFILE_FIELD_MAX_CHARS
     base=deepcopy(pipeline['core_tree']);validate_core(base,lesson_id)
     signature=body_signature(base)
     frozen=protected_body(base)
@@ -38,9 +38,10 @@ async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
         profile=point.get('kc_skill_profile') or {}
         fields={'description','assessment_focus','assessment_format','common_mistakes','difficulty_cues'}
         skill=profile.get('skill')
-        return (profile.get('contract')==PROFILE_CONTRACT and profile.get('knowledge_id')==point['knowledge_id']
+        limit=PROFILE_FIELD_MAX_CHARS if profile.get('contract')==PROFILE_CONTRACT else 1800
+        return (profile.get('contract')in READABLE_CONTRACTS and profile.get('knowledge_id')==point['knowledge_id']
             and profile.get('knowledge_revision')==point['revision_id'] and isinstance(skill,dict) and set(skill)==fields
-            and all(isinstance(v,str) and v.strip() and len(v)<=1800 for v in skill.values()))
+            and all(isinstance(v,str) and v.strip() and len(v)<=limit for v in skill.values()))
     missing=[p for p in local if not current_profile(p)]
     profiles=pipeline.setdefault('kc_profiles',{'status':'pending','body_signature':signature,'batches':[
         {'id':f'profiles-{i//4+1}','point_ids':[p['knowledge_id']for p in missing[i:i+4]],'status':'pending'} for i in range(0,len(missing),4)]})

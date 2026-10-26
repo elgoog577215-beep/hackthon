@@ -477,6 +477,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
     options = budget.call_options(); options['max_tokens'] = min(options['max_tokens'], 8000 if stage == 'inventory' else 14000)
     request_budget = {**budget.describe(prompt,system),'max_output_tokens':options['max_tokens']}
     structure = None
+    output_limits = {}
     if stage == 'extract':
         from knowledge_extract import extraction_schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n', 1)[1])
@@ -549,6 +550,13 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         from knowledge_required_coverage import schema
         payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
         structure = schema([p['key']for p in payload['units']],[p['knowledge_id']for p in payload['points']])
+    elif stage == 'kc_profiles':
+        from knowledge_kc_profiles import response_schema,field_limits,output_tokens
+        payload = json.loads(prompt.split('\nINPUT_JSON:\n',1)[1])
+        keys=[p['key']for p in payload['profiles']]
+        structure=response_schema(keys);output_limits=field_limits(keys)
+        options['max_tokens']=min(options['max_tokens'],output_tokens(len(keys)))
+        request_budget['max_output_tokens']=options['max_tokens']
     if stage.startswith('hierarchy'):
         # Classification responses contain short names and point references,
         # not teaching bodies. Keep headroom proportional to the actual set.
@@ -558,16 +566,27 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         ((state['jobs'][job_id].get('checkpoint') or {}).get('atomic_pipeline') or {}).get('prompt_contract') in
         {'knowledge_extract_v9', 'knowledge_registry_v1','knowledge_registry_v2','knowledge_registry_v3','knowledge_registry_v4','knowledge_registry_v5','knowledge_core_v1'})
     request_scope = REQUEST_SCOPE.get(); observed_batch_index = request_scope.get('batch_index')
-    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_extract','candidate_core_review','candidate_core_identity','candidate_core_identity_catalog','candidate_required_coverage'} and structure is not None):
+    if quality_job and not (stage in {'content_review', 'semantic_equivalence', 'semantic_equivalence_pairs', 'extract_repair','candidate_core_extract','candidate_core_review','candidate_core_identity','candidate_core_identity_catalog','candidate_required_coverage','kc_profiles'} and structure is not None):
         structure = None
         request_budget['response_format'] = 'json_object_local_validation'
     await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, request_budget=request_budget,
         phase='model_wait', pipeline_stage='hierarchy' if stage.startswith('hierarchy') else stage, received_chars=0, last_content_at=None, partial_text='')
     partial = []; activity = {'received_chars': 0, 'last_content_at': None}; telemetry = []
+    from knowledge_output_guard import JsonOutputGuard,OutputGuardViolation
+    output_guard=JsonOutputGuard(output_limits)
+    output_signal=asyncio.Event();output_failure={'error':None}
     formatting = {'inside': False, 'escaped': False, 'whitespace': 0, 'invalid': False}
     started = time.perf_counter();first_content = None;last_content = started
     def receive(delta):
         nonlocal first_content,last_content
+        # Keep the exact fragment before applying guards. The provider treats
+        # callbacks as optional sinks and may swallow their exceptions, so a
+        # separate task terminates the request instead of raising here.
+        partial.append(delta); activity['received_chars'] += len(delta)
+        if output_failure['error'] is None:
+            try:output_guard.feed(delta)
+            except OutputGuardViolation as error:
+                output_failure['error']=error;output_signal.set()
         # Structured decoding can emit whitespace indefinitely. Preserve every
         # delta, but only substantive text counts as generation progress.
         if delta.strip():
@@ -583,10 +602,14 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
                 formatting['whitespace'] = formatting['whitespace'] + 1 if char.isspace() else 0
                 if char == '"': formatting['inside'] = True
                 if formatting['whitespace'] > 2048: formatting['invalid'] = True
-        partial.append(delta); activity['received_chars'] += len(delta)
     def reset():
+        if output_failure['error'] is not None:return
         partial.clear(); activity.update(received_chars=0, last_content_at=None)
         formatting.update(inside=False, escaped=False, whitespace=0, invalid=False)
+        output_guard.reset()
+    async def guard_output():
+        await output_signal.wait()
+        raise output_failure['error']
     async def pulse():
         while True:
             await asyncio.sleep(2); await asyncio.to_thread(svc._active, course_id, job_id)
@@ -597,6 +620,7 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
             await asyncio.to_thread(svc.authoring.update_job_live, course_id, job_id, partial_text=''.join(partial),
                 phase='model_streaming' if activity['received_chars'] else 'model_wait', **activity)
     checkpoint = asyncio.create_task(pulse())
+    guarded = asyncio.create_task(guard_output())
     call = asyncio.create_task(provider._call_llm(prompt, system_prompt=system, max_attempts=1, retry_count=1,
         temperature=0,
         enable_thinking=False, reject_truncated=True, require_stop=True, raise_on_failure=True,
@@ -604,19 +628,24 @@ async def _call_stage_once(svc, course_id, job_id, provider, prompt, stage):
         json_mode=quality_job or structure is not None or stage == 'extract', **({'json_schema':structure} if structure else {}), on_content_delta=receive, on_content_reset=reset, telemetry_sink=telemetry.append, **options))
     failure = None
     try:
-        done, _ = await asyncio.wait({checkpoint, call}, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait({checkpoint, call, guarded}, return_when=asyncio.FIRST_COMPLETED)
+        if guarded in done:await guarded
         if checkpoint in done: await checkpoint
         response = await call
+        if output_failure['error'] is not None:raise output_failure['error']
         if formatting['invalid']:
             raise KnowledgeModelDegenerateOutput('千问输出包含大量无意义JSON空白，已保留原始响应；不会作为生成成功结果。')
     except BaseException as error:
         failure = error
-        if isinstance(error, Exception): error.partial_response = ''.join(partial)
         raise
     finally:
-        for task in (checkpoint, call):
+        for task in (checkpoint, call, guarded):
             if not task.done(): task.cancel()
-        await asyncio.gather(checkpoint, call, return_exceptions=True)
+        await asyncio.gather(checkpoint, call, guarded, return_exceptions=True)
+        if isinstance(failure,Exception):
+            received=''.join(partial)
+            reported=getattr(failure,'partial_response','')
+            if not reported or received.startswith(reported):failure.partial_response=received
         safe_telemetry = [{k:event[k] for k in ('model_id','provider_route','status','duration_ms','input_tokens','output_tokens','tokens_source','physical_request_count','queue_wait_ms') if k in event} for event in telemetry if isinstance(event,dict)]
         event = safe_telemetry[-1] if safe_telemetry else {}
         observation = {'stage':stage,'batch_index':observed_batch_index,'batch_id':request_scope.get('batch_id'),
