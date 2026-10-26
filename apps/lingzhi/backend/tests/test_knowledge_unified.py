@@ -133,3 +133,36 @@ async def test_adopted_current_body_can_be_enriched_without_regeneration(svc,mon
     saved=svc.authoring.get_job('c-pilot',job['id']);assert saved['status']=='completed',saved.get('error')
     assert body(saved['checkpoint']['candidate'])==body(accepted)
     assert {p['stage']for p in calls}=={'candidate_relations','kc_profiles'}
+
+
+@pytest.mark.asyncio
+async def test_legacy_completed_relations_are_reused_and_only_missing_profiles_are_generated(svc,monkeypatch):
+    original=await seed(svc,monkeypatch);state=svc.authoring.load('c-pilot');job=state['jobs'][original['id']]
+    tree=job['checkpoint']['candidate'];keys=[p['key']for p in tree['knowledge_points']]
+    job.update(generation_contract='knowledge_registry_v5',include_relations=True)
+    job.pop('execution_contract',None);job.pop('generation_mode',None)
+    job['checkpoint']['atomic_pipeline']['registry_relations']={'status':'completed','batches':[{'status':'completed','focus_keys':keys,'result':[]}]}
+    tree['atomic_assessment']['relation_status']='completed'
+    tree['relation_assessment']={'ready_for_adoption':True,'checked_points':len(keys),'mode':'with_tree','proposed_ids':[]}
+    svc.authoring._save(state);calls=[];provider(svc,calls)
+    new=start(svc,'reuse-historical-full',generation_mode='full_v1',base_job_id=original['id'])
+    await svc.run('c-pilot',new['id']);saved=svc.authoring.get_job('c-pilot',new['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert [p['stage']for p in calls]==['kc_profiles']
+
+
+@pytest.mark.asyncio
+async def test_explicit_coverage_requirements_are_not_silently_discarded(svc,monkeypatch):
+    setup_course(svc,monkeypatch);calls=[]
+    async def model(payload):
+        if payload['stage']=='candidate_required_coverage':
+            return {'coverage':{u['key']:{'status':'missing','knowledge_ids':[],'reason':'现有知识没有承载这条独立结论'}for u in payload['units']}}
+        return model_reply(payload)
+    provider(svc,calls,model)
+    required=[{'statement':'队列从队尾加入新元素。','branch':'队列','knowledge_type':'rule','profile_focus':'','check_intent':'说明入队位置'}]
+    new=start(svc,'required-coverage',generation_mode='full_v1',coverage_units=required)
+    await svc.run('c-pilot',new['id']);saved=svc.authoring.get_job('c-pilot',new['id'])
+    assert saved['status']=='failed'
+    assert 'candidate_required_coverage'in [p['stage']for p in calls]
+    assert 'candidate_relations'not in [p['stage']for p in calls]
+    assert saved['checkpoint']['atomic_pipeline']['required_coverage']['result']['missing_unit_ids']
