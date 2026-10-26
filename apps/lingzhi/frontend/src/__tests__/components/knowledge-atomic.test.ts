@@ -48,6 +48,16 @@ it('passes the displayed completed body to additive enrichment',async()=>{
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',base_job_id:'completed-core'}))
   w.unmount()
 })
+it('starts a fresh core after the handout revision changes instead of forcing stale reuse',async()=>{
+  const v:any=view();v.atomic_runs=[];v.source_handouts=[{lesson_id:'cpu',script_revision_id:'new-handout'}]
+  v.candidates=[{job_id:'stale-core',lesson_id:'cpu',tree:{revision_id:'stale-tree',status:'candidate',
+    source_handouts:[{lesson_id:'cpu',script_revision_id:'old-handout'}],knowledge_points:[],categories:[],atomic_assessment:{ready_for_adoption:true}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.findAll('button').find(b=>b.text().includes('生成本讲知识树'))!.trigger('click');await flushPromises()
+  expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.not.objectContaining({base_job_id:'stale-core'}))
+  w.unmount()
+})
 it.each([['candidate_core_review','核对完整知识'],['candidate_core_identity_catalog','合并同义知识']])('labels %s without the retired source-validation wording',async(stage,label)=>{
   const v:any=view();v.atomic_runs[0].pipeline.generation_mode='core_v1';v.atomic_runs[0].status='running'
   v.active_jobs=[{id:'atomic-job',status:'running',knowledge_lesson_id:'cpu',phase:'structure_check',pipeline_stage:stage,progress:70}];v.jobs=v.active_jobs
