@@ -33,3 +33,13 @@ it('hides stale check revisions instead of assigning a zero score',async()=>{
   const w=mount(Panel,{props:{tree:stale,knowledgeId:'K'},...options})
   expect(w.text()).not.toContain('独立判断操作位置');expect(w.text()).not.toContain('0分');w.unmount()
 })
+it('shows specific review findings for teaching objects without turning them into learner failures',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
+  const reviewed=structuredClone(tree)
+  reviewed.mastery_criteria[0].review_notes=['判据遗漏了合法的边界情况']
+  reviewed.misconceptions[0].review_notes=['复测答案需核对']
+  reviewed.extensions[0].review_notes=['需区分选学与普通变式']
+  const w=mount(Panel,{props:{tree:reviewed,knowledgeId:'K'},...options})
+  for(const note of ['判据遗漏了合法的边界情况','复测答案需核对','需区分选学与普通变式'])expect(w.text()).toContain(note)
+  expect(w.text()).not.toContain('0分');w.unmount()
+})
