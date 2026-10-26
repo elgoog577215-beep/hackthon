@@ -190,3 +190,39 @@ async def test_reused_cross_lesson_display_keys_do_not_collide_in_model_catalog(
     assert saved['status']=='completed',saved.get('error')
     assert body(saved['checkpoint']['candidate'])==expected
     assert saved['checkpoint']['candidate']['knowledge_points'][-1]==other
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field,value',[('actor','another-owner'),('course_id','another-course'),('knowledge_lesson_id','another-lesson')])
+async def test_reuse_is_bound_to_owner_course_and_lesson(svc,monkeypatch,field,value):
+    original=await seed(svc,monkeypatch);state=svc.authoring.load('c-pilot')
+    state['jobs'][original['id']][field]=value;svc.authoring._save(state)
+    with pytest.raises(CourseDocumentConflict):start(svc,'wrong-scope',generation_mode='full_v1',base_job_id=original['id'])
+
+
+@pytest.mark.asyncio
+async def test_source_change_during_enrichment_preserves_body_but_cannot_publish(svc,monkeypatch):
+    original=await seed(svc,monkeypatch);calls=[]
+    async def change(payload):
+        svc.storage.update_course_data('c-pilot',lambda raw:{**raw,'course_document_revision':'changed-during-enrichment'})
+        return model_reply(payload)
+    provider(svc,calls,change);job=start(svc,'late-enrichment',generation_mode='full_v1')
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='failed' and 'candidate'not in saved['checkpoint']
+    assert body(saved['checkpoint']['atomic_pipeline']['core_tree'])==body(original['checkpoint']['candidate'])
+
+
+@pytest.mark.asyncio
+async def test_explicit_covered_requirements_are_retained_in_the_final_tree(svc,monkeypatch):
+    setup_course(svc,monkeypatch);calls=[]
+    async def model(payload):
+        if payload['stage']=='candidate_required_coverage':
+            return {'coverage':{u['key']:{'status':'covered','knowledge_ids':[payload['points'][0]['knowledge_id']],'reason':'完整入栈规则已承载'}for u in payload['units']}}
+        return model_reply(payload)
+    provider(svc,calls,model)
+    required=[{'statement':'入栈将新元素放到栈顶。','branch':'栈','knowledge_type':'rule','profile_focus':'','check_intent':'说明入栈位置'}]
+    job=start(svc,'covered-required',generation_mode='full_v1',coverage_units=required)
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='completed',saved.get('error')
+    coverage=saved['checkpoint']['candidate']['required_coverage']
+    assert coverage['missing_unit_ids']==[] and len(coverage['decisions'])==1
