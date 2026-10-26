@@ -22,9 +22,12 @@ async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
     base=deepcopy(pipeline['core_tree']);validate_core(base,lesson_id)
     signature=body_signature(base)
     frozen=protected_body(base)
-    local=[p for p in base['knowledge_points']if lesson_id in p.get('section_refs',[])]
+    # Short keys are transport references, not knowledge identities. Historical
+    # per-lesson trees may reuse K1; remap only the model's private catalog.
+    catalog=deepcopy(base)
+    for index,point in enumerate(catalog['knowledge_points'],1):point['key']=f'K{index}'
+    local=[p for p in catalog['knowledge_points']if lesson_id in p.get('section_refs',[])]
     keys=[p['key']for p in local]
-    require(len({p['key']for p in base['knowledge_points']})==len(base['knowledge_points']),'冻结知识目录的短键重复')
     certificate=base.get('enrichment',{}).get('relations',{})
     certified=isinstance(certificate,dict) and certificate.get('status')=='completed' and certificate.get('body_signature')==signature
     relations=pipeline.setdefault('registry_relations',{'status':'completed' if certified else 'pending',
@@ -33,7 +36,11 @@ async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
     require(relations['body_signature']==signature,'关系任务的冻结知识已变化')
     def current_profile(point):
         profile=point.get('kc_skill_profile') or {}
-        return profile.get('contract')==PROFILE_CONTRACT and profile.get('knowledge_id')==point['knowledge_id'] and profile.get('knowledge_revision')==point['revision_id'] and bool(profile.get('skill'))
+        fields={'description','assessment_focus','assessment_format','common_mistakes','difficulty_cues'}
+        skill=profile.get('skill')
+        return (profile.get('contract')==PROFILE_CONTRACT and profile.get('knowledge_id')==point['knowledge_id']
+            and profile.get('knowledge_revision')==point['revision_id'] and isinstance(skill,dict) and set(skill)==fields
+            and all(isinstance(v,str) and v.strip() and len(v)<=1800 for v in skill.values()))
     missing=[p for p in local if not current_profile(p)]
     profiles=pipeline.setdefault('kc_profiles',{'status':'pending','body_signature':signature,'batches':[
         {'id':f'profiles-{i//4+1}','point_ids':[p['knowledge_id']for p in missing[i:i+4]],'status':'pending'} for i in range(0,len(missing),4)]})
@@ -48,8 +55,8 @@ async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
         profiles['sample_groups']=await io(samples)
     groups=profiles['sample_groups']
     async def relation_batch(index,batch):
-        batch['result']=await request(relation_prompt(base,batch['focus_keys']),'candidate_relations',batch.setdefault('request',{}),
-            lambda value:compile_edges(value,base,batch['focus_keys'],lesson_id))
+        batch['result']=await request(relation_prompt(catalog,batch['focus_keys']),'candidate_relations',batch.setdefault('request',{}),
+            lambda value:compile_edges(value,catalog,batch['focus_keys'],lesson_id))
         batch['status']='completed';await save()
     async def profile_batch(index,batch):
         points=[p for p in local if p['knowledge_id']in batch['point_ids']]
