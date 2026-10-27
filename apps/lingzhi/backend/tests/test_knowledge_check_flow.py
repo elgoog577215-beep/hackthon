@@ -118,3 +118,21 @@ def test_authenticated_check_api_returns_current_criteria_and_never_reads_previe
     assert bad.status_code==409
     app.dependency_overrides.clear()
     assert client.get(url,params={'knowledge_id':'K','knowledge_revision':'KR'},headers={'X-User-Id':'u'}).status_code in {401,403}
+
+
+def test_model_exposes_checkpoint_evidence_without_conflating_it_with_mastery():
+    from knowledge_mastery import build_knowledge_profile
+    course,c,t=fixture();base=course['course_knowledge_base'];base['lifecycle_status']='active'
+    base['knowledge_points'][0].update(status='active',granularity_status='atomic')
+    profile=build_knowledge_profile(base,course_id='c',course_version_id='cv',user_id='u',attempts=[],events=[])
+    assert profile['nodes'][0]['check_measurements'][0]['measurement']['latest_score']is None
+    assert profile['nodes'][0]['mastery']is None
+
+
+def test_unfinished_current_task_can_be_resumed_without_manufacturing_new_checks():
+    from knowledge_check_flow import select_task
+    course,c,t=fixture()
+    a={'task_revision_id':'T1','status':'in_progress','course_version_id':'cv','criterion_revision_refs':{'C':'CR'}}
+    assert select_task(course,[t],[a],'C','CR')['task_revision_id']=='T1'
+    a['criterion_revision_refs']['C']='old'
+    assert select_task(course,[t],[a],'C','CR')is None
