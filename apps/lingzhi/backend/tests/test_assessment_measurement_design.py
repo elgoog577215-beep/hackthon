@@ -371,3 +371,18 @@ def test_assignment_question_isolates_the_literal_initialization():
     assert fixed["public_material"] == "```c\ndouble q=7/2;\n```"
     assert "整数" in fixed["correct_prediction"]
     assert "q" in fixed["ask"]
+def test_model_transport_uses_short_ids_but_restores_exact_original_bindings():
+    from assessment_measurement_design import model_design_contexts, restore_design_contexts
+    from copy import deepcopy
+    original=[{'assessment_slot':{'slot_id':'opaque-very-long-1234567890','criterion_target':{'criterion':{'criterion_id':'C'}}}}]
+    wire=model_design_contexts(original)
+    assert wire[0]['assessment_slot']['slot_id']=='item-1'
+    wire[0]['private_measurement_design']={'trace':'verified output'}
+    restored=restore_design_contexts(original,wire)
+    assert restored[0]['assessment_slot']==original[0]['assessment_slot']
+    assert restored[0]['private_measurement_design']['trace']=='verified output'
+    assert 'private_measurement_design'not in original[0]
+    bad=deepcopy(wire);bad[0]['assessment_slot']['slot_id']='item-2'
+    import pytest
+    with pytest.raises(ValueError):restore_design_contexts(original,bad)
+
