@@ -47,7 +47,7 @@ describe('QuestionBankReviewPanel', () => {
     await flushPromises()
     expect(w.text()).toContain('题库读取失败')
     expect(w.text()).not.toContain('课程题库还没有题目')
-    expect(w.get('[data-testid="retry-question-bank-read"]').exists()).toBe(true)
+    expect(w.find('[data-testid="retry-question-bank-read"]').exists()).toBe(true)
     expect(runQuestionBankRebuild).not.toHaveBeenCalled()
     w.unmount()
   })

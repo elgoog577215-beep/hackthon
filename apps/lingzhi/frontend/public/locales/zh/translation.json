@@ -1,5 +1,6 @@
 {
   "unifiedGeneration": {
+    "countUnknown": "题目数量尚未读取",
     "reviewComplete": "本轮生成已结束，审阅结果见题目状态。",
     "ready": "按已确认的知识和检查标准编排题目；生成、绑定和审阅状态分别记录。",
     "baselineRequired": "知识树尚未确认，暂不能生成可用于检查的题目。已有题目保留。",

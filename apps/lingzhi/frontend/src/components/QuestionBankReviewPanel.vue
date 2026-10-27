@@ -74,7 +74,7 @@
                 <span>{{ chapter.number ? String(chapter.number).padStart(2, '0') : '··' }}</span>
                 <span>
                   <strong>{{ chapter.title }}</strong>
-                  <small>{{ t('questionBank.chapterQuestionCount', '{count} 道题').replace('{count}', String(chapter.item_count)) }}</small>
+                  <small>{{ errorMessage && !items.length ? t('unifiedGeneration.countUnknown') : t('questionBank.chapterQuestionCount', '{count} 道题').replace('{count}', String(chapter.item_count)) }}</small>
                 </span>
                 <i :data-status="questionChapterStatus(chapter)" aria-hidden="true"></i>
               </button>
@@ -99,6 +99,7 @@
     <div v-else-if="errorMessage && !items.length" class="question-bank-panel__state question-bank-panel__state--error">
       <TriangleAlert :size="18" />
       <span>{{ errorMessage }}</span>
+      <button type="button" data-testid="retry-question-bank-read" @click="load">{{ t('common.retry', '重试') }}</button>
     </div>
     <div v-if="errorMessage && items.length" class="question-bank-panel__refresh-error" role="alert">
       <TriangleAlert :size="15" />
@@ -106,7 +107,7 @@
       <button type="button" @click="load">{{ t('common.retry', '重试') }}</button>
     </div>
 
-    <section v-else-if="workspaceMode === 'bank' && (questionBankMissing || !items.length)" class="question-bank-empty-state">
+    <section v-else-if="!loading && !errorMessage && workspaceMode === 'bank' && (questionBankMissing || !items.length)" class="question-bank-empty-state">
       <span><LibraryBig :size="24" /></span>
       <strong>{{ t('questionBank.workspace.emptyTitle', '课程题库还没有题目') }}</strong>
       <p>{{ t('questionBank.workspace.emptyHint', '优先导入已有试卷，也可以让 AI 根据课程内容生成题目。') }}</p>
@@ -761,7 +762,7 @@
               type="button"
               data-testid="generate-question-bank"
               class="question-generation-primary"
-              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid || generationReadiness?.ready === false"
+              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid || generationReadiness?.ready === false || Boolean(errorMessage && !items.length)"
               @click="startGeneration"
             >
               <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
@@ -1100,7 +1101,7 @@ const selectedQuestions = computed(() => {
 const publishedCount = computed(() => activeItems.value.filter(
   item => item.lifecycle_status === 'approved',
 ).length)
-const pipelineCounts = computed(() => t('unifiedGeneration.counts')
+const pipelineCounts = computed(() => errorMessage.value && !activeItems.value.length ? t('unifiedGeneration.countUnknown') : t('unifiedGeneration.counts')
   .replace('{published}',String(publishedCount.value))
   .replace('{pending}',String(activeItems.value.filter(i=>i.lifecycle_status==='needs_review').length))
   .replace('{rejected}',String(activeItems.value.filter(i=>i.lifecycle_status==='rejected').length))
