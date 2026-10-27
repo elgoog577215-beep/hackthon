@@ -61,6 +61,7 @@ def select_task(course,tasks,attempts,criterion_id,criterion_revision,catalog=No
 
 
 def check_view(course,tasks,attempts,kid,revision,user_id):
+    from assessment_contracts import project_public_question
     rows=[];catalog=criteria(course)
     resolved=[(t,task_criterion(course,t,catalog))for t in tasks]
     for c in catalog:
@@ -80,7 +81,7 @@ def check_view(course,tasks,attempts,kid,revision,user_id):
         cid=next((key for key,c in current.items()if a.get('criterion_revision_refs')=={key:c['revision_id']}),None)
         if not task or not cid or not a.get('result'):continue
         last={'criterion_id':cid,'attempt':{k:deepcopy(a[k])for k in ('attempt_id','revision','status','task_revision_id','answer_payload')if k in a},
-            'task':{'task_revision_id':tid,'question':{'prompt':task['prompt']}},
+            'task':{'task_revision_id':tid,'question':project_public_question(task)},
             'result':{k:deepcopy(a['result'][k])for k in ('status','passed','support_level','feedback','checkpoint_feedback')if k in a['result']}}
         break
     return {'knowledge_id':kid,'knowledge_revision':revision,'criteria':rows,'last_check':last}
