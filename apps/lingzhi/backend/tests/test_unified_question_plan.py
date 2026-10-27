@@ -320,3 +320,35 @@ async def test_failed_unified_job_is_restored_after_reopening_without_starting_g
     monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',jobs)
     result=await routes.get_active_question_bank_rebuild('c',x_user_id='teacher')
     assert result['job_id']==j['job_id'] and result['status']=='failed'
+
+
+def test_standard_failure_resume_keeps_its_original_plan_instead_of_replanning_the_lecture(monkeypatch,tmp_path):
+    from routers import question_bank as routes
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    c=course();jobs=QuestionBankRebuildJobRepository(tmp_path)
+    monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',jobs)
+    original=routes.QuestionBankRebuildRequest(request_id='parent-std',scope='nodes',node_ids=['L1'],
+        knowledge_ids=['K'],knowledge_baseline_revision=c['course_knowledge_base']['revision_id'],criterion_revision_refs={'C':'CR'})
+    frozen=routes._admit_generation_plan(c,original,'teacher')
+    parent,_=jobs.create_job('c',request_id='parent-std',scope='nodes',node_ids=['L1'],mode='incremental',actor_id='teacher',
+        knowledge_ids=['K'],knowledge_baseline_revision=c['course_knowledge_base']['revision_id'],criterion_revision_refs={'C':'CR'},criterion_generation_plan=frozen)
+    jobs.fail(parent['job_id'],code='test',message='未完成',retryable=True)
+    retry=routes.QuestionBankRebuildRequest(request_id='child-std',scope='nodes',node_ids=['L1'],resume_job_id=parent['job_id'])
+    resumed=routes._admit_generation_plan(c,retry,'teacher')
+    assert resumed==frozen and resumed['entrypoint']=='standard'
+    assert retry.criterion_revision_refs=={'C':'CR'}
+
+
+def test_numeric_slot_has_consistent_type_semantics_and_does_not_require_a_dimensionless_unit():
+    from knowledge_criterion_generation import request_plan
+    from assessment_blueprint import compile_course_assessment_blueprint
+    from assessment_contracts import compile_course_assessment_profile
+    from question_type_semantics import semantics_for_question_type
+    c=course();criterion=c['course_knowledge_base']['mastery_criteria'][0]
+    criterion['assessment_format']='numeric_response';criterion['checkpoints']=criterion['checkpoints'][:1]
+    c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='typed-consistent')
+    profile=compile_course_assessment_profile(c);profile['notation_and_language']['requires_units']=False
+    slot=compile_course_assessment_blueprint(c,profile=profile)['nodes'][0]['slots'][0]
+    assert slot['question_type_semantics_id']==semantics_for_question_type('numeric_response')['registry_id']
+    assert slot['response_format']=='numeric_unit'
+    assert next(f for f in slot['input_contract']['fields']if f['field_id']=='unit')['required']is False
