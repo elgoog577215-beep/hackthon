@@ -19,6 +19,7 @@ export interface QuestionBankRebuildRequest {
   questions_per_lesson?: number
   append_only?: boolean
   quantity_batch_id?: string
+  resume_job_id?: string
   retrieval_enabled?: boolean
   teacher_instruction?: string
 }

@@ -1972,6 +1972,7 @@ async function rebuild(nodeId?: string | string[], retryJob?: QuestionBankRebuil
         material_asset_ids: effectiveMaterialAssetIds.value,
         teacher_instruction: '',
         resume_existing: true,
+        ...(retryJob ? {resume_job_id:retryJob.job_id} : {}),
         ...(useQuantity && (!retryJob || retryJob.questions_per_lesson) ? {
           questions_per_lesson: retryJob?.questions_per_lesson ?? questionsPerLesson.value,
           append_only: retryJob?.append_only ?? appendOnly.value,

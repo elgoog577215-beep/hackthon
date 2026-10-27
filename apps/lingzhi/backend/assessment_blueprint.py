@@ -384,6 +384,13 @@ def compile_course_assessment_blueprint(
                 if slot["question_form"] == "fill_blank":
                     slot.update(_FILL_BLANK_SLOT_OVERRIDES)
                 slot["input_contract"] = input_contract_for_slot(slot, family=family)
+                if slot.get('criterion_target'):
+                    slot['question_type_semantics_id']=semantics_for_question_type(slot['question_type']).get('registry_id')
+                    slot['response_format']=slot['input_mode']
+                    if slot['input_mode']=='numeric_unit':
+                        for field in slot['input_contract'].get('fields',[]):
+                            if field.get('field_id')=='work' or (field.get('field_id')=='unit' and (resolved_profile.get('notation_and_language')or{}).get('requires_units')is False):
+                                field['required']=False
         all_slots.extend(slots)
         nodes.append({
             "node_id": node_id,

@@ -281,6 +281,7 @@ class QuestionBankRebuildRequest(BaseModel):
     questions_per_lesson: int | None = Field(default=None, ge=1, le=20, strict=True)
     append_only: bool = False
     quantity_batch_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r'^[A-Za-z0-9._-]+$')
+    resume_job_id: str | None = Field(default=None, min_length=1, max_length=200, pattern=r'^[A-Za-z0-9._-]+$')
     retrieval_enabled: bool = False
     assessment_generation_profile: Literal["complete"] = "complete"
     teacher_instruction: str = Field(default="", max_length=2000)
@@ -292,6 +293,8 @@ class QuestionBankRebuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self) -> QuestionBankRebuildRequest:
+        if self.resume_job_id and (self.scope!='nodes' or self.mode!='incremental'):
+            raise ValueError('恢复任务须明确原失败节点范围，不能全量替换已有题目')
         if self.append_only and self.questions_per_lesson is None:
             raise ValueError('追加生成需要指定每讲数量')
         if self.quantity_batch_id and self.questions_per_lesson is None:
@@ -579,7 +582,7 @@ def _selected_knowledge_slots(course: dict, payload: QuestionBankRebuildRequest,
         raise HTTPException(status_code=409, detail={"code": "knowledge_baseline_changed", "message": "知识树已变化，请刷新后重新选择"})
     try:
         from knowledge_criterion_generation import configure
-        scoped=configure(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)
+        scoped=course if course.get('_criterion_generation_plan') else configure(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)
         return select_knowledge_slots(blueprint or compile_course_assessment_blueprint(scoped), payload.knowledge_ids, payload.node_ids)
     except ValueError as error:
         raise HTTPException(status_code=422, detail={"code": "knowledge_slots_unavailable", "message": "所选知识点缺少可出题依据或不属于本讲"}) from error
@@ -708,9 +711,10 @@ def _published_practice_levels_by_node(
             try:validate_plan(course,blueprint['criterion_generation_plan'])
             except ValueError:return {}
             scoped={**course,'_criterion_generation_plan':blueprint['criterion_generation_plan']}
-        current = compile_course_assessment_blueprint(scoped)
-        if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
-            return {}
+        else:
+            current = compile_course_assessment_blueprint(scoped)
+            if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
+                return {}
     solutions = (bundle or {}).get("solution_envelopes") or {}
     levels_by_node: dict[str, set[str]] = {}
     for item in (bundle or {}).get("items") or []:
@@ -1181,6 +1185,7 @@ async def rebuild_question_bank(
             questions_per_lesson=payload.questions_per_lesson,
             append_only=payload.append_only,
             quantity_batch_id=payload.quantity_batch_id,
+            resume_job_id=payload.resume_job_id,
         )
     )
     if created:
@@ -1211,19 +1216,33 @@ def _admit_generation_plan(course, payload, actor_id):
         refs={q['criterion_target']['criterion']['criterion_id']:q['criterion_target']['criterion']['revision_id']for q in selected_items}
         knowledge_ids=sorted({q['criterion_target']['knowledge_id']for q in selected_items})
     prior = None
-    if payload.quantity_batch_id:
-        job = question_bank_rebuild_job_repository.load(course['course_id'],payload.quantity_batch_id)
+    parent_id=payload.resume_job_id or payload.quantity_batch_id
+    if parent_id:
+        job = question_bank_rebuild_job_repository.load(course['course_id'],parent_id)
         if not job or job.get('actor_id')!=actor_id or job.get('status')!='failed':
             raise HTTPException(409,detail={'code':'question_plan_resume_unavailable','message':'原任务不可重试，请刷新任务状态。'})
         prior = job.get('criterion_generation_plan')
         if not prior:
             raise HTTPException(409,detail={'code':'question_plan_missing','message':'旧任务未冻结知识和检查标准；结果保留，请确认知识树后按新计划补题。'})
+        source=prior.get('source_revision')or(job.get('quantity_plan')or{}).get('source_revision')
+        if source!=_question_source_revision(course):
+            raise HTTPException(409,detail={'code':'question_plan_source_changed','message':'原任务的材料版本已变化或未冻结；保留结果，请按当前材料重新规划。'})
+        if payload.questions_per_lesson is not None and payload.questions_per_lesson!=job.get('questions_per_lesson'):
+            raise HTTPException(409,detail={'code':'question_plan_quantity_changed','message':'重试不能改变原任务数量，请另建出题计划。'})
+        payload.questions_per_lesson=job.get('questions_per_lesson')
+        payload.append_only=bool(job.get('append_only'))
+        if job.get('quantity_plan'):payload.quantity_batch_id=job['job_id']
+        relevant=[t for t in prior['targets']if t['node_id']in nodes]
+        payload.knowledge_ids=sorted({t['knowledge_id']for t in relevant})
+        payload.knowledge_baseline_revision=prior['knowledge_baseline_revision']
+        payload.criterion_revision_refs={t['criterion']['criterion_id']:t['criterion']['revision_id']for t in relevant}
     try:
         frozen=request_plan(course,node_ids=nodes,request_id=payload.request_id,knowledge_ids=knowledge_ids,
                             criterion_revision_refs=refs,prior_plan=prior)
     except PreparationRequired as exc:
         raise HTTPException(409,detail={'code':exc.code,'message':str(exc)}) from exc
     frozen.setdefault('default_count',3)
+    frozen.setdefault('source_revision',_question_source_revision(course))
     if selected_items:
         frozen['entrypoint']='items'
         frozen['replacement_slots']=[deepcopy(q['assessment_slot'])for q in selected_items]
@@ -1244,6 +1263,7 @@ def _same_rebuild_request(
         and sorted(str(value) for value in job.get("node_ids") or [])
         == payload.node_ids
         and (job.get("criterion_revision_refs")or{}) == payload.criterion_revision_refs
+        and job.get('resume_job_id') == payload.resume_job_id
         and sorted(job.get("knowledge_ids") or []) == payload.knowledge_ids
         and str(job.get("knowledge_baseline_revision") or "") == payload.knowledge_baseline_revision
         and sorted(

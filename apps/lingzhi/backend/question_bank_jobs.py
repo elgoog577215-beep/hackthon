@@ -69,6 +69,7 @@ class QuestionBankRebuildJobRepository:
         questions_per_lesson: int | None = None,
         append_only: bool = False,
         quantity_batch_id: str | None = None,
+        resume_job_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         normalized_criteria=dict(sorted((criterion_revision_refs or {}).items()))
         if normalized_criteria and (not knowledge_ids or not request_id):raise ValueError('Criterion selection requires knowledge and request identity')
@@ -124,6 +125,7 @@ class QuestionBankRebuildJobRepository:
             {
                 "course_id": normalized_course_id,
                 "request_id": request_key,
+                **({'resume_job_id':resume_job_id}if resume_job_id else {}),
                 **({'questions_per_lesson':questions_per_lesson,'append_only':bool(append_only),'quantity_batch_id':quantity_batch_id} if questions_per_lesson is not None else {}),
                 "scope": normalized_scope,
                 **({"knowledge_ids": normalized_knowledge,
@@ -189,6 +191,7 @@ class QuestionBankRebuildJobRepository:
                 "questions_per_lesson": questions_per_lesson,
                 "append_only": bool(append_only),
                 "quantity_batch_id": quantity_batch_id,
+                "resume_job_id":resume_job_id,
                 "scope": normalized_scope,
                 "knowledge_ids": normalized_knowledge,
                 "knowledge_baseline_revision": knowledge_baseline_revision,
