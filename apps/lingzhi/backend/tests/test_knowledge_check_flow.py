@@ -137,3 +137,14 @@ def test_unfinished_current_task_can_be_resumed_without_manufacturing_new_checks
     assert select_task(course,[t],[a],'C','CR')['task_revision_id']=='T1'
     a['criterion_revision_refs']['C']='old'
     assert select_task(course,[t],[a],'C','CR')is None
+
+
+def test_help_consumes_only_reviewed_shared_objects_at_current_knowledge_revision():
+    from knowledge_check_flow import shared_help
+    course,c,t=fixture();c['misconception_ids']=['M']
+    row={'misconception_id':'M','revision_id':'MR','knowledge_ids':['K'],'knowledge_revision_refs':{'K':'KR'},
+        'readiness':'ready','review_status':'owner_accepted','discrimination':'分别观察两个量','repair_strategy':'对照两种判断依据'}
+    course['course_knowledge_base']['misconceptions']=[row]
+    assert shared_help(course,t)[0]['revision_id']=='MR'
+    row['review_status']='draft';assert shared_help(course,t)==[]
+    row['review_status']='owner_accepted';row['knowledge_revision_refs']['K']='old';assert shared_help(course,t)==[]
