@@ -52,7 +52,7 @@ async def test_checkpoint_grade_uses_each_verdict_and_real_evidence_not_model_sc
     repo=PracticeAttemptRepository(tmp_path/'attempts')
     a,_=repo.create_once('u','c',{'task_revision_id':'T1','course_version_id':'cv','concept_ids':['K'],
         'knowledge_revision_refs':{'K':'KR'},'criterion_revision_refs':{'C':'CR'},'assessment_evidence_key':'e1'})
-    a,_=repo.submit('u','c',a['attempt_id'],expected_revision=a['revision'],request_id='submit-1',answer_payload=attempt['answer_payload'])
+    a,_=repo.submit('u','c',a['attempt_id'],expected_revision=a['revision'],request_id='submit-1',answer_payload=attempt['answer_payload'],active_seconds=0)
     a=repo.apply_grade('u','c',a['attempt_id'],expected_revision=a['revision'],result=result)
     reread=PracticeAttemptRepository(tmp_path/'attempts').get('u','c',a['attempt_id'])
     assert reread['criterion_revision_refs']=={'C':'CR'} and reread['result']['criterion_results']==result['criterion_results']
@@ -80,3 +80,41 @@ def test_target_only_selects_unused_approved_task_and_view_does_not_leak_answers
     assert view['criteria'][0]['measurement']['status']=='unassessed'
     assert 'canonical_answer' not in json.dumps(view) and 'assessment_bindings' not in json.dumps(view)
     assert select_task(course,[t],attempts,'C','CR') is None
+
+
+@pytest.mark.asyncio
+async def test_practice_grading_consumes_bound_criterion_and_freezes_attempt_refs(monkeypatch):
+    from routers import practice as routes
+    course,c,t=fixture()
+    seen=[]
+    async def grade(task,attempt):
+        seen.append(task)
+        return {'status':'graded','score':100,'passed':True}
+    monkeypatch.setattr(routes.practice_grader,'grade',grade)
+    await routes._grade_task(course,'u',t,{'criterion_revision_refs':{'C':'CR'}})
+    assert seen[0]['_knowledge_criterion']['criterion_id']=='C'
+    result=await routes._grade_task(course,'u',t,{'criterion_revision_refs':{'C':'old'}})
+    assert result['status']=='pending_review' and len(seen)==1
+
+
+def test_authenticated_check_api_returns_current_criteria_and_never_reads_preview_identity(monkeypatch,tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from unittest.mock import AsyncMock
+    from routers import companion_learning as routes,practice
+    from study.auth import study_identity
+    course,c,t=fixture()
+    monkeypatch.setattr(routes,'read_learning_course',AsyncMock(return_value=course))
+    monkeypatch.setattr(practice,'_questions',lambda *a,**k:[t])
+    repo=PracticeAttemptRepository(tmp_path/'attempts');monkeypatch.setattr(practice,'practice_attempt_repository',repo)
+    app=FastAPI();app.include_router(routes.router,prefix='/api');app.dependency_overrides[study_identity]=lambda:{'id':'u'}
+    client=TestClient(app)
+    url='/api/courses/c/learning-records/knowledge-checks'
+    response=client.get(url,params={'knowledge_id':'K','knowledge_revision':'KR'})
+    assert response.status_code==200 and response.json()['criteria'][0]['criterion_id']=='C'
+    selected=client.post(url+'/target',json={'knowledge_id':'K','knowledge_revision':'KR','criterion_id':'C','criterion_revision':'CR'})
+    assert selected.status_code==200 and 'canonical_answer'not in selected.text
+    bad=client.post(url+'/target',json={'knowledge_id':'K','knowledge_revision':'old','criterion_id':'C','criterion_revision':'CR'})
+    assert bad.status_code==409
+    app.dependency_overrides.clear()
+    assert client.get(url,params={'knowledge_id':'K','knowledge_revision':'KR'},headers={'X-User-Id':'u'}).status_code in {401,403}
