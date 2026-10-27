@@ -167,6 +167,11 @@ def test_readiness_and_current_binding_projection_are_separate_from_publication(
     q['criterion_binding']=seal_binding(q,target,{'passed':True,'solution_consistent':True,'confidence':.95,'reviewer_triggered':True,
         'criterion_alignment':{'checkpoints':{'A':True,'B':True},'conditions_controlled':True,'reason':'题目要求逐项说明'}})
     assert binding_view(c,{'items':[q]})['items'][0]['status']=='bound'
+    from question_bank_knowledge import question_binding_projection
+    q['lifecycle_status']='rejected'
+    assert binding_view(c,{'items':[q]})['counts']['bound']==0
+    assert question_binding_projection(c,{'items':[q]},[q])['Q']['knowledge_binding_status']=='bound'
+    q['lifecycle_status']='needs_review'
     c['course_knowledge_base']['mastery_criteria'][0]['checkpoints'][0]['pass_condition']='改变判据'
     assert binding_view(c,{'items':[q]})['items'][0]['status']=='stale'
 
