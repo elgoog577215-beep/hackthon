@@ -2,7 +2,7 @@
 from copy import deepcopy
 from course_versioning import stable_hash
 
-BINDING = 'knowledge_criterion_binding_v1'
+BINDING = 'knowledge_criterion_binding_v2'
 
 
 def criterion_signature(c):
@@ -11,7 +11,10 @@ def criterion_signature(c):
 
 
 def content_signature(q):
-    return stable_hash({'prompt':q.get('prompt'),'spec':q.get('question_spec'),'solution':q.get('solution_revision_id')},prefix='kcqcontent_')
+    # Risk policy is a review projection. It changes when the bank evaluates
+    # publication requirements, without changing the question students answer.
+    spec={k:deepcopy(v)for k,v in (q.get('question_spec')or{}).items()if k!='risk_contract'}
+    return stable_hash({'prompt':q.get('prompt'),'spec':spec,'solution':q.get('solution_revision_id')},prefix='kcqcontent_')
 
 
 def valid_binding(q,c):
