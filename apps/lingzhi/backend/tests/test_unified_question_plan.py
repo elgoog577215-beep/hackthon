@@ -131,18 +131,23 @@ async def test_ordinary_admission_blocks_missing_baseline_before_job_creation(mo
 
 
 @pytest.mark.asyncio
-async def test_ordinary_admission_freezes_reviewed_targets_before_executor(monkeypatch,tmp_path):
+@pytest.mark.parametrize('point_scope',[False,True])
+async def test_ordinary_admission_freezes_reviewed_targets_before_executor(monkeypatch,tmp_path,point_scope):
     from routers import question_bank as routes
     from question_bank_jobs import QuestionBankRebuildJobRepository
     from unittest.mock import AsyncMock
     c=course();jobs=QuestionBankRebuildJobRepository(tmp_path);submitted=[]
+    if point_scope:
+        c['course_knowledge_base']['tree_schema']='knowledge_first_generic_v1'
+        c['course_knowledge_base']['knowledge_points'][0]['granularity_status']='candidate'
     class Executor:
         def submit(self,**kwargs):submitted.append(kwargs)
     monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=c))
     monkeypatch.setattr(routes,'_question_bank_source_material_asset_ids',lambda *_:set())
     monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',jobs)
     monkeypatch.setattr(routes,'question_bank_rebuild_executor',Executor())
-    response=await routes.rebuild_question_bank('c',routes.QuestionBankRebuildRequest(request_id='ordinary-one',scope='nodes',node_ids=['L1'],questions_per_lesson=3),x_user_id='teacher')
+    args={'knowledge_ids':['K'],'knowledge_baseline_revision':c['course_knowledge_base']['revision_id']}if point_scope else {'questions_per_lesson':3}
+    response=await routes.rebuild_question_bank('c',routes.QuestionBankRebuildRequest(request_id='ordinary-one',scope='nodes',node_ids=['L1'],**args),x_user_id='teacher')
     frozen=jobs.load('c',response['job_id'])['criterion_generation_plan']
     assert frozen['criterion_revision_refs']=={'C':'CR'}
     assert submitted[0]['course']['_criterion_generation_plan']==frozen
@@ -174,6 +179,9 @@ def test_review_anchor_uses_an_exact_public_field_reference():
     assert bound['review_witness']['observation_test']['public_anchor']==q['task']['rendered_text']
     r['review_witness']['observation_test']['public_anchor_ref']='invented'
     assert bind_review_anchor(r,q)['passed']is False
+    for invalid in [[],{},None]:
+        r['review_witness']['observation_test']['public_anchor_ref']=invalid
+        assert bind_review_anchor(r,q)['passed']is False
 
 
 def test_measurement_numeric_predictions_are_losslessly_normalized():
