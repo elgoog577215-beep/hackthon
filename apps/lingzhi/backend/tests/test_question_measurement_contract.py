@@ -69,6 +69,15 @@ def test_false_additive_explanation_is_detected_without_evaluating_model_code():
     assert not measurement_findings(c)
 
 
+def test_literal_arithmetic_does_not_extract_fragments_of_symbolic_expressions():
+    c=sample()
+    for equation in ['t^2 - 0.5 = 0.5','x + 2 - 0.5 = 0.5','1+2=3x','a/2+3=4','t^{2}+3-1=0']:
+        c['solution_envelope']['worked_solution']['summary']=equation
+        assert 'EXPLANATION_ARITHMETIC_ERROR' not in {i['code'] for i in measurement_findings(c)},equation
+    c['solution_envelope']['worked_solution']['summary']='$2 - 0.5 = 0.5$'
+    assert 'EXPLANATION_ARITHMETIC_ERROR' in {i['code'] for i in measurement_findings(c)}
+
+
 def test_complete_grounded_witness_is_accepted():
     assert not review_witness_issues(sample(), witness())
 
