@@ -266,6 +266,7 @@ class QuestionBankRebuildRequest(BaseModel):
     node_ids: list[str] = Field(default_factory=list, max_length=200)
     knowledge_ids: list[str] = Field(default_factory=list, max_length=200)
     knowledge_baseline_revision: str = Field(default="", max_length=200)
+    criterion_revision_refs: dict[str,str] = Field(default_factory=dict,max_length=50)
     revision_ids: list[str] = Field(
         default_factory=list,
         max_length=200,
@@ -304,6 +305,10 @@ class QuestionBankRebuildRequest(BaseModel):
         self.knowledge_ids = sorted({value.strip() for value in self.knowledge_ids if value.strip()})
         if self.knowledge_ids and (self.scope != "nodes" or not self.knowledge_baseline_revision or self.mode != "incremental"):
             raise ValueError("Knowledge selection requires incremental nodes scope and an adopted baseline revision")
+        if self.criterion_revision_refs and (not self.knowledge_ids or not self.request_id or self.questions_per_lesson is not None):
+            raise ValueError('检查标准出题须固定知识、请求身份，不能混用讲次数量模式')
+        if any(not k.strip() or not v.strip() or len(k)>200 or len(v)>200 for k,v in self.criterion_revision_refs.items()):
+            raise ValueError('检查标准引用无效')
         self.teacher_instruction = " ".join(
             str(self.teacher_instruction or "").split()
         )
@@ -531,7 +536,9 @@ def _selected_knowledge_slots(course: dict, payload: QuestionBankRebuildRequest,
     if base is None or base.get("revision_id") != payload.knowledge_baseline_revision:
         raise HTTPException(status_code=409, detail={"code": "knowledge_baseline_changed", "message": "知识树已变化，请刷新后重新选择"})
     try:
-        return select_knowledge_slots(blueprint or compile_course_assessment_blueprint(course), payload.knowledge_ids, payload.node_ids)
+        from knowledge_criterion_generation import configure
+        scoped=configure(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)
+        return select_knowledge_slots(blueprint or compile_course_assessment_blueprint(scoped), payload.knowledge_ids, payload.node_ids)
     except ValueError as error:
         raise HTTPException(status_code=422, detail={"code": "knowledge_slots_unavailable", "message": "所选知识点缺少可出题依据或不属于本讲"}) from error
 
@@ -1112,6 +1119,8 @@ async def rebuild_question_bank(
             teacher_instruction=payload.teacher_instruction,
             knowledge_ids=payload.knowledge_ids,
             knowledge_baseline_revision=payload.knowledge_baseline_revision,
+            criterion_revision_refs=payload.criterion_revision_refs,
+            criterion_generation_plan=(__import__('knowledge_criterion_generation').plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id) if payload.criterion_revision_refs else None),
             questions_per_lesson=payload.questions_per_lesson,
             append_only=payload.append_only,
             quantity_batch_id=payload.quantity_batch_id,
@@ -1143,6 +1152,7 @@ def _same_rebuild_request(
         and job.get('quantity_batch_id') == payload.quantity_batch_id
         and sorted(str(value) for value in job.get("node_ids") or [])
         == payload.node_ids
+        and (job.get("criterion_revision_refs")or{}) == payload.criterion_revision_refs
         and sorted(job.get("knowledge_ids") or []) == payload.knowledge_ids
         and str(job.get("knowledge_baseline_revision") or "") == payload.knowledge_baseline_revision
         and sorted(
@@ -1727,6 +1737,12 @@ async def _execute_question_bank_rebuild(
             details=details,
         )
 
+    if payload.criterion_revision_refs:
+        from knowledge_criterion_generation import validate_plan
+        frozen=(repository.load(course_id,job_id)or{}).get('criterion_generation_plan')
+        if not frozen:raise HTTPException(409,'出题任务缺少冻结检查标准，请重新发起')
+        validate_plan(course_for_bank,frozen)
+        course_for_bank['_criterion_generation_plan']=deepcopy(frozen)
     assessment_profile = compile_course_assessment_profile(
         course_for_bank
     )
@@ -2170,6 +2186,8 @@ async def _execute_question_bank_rebuild(
             == len(target_node_ids or [])
         )
         publication_base = deepcopy(rolling_course)
+        if course_for_bank.get('_criterion_generation_plan'):
+            publication_base['_criterion_generation_plan']=deepcopy(course_for_bank['_criterion_generation_plan'])
         if payload.scope == "course" and payload.questions_per_lesson is None:
             publication_base[
                 "question_bank_chapter_rebuild"
@@ -3124,6 +3142,9 @@ async def _publish_rebuilt_course(
     changed_node_ids: list[str] | None = None,
     expected_source_revision: str | None = None,
 ) -> dict[str, Any]:
+    if course.get('_criterion_generation_plan'):
+        from knowledge_criterion_generation import validate_plan
+        validate_plan(await _question_bank_course(course_id),course['_criterion_generation_plan'])
     if expected_source_revision is not None:
         latest = await _question_bank_course(course_id)
         if _question_source_revision(latest) != expected_source_revision:
@@ -3293,7 +3314,16 @@ async def _persist_rebuilt_course(
         if key in updated
     }
     repository = CourseDocumentRepository(storage)
-    await repository.update_metadata(course_id, updates)
+    frozen=previous.get('_criterion_generation_plan') or updated.get('_criterion_generation_plan')
+    if frozen:
+        from knowledge_criterion_generation import validate_plan
+        def mutate(fresh):
+            validate_plan(fresh,frozen)
+            fresh.update(deepcopy(updates))
+        await repository.commit_metadata(course_id,expected_document_revision=previous['course_document_revision'],
+            operation={'command_id':stable_hash({'course':course_id,'updates':updates},prefix='criterion_qbank_'),'operation':'question_bank_rebuild','reason':'按已审阅检查标准发布题目','actor':frozen['owner_id']},mutation=mutate)
+    else:
+        await repository.update_metadata(course_id, updates)
 
 
 def _restore_bundle_pointer(

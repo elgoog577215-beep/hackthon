@@ -375,7 +375,7 @@ def compile_course_assessment_blueprint(
                 scoped_course = {**course_data, "course_knowledge_base": {**base, "knowledge_points": [
                     p for p in base["knowledge_points"] if p.get("knowledge_id") in slot["primary_knowledge_ids"]
                 ]}}
-                slot["question_form"] = resolve_slot_question_form(scoped_course, node_id=node_id,
+                slot["question_form"] = "short_answer" if slot.get("criterion_target") else resolve_slot_question_form(scoped_course, node_id=node_id,
                     input_mode=slot["input_mode"], practice_level=slot["practice_level"])
                 if slot["question_form"] == "fill_blank":
                     slot.update(_FILL_BLANK_SLOT_OVERRIDES)

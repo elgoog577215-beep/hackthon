@@ -64,10 +64,14 @@ class QuestionBankRebuildJobRepository:
         teacher_instruction: str = "",
         knowledge_ids: list[str] | None = None,
         knowledge_baseline_revision: str = "",
+        criterion_revision_refs: dict[str,str] | None = None,
+        criterion_generation_plan: dict | None = None,
         questions_per_lesson: int | None = None,
         append_only: bool = False,
         quantity_batch_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
+        normalized_criteria=dict(sorted((criterion_revision_refs or {}).items()))
+        if normalized_criteria and (not knowledge_ids or not request_id):raise ValueError('Criterion selection requires knowledge and request identity')
         normalized_course_id = _storage_id(course_id)
         if questions_per_lesson is not None and (type(questions_per_lesson) is not int or not 1 <= questions_per_lesson <= 20):
             raise ValueError('questions_per_lesson must be between 1 and 20')
@@ -124,6 +128,7 @@ class QuestionBankRebuildJobRepository:
                 "scope": normalized_scope,
                 **({"knowledge_ids": normalized_knowledge,
                     "knowledge_baseline_revision": knowledge_baseline_revision} if normalized_knowledge else {}),
+                **({"criterion_revision_refs":normalized_criteria}if normalized_criteria else {}),
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "material_asset_ids": normalized_material_assets,
@@ -154,6 +159,7 @@ class QuestionBankRebuildJobRepository:
                         teacher_instruction=normalized_teacher_instruction,
                         knowledge_ids=normalized_knowledge,
                         knowledge_baseline_revision=knowledge_baseline_revision,
+                        criterion_revision_refs=normalized_criteria,
                         questions_per_lesson=questions_per_lesson,
                         append_only=append_only,
                         quantity_batch_id=quantity_batch_id,
@@ -186,6 +192,8 @@ class QuestionBankRebuildJobRepository:
                 "scope": normalized_scope,
                 "knowledge_ids": normalized_knowledge,
                 "knowledge_baseline_revision": knowledge_baseline_revision,
+                "criterion_revision_refs":normalized_criteria,
+                "criterion_generation_plan":deepcopy(criterion_generation_plan),
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "material_asset_ids": normalized_material_assets,
@@ -539,12 +547,14 @@ def _same_active_scope(
     teacher_instruction: str,
     knowledge_ids: list[str] | None = None,
     knowledge_baseline_revision: str = "",
+    criterion_revision_refs: dict | None = None,
     questions_per_lesson: int | None = None,
     append_only: bool = False,
     quantity_batch_id: str | None = None,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
+        and (job.get("criterion_revision_refs")or{})==(criterion_revision_refs or{})
         and job.get('questions_per_lesson') == questions_per_lesson
         and bool(job.get('append_only')) == bool(append_only)
         and job.get('quantity_batch_id') == quantity_batch_id
