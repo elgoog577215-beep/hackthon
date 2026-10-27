@@ -22,6 +22,25 @@ def generation_readiness(course):
             'knowledge_baseline_revision':base['revision_id'],'reviewed_criterion_count':len(catalog)}
 
 
+def resolve_target_node(course, point, requested):
+    """Resolve saved lecture IDs through actual topology, never title text."""
+    nodes={n['node_id']:n for n in course.get('nodes',[])}
+    refs=[r for r in point.get('section_refs',[])if isinstance(r,str)]
+    direct=[r for r in refs if r in requested and int((nodes.get(r)or{}).get('node_level')or 1)==2]
+    if direct:return direct[0]
+    candidates=[]
+    for node_id in requested:
+        if int((nodes.get(node_id)or{}).get('node_level')or 1)!=2:continue
+        cursor=node_id;seen=set()
+        while cursor in nodes and cursor not in seen:
+            seen.add(cursor)
+            parent=nodes[cursor].get('parent_node_id')or nodes[cursor].get('parent_id')
+            if parent in refs:
+                candidates.append(node_id);break
+            cursor=parent
+    return candidates[0]if len(candidates)==1 else None
+
+
 def request_plan(course, *, node_ids, request_id, knowledge_ids=None, criterion_revision_refs=None, prior_plan=None):
     """Resolve every new authoring entry against the same reviewed catalog."""
     if prior_plan:
@@ -39,7 +58,7 @@ def request_plan(course, *, node_ids, request_id, knowledge_ids=None, criterion_
     selected = set(knowledge_ids or [])
     points = {p['knowledge_id']:p for p in base.get('knowledge_points', [])}
     eligible = [c for c in criteria(course) if (not selected or c['knowledge_ids'][0] in selected)
-                and any(n in node_ids for n in points[c['knowledge_ids'][0]].get('section_refs', []))]
+                and resolve_target_node(course,points[c['knowledge_ids'][0]],node_ids) is not None]
     refs = dict(criterion_revision_refs or {c['criterion_id']:c['revision_id'] for c in eligible})
     if not refs:
         raise PreparationRequired('reviewed_criteria_required', '所选范围尚无已审阅、可用的检查标准，请先准备检查标准；已有题目保留。')
@@ -74,7 +93,7 @@ def plan(course,refs,knowledge_ids,node_ids,request_id):
         c=catalog.get(cid)
         if not c or c['revision_id']!=revision:raise ValueError('检查标准未审阅、已变化或不可用于出题')
         kid=c['knowledge_ids'][0];p=points[kid]
-        owner=next((n for n in p.get('section_refs',[])if n in nodes),None)
+        owner=resolve_target_node(course,p,node_ids)
         if not owner or owner not in node_ids:raise ValueError('检查标准不属于所选讲次')
         snapshot={k:deepcopy(v)for k,v in c.items()if k not in {'assessment_bindings','source_refs'}}
         targets.append({'criterion':snapshot,'criterion_signature':criterion_signature(c),'knowledge_id':kid,
