@@ -5617,7 +5617,10 @@ def _generation_prompt_v2(
         if (context.get("assessment_slot") or {}).get("input_mode") == "code" else ""
     )
     output_schema = _candidate_output_schema([context], compact=compact)
+    from knowledge_criterion_generation import authoring_directive
     return (
+        (authoring_directive() if (context.get('assessment_slot')or{}).get('criterion_target') else '')
+        +
         _authoring_quality_directive()
         +
         "输出必须严格使用 REQUIRED_OUTPUT_SCHEMA 中的键名和嵌套结构，"
@@ -5834,7 +5837,10 @@ def _batch_generation_prompt(
             "candidate": candidate_schema,
         }],
     }
+    from knowledge_criterion_generation import authoring_directive
     return (
+        (authoring_directive() if any((c.get('assessment_slot')or{}).get('criterion_target') for c in contexts) else '')
+        +
         _authoring_quality_directive()
         + f"一次生成{len(batch)}道相互独立的原创课程题目。"
         "必须为每个BATCH_ITEM生成且只生成一个candidate，"
@@ -6054,7 +6060,8 @@ def _batch_evaluation_prompt(
         "dimensions只能包含curriculum_targeting(0-20)、"
         "answerability_and_completeness(0-15)、"
         "difficulty_fit(0-10)、clarity(0-5)。"
-        "confidence必须是0到1之间的数字。有criterion_target时逐项检查判据和干扰控制，填写criterion_alignment，不得只按标题判断。\n"
+        "confidence必须是0到1之间的数字。有criterion_target时逐项检查判据和干扰控制，填写criterion_alignment，不得只按标题判断。"
+        "controlled_conditions必须落实为公开题面的已知条件或作答环境；让学生自行求出被要求提供的信息，不算控制了干扰，conditions_controlled必须为false。\n"
         "<REQUIRED_OUTPUT_ENVELOPE>\n"
         f"{json.dumps(envelope, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_ENVELOPE>\n"

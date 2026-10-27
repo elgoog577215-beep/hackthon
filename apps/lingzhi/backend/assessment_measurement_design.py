@@ -11,6 +11,9 @@ from assessment_variants import ChoicePositionAllocator, variant_instruction
 
 def measurement_strategy(slot: dict) -> dict:
     """Choose an observation from the rule's semantics, never its identity."""
+    if slot.get('criterion_target'):
+        from knowledge_criterion_generation import authoring_directive
+        return {'kind':'criterion_check','instruction':authoring_directive()}
     target = " ".join(slot.get("knowledge") or [])
     if re.search(r"目标类型.*反向|反向.*运算类型", target):
         return {
@@ -85,6 +88,7 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
                     )
                 },
                 "measurement_strategy": measurement_strategy(slot),
+                **({'criterion_target':deepcopy(slot['criterion_target'])} if slot.get('criterion_target') else {}),
                 "variant_role": slot.get("variant_role", "direct"),
                 "variant_instruction": variant_instruction(slot, measurement_strategy(slot)["kind"]),
                 "sources": context.get("content_evidence"),
@@ -92,7 +96,10 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
                 "diversity_constraints": context.get("diversity_constraints"),
             }
         )
+    from knowledge_criterion_generation import authoring_directive
     return (
+        (authoring_directive() + '此要求优先于下文针对代码、单个观察和选项的示例；非选择题options为空。' if any((c.get('assessment_slot')or{}).get('criterion_target') for c in contexts) else '')
+        +
         "输出最终定稿的测量设计JSON。每个输入槽位只保留一个小型、条件自足的实例。"
         "不要写讨论、犹豫、自我纠错或换例子的过程；先确定实例，所有字段对应同一份代码。"
         "每个槽位的measurement_strategy限定目标观测，variant_instruction指定本次变式结构，冲突时以后者为准。"

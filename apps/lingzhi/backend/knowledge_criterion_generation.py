@@ -6,6 +6,13 @@ CONTRACT='knowledge_criterion_generation_v1'
 BINDING='knowledge_criterion_binding_v1'
 
 
+def authoring_directive():
+    return ('有criterion_target时，目标是其criterion的完整检查标准。逐项让学生作答产生checkpoints要求的证据；'
+        'controlled_conditions必须落实为题面已知条件或明确的作答环境，以排除其他能力干扰，不能变成额外的学生计算任务。'
+        '给定数据和定义不等于泄漏目标结论；不得给出目标的答案或推理规则。'
+        '允许同一目标下的关联小问，不强制改成选择题、代码或单个数值；各判据必须能独立评分。')
+
+
 def criterion_signature(c):
     return stable_hash({k:deepcopy(c.get(k))for k in ('criterion_id','revision_id','knowledge_ids','knowledge_revision_refs',
         'dimension','observable_performance','verification_method','controlled_conditions','checkpoints','scoring','evidence_policy')},prefix='kcgs_')

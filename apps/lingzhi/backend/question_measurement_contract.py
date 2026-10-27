@@ -327,7 +327,7 @@ def review_witness_issues(contract: dict, witness: dict) -> list[dict]:
         issues.append(
             _issue("OPTION_AUDIT_INCOMPLETE", "独立评审必须逐项给出实际选项的解释、判断和依据，不能只列通过标记。")
         )
-    else:
+    elif ids:
         canonical = (contract.get("solution_envelope") or contract.get("answer_spec") or {}).get("canonical_answer")
         correct = {str(v) for v in canonical} if isinstance(canonical, list) else {str(canonical)}
         if {str(row["option_id"]) for row in audit if row["is_correct"]} != correct:
@@ -352,7 +352,11 @@ def review_witness_issues(contract: dict, witness: dict) -> list[dict]:
             issues.append(
                 _issue("OBSERVATION_TARGET_CHANGED", "观测证明必须针对完整的主考规则，不得换成更弱的邻近知识。")
             )
-        if len(_plain(obs["public_anchor"])) < 2 or _plain(obs["public_anchor"]) not in _plain(contract.get("prompt")):
+        # Math delimiters are presentation, not part of the observation.
+        # Preserve expression characters so a different variable still fails.
+        def anchor_text(value):
+            return _plain(re.sub(r"(?<!\\)\$|\\[\[\]() ]", "", str(value or "")))
+        if len(anchor_text(obs["public_anchor"])) < 2 or anchor_text(obs["public_anchor"]) not in anchor_text(contract.get("prompt")):
             issues.append(
                 _issue("OBSERVATION_ANCHOR_MISSING", "声明的观测位置不存在于实际公开题目中。", obs["public_anchor"])
             )
