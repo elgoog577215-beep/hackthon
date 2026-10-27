@@ -97,7 +97,9 @@ def test_measurement_design_receives_full_criterion_and_controlled_conditions():
     slot={'slot_id':'slot','criterion_target':target,'input_mode':'rich_text','question_form':'short_answer'}
     context={'assessment_slot':slot}
     assert measurement_strategy(slot)['kind']=='criterion_check'
-    for text in [measurement_design_prompt([context]),_generation_prompt_v2(context),_batch_generation_prompt([context])]:
+    design=measurement_design_prompt([context])
+    assert 'correct_option_index' not in design and 'C17' not in design
+    for text in [design,_generation_prompt_v2(context),_batch_generation_prompt([context])]:
         assert 'controlled_conditions' in text and '题面已知条件' in text
 
 
