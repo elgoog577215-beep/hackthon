@@ -63,3 +63,9 @@ it('does not call an assisted incorrect answer completed',async()=>{
  await w.get('textarea').setValue('回答仍不准确');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
  expect(w.text()).toContain('本次仍有未满足项');expect(w.text()).not.toContain('提示后完成');w.unmount()
 })
+
+it('restores saved checkpoint feedback without creating or grading another attempt',async()=>{
+ http.get.mockResolvedValue({data:{...view,last_check:{criterion_id:'C',attempt:{attempt_id:'A',revision:3,status:'graded'},task:{task_revision_id:'T',question:{prompt:'上次的任务'}},result:{status:'graded',passed:true,support_level:0,checkpoint_feedback:[{checkpoint_id:'P',label:'判断',met:true,feedback:'已保存的逐项反馈'}]}}}})
+ const w=mount(Journey,{props,...options});await flushPromises()
+ expect(w.text()).toContain('已保存的逐项反馈');expect(w.text()).toContain('上次的任务');expect(http.post).not.toHaveBeenCalled();w.unmount()
+})

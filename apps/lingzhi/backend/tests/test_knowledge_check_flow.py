@@ -17,7 +17,7 @@ def fixture():
     course={'course_id':'c','current_course_version_id':'cv','course_knowledge_base':{'status':'accepted','revision_id':'kb',
         'knowledge_points':[{'knowledge_id':'K','revision_id':'KR','name':'变化','statement':'完整知识','section_refs':['L1']}],
         'mastery_criteria':[criterion]}}
-    task={'revision_id':'T1','task_revision_id':'T1','node_id':'L1','prompt':'分别说明两个量的变化及依据',
+    task={'revision_id':'T1','task_revision_id':'T1','node_id':'L1','question_type':'short_answer','prompt':'分别说明两个量的变化及依据',
         'concept_ids':['K'],'knowledge_revision_refs':{'K':'KR'},'review_status':'approved','quality_status':'passed',
         'answer_spec':{'canonical_answer':'参考结论和依据'},'validation_policy':{'mastery_eligible':True,'max_support_level_for_mastery':0}}
     return course,criterion,task
@@ -148,3 +148,25 @@ def test_help_consumes_only_reviewed_shared_objects_at_current_knowledge_revisio
     assert shared_help(course,t)[0]['revision_id']=='MR'
     row['review_status']='draft';assert shared_help(course,t)==[]
     row['review_status']='owner_accepted';row['knowledge_revision_refs']['K']='old';assert shared_help(course,t)==[]
+
+
+def test_reading_back_feedback_is_current_private_and_does_not_expose_reference_answers():
+    from knowledge_check_flow import check_view
+    course,c,t=fixture()
+    a={'attempt_id':'A','revision':3,'user_id':'u','course_id':'c','course_version_id':'cv','status':'graded',
+        'task_revision_id':'T1','criterion_revision_refs':{'C':'CR'},'knowledge_revision_refs':{'K':'KR'},
+        'answer_payload':{'text':'自己的回答'},'result':{'status':'graded','passed':False,'support_level':0,
+            'checkpoint_feedback':[{'checkpoint_id':'A','label':'判断','met':False,'feedback':'分别判断'}],'canonical_answer':'private answer'}}
+    view=check_view(course,[t],[a],'K','KR','u')
+    assert view['last_check']['result']['checkpoint_feedback'][0]['feedback']=='分别判断'
+    assert 'private answer'not in json.dumps(view)
+    assert check_view(course,[t],[a],'K','KR','other')['last_check']is None
+    a['criterion_revision_refs']['C']='old'
+    assert check_view(course,[t],[a],'K','KR','u')['last_check']is None
+
+
+def test_unsupported_choice_and_runner_tasks_keep_their_original_grading_path():
+    from knowledge_check_flow import task_criterion
+    course,c,t=fixture()
+    for kind in ['single_choice','code']:
+        assert task_criterion(course,{**t,'question_type':kind})is None
