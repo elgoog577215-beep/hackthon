@@ -146,3 +146,21 @@ async def test_ordinary_admission_freezes_reviewed_targets_before_executor(monke
     frozen=jobs.load('c',response['job_id'])['criterion_generation_plan']
     assert frozen['criterion_revision_refs']=={'C':'CR'}
     assert submitted[0]['course']['_criterion_generation_plan']==frozen
+
+
+def test_readiness_and_current_binding_projection_are_separate_from_publication():
+    from knowledge_criterion_generation import generation_readiness, plan, seal_binding
+    from question_bank_knowledge import binding_view
+    c=course();assert generation_readiness(c)['ready']is True
+    no=deepcopy(c);no.pop('course_knowledge_base')
+    assert generation_readiness(no)['code']=='knowledge_baseline_required'
+    target=plan(c,{'C':'CR'},['K'],['L1'],'projection')['targets'][0]
+    q={'revision_id':'Q','item_id':'I','prompt':'判断并说明依据','primary_knowledge_ids':['K'],
+       'assessment_binding_schema':'atomic_assessment_v1','knowledge_revision_refs':{'K':'KR'},
+       'knowledge_baseline_revision':c['course_knowledge_base']['revision_id'],'question_spec':{},'solution_revision_id':'S',
+       'criterion_target':target,'lifecycle_status':'needs_review'}
+    q['criterion_binding']=seal_binding(q,target,{'passed':True,'solution_consistent':True,'confidence':.95,'reviewer_triggered':True,
+        'criterion_alignment':{'checkpoints':{'A':True,'B':True},'conditions_controlled':True,'reason':'题目要求逐项说明'}})
+    assert binding_view(c,{'items':[q]})['items'][0]['status']=='bound'
+    c['course_knowledge_base']['mastery_criteria'][0]['checkpoints'][0]['pass_condition']='改变判据'
+    assert binding_view(c,{'items':[q]})['items'][0]['status']=='stale'

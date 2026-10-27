@@ -41,6 +41,17 @@ vi.mock('@/components/QuestionBankImportWorkspace.vue', () => ({
 }))
 
 describe('QuestionBankReviewPanel', () => {
+  it('shows a preparation gap without hiding retained questions or starting a job', async () => {
+    get.mockResolvedValue({data:{bundle_revision_id:'bank',generation_readiness:{ready:false,code:'knowledge_baseline_required'},
+      items:[{revision_id:'old',prompt:'保留的题目',lifecycle_status:'needs_review',knowledge_binding_status:'tree_unavailable'}]}})
+    const wrapper=mount(QuestionBankReviewPanel,{props:{courseId:'course-1',initialWorkspaceMode:'generate'}})
+    await flushPromises()
+    expect(wrapper.get('[data-testid="unified-generation-readiness"]').text()).toContain('知识树尚未确认')
+    expect(wrapper.get('[data-testid="generate-question-bank"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('保留的题目')
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   beforeEach(async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
