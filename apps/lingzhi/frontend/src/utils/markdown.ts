@@ -541,6 +541,9 @@ const renderMathContent = (content: string, displayMode: boolean, fragments?: Ma
     if (cached !== undefined) return protectRenderedMath(cached, content, fragments);
     try {
         let cleanedContent = content.trim();
+        // JSON's backspace/form-feed escapes have no mathematical meaning.
+        // Restore their literal TeX backslashes only inside a math fragment.
+        cleanedContent = cleanedContent.replace(/\u0008/g, '\\b').replace(/\u000c/g, '\\f');
 
         // JSON/prompt pipelines sometimes double-escape a command (`\\vec`,
         // `\\mathbf`) even though the surrounding `$...$` delimiters survive.
@@ -569,6 +572,18 @@ const renderMathContent = (content: string, displayMode: boolean, fragments?: Ma
                 mathCache.set(key, sanitized);
                 return protectRenderedMath(sanitized, content, fragments);
             } catch (error) {
+                if (repairs === 0) {
+                    const collapsed = cleanedContent.replace(/(?<!\\)\\\\(?=[A-Za-z])/g, '\\');
+                    if (collapsed !== cleanedContent) {
+                        try {
+                            // Valid matrix row breaks already succeeded above.
+                            // Accept this transport recovery only if KaTeX parses it.
+                            katex.renderToString(collapsed, { throwOnError: true, displayMode, strict: false });
+                            cleanedContent = collapsed;
+                            continue;
+                        } catch { /* Keep the original source and normal diagnostics. */ }
+                    }
+                }
                 const repaired = repairs < 16 ? repairIndexedVariableEscape(cleanedContent, error) : null;
                 if (repaired === null) throw error;
                 cleanedContent = repaired;

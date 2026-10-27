@@ -8,11 +8,17 @@ import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
 
 const name = String.raw`$\frac{f(x)-f(a)}{x-a}$ 的极限取决于分子分母趋零速度`
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype,'scrollIntoView')
 beforeEach(async () => {
+  Object.defineProperty(HTMLElement.prototype,'scrollIntoView',{configurable:true,value:vi.fn()})
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zh })))
   await setLocale('zh')
 })
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => {
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
+  if(originalScrollIntoView)Object.defineProperty(HTMLElement.prototype,'scrollIntoView',originalScrollIntoView)
+  else Reflect.deleteProperty(HTMLElement.prototype,'scrollIntoView')
+})
 
 it('renders formulas in course, branch and leaf labels while preserving text, identity and selection', async () => {
   const points = [{ knowledge_id:'k1', parent_id:'cat', name }]
