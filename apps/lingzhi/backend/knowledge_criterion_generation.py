@@ -6,6 +6,42 @@ from knowledge_criterion_binding import BINDING, criterion_signature, content_si
 CONTRACT='knowledge_criterion_generation_v1'
 
 
+class PreparationRequired(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def request_plan(course, *, node_ids, request_id, knowledge_ids=None, criterion_revision_refs=None, prior_plan=None):
+    """Resolve every new authoring entry against the same reviewed catalog."""
+    if prior_plan:
+        try:
+            validate_plan(course, prior_plan)
+        except (ValueError, KeyError) as exc:
+            raise PreparationRequired('question_plan_changed', '知识或检查标准已变化，原任务结果保留，请重新规划。') from exc
+        if not set(node_ids).issubset(prior_plan['node_ids']):
+            raise PreparationRequired('question_plan_scope_changed', '重试范围不属于原出题计划。')
+        return deepcopy(prior_plan)
+    base = course.get('course_knowledge_base') or {}
+    if not base.get('revision_id') or not (base.get('status') == 'accepted' or base.get('lifecycle_status') == 'active'):
+        raise PreparationRequired('knowledge_baseline_required', '知识树尚未确认，暂不能生成可用于检查的题目；已有题目保留。')
+    from knowledge_check_flow import criteria
+    selected = set(knowledge_ids or [])
+    points = {p['knowledge_id']:p for p in base.get('knowledge_points', [])}
+    eligible = [c for c in criteria(course) if (not selected or c['knowledge_ids'][0] in selected)
+                and any(n in node_ids for n in points[c['knowledge_ids'][0]].get('section_refs', []))]
+    refs = dict(criterion_revision_refs or {c['criterion_id']:c['revision_id'] for c in eligible})
+    if not refs:
+        raise PreparationRequired('reviewed_criteria_required', '所选范围尚无已审阅、可用的检查标准，请先准备检查标准；已有题目保留。')
+    chosen = [c for c in eligible if c['criterion_id'] in refs]
+    try:
+        result = plan(course, refs, sorted(selected or {c['knowledge_ids'][0] for c in chosen}), node_ids, request_id)
+    except (ValueError, KeyError) as exc:
+        raise PreparationRequired('reviewed_criteria_required', str(exc)) from exc
+    result.update(entrypoint='standard' if criterion_revision_refs else 'lecture', default_count=3)
+    return result
+
+
 def authoring_directive():
     return ('有criterion_target时，目标是其criterion的完整检查标准。逐项让学生作答产生checkpoints要求的证据；'
         'controlled_conditions必须落实为题面已知条件或明确的作答环境，以排除其他能力干扰，不能变成额外的学生计算任务。'
@@ -39,7 +75,58 @@ def plan(course,refs,knowledge_ids,node_ids,request_id):
 
 def validate_plan(course,frozen):
     current=plan(course,frozen['criterion_revision_refs'],frozen['knowledge_ids'],frozen['node_ids'],frozen['request_id'])
-    if current!=frozen:raise ValueError('课程、知识或检查标准已变化，本次出题结果保留待核对')
+    if any(frozen.get(key)!=value for key,value in current.items()):raise ValueError('课程、知识或检查标准已变化，本次出题结果保留待核对')
+
+
+FORMATS = {
+    'short_answer': ('rich_text', 'short_answer', 'expert_rubric_validator', 'evidence_argument'),
+    'single_choice': ('choice', 'selected_response', 'exact_validator', 'concept_classification'),
+    'numeric_response': ('numeric_unit', 'numeric_response', 'numeric_unit_validator', 'numeric_application'),
+}
+
+
+def criterion_slots(course, objective, recipe):
+    """Build exact slots for adopted generic knowledge without changing its granularity."""
+    frozen = course.get('_criterion_generation_plan')
+    if not frozen:
+        return None
+    base = course['course_knowledge_base']
+    points = {p['knowledge_id']:p for p in base.get('knowledge_points', [])}
+    source_rows = base.get('sources') or []
+    if isinstance(source_rows, dict):
+        source_rows = [s for t in source_rows.get('topics', []) for s in t.get('sources', [])]
+    source_rows = [*source_rows, *(course.get('evidence_catalog') or [])]
+    sources = {str(s.get('source_id') or s.get('id') or s.get('evidence_id')):s for s in source_rows if isinstance(s,dict)}
+    slots = []
+    for target in frozen['targets']:
+        if target['node_id'] != objective.get('node_id'):
+            continue
+        kid = target['knowledge_id']; point = points[kid]; criterion = target['criterion']
+        form = criterion.get('assessment_format') or 'short_answer'
+        if form not in FORMATS:
+            raise PreparationRequired('criterion_format_unsupported', '该检查标准的作答形式尚未接通。')
+        mode, question_type, validator, archetype = FORMATS[form]
+        evidence = [{'reference_id':ref,'source_type':'course_material',
+                     'reference_excerpt':str(sources[ref].get('text') or sources[ref].get('source_text') or sources[ref].get('excerpt') or ''),
+                     'reuse_policy':'course_grounding'} for ref in point.get('source_refs', []) if ref in sources]
+        if not evidence:
+            evidence = [{'reference_id':kid,'source_type':'course_knowledge','reference_excerpt':point['statement'],'reuse_policy':'course_grounding'}]
+        key = stable_hash({'batch':frozen['batch_id'],'criterion':criterion['criterion_id'],'revision':criterion['revision_id']},prefix='kcslot_')
+        performance = criterion['observable_performance']
+        target_objective = {**deepcopy(objective),'objective':performance,'knowledge':[point['statement']],
+            'skills':[performance],'misconceptions':[],'observable_evidence':[p['pass_condition']for p in criterion['checkpoints']],
+            'source_refs':[e['reference_id']for e in evidence],'source_excerpt':'\n'.join(e['reference_excerpt']for e in evidence),
+            'source_sufficiency':'sufficient','generation_status':'ready'}
+        slots.append({**deepcopy(recipe),'slot_id':key,'generation_key':key,'assessment_binding_schema':'atomic_assessment_v1',
+            'assessment_purpose':'criterion_check','primary_knowledge_ids':[kid],
+            'prerequisite_knowledge_ids':deepcopy(point.get('prerequisite_ids')or []),
+            'knowledge_revision_refs':{kid:point['revision_id']},'knowledge_baseline_revision':base['revision_id'],
+            'target_objective':target_objective,'knowledge':[point['statement']],'skills':[performance],'misconceptions':[],
+            'source_refs':target_objective['source_refs'],'conditions':deepcopy(point.get('conditions')or []),
+            'target_content_evidence':evidence,'input_mode':mode,'question_type':question_type,'question_form':form,
+            'validation_mode':validator,'archetype_id':archetype,'practice_level':'mastery_check',
+            'observable_evidence':target_objective['observable_evidence'],'criterion_target':deepcopy(target)})
+    return slots
 
 
 def configure(course,refs,knowledge_ids,node_ids,request_id):

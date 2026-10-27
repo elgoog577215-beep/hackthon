@@ -366,16 +366,20 @@ def compile_course_assessment_blueprint(
                 ),
             }
             slots.append(slot)
-        knowledge_slots = atomic_slots(course_data, objective, slots[0])
+        from knowledge_criterion_generation import criterion_slots
+        knowledge_slots = criterion_slots(course_data, objective, slots[0])
+        if knowledge_slots is None:
+            knowledge_slots = atomic_slots(course_data, objective, slots[0])
         if knowledge_slots is not None:
             slots = knowledge_slots
             for slot in slots:
                 slot["language_contract"] = deepcopy(resolved_profile.get("notation_and_language") or {})
                 slot["evidence_policy_version"] = "question_evidence_admission_v2"
-                scoped_course = {**course_data, "course_knowledge_base": {**base, "knowledge_points": [
-                    p for p in base["knowledge_points"] if p.get("knowledge_id") in slot["primary_knowledge_ids"]
+                scoped_base = base or reference_base
+                scoped_course = {**course_data, "course_knowledge_base": {**scoped_base, "knowledge_points": [
+                    p for p in scoped_base["knowledge_points"] if p.get("knowledge_id") in slot["primary_knowledge_ids"]
                 ]}}
-                slot["question_form"] = "short_answer" if slot.get("criterion_target") else resolve_slot_question_form(scoped_course, node_id=node_id,
+                slot["question_form"] = slot.get('question_form', 'short_answer') if slot.get("criterion_target") else resolve_slot_question_form(scoped_course, node_id=node_id,
                     input_mode=slot["input_mode"], practice_level=slot["practice_level"])
                 if slot["question_form"] == "fill_blank":
                     slot.update(_FILL_BLANK_SLOT_OVERRIDES)

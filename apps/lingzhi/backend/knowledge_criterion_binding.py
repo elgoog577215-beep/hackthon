@@ -6,8 +6,10 @@ BINDING = 'knowledge_criterion_binding_v2'
 
 
 def criterion_signature(c):
-    return stable_hash({k:deepcopy(c.get(k))for k in ('criterion_id','revision_id','knowledge_ids','knowledge_revision_refs',
-        'dimension','observable_performance','verification_method','controlled_conditions','checkpoints','scoring','evidence_policy')},prefix='kcgs_')
+    value={k:deepcopy(c.get(k))for k in ('criterion_id','revision_id','knowledge_ids','knowledge_revision_refs',
+        'dimension','observable_performance','verification_method','controlled_conditions','checkpoints','scoring','evidence_policy')}
+    if 'assessment_format' in c:value['assessment_format']=c['assessment_format']
+    return stable_hash(value,prefix='kcgs_')
 
 
 def content_signature(q):

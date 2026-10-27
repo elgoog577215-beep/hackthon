@@ -2508,6 +2508,14 @@ class AssessmentGenerationOrchestrator:
                             "targeted_repairs",
                             [],
                         ).append(repair_guard)
+                        if repair_guard.get('rejected'):
+                            last_contract = deepcopy(contract)
+                            last_quality = {'passed':False,'score':0,'decision':'discard','issues':[{
+                                'code':'REPAIR_PAIR_CHANGED','severity':'critical',
+                                'message':'修复提出了另一道题及其答案，但当前题面被锁定；已保留原题，禁止移植新答案。'}]}
+                            item_audit['attempts'].append({'attempt':attempt_index+1,'passed':False,'decision':'discard',
+                                                          'issue_codes':['REPAIR_PAIR_CHANGED']})
+                            break
                     elif next_action == "initial":
                         next_action = "generate"
                     if next_action == "rubric":
@@ -3871,7 +3879,16 @@ def _apply_targeted_repair_candidate(
     restored_paths = sorted(
         path for path in proposed_changes if path not in set(allowed_paths)
     )
+    # A new answer derived for a proposed new question cannot be attached to
+    # the old question after the field guard restores that question.
+    public_restored = any(path.startswith('question_spec.') for path in restored_paths)
+    solution_changed = any(path.startswith('solution.') for path in proposed_changes)
+    rejected = public_restored and solution_changed
+    if rejected:
+        result = deepcopy(original)
     return result, {
+        'rejected': rejected,
+        **({'rejected_proposal':deepcopy(proposed)} if rejected else {}),
         "issue_codes": sorted(set(normalized_codes)),
         "allowed_paths": allowed_paths,
         "changed_paths": sorted(changed_paths),
@@ -4353,6 +4370,8 @@ def _apply_independent_validation(
                 else str(issue_code or "independent_solution_unverified")
             ),
             "severity": "critical" if deterministic else "major",
+            "message": ('独立解答的数值或单位与参考答案不一致，请核对题目所求量和答案。'
+                        if issue_code == 'numeric_or_unit_mismatch' else '独立解答与参考答案或验证契约不一致。'),
         }]
     )
     _attach_learner_worked_solution(contract, independent)
