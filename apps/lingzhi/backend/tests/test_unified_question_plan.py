@@ -41,6 +41,7 @@ def test_reviewed_response_form_controls_typed_validator():
     from knowledge_criterion_generation import request_plan
     from assessment_blueprint import compile_course_assessment_blueprint
     c=course();c['course_knowledge_base']['mastery_criteria'][0]['assessment_format']='numeric_response'
+    c['course_knowledge_base']['mastery_criteria'][0]['checkpoints']=c['course_knowledge_base']['mastery_criteria'][0]['checkpoints'][:1]
     c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='ordinary-one')
     slots=[s for n in compile_course_assessment_blueprint(c)['nodes']for s in n['slots']]
     assert slots[0]['input_mode']=='numeric_unit' and slots[0]['validation_mode']=='numeric_unit_validator'
@@ -69,6 +70,20 @@ def test_nonexistent_is_not_a_valid_numeric_zero_placeholder():
     slot={'criterion_target':{},'assessment_purpose':'criterion_check','input_mode':'numeric_unit'}
     assert numeric_domain_issue(slot,{'result_status':'nonexistent','answer':{'value':0}})['code']=='ANSWER_DOMAIN_MISMATCH'
     assert numeric_domain_issue(slot,{'result_status':'determinate','answer':{'value':0}})is None
+
+
+@pytest.mark.asyncio
+async def test_single_numeric_checkpoint_keeps_deterministic_grading_without_model():
+    from practice_grading import PracticeGrader
+    criterion=deepcopy(course()['course_knowledge_base']['mastery_criteria'][0]);criterion['checkpoints']=criterion['checkpoints'][:1]
+    question={'_knowledge_criterion':criterion,'question_type':'numeric_response','input_contract':{'mode':'numeric_unit'},
+              'validation_mode':'numeric_unit_validator','grading_policy':{'method':'typed_validator'},
+              'answer_spec':{'canonical_answer':{'value':1,'unit':'无'},'validator_config':{'unit_aliases':['无']}},
+              'validation_policy':{'mastery_eligible':False}}
+    grader=object.__new__(PracticeGrader)
+    result=await grader.grade(question,{'submitted_answer_payload':{'value':1,'unit':'无'}})
+    assert result['passed']is True and result['criterion_results']=={'C':{'A':True}}
+    assert result['grading_method']!='knowledge_checkpoint_v2'
 
 
 def test_retry_reuses_frozen_semantic_targets_and_rejects_new_revisions():
