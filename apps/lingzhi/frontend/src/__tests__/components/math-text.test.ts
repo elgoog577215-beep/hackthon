@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest'
 import MathText from '@/components/MathText.vue'
 
 describe('MathText', () => {
+  it('recovers JSON control escapes inside math without rewriting ordinary text', () => {
+    const wrapper=mount(MathText,{props:{content:'余项中间点 $'+'\u0008'+String.raw`oldsymbol{\\xi}`+'$；误差 $'+'\u000c'+'rac{1}{2}$'}})
+    expect(wrapper.findAll('.katex')).toHaveLength(2)
+    expect(wrapper.find('.math-fallback').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('oldsymbol')
+    const plain=mount(MathText,{props:{content:'ordinary\u0008text'}})
+    expect(plain.find('.katex').exists()).toBe(false)
+    expect(plain.text()).not.toContain('\\btext')
+  })
   it('在结构化字段中使用共享 KaTeX 链渲染截图里的公式', () => {
     const wrapper = mount(MathText, {
       props: {
