@@ -71,3 +71,33 @@ def test_failure_preserves_specific_validator_reason():
                                   {'answer':{'value':1},'work':[],'summary':''})
     assert c['solution_validation']['issues'][0]['code']=='independent_solution_mismatch'
     assert c['solution_validation']['issues'][0]['message']
+
+
+@pytest.mark.asyncio
+async def test_ordinary_admission_blocks_missing_baseline_before_job_creation(monkeypatch):
+    from routers import question_bank as routes
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    c=course();c.pop('course_knowledge_base')
+    monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=c))
+    with pytest.raises(HTTPException)as error:
+        await routes.rebuild_question_bank('c',routes.QuestionBankRebuildRequest(request_id='ordinary-one',scope='nodes',node_ids=['L1'],questions_per_lesson=3),x_user_id='teacher')
+    assert error.value.status_code==409 and error.value.detail['code']=='knowledge_baseline_required'
+
+
+@pytest.mark.asyncio
+async def test_ordinary_admission_freezes_reviewed_targets_before_executor(monkeypatch,tmp_path):
+    from routers import question_bank as routes
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    from unittest.mock import AsyncMock
+    c=course();jobs=QuestionBankRebuildJobRepository(tmp_path);submitted=[]
+    class Executor:
+        def submit(self,**kwargs):submitted.append(kwargs)
+    monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=c))
+    monkeypatch.setattr(routes,'_question_bank_source_material_asset_ids',lambda *_:set())
+    monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',jobs)
+    monkeypatch.setattr(routes,'question_bank_rebuild_executor',Executor())
+    response=await routes.rebuild_question_bank('c',routes.QuestionBankRebuildRequest(request_id='ordinary-one',scope='nodes',node_ids=['L1'],questions_per_lesson=3),x_user_id='teacher')
+    frozen=jobs.load('c',response['job_id'])['criterion_generation_plan']
+    assert frozen['criterion_revision_refs']=={'C':'CR'}
+    assert submitted[0]['course']['_criterion_generation_plan']==frozen
