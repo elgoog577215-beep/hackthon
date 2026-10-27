@@ -148,6 +148,12 @@ def measurement_findings(contract: dict, brief: dict | None = None) -> list[dict
     pattern = r"(?<![A-Za-z0-9_.])([+-]?\d+(?:\.\d+)?(?:\s*[+*×−-]\s*[+-]?\d+(?:\.\d+)?)+)\s*=\s*([+-]?\d+(?:\.\d+)?)(?![\d.])"
     for match in re.finditer(pattern, explanation):
         prefix = explanation[max(0, match.start() - 25) : match.start()]
+        suffix = explanation[match.end():]
+        # This probe can evaluate only a complete literal equality. A number
+        # inside a power, fraction or expression containing variables is not
+        # such an equality; leave that expression to the semantic reviewer.
+        if re.search(r"[A-Za-z0-9_.^*/+×−\\{}()\[\]-]\s*$", prefix) or re.match(r"\s*[A-Za-z0-9_.^*/+×−\\{}\[\]-]", suffix):
+            continue
         if re.search(r"误算|错误地|假设错误", prefix):
             continue
         value = _literal_arithmetic(match[1])
