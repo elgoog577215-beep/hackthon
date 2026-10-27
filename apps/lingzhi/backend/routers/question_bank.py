@@ -1012,7 +1012,7 @@ async def rebuild_question_bank(
     course = await _question_bank_course(course_id)
     if payload.scope == "nodes":
         payload.node_ids = _resolve_rebuild_node_ids(course, payload.node_ids)
-    if payload.criterion_revision_refs and course.get('owner_id')!=actor_id:
+    if course.get('owner_id')!=actor_id:
         raise HTTPException(404,'课程不存在或不属于当前拥有者')
     _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
@@ -1089,6 +1089,9 @@ async def rebuild_question_bank(
                     "code": "question_bank_rebuild_item_nodes_missing",
                 },
             )
+    frozen_plan = _admit_generation_plan(course, payload, actor_id)
+    if frozen_plan:
+        course['_criterion_generation_plan'] = deepcopy(frozen_plan)
     checkpoint = course.get("question_bank_chapter_rebuild") or {}
     if (
         payload.scope == "course"
@@ -1164,7 +1167,7 @@ async def rebuild_question_bank(
             knowledge_ids=payload.knowledge_ids,
             knowledge_baseline_revision=payload.knowledge_baseline_revision,
             **({'criterion_revision_refs':payload.criterion_revision_refs,
-                'criterion_generation_plan':build_criterion_plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)} if payload.criterion_revision_refs else {}),
+                'criterion_generation_plan':frozen_plan} if frozen_plan else {}),
             questions_per_lesson=payload.questions_per_lesson,
             append_only=payload.append_only,
             quantity_batch_id=payload.quantity_batch_id,
@@ -1181,6 +1184,27 @@ async def rebuild_question_bank(
         job,
         deduplicated=not created,
     )
+
+
+def _admit_generation_plan(course, payload, actor_id):
+    from knowledge_criterion_generation import request_plan, PreparationRequired
+    nodes = payload.node_ids or [str(n['node_id'])for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2]
+    payload.request_id = payload.request_id or uuid4().hex
+    prior = None
+    if payload.quantity_batch_id:
+        job = question_bank_rebuild_job_repository.load(course['course_id'],payload.quantity_batch_id)
+        if not job or job.get('actor_id')!=actor_id or job.get('status')!='failed':
+            raise HTTPException(409,detail={'code':'question_plan_resume_unavailable','message':'原任务不可重试，请刷新任务状态。'})
+        prior = job.get('criterion_generation_plan')
+        if not prior:
+            raise HTTPException(409,detail={'code':'question_plan_missing','message':'旧任务未冻结知识和检查标准；结果保留，请确认知识树后按新计划补题。'})
+    try:
+        frozen=request_plan(course,node_ids=nodes,request_id=payload.request_id,knowledge_ids=payload.knowledge_ids,
+                            criterion_revision_refs=payload.criterion_revision_refs,prior_plan=prior)
+    except PreparationRequired as exc:
+        raise HTTPException(409,detail={'code':exc.code,'message':str(exc)}) from exc
+    frozen.setdefault('default_count',3)
+    return frozen
 
 
 def _same_rebuild_request(
@@ -1781,7 +1805,7 @@ async def _execute_question_bank_rebuild(
             details=details,
         )
 
-    if payload.criterion_revision_refs:
+    if course_for_bank.get('_criterion_generation_plan') or payload.criterion_revision_refs:
         from knowledge_criterion_generation import validate_plan
         frozen=(repository.load(course_id,job_id)or{}).get('criterion_generation_plan')
         if not frozen:raise HTTPException(409,'出题任务缺少冻结检查标准，请重新发起')
@@ -1799,7 +1823,11 @@ async def _execute_question_bank_rebuild(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
-    if payload.questions_per_lesson is not None:
+    ordinary_plan = course_for_bank.get('_criterion_generation_plan') or {}
+    effective_count = payload.questions_per_lesson
+    if effective_count is None and ordinary_plan.get('entrypoint') == 'lecture':
+        effective_count = ordinary_plan['default_count']
+    if effective_count is not None:
         from assessment_quantity import build_quantity_plan
         quantity_job = repository.load(course_id, job_id) or {}
         quantity_plan = quantity_job.get('quantity_plan')
@@ -1810,7 +1838,7 @@ async def _execute_question_bank_rebuild(
                 quantity_nodes = [str(n['node_id']) for n in course_for_bank.get('nodes') or []
                                   if int(n.get('node_level') or 1)==2 and (payload.scope=='course' or n['node_id'] in payload.node_ids)]
                 quantity_plan = build_quantity_plan(course_for_bank,assessment_blueprint,previous=previous,
-                    node_ids=quantity_nodes,count=payload.questions_per_lesson,append_only=payload.append_only,batch_id=job_id)
+                    node_ids=quantity_nodes,count=effective_count,append_only=payload.append_only,batch_id=job_id)
                 quantity_plan['source_revision'] = source_revision
             quantity_plan = repository.freeze_quantity_plan(job_id,quantity_plan)
         course_for_bank['_assessment_quantity_plan'] = quantity_plan

@@ -74,12 +74,17 @@ def test_failure_preserves_specific_validator_reason():
 
 
 @pytest.mark.asyncio
-async def test_ordinary_admission_blocks_missing_baseline_before_job_creation(monkeypatch):
+async def test_ordinary_admission_blocks_missing_baseline_before_job_creation(monkeypatch,tmp_path):
     from routers import question_bank as routes
     from fastapi import HTTPException
     from unittest.mock import AsyncMock
+    from question_bank_jobs import QuestionBankRebuildJobRepository
     c=course();c.pop('course_knowledge_base')
     monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=c))
+    monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',QuestionBankRebuildJobRepository(tmp_path))
+    class Executor:
+        def submit(self,**kwargs):raise AssertionError('Admission must block before executor')
+    monkeypatch.setattr(routes,'question_bank_rebuild_executor',Executor())
     with pytest.raises(HTTPException)as error:
         await routes.rebuild_question_bank('c',routes.QuestionBankRebuildRequest(request_id='ordinary-one',scope='nodes',node_ids=['L1'],questions_per_lesson=3),x_user_id='teacher')
     assert error.value.status_code==409 and error.value.detail['code']=='knowledge_baseline_required'
