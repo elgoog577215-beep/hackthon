@@ -105,6 +105,8 @@ def criterion_slots(course, objective, recipe):
         form = criterion.get('assessment_format') or 'short_answer'
         if form not in FORMATS:
             raise PreparationRequired('criterion_format_unsupported', '该检查标准的作答形式尚未接通。')
+        if form!='short_answer' and len(criterion['checkpoints'])!=1:
+            raise PreparationRequired('criterion_format_mismatch', '数值或单选结果只能直接检查一条判据；多项判据需要可分别作答的形式。')
         mode, question_type, validator, archetype = FORMATS[form]
         evidence = [{'reference_id':ref,'source_type':'course_material',
                      'reference_excerpt':str(sources[ref].get('text') or sources[ref].get('source_text') or sources[ref].get('excerpt') or ''),

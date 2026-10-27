@@ -291,6 +291,7 @@ def evaluate_question_contract_quality(
     issues.extend(deepcopy((contract.get("evidence_admission") or {}).get("local_issues") or []))
     hard_checks["subject_facts"] = not fact_issues
     issues.extend(fact_issues)
+    issues.extend(deepcopy((contract.get('solution_validation')or{}).get('issues')or []))
     issues.extend([
         deepcopy(issue)
         for issue in semantic_preflight.get("issues") or []

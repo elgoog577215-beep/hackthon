@@ -17,8 +17,13 @@ def build_quantity_plan(course, blueprint, *, previous, node_ids, count, append_
         parent = str(node.get('parent_node_id') or node.get('parent_id') or node_id)
         groups.setdefault(parent, []).append(node_id)
     plan = {'schema_version':QUANTITY_SCHEMA,'batch_id':batch_id,'count':count,'append_only':bool(append_only),'slots':{},'lectures':{}}
+    targets = (course.get('_criterion_generation_plan')or{}).get('targets')
+    def counts_for_target(item):
+        if targets is None:return True
+        from knowledge_criterion_binding import valid_binding
+        return any(valid_binding(item,t['criterion'])for t in targets)
     for lecture, nodes in groups.items():
-        existing = sum(str(i.get('node_id') or '') in nodes and i.get('lifecycle_status') not in {'rejected','discarded'}
+        existing = sum(str(i.get('node_id') or '') in nodes and i.get('lifecycle_status') not in {'rejected','discarded'} and counts_for_target(i)
                        for i in (previous or {}).get('items') or [])
         needed = count if append_only else max(0, count-existing)
         if needed and any(not templates.get(node_id) for node_id in nodes):

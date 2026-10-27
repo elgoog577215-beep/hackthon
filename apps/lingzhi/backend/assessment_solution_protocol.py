@@ -10,6 +10,16 @@ OPEN_VALIDATORS = {"expert_rubric_validator", "language_rubric_validator"}
 DELIVERY_FIELDS = ("canonical_answer", "worked_solution", "rubric", "acceptable_answers", "validator_config", "solution_graph")
 
 
+def numeric_domain_issue(slot, independent):
+    if slot.get('assessment_purpose')!='criterion_check' or slot.get('input_mode')!='numeric_unit':
+        return None
+    if independent.get('result_status')=='determinate':
+        return None
+    return {'code':'ANSWER_DOMAIN_MISMATCH','severity':'critical',
+            'message':'本题未形成确定的数值结果，不能用0或数量替代不存在、无界或条件不足的结果。',
+            'evidence':{'result_status':independent.get('result_status','unverified')}}
+
+
 def delivery_solution(contract: dict) -> dict:
     solution = contract.get("solution_envelope") or {}
     return {key: deepcopy(solution[key]) for key in DELIVERY_FIELDS if key in solution}

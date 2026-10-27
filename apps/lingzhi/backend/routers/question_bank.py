@@ -547,16 +547,19 @@ async def get_knowledge_question_supply(course_id: str) -> dict[str, Any]:
     from question_bank import approved_formal_tasks
 
     course = await _question_bank_course(course_id)
-    base = atomic_baseline(course)
+    base = course.get('course_knowledge_base')or{}
+    if not (base.get('revision_id') and (base.get('status')=='accepted' or base.get('lifecycle_status')=='active')):
+        base = None
     if base is None:
         return {"knowledge_baseline_revision": "", "points": []}
     bank = load_active_question_bank(course, repository=question_bank_repository) or {}
     tasks = [*approved_formal_tasks(bank), *adopted_knowledge_checks(course)]
     rows = knowledge_question_supply(base, tasks, bank.get("items") or [])
-    blueprint = compile_course_assessment_blueprint(course)
-    slots = {s["primary_knowledge_ids"][0]: n["node_id"]
-             for n in blueprint.get("nodes") or [] for s in n.get("slots") or []
-             if len(s.get("primary_knowledge_ids") or []) == 1 and s.get("generation_key")}
+    from knowledge_check_flow import criteria
+    eligible={c['knowledge_ids'][0]for c in criteria(course)}
+    node_ids={n['node_id']for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2}
+    slots={p['knowledge_id']:next((n for n in p.get('section_refs',[])if n in node_ids),'')
+           for p in base.get('knowledge_points',[])if p.get('knowledge_id')in eligible}
     for row in rows:
         row["node_id"] = slots.get(row["knowledge_id"], "")
         row["can_generate"] = bool(row["node_id"])
@@ -568,7 +571,7 @@ async def get_knowledge_question_supply(course_id: str) -> dict[str, Any]:
 def _selected_knowledge_slots(course: dict, payload: QuestionBankRebuildRequest, blueprint: dict | None = None) -> dict[str, list[str]] | None:
     if not payload.knowledge_ids:
         return None
-    base = atomic_baseline(course)
+    base = atomic_baseline(course) or ((course.get('course_knowledge_base')or{}) if course.get('_criterion_generation_plan') or payload.criterion_revision_refs else None)
     if base is None or base.get("revision_id") != payload.knowledge_baseline_revision:
         raise HTTPException(status_code=409, detail={"code": "knowledge_baseline_changed", "message": "知识树已变化，请刷新后重新选择"})
     try:

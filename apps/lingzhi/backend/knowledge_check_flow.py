@@ -20,13 +20,16 @@ def criteria(course):
 
 def task_criterion(course,task,catalog=None):
     if task.get('review_status')!='approved' or task.get('quality_status')!='passed':return None
-    if task.get('question_type') not in {'short_answer','essay','explanation'}:return None
     tid=task.get('task_revision_id')or task.get('revision_id')
     from knowledge_criterion_binding import valid_binding
     matches=[c for c in (criteria(course)if catalog is None else catalog)if (valid_binding(task,c)if task.get("criterion_binding")else tid in c.get('assessment_bindings',[]))
         and set(task.get('concept_ids',[]))==set(c['knowledge_ids'])
         and task.get('knowledge_revision_refs')==c['knowledge_revision_refs']]
-    return matches[0]if len(matches)==1 else None
+    if len(matches)!=1:return None
+    c=matches[0]
+    if task.get('question_type')in {'short_answer','essay','explanation'}:return c
+    if task.get('question_type')in {'numeric_response','selected_response'} and len(c['checkpoints'])==1:return c
+    return None
 
 
 def shared_help(course,task):

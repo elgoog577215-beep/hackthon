@@ -41,7 +41,8 @@ class PracticeGrader(AIBase):
         method = str(grading_policy.get("method") or answer_spec.get("type") or "rubric_ai")
         strength = evidence_strength(attempt)
 
-        if question.get('_knowledge_criterion'):
+        criterion = question.get('_knowledge_criterion')
+        if criterion and question.get('question_type')in {'short_answer','essay','explanation'}:
             from knowledge_check_flow import grade_checkpoints
             result=await grade_checkpoints(self,question,question['_knowledge_criterion'],attempt)
         elif method == "runner":
@@ -64,6 +65,13 @@ class PracticeGrader(AIBase):
             )
         else:
             result = await self._grade_rubric(question, answer_payload)
+        if criterion and question.get('question_type')in {'numeric_response','selected_response'} and len(criterion['checkpoints'])==1:
+            checkpoint = criterion['checkpoints'][0]
+            known = result.get('status')=='graded' and type(result.get('passed'))is bool
+            met = result.get('passed') if known else None
+            result['criterion_results']={criterion['criterion_id']:{checkpoint['checkpoint_id']:met}}
+            result['checkpoint_feedback']=[{'checkpoint_id':checkpoint['checkpoint_id'],'label':checkpoint['label'],
+                'met':met,'feedback':result.get('feedback',''),'evidence_refs':[],'evidence':json.dumps(answer_payload,ensure_ascii=False)}]
         result["evidence_strength"] = strength
         result["support_level"] = support_level(attempt)
         result["grading_method"] = result.get("grading_method") or method

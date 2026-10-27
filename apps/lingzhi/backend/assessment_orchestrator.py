@@ -81,7 +81,7 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v35"
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v36"
 
 
 def _out_tokens(limit: int) -> int:
@@ -2537,6 +2537,7 @@ class AssessmentGenerationOrchestrator:
                             solution_batcher=solution_batcher,
                             solve_budget=solve_budget,
                             solution_cache=solution_cache,
+                            assessment_slot=slot,
                             solver_feedback=(
                                 [str(i.get("code") or "") for i in (last_quality or {}).get("issues") or []]
                                 if next_action == "solve" else None
@@ -2939,6 +2940,7 @@ class AssessmentGenerationOrchestrator:
         solve_budget: dict[str, int] | None = None,
         solver_feedback: list[str] | None = None,
         solution_cache: dict[str, dict[str, Any]] | None = None,
+        assessment_slot: dict[str, Any] | None = None,
     ) -> tuple[
         dict[str, Any],
         dict[str, Any],
@@ -2993,7 +2995,7 @@ class AssessmentGenerationOrchestrator:
                 ) + 1
         solve_inputs = _model_public_question(public_spec)
         solve_inputs.pop("explanation_revision_issues", None)
-        public_key = stable_hash(solve_inputs, prefix="blind_solve_")
+        public_key = _blind_solution_cache_key(public_spec,candidate)
         if independent is None and not solver_feedback and solution_cache is not None and public_key in solution_cache:
             independent = deepcopy(solution_cache[public_key])
             audit["independent_solution_reuse_count"] = int(audit.get("independent_solution_reuse_count") or 0) + 1
@@ -3056,7 +3058,12 @@ class AssessmentGenerationOrchestrator:
             # This cache belongs to one question in one run. Only the public
             # inputs key it; private answer repairs are validated again below.
             solution_cache[public_key] = deepcopy(independent)
-        if validation_mode == "code_validator":
+        from assessment_solution_protocol import numeric_domain_issue
+        domain_issue = numeric_domain_issue(assessment_slot or base.get('assessment_slot') or {},independent)
+        if domain_issue:
+            validation = {'passed':False,'status':'failed','deterministic':True,'confidence':1,
+                          'validation_mode':validation_mode,'issue_code':domain_issue['code'],'details':domain_issue}
+        elif validation_mode == "code_validator":
             validation = await _validate_code_with_runner(
                 contract,
                 independent,
@@ -3652,6 +3659,9 @@ def _repair_action_for_issues(
 
 
 _TARGETED_REPAIR_PATHS: dict[str, tuple[str, ...]] = {
+    'ANSWER_DOMAIN_MISMATCH': ('question_spec.stimulus','question_spec.task','question_spec.constraints',
+        'solution.canonical_answer','solution.acceptable_answers','solution.rubric','solution.validator_config',
+        'solution.solution_graph','solution.worked_solution'),
     "CHOICE_OPTIONS_INVALID": (
         "question_spec.options", "solution.canonical_answer", "solution.acceptable_answers",
         "solution.rubric", "solution.solution_graph", "solution.worked_solution",
@@ -4376,7 +4386,7 @@ def _apply_independent_validation(
     )
     _attach_learner_worked_solution(contract, independent)
     contract["solution_envelope"]["independent_solution_record"] = {
-        **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "checks", "option_analysis", "common_errors")},
+        **{key: deepcopy(independent.get(key)) for key in ("answer", "summary", "work", "checks", "option_analysis", "common_errors", "result_status")},
         "answer_hash": stable_hash(
             independent.get("answer"),
             prefix="ians_",
@@ -5985,10 +5995,17 @@ def _model_public_question(spec: dict[str, Any]) -> dict[str, Any]:
     ) if key in spec}
 
 
+def _blind_solution_cache_key(spec, candidate):
+    public = _model_public_question(spec)
+    public.pop('explanation_revision_issues',None)
+    return stable_hash({'public':public,'answer_revision':stable_hash((candidate.get('solution')or{}).get('canonical_answer'))},prefix='blind_solve_')
+
+
 def _independent_solution_schema() -> dict:
     # A single ordering contract for single and batch calls: derive, verify,
     # then summarize. No answer-first batch path that anchors later work.
     return {
+        'result_status':'determinate / nonexistent / underdetermined；按题目所求量判断，不能把不存在的数值改成数量0',
         "work": [{"title": "步骤标题", "explanation": "可公开、可复核的推导",
                   "calculation": "必要的计算过程", "result": "本步结果"}],
         "checks": ["独立核算或边界检查"],
