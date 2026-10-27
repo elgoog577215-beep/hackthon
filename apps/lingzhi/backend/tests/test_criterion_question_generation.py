@@ -60,6 +60,8 @@ def test_alignment_must_cover_every_checkpoint_before_binding():
         'primary_knowledge_ids':['K'],'concept_ids':['K'],'knowledge_revision_refs':{'K':'KR'}}
     binding=seal_binding(q,target,report)
     assert valid_binding({**q,'criterion_binding':binding},target['criterion'])
+    policy=deepcopy(q);policy['question_spec']['risk_contract']={'requires_teacher_review':True,'risk_flags':['facts_unverified']}
+    assert valid_binding({**policy,'criterion_binding':binding},target['criterion'])
     edited=deepcopy(q);edited['question_spec']['task']['rendered_text']='另一任务'
     assert not valid_binding({**edited,'criterion_binding':binding},target['criterion'])
     stale=deepcopy(target['criterion']);stale['checkpoints'][0]['pass_condition']='新判据'
