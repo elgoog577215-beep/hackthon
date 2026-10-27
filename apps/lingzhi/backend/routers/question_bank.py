@@ -3361,10 +3361,21 @@ async def _persist_rebuilt_course(
     frozen=previous.get('_criterion_generation_plan') or updated.get('_criterion_generation_plan')
     if frozen:
         from knowledge_criterion_generation import validate_plan
+        from teacher_content_projection import project_teacher_content
+        # A teacher view has a derived document revision. The metadata command
+        # guards the stored document, while the source/criterion guards compare
+        # the freshly projected authoring content under the same command lock.
+        stored=repository.load_raw(course_id)
+        stored_revision=(stored.get('course_document')or{}).get('document_revision') or stored['course_document_revision']
+        for key in ('course_knowledge_base','course_knowledge_quality_report','course_knowledge_map'):
+            updates.pop(key,None)
         def mutate(fresh):
-            validate_plan(fresh,frozen)
+            current=project_teacher_content(fresh,storage=storage)
+            validate_plan(current,frozen)
+            if _question_source_revision(current)!=_question_source_revision(previous):
+                raise ValueError('课程出题依据已变化，本次题目保留待核对')
             fresh.update(deepcopy(updates))
-        await repository.apply_metadata_command(course_id,expected_document_revision=previous['course_document_revision'],
+        await repository.apply_metadata_command(course_id,expected_document_revision=stored_revision,
             operation={'command_id':stable_hash({'course':course_id,'updates':updates},prefix='criterion_qbank_'),'operation':'question_bank_rebuild','reason':'按已审阅检查标准发布题目','actor':frozen['owner_id']},mutation=mutate)
     else:
         await repository.update_metadata(course_id, updates)
