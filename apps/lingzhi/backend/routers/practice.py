@@ -510,6 +510,14 @@ async def reveal_attempt_hint(
             item for item in ((question.get("hint_contract") or {}).get("levels") or [])
             if int(item.get("level") or 0) == level
         ), None)
+        if level==1:
+            from knowledge_check_flow import shared_help
+            support=shared_help(course,question)
+            if support:
+                row=support[0]
+                hint={**(hint or {}),'level':1,'kind':'focused_comparison',
+                    'text':'\n\n'.join(value for value in [(hint or {}).get('text'),row.get('discrimination'),row.get('repair_strategy')]if value),
+                    'shared_object_refs':{row['misconception_id']:row['revision_id']},'hypothesis_confirmed':False}
         if course.get("exchange_origin"):
             from course_exchange import remote_task_action
             hint = (await run_in_threadpool(remote_task_action, course, user_id, "hint",

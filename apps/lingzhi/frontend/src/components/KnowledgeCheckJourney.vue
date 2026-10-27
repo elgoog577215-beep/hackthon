@@ -22,7 +22,7 @@
         <div v-if="result" class="check-result" role="status">
           <p>{{ result.status === 'pending_review' ? t('knowledgeCheckJourney.pending') : result.support_level > 0 ? t('knowledgeCheckJourney.assisted') : result.passed ? t('knowledgeCheckJourney.passed') : t('knowledgeCheckJourney.retry') }}</p>
           <ul><li v-for="item in result.checkpoint_feedback" :key="item.checkpoint_id"><MathText tag="strong" :content="item.label" /> · {{ t(item.met ? 'knowledgeCheckJourney.met' : 'knowledgeCheckJourney.notMet') }}<MarkdownRenderer :content="item.feedback" /></li></ul>
-          <div class="check-actions"><button v-if="attempt.status === 'graded'" :disabled="busy" @click="hint">{{ t('knowledgeCheckJourney.helpRetry') }}</button><button v-if="attempt.status === 'graded' && rows.find(r => r.criterion_id === selected?.criterion_id)?.has_next" :disabled="busy" @click="start(selected)">{{ t('knowledgeCheckJourney.next') }}</button></div>
+          <div class="check-actions"><button v-if="attempt.status === 'graded'" :disabled="busy" @click="hint">{{ t('knowledgeCheckJourney.helpRetry') }}</button><button v-if="rows.find(r => r.criterion_id === selected?.criterion_id)?.has_next" data-testid="check-next" :disabled="busy" @click="start(selected)">{{ t('knowledgeCheckJourney.next') }}</button></div>
         </div>
       </div>
       <p v-if="notice" role="status">{{ notice }}</p>
