@@ -44,6 +44,10 @@ def request_plan(course, *, node_ids, request_id, knowledge_ids=None, criterion_
     if not refs:
         raise PreparationRequired('reviewed_criteria_required', '所选范围尚无已审阅、可用的检查标准，请先准备检查标准；已有题目保留。')
     chosen = [c for c in eligible if c['criterion_id'] in refs]
+    for criterion in chosen:
+        form=criterion.get('assessment_format')or 'short_answer'
+        if form not in FORMATS or (form!='short_answer' and len(criterion['checkpoints'])!=1):
+            raise PreparationRequired('criterion_format_mismatch','检查标准的判据无法由所选作答形式逐项判定，请先调整检查设计。')
     try:
         result = plan(course, refs, sorted(selected or {c['knowledge_ids'][0] for c in chosen}), node_ids, request_id)
     except (ValueError, KeyError) as exc:
@@ -61,7 +65,7 @@ def authoring_directive():
 
 def plan(course,refs,knowledge_ids,node_ids,request_id):
     from knowledge_check_flow import criteria
-    if not refs or not request_id or len(refs)>50:raise ValueError('缺少检查标准、请求身份或超出范围')
+    if not refs or not request_id or len(refs)>4096:raise ValueError('缺少检查标准、请求身份或超出范围')
     catalog={c['criterion_id']:c for c in criteria(course)}
     base=course.get('course_knowledge_base')or{};points={p['knowledge_id']:p for p in base.get('knowledge_points',[])}
     nodes={n['node_id']for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2}
