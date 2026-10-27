@@ -54,7 +54,7 @@ def _record(item: dict) -> dict:
     return {}
 
 
-def binding_view(course: dict, bundle: dict) -> dict:
+def binding_view(course: dict, bundle: dict, *, include_inactive: bool = False) -> dict:
     """Read-only authoring view. A whole-lecture reference is never exact."""
     base, points = _baseline(course)
     rows = []
@@ -63,7 +63,7 @@ def binding_view(course: dict, bundle: dict) -> dict:
     from knowledge_criterion_binding import valid_binding
     catalog={c['criterion_id']:c for c in criteria(course)}
     for item in bundle.get("items") or []:
-        if item.get("lifecycle_status") in {"retired", "rejected"}:
+        if not include_inactive and item.get("lifecycle_status") in {"retired", "rejected"}:
             continue
         record = _record(item)
         ids = record.get("knowledge_ids") or []
@@ -103,7 +103,7 @@ def binding_view(course: dict, bundle: dict) -> dict:
 
 def question_binding_projection(course: dict, bundle: dict, items: list[dict]) -> dict[str, dict]:
     """Project current binding status and atomic point labels onto read-only items."""
-    view = binding_view(course, bundle)
+    view = binding_view(course, bundle, include_inactive=True)
     rows = {row["revision_id"]: row for row in view["items"]}
     points = {point["knowledge_id"]: point for point in view["points"]}
     projection = {}
