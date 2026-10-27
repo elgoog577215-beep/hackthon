@@ -8667,5 +8667,15 @@
       "boundary": "条件与边界",
       "transfer": "变化情境应用"
     }
-  }
+  },
+  "knowledgeDetailLayout": {
+  "sections": "教学配套",
+  "checks": "检查设计",
+  "mistakes": "易错辨析",
+  "extensions": "选学拓展",
+  "pending": "待核对",
+  "policy": "查看判定与证据规则",
+  "binaryRule": "每条判据按满足或未满足记录；缺少可靠依据时保持待判断。单次通过需满足本项全部判据。",
+  "navigation": "本讲知识目录"
+}
 }

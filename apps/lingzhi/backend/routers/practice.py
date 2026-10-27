@@ -273,6 +273,7 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
         "objective_revision_id": task.get("objective_revision_id"),
         "criterion_id": (criterion or {}).get("criterion_id"),
         "criterion_revision_id": (criterion or {}).get("revision_id"),
+        "criterion_revision_refs": {criterion['criterion_id']:criterion['revision_id']} if criterion and criterion.get('contract')=='knowledge_teaching_structures_v1' else {},
         "question_revision_id": revision_id,
         "question_type": task.get("question_type"),
         "input_contract": task.get("input_contract") or {},
@@ -1015,6 +1016,12 @@ def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
 
 async def _grade_task(course, user_id, question, attempt):
     if not course.get("exchange_origin"):
+        if attempt.get('criterion_revision_refs'):
+            from knowledge_check_flow import task_criterion
+            c=task_criterion(course,question)
+            if not c or attempt['criterion_revision_refs']!={c['criterion_id']:c['revision_id']}:
+                return {'status':'pending_review','score':None,'passed':None,'feedback':'检查标准已更新，本次答案保留待核对。','historical_only':True}
+            question={**question,'_knowledge_criterion':c}
         return await practice_grader.grade(question, attempt)
     from course_exchange import remote_task_action
     response = await run_in_threadpool(remote_task_action, course, user_id, "grade",
@@ -1150,6 +1157,9 @@ def _require_current_workflow_task(course: dict[str, Any], task: dict[str, Any])
 
 
 def _criterion_for_task(course: dict[str, Any], task: dict[str, Any]) -> dict[str, Any] | None:
+    from knowledge_check_flow import task_criterion
+    structured=task_criterion(course,task)
+    if structured:return structured
     if task.get("task_purpose") == "course_practice":
         return _criterion_for_question(course, str(task.get("task_revision_id") or task.get("revision_id") or ""))
     return next((

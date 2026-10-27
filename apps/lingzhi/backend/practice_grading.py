@@ -41,7 +41,10 @@ class PracticeGrader(AIBase):
         method = str(grading_policy.get("method") or answer_spec.get("type") or "rubric_ai")
         strength = evidence_strength(attempt)
 
-        if method == "runner":
+        if question.get('_knowledge_criterion'):
+            from knowledge_check_flow import grade_checkpoints
+            result=await grade_checkpoints(self,question,question['_knowledge_criterion'],attempt)
+        elif method == "runner":
             result = await self._grade_code_runner(
                 question,
                 answer_spec,

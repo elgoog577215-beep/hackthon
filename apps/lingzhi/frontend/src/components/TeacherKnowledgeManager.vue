@@ -125,7 +125,7 @@
             <ul><li v-for="unit in displayTree.knowledge_coverage.units" :key="unit.key"><MathText :content="unit.statement" /></li></ul>
           </details>
           <div v-if="displayTree?.knowledge_points.length" class="tree-layout" :class="{ 'has-selection': !!selectedPoint }">
-            <div class="knowledge-tree-surface">
+            <div v-show="!selectedPoint" class="knowledge-tree-surface">
               <div class="knowledge-tree-view-switch" role="group" :aria-label="t('knowledgeFirst.treeViewMode')">
                 <button type="button" data-testid="knowledge-tree-view" :aria-pressed="treeViewMode === 'tree'" :class="{ active: treeViewMode === 'tree' }" @click="treeViewMode = 'tree'">{{ t('knowledgeFirst.hierarchyView') }}</button>
                 <button type="button" data-testid="knowledge-relation-view" :aria-pressed="treeViewMode === 'graph'" :class="{ active: treeViewMode === 'graph' }" @click="treeViewMode = 'graph'">{{ t('knowledgeFirst.relationGraphView') }}<span v-if="relationGraphRelations.length"> · {{ relationGraphRelations.length }}</span></button>
@@ -136,6 +136,7 @@
               </div>
               <KnowledgeMasteryTree v-else :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
             </div>
+            <nav v-if="selectedPoint" class="knowledge-reading-nav" :aria-label="t('knowledgeDetailLayout.navigation')"><button v-for="point in displayTree.knowledge_points" :key="point.knowledge_id" :aria-current="point.knowledge_id === selectedId ? 'true' : undefined" @click="selectedId = point.knowledge_id"><MathText :content="knowledgeDisplayName(point)" /></button></nav>
             <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" tabindex="-1" :aria-label="t('knowledgeFirst.pointDetails')">
             <button v-if="!selectedSource" type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
             <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
@@ -160,7 +161,7 @@
               <section v-if="selectedPoint.symbol_definitions?.length" data-testid="knowledge-symbol-definitions"><h3>{{ t('knowledgeFirst.symbolDefinitions') }}</h3><ul><li v-for="value in selectedPoint.symbol_definitions" :key="value"><MathText :content="value" /></li></ul></section>
               <section v-if="selectedPoint.teaching_context?.length"><h3>{{ t('knowledgeFirst.teachingContext') }}</h3><ul><li v-for="value in selectedPoint.teaching_context" :key="value"><MathText :content="value" /></li></ul></section>
               <details v-if="selectedPoint.examples?.length"><summary>{{ t('knowledgeFirst.applicationExamples') }}</summary><MarkdownRenderer v-for="(value,index) in selectedPoint.examples" :key="index" :content="value" /></details>
-              <template v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></template>
+              <details v-if="selectedPoint.meta_question || selectedPoint.meta_answer"><summary>{{ t('knowledgeFirst.question') }}</summary><h3>{{ t('knowledgeFirst.question') }}</h3><MarkdownRenderer :content="selectedPoint.meta_question || ''" /><MarkdownRenderer :content="selectedPoint.meta_answer || ''" /></details>
               <details v-if="selectedPoint.check_intents?.length" data-testid="knowledge-check-intents">
                 <summary>{{ t('knowledgeFirst.checkIntents') }}</summary>
                 <ul><li v-for="intent in selectedPoint.check_intents" :key="intent"><MathText :content="intent" /></li></ul>
@@ -200,7 +201,7 @@
                 <blockquote v-else><MarkdownRenderer :content="source.quote" /></blockquote>
                 <button v-if="!source.handout_ref && data.can_edit" type="button" data-testid="locate-knowledge-source" @click="selectedSource = source">{{ t('knowledgeFirst.locateSource') }}</button>
               </div>
-              <h3>{{ t('knowledgeFirst.trace') }}</h3><dl><dt>ID</dt><dd>{{ selectedPoint.knowledge_id }}</dd><dt>{{ t('knowledgeFirst.version') }}</dt><dd>{{ selectedPoint.revision_id }}</dd><dt>{{ t('knowledgeFirst.source') }}</dt><dd>{{ selectedPoint.source_refs.join(', ') }}</dd></dl>
+              <details><summary>{{ t('knowledgeFirst.trace') }}</summary><dl><dt>ID</dt><dd>{{ selectedPoint.knowledge_id }}</dd><dt>{{ t('knowledgeFirst.version') }}</dt><dd>{{ selectedPoint.revision_id }}</dd><dt>{{ t('knowledgeFirst.source') }}</dt><dd>{{ selectedPoint.source_refs.join(', ') }}</dd></dl></details>
             </article>
             </aside>
           </div>
@@ -832,4 +833,14 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abor
 .close-point-detail{margin:16px 24px 0;font-size:15px}
 .knowledge-name-editor{margin:12px 0;font-size:15px}.knowledge-name-editor summary{cursor:pointer;color:#697496}.knowledge-name-editor form{display:grid;gap:10px;margin-top:12px}.knowledge-name-editor label{display:grid;gap:6px}.knowledge-name-editor input{width:100%;box-sizing:border-box;font:inherit}.knowledge-name-editor button{justify-self:start}.knowledge-name-editor .muted{margin:0}
 @container(max-width:1000px){.teacher-knowledge-manager .tree-layout.has-selection{grid-template-columns:minmax(0,1fr)}.teacher-knowledge-manager .knowledge-detail-pane{position:absolute;z-index:5;top:0;right:0;width:min(420px,100%);max-height:clamp(420px,65vh,760px);overflow:auto;border:1px solid #ded3ed;border-radius:12px;background:#fff;box-shadow:-12px 12px 32px #4e396e20}}
+</style>
+
+<style scoped>
+.teacher-knowledge-manager .tree-layout.has-selection { grid-template-columns:200px minmax(0,1fr); gap:20px; }
+.knowledge-reading-nav { display:grid; gap:4px; position:sticky; top:16px; max-height:70vh; overflow:auto; padding:8px; border:1px solid #e5dff0; border-radius:12px; background:#fff; }
+.knowledge-reading-nav button { text-align:left; border:0; background:transparent; padding:11px 12px; font-size:15px; line-height:1.5; }
+.knowledge-reading-nav button[aria-current=true] { background:#f0edfc; color:#604799; }
+.teacher-knowledge-manager .tree-only .knowledge-detail-pane,.teacher-knowledge-manager .knowledge-detail-pane { position:static; width:auto; max-height:none; overflow:visible; box-shadow:none; }
+.tree-only .point-card { padding:28px 32px; }
+@container(max-width:900px) { .teacher-knowledge-manager .tree-layout.has-selection { grid-template-columns:minmax(0,1fr); }.knowledge-reading-nav { display:none; } }
 </style>

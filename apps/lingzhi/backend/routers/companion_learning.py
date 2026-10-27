@@ -66,6 +66,39 @@ class CheckTarget(Strict):
     knowledge_revision: str = Field(min_length=1, max_length=160)
 
 
+class CriterionTarget(CheckTarget):
+    conversation_id: str = Field(default='',max_length=160)
+    criterion_id: str = Field(min_length=1,max_length=160)
+    criterion_revision: str = Field(min_length=1,max_length=160)
+
+
+@router.get('/courses/{course_id}/learning-records/knowledge-checks')
+async def knowledge_checks(course_id:str,knowledge_id:str,knowledge_revision:str,user=Depends(study_identity)):
+    from routers.practice import _questions,practice_attempt_repository
+    from knowledge_check_flow import check_view
+    course=await read_learning_course(course_id,user)
+    tasks=await run_in_threadpool(_questions,course,node_id=None,scope='all')
+    attempts=await run_in_threadpool(practice_attempt_repository.list,user['id'],course_id)
+    return check_view(course,tasks,attempts,knowledge_id,knowledge_revision,user['id'])
+
+
+@router.post('/courses/{course_id}/learning-records/knowledge-checks/target')
+async def criterion_target(course_id:str,body:CriterionTarget,user=Depends(study_identity)):
+    from routers.practice import _questions,practice_attempt_repository
+    from knowledge_check_flow import select_task,criteria
+    from assessment_contracts import project_public_question
+    course=await read_learning_course(course_id,user)
+    if not any(c['criterion_id']==body.criterion_id and c['revision_id']==body.criterion_revision
+        and c['knowledge_revision_refs'].get(body.knowledge_id)==body.knowledge_revision for c in criteria(course)):
+        raise HTTPException(409,'检查目标已变化，请刷新后重试。')
+    tasks=await run_in_threadpool(_questions,course,node_id=None,scope='all')
+    attempts=await run_in_threadpool(practice_attempt_repository.list,user['id'],course_id)
+    target=select_task(course,tasks,attempts,body.criterion_id,body.criterion_revision)
+    if not target:return {'status':'unavailable','reason':'no_qualified_unused_question'}
+    return {'status':'available','task_revision_id':target.get('task_revision_id')or target['revision_id'],
+        'question':project_public_question(target)}
+
+
 def service():
     return CompanionService(ai_teacher_repository)
 

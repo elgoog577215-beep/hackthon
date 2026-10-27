@@ -8667,5 +8667,15 @@
       "boundary": "Conditions and boundaries",
       "transfer": "Application in a changed context"
     }
-  }
+  },
+  "knowledgeDetailLayout": {
+  "sections": "Teaching support",
+  "checks": "Check design",
+  "mistakes": "Common confusions",
+  "extensions": "Optional extensions",
+  "pending": "Needs review",
+  "policy": "Decision and evidence rules",
+  "binaryRule": "Each checkpoint is met or not met. Insufficient evidence stays undecided. A pass requires every checkpoint.",
+  "navigation": "Lesson knowledge contents"
+}
 }
