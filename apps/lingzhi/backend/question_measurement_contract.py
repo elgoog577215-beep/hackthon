@@ -23,9 +23,12 @@ def _plain(value) -> str:
 def bind_review_anchor(report, question_spec):
     """Resolve a reviewer-selected public field, never a rewritten formula."""
     result=deepcopy(report)
-    observation=result.setdefault('review_witness',{}).setdefault('observation_test',{})
+    witness=result.get('review_witness')
+    if not isinstance(witness,dict):witness={};result['review_witness']=witness
+    observation=witness.get('observation_test')
+    if not isinstance(observation,dict):observation={};witness['observation_test']=observation
     ref=observation.get('public_anchor_ref')
-    text=(question_spec.get(ref)or{}).get('rendered_text') if ref in {'task','stimulus'} else None
+    text=(question_spec.get(ref)or{}).get('rendered_text') if isinstance(ref,str) and ref in {'task','stimulus'} else None
     if not isinstance(text,str) or not text.strip():
         result['passed']=False
         result.setdefault('issues',[]).append(_issue('OBSERVATION_ANCHOR_MISSING','评审没有引用当前题面的有效字段。'))

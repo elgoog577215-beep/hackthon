@@ -3150,6 +3150,9 @@ class AssessmentGenerationOrchestrator:
             contract,
             validation,
             independent,
+            resolve_numeric=bool(assessment_slot and assessment_slot.get('assessment_purpose')=='criterion_check'
+                and validation_mode=='numeric_unit_validator' and domain_issue is None
+                and validate_candidate_answer(validation_mode,independent.get('answer'),independent.get('answer'),{}).get('passed')),
         )
         if validation_mode in OPEN_VALIDATORS:
             # The compact author draft is not a finished solution. Check
@@ -4352,6 +4355,7 @@ def _apply_independent_validation(
     contract: dict[str, Any],
     validation: dict[str, Any],
     independent: dict[str, Any],
+    *, resolve_numeric: bool = False,
 ) -> None:
     question_spec = contract["question_spec"]
     risk_contract = question_spec.get("risk_contract") or {}
@@ -4361,18 +4365,20 @@ def _apply_independent_validation(
         and not risk_contract.get("requires_teacher_review")
     )
     passed = bool(validation.get("passed"))
-    open_answer = validation.get("validation_mode") in OPEN_VALIDATORS
+    open_answer = validation.get("validation_mode") in OPEN_VALIDATORS or resolve_numeric
     if open_answer:
         solution = contract["solution_envelope"]
         solution["author_answer_proposal"] = deepcopy(solution.get("canonical_answer"))
         solution["canonical_answer"] = deepcopy(independent.get("answer"))
         contract["solution_protocol"] = {"schema_version": SOLUTION_PROTOCOL, "accepted": False, "resolution": "pending_review"}
         solution["final_solution_review"] = contract["solution_protocol"]
-    auto_publish = passed and deterministic and risk_low
+        if resolve_numeric:
+            contract['solution_protocol']['author_proposal_agreed']=passed
+    auto_publish = passed and deterministic and risk_low and not open_answer
     issue_code = validation.get("issue_code")
     issues = (
         []
-        if passed
+        if passed or resolve_numeric
         else [{
             "code": (
                 "independent_solution_mismatch"
@@ -4424,6 +4430,11 @@ def _apply_independent_validation(
         },
         "validator_result": deepcopy(validation),
     }
+    if resolve_numeric:
+        contract['solution_validation']['author_proposal_validation']=deepcopy(validation)
+        contract['solution_validation']['validator_result']={
+            'validation_mode':validation.get('validation_mode'),'passed':True,'status':'format_valid',
+            'verification_scope':'answer_shape_only','deterministic':True,'requires_full_solution_review':True}
     contract["domain_validation"] = deepcopy(
         contract["solution_validation"]
     )

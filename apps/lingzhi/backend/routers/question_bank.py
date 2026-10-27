@@ -1021,7 +1021,6 @@ async def rebuild_question_bank(
         payload.node_ids = _resolve_rebuild_node_ids(course, payload.node_ids)
     if course.get('owner_id')!=actor_id:
         raise HTTPException(404,'课程不存在或不属于当前拥有者')
-    _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
         course_id,
         actor_id,
@@ -1099,6 +1098,7 @@ async def rebuild_question_bank(
     frozen_plan = _admit_generation_plan(course, payload, actor_id)
     if frozen_plan:
         course['_criterion_generation_plan'] = deepcopy(frozen_plan)
+    _selected_knowledge_slots(course, payload)
     checkpoint = course.get("question_bank_chapter_rebuild") or {}
     if (
         payload.scope == "course"
