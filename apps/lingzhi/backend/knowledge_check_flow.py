@@ -28,6 +28,13 @@ def task_criterion(course,task):
 
 
 def select_task(course,tasks,attempts,criterion_id,criterion_revision):
+    for attempt in reversed(attempts):
+        if (attempt.get('status')=='in_progress' and attempt.get('course_version_id')==course.get('current_course_version_id')
+            and attempt.get('criterion_revision_refs')=={criterion_id:criterion_revision}):
+            for task in tasks:
+                c=task_criterion(course,task)
+                if c and c['criterion_id']==criterion_id and c['revision_id']==criterion_revision and (task.get('task_revision_id')or task.get('revision_id'))==attempt.get('task_revision_id'):
+                    return deepcopy(task)
     used={a.get('task_revision_id')or a.get('question_revision_id')for a in attempts}
     used_keys={a.get('assessment_evidence_key')for a in attempts if a.get('assessment_evidence_key')}
     for task in tasks:

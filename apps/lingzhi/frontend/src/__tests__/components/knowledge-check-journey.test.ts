@@ -3,7 +3,7 @@ import { beforeEach,expect,it,vi } from 'vitest'
 import Journey from '@/components/KnowledgeCheckJourney.vue'
 import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
-const http=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}))
+const http=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn()}))
 vi.mock('@/utils/http',()=>({default:http}))
 const props={courseId:'c',knowledgeId:'K',knowledgeRevision:'KR',preview:false}
 const options={global:{stubs:{MarkdownRenderer:{props:['content'],template:'<div>{{content}}</div>'}}}}
@@ -38,4 +38,14 @@ it('late responses cannot replace a newly selected knowledge point',async()=>{
  const w=mount(Journey,{props,...options});await w.setProps({knowledgeId:'J',knowledgeRevision:'JR'});await flushPromises()
  finish({data:{criteria:[{...view.criteria[0],name:'迟到的旧标准'}]}});await flushPromises()
  expect(w.text()).not.toContain('迟到的旧标准');w.unmount()
+})
+
+it('waits for draft storage before submitting the same attempt revision',async()=>{
+ let finish:(v:any)=>void=()=>{};http.patch.mockImplementation(()=>new Promise(resolve=>{finish=resolve}))
+ http.post.mockImplementation(async(url:string)=>url.endsWith('/target')?{data:{status:'available',task_revision_id:'T',question:{prompt:'任务'}}}:url.endsWith('/attempts')?{data:{attempt:{attempt_id:'A',revision:1,status:'in_progress'}}}:{data:{attempt:{attempt_id:'A',revision:3,status:'graded'},result:{status:'graded',passed:true,checkpoint_feedback:[]}}})
+ const w=mount(Journey,{props,...options});await flushPromises();await w.get('[data-testid=check-start]').trigger('click');await flushPromises()
+ await w.get('textarea').setValue('我的理由');await w.get('textarea').trigger('blur');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
+ expect(http.post.mock.calls.filter(([url])=>String(url).endsWith('/submit'))).toHaveLength(0)
+ finish({data:{attempt:{attempt_id:'A',revision:2,status:'in_progress'}}});await flushPromises()
+ expect(http.post.mock.calls.find(([url])=>String(url).endsWith('/submit'))![1].expected_revision).toBe(2);w.unmount()
 })

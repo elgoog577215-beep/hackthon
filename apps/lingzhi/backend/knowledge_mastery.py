@@ -177,7 +177,12 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
                                 and (a.get("knowledge_revision_refs") or {}).get(kid) == point["revision_id"] for a in anchors)
             if kid in (event.get("concept_ids") or []) or exact_context or (block and block in block_ids):
                 activities.add(str(event.get("record_id") or event["event_id"]))
-        nodes.append({"knowledge_id": kid, "knowledge_revision_id": point["revision_id"],
+        from knowledge_check_flow import criteria
+        from knowledge_check_measurement import summarize_check
+        check_measurements=[{'criterion_id':c['criterion_id'],'name':c['name'],
+            'measurement':summarize_check(c,current_attempts,user_id=user_id,course_id=course_id,course_version_id=course_version_id)}
+            for c in criteria({'course_knowledge_base':base})if c['knowledge_revision_refs'].get(kid)==point['revision_id']]
+        nodes.append({"knowledge_id": kid, "knowledge_revision_id": point["revision_id"],"check_measurements":check_measurements,
                       "name": str(point.get("name") or ""), "statement": str(point.get("statement") or ""),
                       "parent_id": str(point.get("parent_id") or point.get("primary_concept_group_id") or "ungrouped"),
                       "section_refs": list(point.get("section_refs") or []), "mastery": mastery, "confidence": confidence,

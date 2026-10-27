@@ -6,7 +6,7 @@
     <div v-if="loading" class="study-state" role="status">{{ t('knowledgeLibrary.loading') }}</div>
     <div v-else-if="error" class="study-state" role="alert"><p>{{ error }}</p><button @click="load">{{ t('knowledgeLibrary.retry') }}</button></div>
     <div v-else-if="profile?.availability !== 'ready'" class="study-state"><p>{{ t('courseKnowledgeStudy.empty') }}</p></div>
-    <KnowledgeMasteryProfile v-else ref="profileRef" knowledge-only :profile="profile" :course-title="courseTitle" :learning-content="content" :practice-ids="practiceIds"
+    <KnowledgeMasteryProfile v-else ref="profileRef" knowledge-only :profile="profile" :course-id="course.currentCourseId" :check-preview="preview" @graded="learner.load(course.currentCourseId)" :course-title="courseTitle" :learning-content="content" :practice-ids="practiceIds"
       @select="selectPoint" @evidence="(point, evidence) => emit('evidence', point, evidence)" @lecture="emit('lecture', $event)" @practice="practice" />
   </section>
 </template>

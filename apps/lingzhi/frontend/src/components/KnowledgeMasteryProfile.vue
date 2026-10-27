@@ -16,15 +16,16 @@
       <section v-if="selected" class="knowledge-detail-inline" :aria-labelledby="detailTitleId" @keydown.esc.stop="closePoint">
         <header class="point-dialog-header"><span>{{ parentName }}</span><button type="button" @click="closePoint"><ArrowLeft :size="15" />{{ t('companionWorkspace.backTree') }}</button></header>
         <article class="profile-detail">
-          <h3 ref="detailHeading" tabindex="-1" :id="detailTitleId">{{ selected.name }}</h3>
+          <h3 ref="detailHeading" tabindex="-1" :id="detailTitleId"><MathText :content="selected.name" /></h3>
           <div class="point-evaluation" :data-status="selected.status">
             <div class="detail-orb" :style="{ '--mastery': `${selected.mastery ?? 0}%` }"><span data-testid="detail-mastery">{{ selected.mastery ?? '—' }}<small v-if="selected.mastery !== null">%</small></span></div>
             <div class="mastery-status"><b>{{ t(`knowledgeProfile.${selected.status}`) }}</b><details :key="selected.knowledge_id" class="mastery-explanation"><summary :aria-label="t('knowledgeDetail.scoreInfo')"><Info :size="15" />{{ t('knowledgeDetail.scoreInfo') }}</summary><p>{{ t('knowledgeDetail.scoreHint') }} {{ t(`knowledgeProfile.confidence.${selected.confidence}`) }}</p></details></div>
           </div>
           <p v-if="selected.mastery === null" class="point-explanation">{{ t('knowledgeProfile.unknownHint') }}</p>
           <KnowledgeTerms :point="selected" />
-          <section class="point-rule"><h4>{{ t('knowledgeDetail.rule') }}</h4><p>{{ selectedContent?.rule || selected.statement }}</p></section>
+          <section class="point-rule"><h4>{{ t('knowledgeDetail.rule') }}</h4><MarkdownRenderer :content="selectedContent?.rule || selected.statement" /></section>
           <section v-if="selectedContent?.example" class="point-example"><h4>{{ selectedContent.exampleTitle || t('knowledgeDetail.example') }}</h4><MarkdownRenderer v-if="selectedContent.exampleMarkdown" :content="selectedContent.example" /><p v-else>{{ selectedContent.example }}</p></section>
+          <KnowledgeCheckJourney v-if="courseId" :key="selected.knowledge_id" :course-id="courseId" :knowledge-id="selected.knowledge_id" :knowledge-revision="selected.knowledge_revision_id" :preview="preview || checkPreview" @graded="emit('graded')" />
           <section v-if="selected.links?.length" class="point-connections">
             <h4>{{ t('knowledgeFirst.relations') }}</h4>
             <article v-for="link in selected.links" :key="link.relation_id" class="point-connection">
@@ -61,10 +62,12 @@ import type { KnowledgeProfile, KnowledgeProfileNode } from '../types/knowledge-
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import KnowledgeMasteryTree from './KnowledgeMasteryTree.vue'
 import KnowledgeTerms from './KnowledgeTerms.vue'
+import KnowledgeCheckJourney from './KnowledgeCheckJourney.vue'
+import MathText from './MathText.vue'
 import { activeLocale, t } from '../shared/i18n'
 
-const props = defineProps<{ profile?: KnowledgeProfile | null; preview?: boolean; knowledgeOnly?: boolean; loading?: boolean; error?: string; canLocate?: boolean; canRead?: boolean; courseTitle?: string; learningContent?: Record<string, { rule?: string; example?: string; exampleTitle?: string; exampleMarkdown?: boolean }>; practiceIds?: string[] }>()
-const emit = defineEmits<{ (event: 'practice', point: KnowledgeProfileNode): void; (event: 'locate', id: string): void; (event: 'select', point: KnowledgeProfileNode | null): void; (event: 'ask', point: KnowledgeProfileNode): void; (event: 'lecture', point: KnowledgeProfileNode): void; (event: 'evidence', point: KnowledgeProfileNode, evidence: KnowledgeProfileNode['evidence'][number]): void }>()
+const props = defineProps<{ profile?: KnowledgeProfile | null; preview?: boolean; knowledgeOnly?: boolean; loading?: boolean; error?: string; canLocate?: boolean; canRead?: boolean; courseTitle?: string; courseId?: string; checkPreview?: boolean; learningContent?: Record<string, { rule?: string; example?: string; exampleTitle?: string; exampleMarkdown?: boolean }>; practiceIds?: string[] }>()
+const emit = defineEmits<{ (event: 'graded'): void; (event: 'practice', point: KnowledgeProfileNode): void; (event: 'locate', id: string): void; (event: 'select', point: KnowledgeProfileNode | null): void; (event: 'ask', point: KnowledgeProfileNode): void; (event: 'lecture', point: KnowledgeProfileNode): void; (event: 'evidence', point: KnowledgeProfileNode, evidence: KnowledgeProfileNode['evidence'][number]): void }>()
 const selectedId = ref('')
 const treeRef = ref<InstanceType<typeof KnowledgeMasteryTree> | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)

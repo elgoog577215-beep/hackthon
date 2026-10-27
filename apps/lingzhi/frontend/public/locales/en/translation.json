@@ -8677,5 +8677,31 @@
   "policy": "Decision and evidence rules",
   "binaryRule": "Each checkpoint is met or not met. Insufficient evidence stays undecided. A pass requires every checkpoint.",
   "navigation": "Lesson knowledge contents"
+},
+  "knowledgeCheckJourney": {
+  "title": "Practice and feedback",
+  "preview": "Teacher preview shows teaching design without creating personal attempts.",
+  "loading": "Loading checks and records…",
+  "empty": "No reviewed check has a bound task for this point yet.",
+  "independent": "Independent passes",
+  "start": "Try a short check",
+  "noNext": "No new qualified task is available. You can review the explanation.",
+  "answer": "Write your judgement and reasoning",
+  "submit": "Submit check",
+  "hint": "Show one hint",
+  "pending": "This result needs review. Your answer is saved.",
+  "assisted": "Completed with help · Not an independent pass",
+  "passed": "This check passed",
+  "retry": "Some checkpoints remain unmet. Try focused help.",
+  "met": "Met",
+  "notMet": "Not yet met",
+  "helpRetry": "Get help and try again",
+  "next": "Verify with a new task",
+  "unassessed": "Not checked yet",
+  "supported": "Supported by independent checks",
+  "moreEvidence": "Keep verifying",
+  "failed": "The action could not finish. Retry; saved answers are retained.",
+  "noHint": "No hint is available for this task. Review the explanation.",
+  "helpUsed": "Hint viewed. This attempt is recorded as assisted."
 }
 }
