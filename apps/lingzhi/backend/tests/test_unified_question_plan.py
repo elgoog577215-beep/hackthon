@@ -164,3 +164,22 @@ def test_readiness_and_current_binding_projection_are_separate_from_publication(
     assert binding_view(c,{'items':[q]})['items'][0]['status']=='bound'
     c['course_knowledge_base']['mastery_criteria'][0]['checkpoints'][0]['pass_condition']='改变判据'
     assert binding_view(c,{'items':[q]})['items'][0]['status']=='stale'
+
+
+def test_review_anchor_uses_an_exact_public_field_reference():
+    from question_measurement_contract import bind_review_anchor
+    q={'task':{'rendered_text':'写出余项并注明 β 的范围。'},'stimulus':{'rendered_text':'给定完整数据'}}
+    r={'passed':True,'review_witness':{'observation_test':{'public_anchor_ref':'task','public_anchor':r'写出余项并注明 \beta 的范围'}}}
+    bound=bind_review_anchor(r,q)
+    assert bound['review_witness']['observation_test']['public_anchor']==q['task']['rendered_text']
+    r['review_witness']['observation_test']['public_anchor_ref']='invented'
+    assert bind_review_anchor(r,q)['passed']is False
+
+
+def test_measurement_numeric_predictions_are_losslessly_normalized():
+    from assessment_measurement_design import attach_measurement_designs
+    c={'assessment_slot':{'slot_id':'one'}}
+    p={'target_rule':'规则','public_material':'给定数值','ask':'求上界','incorrect_rule':'漏掉阶乘',
+       'trace':'代入并核对','correct_prediction':0.125,'incorrect_prediction':0.25}
+    result=attach_measurement_designs([c],{'plans':[{'slot_id':'one','plan':p}]})
+    assert result[0]['private_measurement_design']['correct_prediction']=='0.125'
