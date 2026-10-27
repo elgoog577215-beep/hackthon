@@ -183,3 +183,13 @@ def test_measurement_numeric_predictions_are_losslessly_normalized():
        'trace':'代入并核对','correct_prediction':0.125,'incorrect_prediction':0.25}
     result=attach_measurement_designs([c],{'plans':[{'slot_id':'one','plan':p}]})
     assert result[0]['private_measurement_design']['correct_prediction']=='0.125'
+
+
+def test_numeric_units_compare_dimensions_not_wording_and_require_finite_numbers():
+    from assessment_validators import answers_equivalent
+    for unit in ['无量纲','无单位','dimensionless','unitless','1','无']:
+        assert answers_equivalent('numeric_unit_validator',2,{'value':2,'unit':unit}),unit
+    assert not answers_equivalent('numeric_unit_validator',2,{'value':2,'unit':'m'})
+    assert not answers_equivalent('numeric_unit_validator',{'value':0,'unit':'无'},{'value':0,'unit':'个'})
+    assert answers_equivalent('numeric_unit_validator',{'value':1,'unit':'m'},{'value':100,'unit':'cm'})
+    assert not answers_equivalent('numeric_unit_validator',{'value':float('inf')},{'value':float('inf')})
