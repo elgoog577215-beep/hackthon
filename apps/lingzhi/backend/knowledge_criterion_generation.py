@@ -51,6 +51,8 @@ def decorate_slots(slots,course):
     if not frozen:return slots
     output=[]
     for slot in slots:
+        if not any(slot.get('primary_knowledge_ids')==[t['knowledge_id']]for t in frozen['targets']):
+            output.append(deepcopy(slot));continue
         for target in frozen['targets']:
             if slot.get('primary_knowledge_ids')!=[target['knowledge_id']]:continue
             c=target['criterion'];key=stable_hash({'batch':frozen['batch_id'],'criterion':c['criterion_id'],'revision':c['revision_id']},prefix='kcslot_')

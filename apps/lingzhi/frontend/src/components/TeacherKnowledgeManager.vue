@@ -166,7 +166,7 @@
                 <summary>{{ t('knowledgeFirst.checkIntents') }}</summary>
                 <ul><li v-for="intent in selectedPoint.check_intents" :key="intent"><MathText :content="intent" /></li></ul>
               </details>
-              <KnowledgeTeachingStructures v-if="selectedStructuredTeaching" :tree="displayTree" :knowledge-id="selectedId" @select-knowledge="selectTeachingKnowledge" />
+              <KnowledgeTeachingStructures v-if="selectedStructuredTeaching" :tree="displayTree" :knowledge-id="selectedId" :course-id="courseId" :can-generate="Boolean(data.can_edit && displayTree.revision_id === data.knowledge_revision && displayTree.status === 'accepted')" @select-knowledge="selectTeachingKnowledge" />
               <section v-else-if="selectedPoint.kc_skill_profile?.knowledge_id === selectedPoint.knowledge_id && selectedPoint.kc_skill_profile?.knowledge_revision === selectedPoint.revision_id" data-testid="knowledge-teaching-profile">
                 <h3>{{ t('knowledgeFirst.teachingProfile') }}</h3>
                 <p class="notice">{{ t(selectedPoint.kc_skill_profile.basis === 'question_samples' ? 'knowledgeFirst.profileSampleDraft' : 'knowledgeFirst.profileKnowledgeDraft') }}</p>
@@ -531,7 +531,7 @@ const relationGraphRelations = computed(() => (displayTree.value?.relations || [
   conditions: relation.conditions || [], distinction: relation.distinction, derivation_steps: relation.derivation_steps || [], revision_id: relation.revision_id || '',
 })))
 const selectedPoint = computed(() => displayTree.value?.knowledge_points.find((p: any) => p.knowledge_id === selectedId.value))
-const selectedStructuredTeaching = computed(() => Boolean(selectedPoint.value && displayTree.value?.teaching_coverage?.[selectedId.value]?.knowledge_revision === selectedPoint.value.revision_id))
+const selectedStructuredTeaching = computed(() => Boolean(selectedPoint.value && (displayTree.value?.teaching_coverage?.[selectedId.value]?.knowledge_revision === selectedPoint.value.revision_id || displayTree.value?.mastery_criteria?.some((c:any)=>c.knowledge_ids?.includes(selectedId.value) && c.knowledge_revision_refs?.[selectedId.value]===selectedPoint.value.revision_id))))
 const teachingSummary = computed(() => {
   const tree = displayTree.value; if (!tree?.teaching_coverage) return ''
   const points = tree.knowledge_points || []; const revisions = Object.fromEntries(points.map((p:any) => [p.knowledge_id,p.revision_id]))

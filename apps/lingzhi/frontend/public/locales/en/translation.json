@@ -8703,5 +8703,19 @@
   "failed": "The action could not finish. Retry; saved answers are retained.",
   "noHint": "No hint is available for this task. Review the explanation.",
   "helpUsed": "Hint viewed. This attempt is recorded as assisted."
+},
+  "criterionSupply": {
+  "title": "Questions for this criterion",
+  "loading": "Loading question supply…",
+  "available": "Available for checking",
+  "pending": "Pending review",
+  "hint": "New questions follow these checkpoints and enter practice after the existing review.",
+  "generate": "Generate for this criterion",
+  "noSource": "The current material or scope is insufficient. Complete the course material first.",
+  "running": "A question-bank job is running for this course…",
+  "failed": "Generation did not finish. Results are retained; inspect the question-bank task.",
+  "refresh": "Refresh status",
+  "unavailable": "The action could not finish. Refresh status and retry.",
+  "adoptFirst": "This design is still a candidate. Review and adopt the knowledge tree before generating questions."
 }
 }

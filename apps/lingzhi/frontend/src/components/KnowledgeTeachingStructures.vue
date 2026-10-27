@@ -8,7 +8,7 @@
     <div role="tabpanel" :id="`${uid}-panel`" :aria-labelledby="`${uid}-${active}`">
     <section v-if="active === 'checks'">
     <p v-if="!criteria.length">{{ t('knowledgeTeaching.noChecks') }}</p>
-    <details :name="uid" v-for="criterion in criteria" :key="criterion.criterion_id" data-testid="structured-criterion">
+    <details :name="uid" v-for="criterion in criteria" :key="criterion.criterion_id" data-testid="structured-criterion" @toggle="criterionToggle($event,criterion.criterion_id)">
       <summary><MathText :content="criterion.name" /><span v-if="criterion.review_notes?.length || criterion.readiness && criterion.readiness !== 'ready'" class="pending">{{ t('knowledgeDetailLayout.pending') }}</span></summary>
       <div class="record-body">
       <div v-if="criterion.review_notes?.length" class="review-note"><strong>{{ t('knowledgeTeaching.reviewContent') }}</strong><p v-for="note in criterion.review_notes" :key="note"><MarkdownRenderer :content="note" /></p></div>
@@ -18,6 +18,8 @@
       <template v-if="criterion.controlled_conditions?.length"><h5>{{ t('knowledgeTeaching.controls') }}</h5><ul><li v-for="value in criterion.controlled_conditions" :key="value"><MarkdownRenderer :content="value" /></li></ul></template>
       <h5>{{ t('knowledgeTeaching.checkpoints') }}</h5>
       <ol><li v-for="item in criterion.checkpoints" :key="item.checkpoint_id"><MathText tag="strong" :content="item.label" /><MarkdownRenderer :content="item.pass_condition" /></li></ol>
+      <CriterionQuestionSupply v-if="openCriterion === criterion.criterion_id && courseId && canGenerate && criterion.readiness === 'ready'" :course-id="courseId" :knowledge-id="knowledgeId" :knowledge-revision="point.revision_id" :criterion-id="criterion.criterion_id" :criterion-revision="criterion.revision_id" />
+      <p v-else-if="courseId && !canGenerate" class="unknown">{{ t('criterionSupply.adoptFirst') }}</p>
       <p class="rule">{{ format('scoreRule', { count: criterion.scoring.max_score }) }}</p>
 
       <p v-if="criterion.readiness !== 'ready'" class="review-note">{{ t('knowledgeTeaching.notReady') }}</p>
@@ -70,8 +72,10 @@ import { computed, ref, watch, useId } from 'vue'
 import { t } from '../shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
-const uid = useId(); const active = ref('checks')
-const props = defineProps<{ tree: any; knowledgeId: string }>()
+import CriterionQuestionSupply from './CriterionQuestionSupply.vue'
+const uid = useId(); const active = ref('checks');const openCriterion=ref('')
+function criterionToggle(event:Event,id:string){if((event.target as HTMLDetailsElement).open)openCriterion.value=id;else if(openCriterion.value===id)openCriterion.value=''}
+const props = defineProps<{ tree: any; knowledgeId: string; courseId?:string; canGenerate?:boolean }>()
 defineEmits<{ 'select-knowledge': [id: string] }>()
 const points = computed<any[]>(() => props.tree.allKnowledgePoints || props.tree.knowledge_points || [])
 const point = computed(() => points.value.find(p => p.knowledge_id === props.knowledgeId))
@@ -80,7 +84,7 @@ const criteria = computed(() => bound(props.tree.mastery_criteria).filter(c => c
 const mistakes = computed(() => bound(props.tree.misconceptions))
 const extensions = computed(() => bound(props.tree.extensions))
 const sections = computed(() => [{key:'checks',label:'knowledgeDetailLayout.checks',count:criteria.value.length},{key:'mistakes',label:'knowledgeDetailLayout.mistakes',count:mistakes.value.length},{key:'extensions',label:'knowledgeDetailLayout.extensions',count:extensions.value.length}])
-watch(() => props.knowledgeId, () => { active.value = 'checks' })
+watch(() => props.knowledgeId, () => { active.value = 'checks';openCriterion.value='' })
 function tabKey(event:KeyboardEvent,index:number) { if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return; event.preventDefault(); const next=event.key==='Home'?0:event.key==='End'?2:(index+(event.key==='ArrowRight'?1:2))%3; active.value=sections.value[next]!.key; (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next]?.focus() }
 const coverage = computed(() => { const value = props.tree.teaching_coverage?.[props.knowledgeId]; return value?.knowledge_revision === point.value?.revision_id ? value : null })
 function otherKnowledge(row: any) { return points.value.filter(p => p.knowledge_id !== props.knowledgeId && row.knowledge_ids?.includes(p.knowledge_id) && row.knowledge_revision_refs?.[p.knowledge_id] === p.revision_id) }

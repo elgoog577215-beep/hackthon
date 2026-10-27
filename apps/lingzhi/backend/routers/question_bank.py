@@ -506,6 +506,41 @@ class ExamPaperCreateRequest(BaseModel):
         return self
 
 
+@router.get('/criterion-supply')
+async def get_criterion_question_supply(course_id:str,knowledge_id:str=Query(min_length=1,max_length=200),
+    knowledge_revision:str=Query(min_length=1,max_length=200),criterion_id:str=Query(min_length=1,max_length=200),
+    criterion_revision:str=Query(min_length=1,max_length=200),x_user_id:str|None=Header(default=None,alias='X-User-Id')):
+    from knowledge_check_flow import criteria,task_criterion
+    from routers.practice import _questions
+    course=await _owned_binding_course(course_id,require_user_id(x_user_id))
+    c=next((c for c in criteria(course)if c['criterion_id']==criterion_id and c['revision_id']==criterion_revision
+        and c['knowledge_revision_refs'].get(knowledge_id)==knowledge_revision),None)
+    if not c:raise HTTPException(409,'检查标准尚未审阅采用，或版本已变化')
+    point=next(p for p in course['course_knowledge_base']['knowledge_points']if p['knowledge_id']==knowledge_id)
+    node=next((s for s in point.get('section_refs',[])if any(n.get('node_id')==s and int(n.get('node_level')or 1)==2 for n in course.get('nodes',[]))),None)
+    can_generate=bool(node)
+    if node:
+        try:
+            req=QuestionBankRebuildRequest(request_id='criterion-supply-read',scope='nodes',node_ids=[node],knowledge_ids=[knowledge_id],
+                knowledge_baseline_revision=course['course_knowledge_base']['revision_id'],criterion_revision_refs={criterion_id:criterion_revision})
+            await asyncio.to_thread(_selected_knowledge_slots,course,req)
+        except (ValueError,HTTPException):can_generate=False
+    tasks=await asyncio.to_thread(_questions,course,node_id=None,scope='all')
+    available={t.get('task_revision_id')or t.get('revision_id') for t in tasks
+        if (task_criterion(course,t)or{}).get('criterion_id')==criterion_id}
+    bank=await asyncio.to_thread(load_active_question_bank,course,repository=question_bank_repository)or{}
+    pending=[i for i in bank.get('items',[])if (i.get('criterion_target',{}).get('criterion')or{}).get('criterion_id')==criterion_id
+        and i.get('lifecycle_status')in {'candidate','needs_review'}]
+    latest=question_bank_rebuild_job_repository.latest_for_course(course_id)
+    job=None
+    if latest:
+        related=(latest.get('criterion_revision_refs')or{}).get(criterion_id)==criterion_revision
+        if related or latest.get('status')in {'queued','running'}:
+            job={k:deepcopy(latest.get(k))for k in ('job_id','status','message','error')};job['related']=related
+    return {'knowledge_baseline_revision':course['course_knowledge_base']['revision_id'],'node_id':node,'can_generate':can_generate,
+        'available_count':len(available),'pending_count':len(pending),'job':job}
+
+
 @router.get("/knowledge-supply")
 async def get_knowledge_question_supply(course_id: str) -> dict[str, Any]:
     from knowledge_practice import adopted_knowledge_checks
@@ -1128,8 +1163,8 @@ async def rebuild_question_bank(
             teacher_instruction=payload.teacher_instruction,
             knowledge_ids=payload.knowledge_ids,
             knowledge_baseline_revision=payload.knowledge_baseline_revision,
-            criterion_revision_refs=payload.criterion_revision_refs,
-            criterion_generation_plan=(build_criterion_plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id) if payload.criterion_revision_refs else None),
+            **({'criterion_revision_refs':payload.criterion_revision_refs,
+                'criterion_generation_plan':build_criterion_plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)} if payload.criterion_revision_refs else {}),
             questions_per_lesson=payload.questions_per_lesson,
             append_only=payload.append_only,
             quantity_batch_id=payload.quantity_batch_id,
@@ -3329,7 +3364,7 @@ async def _persist_rebuilt_course(
         def mutate(fresh):
             validate_plan(fresh,frozen)
             fresh.update(deepcopy(updates))
-        await repository.commit_metadata(course_id,expected_document_revision=previous['course_document_revision'],
+        await repository.apply_metadata_command(course_id,expected_document_revision=previous['course_document_revision'],
             operation={'command_id':stable_hash({'course':course_id,'updates':updates},prefix='criterion_qbank_'),'operation':'question_bank_rebuild','reason':'按已审阅检查标准发布题目','actor':frozen['owner_id']},mutation=mutate)
     else:
         await repository.update_metadata(course_id, updates)
