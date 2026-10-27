@@ -117,6 +117,17 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
             }
         )
     from knowledge_criterion_generation import authoring_directive
+    if all((c.get('assessment_slot')or{}).get('criterion_target') for c in contexts):
+        schema={'plans':[{'slot_id':item['slot_id'],'plan':{
+            'target_rule':'原样保留完整知识命题','incorrect_rule':'与该标准相关的一种错误理解',
+            'public_material':'充分且自足的公开数据、定义及已知条件','ask':'能逐项评分的明确任务',
+            'trace':'同一输入下可核对的简短推导','correct_prediction':'正确判断的具体结果',
+            'incorrect_prediction':'仅改变目标理解后的具体错误结果','options':[]}}for item in items]}
+        return (authoring_directive()+'先设计检查任务，暂不写教学解析。每项标准只设计一个自足情境，覆盖全部判据。'
+            '条件必须足以唯一判断，不能从离散样本、局部信息或部分情形直接推出整体结论。'
+            '核对所有断言及边界；不要提供超出标准的提示，不额外引入前置计算。'
+            '推导、正确结果和错误结果必须对应同一公开输入。非选择题不设计选项。只返回完整JSON。\n'
+            +json.dumps({'required_output':schema,'items':items},ensure_ascii=False))
     return (
         (authoring_directive() + '此要求优先于下文针对代码、单个观察和选项的示例；非选择题options为空。' if any((c.get('assessment_slot')or{}).get('criterion_target') for c in contexts) else '')
         +
