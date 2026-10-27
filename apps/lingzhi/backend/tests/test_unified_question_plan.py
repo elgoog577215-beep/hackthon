@@ -233,3 +233,14 @@ def test_item_rework_keeps_the_selected_target_and_generation_identity(monkeypat
     after=compile_course_assessment_blueprint(scoped)['nodes'][0]['slots']
     assert len(after)==1 and after[0]['generation_key']==slot['generation_key']
     assert frozen['entrypoint']=='items'
+
+
+def test_numeric_validator_configuration_has_no_second_expected_answer():
+    from assessment_orchestrator import _normalize_candidate_layout
+    candidate={'question_spec':{},'solution':{'validation_mode':'numeric_unit_validator','canonical_answer':120,
+               'validator_config':{'expected_value':12,'tolerance':.01,'relative_tolerance':0}}}
+    normalized,receipt=_normalize_candidate_layout(candidate)
+    assert normalized['solution']['canonical_answer']==120
+    assert normalized['solution']['validator_config']=={'absolute_tolerance':.01,'relative_tolerance':0}
+    assert candidate['solution']['validator_config']['expected_value']==12
+    assert receipt
