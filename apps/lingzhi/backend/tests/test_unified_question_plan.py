@@ -244,3 +244,33 @@ def test_numeric_validator_configuration_has_no_second_expected_answer():
     assert normalized['solution']['validator_config']=={'absolute_tolerance':.01,'relative_tolerance':0}
     assert candidate['solution']['validator_config']['expected_value']==12
     assert receipt
+
+
+def test_new_fill_prioritizes_uncovered_criteria_instead_of_repeating_first_target():
+    from knowledge_criterion_generation import request_plan,seal_binding
+    from assessment_blueprint import compile_course_assessment_blueprint
+    from assessment_quantity import build_quantity_plan
+    c=course();other=deepcopy(c['course_knowledge_base']['mastery_criteria'][0]);other.update(criterion_id='C2',revision_id='CR2')
+    c['course_knowledge_base']['mastery_criteria'].append(other)
+    c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='fill')
+    b=compile_course_assessment_blueprint(c);target=c['_criterion_generation_plan']['targets'][0]
+    q={'node_id':'L1','lifecycle_status':'needs_review','prompt':'已生成的题目','question_spec':{},'solution_revision_id':'S'}
+    q['criterion_binding']=seal_binding(q,target,{'passed':True,'solution_consistent':True,'confidence':.95,'reviewer_triggered':True,
+        'criterion_alignment':{'checkpoints':{'A':True,'B':True},'conditions_controlled':True,'reason':'完整覆盖'}})
+    p=build_quantity_plan(c,b,previous={'items':[q]},node_ids=['L1'],count=2,append_only=False,batch_id='fill-batch')
+    assert p['slots']['L1'][0]['template_index']==1
+
+
+@pytest.mark.asyncio
+async def test_failed_unified_job_is_restored_after_reopening_without_starting_generation(monkeypatch,tmp_path):
+    from routers import question_bank as routes
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+    from unittest.mock import AsyncMock
+    jobs=QuestionBankRebuildJobRepository(tmp_path)
+    j,_=jobs.create_job('c',request_id='failed-job',scope='nodes',node_ids=['L1'],mode='incremental',actor_id='teacher')
+    jobs.fail(j['job_id'],code='test_failure',message='保留具体失败原因',retryable=True)
+    monkeypatch.setattr(routes,'_settle_rebuild_from_previous_worker',lambda j:j)
+    monkeypatch.setattr(routes,'get_course_or_404',AsyncMock(return_value=course()))
+    monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',jobs)
+    result=await routes.get_active_question_bank_rebuild('c',x_user_id='teacher')
+    assert result['job_id']==j['job_id'] and result['status']=='failed'
