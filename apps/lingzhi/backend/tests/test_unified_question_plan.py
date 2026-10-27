@@ -46,6 +46,31 @@ def test_reviewed_response_form_controls_typed_validator():
     assert slots[0]['input_mode']=='numeric_unit' and slots[0]['validation_mode']=='numeric_unit_validator'
 
 
+def test_unbound_lecture_tags_do_not_satisfy_unified_quantity():
+    from knowledge_criterion_generation import request_plan
+    from assessment_blueprint import compile_course_assessment_blueprint
+    from assessment_quantity import build_quantity_plan
+    c=course();c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='ordinary-one')
+    b=compile_course_assessment_blueprint(c)
+    old={'items':[{'node_id':'L1','course_knowledge_refs':['K'],'lifecycle_status':'needs_review'}]}
+    plan=build_quantity_plan(c,b,previous=old,node_ids=['L1'],count=3,append_only=False,batch_id='batch')
+    assert sum(len(rows)for rows in plan['slots'].values())==3
+
+
+def test_answer_change_invalidates_blind_solver_cache_without_exposing_answer():
+    from assessment_orchestrator import _blind_solution_cache_key
+    spec={'task':{'rendered_text':'求结果'},'input_contract':{'mode':'numeric_unit'}}
+    first={'solution':{'canonical_answer':{'value':0}}};second={'solution':{'canonical_answer':{'value':2}}}
+    assert _blind_solution_cache_key(spec,first)!=_blind_solution_cache_key(spec,second)
+
+
+def test_nonexistent_is_not_a_valid_numeric_zero_placeholder():
+    from assessment_solution_protocol import numeric_domain_issue
+    slot={'criterion_target':{},'assessment_purpose':'criterion_check','input_mode':'numeric_unit'}
+    assert numeric_domain_issue(slot,{'result_status':'nonexistent','answer':{'value':0}})['code']=='ANSWER_DOMAIN_MISMATCH'
+    assert numeric_domain_issue(slot,{'result_status':'determinate','answer':{'value':0}})is None
+
+
 def test_retry_reuses_frozen_semantic_targets_and_rejects_new_revisions():
     from knowledge_criterion_generation import request_plan, PreparationRequired
     c=course();p=request_plan(c,node_ids=['L1'],request_id='original')
