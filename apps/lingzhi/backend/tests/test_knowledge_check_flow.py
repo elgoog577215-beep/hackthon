@@ -41,13 +41,14 @@ async def test_checkpoint_grade_uses_each_verdict_and_real_evidence_not_model_sc
     from knowledge_check_flow import grade_checkpoints
     course,c,t=fixture();grader=PracticeGrader();grader.client=object()
     async def model(*args,**kwargs):
-        return json.dumps({'checks':{'A':{'met':True,'evidence':'分别说明','feedback':'判断完整'},
-            'B':{'met':False,'evidence':'没有依据','feedback':'需要说明理由'}},'confidence':.95})
+        return json.dumps({'checks':{'A':{'met':True,'evidence_refs':['answer-1'],'feedback':'判断完整'},
+            'B':{'met':False,'evidence_refs':['answer-1'],'feedback':'需要说明理由'}},'confidence':.95})
     monkeypatch.setattr(grader,'_call_llm',model)
     attempt={'answer_payload':{'text':'我能分别说明，但是没有依据'}}
     result=await grade_checkpoints(grader,t,c,attempt)
     assert result['criterion_results']=={'C':{'A':True,'B':False}}
     assert result['score']==50 and result['passed'] is False
+    assert result['checkpoint_feedback'][0]['evidence']=='我能分别说明，但是没有依据'
     # Same original attempt repository; a reopening retains rubric identity/results.
     repo=PracticeAttemptRepository(tmp_path/'attempts')
     a,_=repo.create_once('u','c',{'task_revision_id':'T1','course_version_id':'cv','concept_ids':['K'],
@@ -63,8 +64,8 @@ async def test_checkpoint_grade_uses_each_verdict_and_real_evidence_not_model_sc
 async def test_missing_uncertain_or_invented_checkpoint_evidence_stays_pending(monkeypatch):
     from knowledge_check_flow import grade_checkpoints
     _,c,t=fixture();grader=PracticeGrader();grader.client=object()
-    for checks in [{'A':{'met':True,'evidence':'原句','feedback':'满足'}},
-                   {'A':{'met':True,'evidence':'捏造的句子','feedback':'满足'},'B':{'met':True,'evidence':'原句','feedback':'满足'}}]:
+    for checks in [{'A':{'met':True,'evidence_refs':['answer-1'],'feedback':'满足'}},
+                   {'A':{'met':True,'evidence_refs':['unknown'],'feedback':'满足'},'B':{'met':True,'evidence_refs':['answer-1'],'feedback':'满足'}}]:
         async def model(*args,**kwargs):return json.dumps({'checks':checks,'confidence':.95})
         monkeypatch.setattr(grader,'_call_llm',model)
         result=await grade_checkpoints(grader,t,c,{'answer_payload':{'text':'原句'}})

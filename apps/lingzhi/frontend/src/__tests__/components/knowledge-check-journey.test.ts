@@ -49,3 +49,10 @@ it('waits for draft storage before submitting the same attempt revision',async()
  finish({data:{attempt:{attempt_id:'A',revision:2,status:'in_progress'}}});await flushPromises()
  expect(http.post.mock.calls.find(([url])=>String(url).endsWith('/submit'))![1].expected_revision).toBe(2);w.unmount()
 })
+
+it('keeps an uncertain answer pending and permits another unused task',async()=>{
+ http.post.mockImplementation(async(url:string)=>url.endsWith('/target')?{data:{status:'available',task_revision_id:'T',question:{prompt:'任务'}}}:url.endsWith('/attempts')?{data:{attempt:{attempt_id:'A',revision:1,status:'in_progress'}}}:{data:{attempt:{attempt_id:'A',revision:3,status:'grading'},result:{status:'pending_review',score:null}}})
+ const w=mount(Journey,{props,...options});await flushPromises();await w.get('[data-testid=check-start]').trigger('click');await flushPromises()
+ await w.get('textarea').setValue('自己的回答');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
+ expect(w.text()).toContain('本次结果待核对');expect(w.find('[data-testid=check-next]').exists()).toBe(true);w.unmount()
+})
