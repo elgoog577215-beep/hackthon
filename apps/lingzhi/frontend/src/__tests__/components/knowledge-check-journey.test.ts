@@ -56,3 +56,10 @@ it('keeps an uncertain answer pending and permits another unused task',async()=>
  await w.get('textarea').setValue('自己的回答');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
  expect(w.text()).toContain('本次结果待核对');expect(w.find('[data-testid=check-next]').exists()).toBe(true);w.unmount()
 })
+
+it('does not call an assisted incorrect answer completed',async()=>{
+ http.post.mockImplementation(async(url:string)=>url.endsWith('/target')?{data:{status:'available',task_revision_id:'T',question:{prompt:'任务'}}}:url.endsWith('/attempts')?{data:{attempt:{attempt_id:'A',revision:1,status:'in_progress'}}}:{data:{attempt:{attempt_id:'A',revision:3,status:'graded'},result:{status:'graded',passed:false,support_level:1,checkpoint_feedback:[]}}})
+ const w=mount(Journey,{props,...options});await flushPromises();await w.get('[data-testid=check-start]').trigger('click');await flushPromises()
+ await w.get('textarea').setValue('回答仍不准确');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
+ expect(w.text()).toContain('本次仍有未满足项');expect(w.text()).not.toContain('提示后完成');w.unmount()
+})
