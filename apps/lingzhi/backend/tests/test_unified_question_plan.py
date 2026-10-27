@@ -261,6 +261,16 @@ def test_new_fill_prioritizes_uncovered_criteria_instead_of_repeating_first_targ
     assert p['slots']['L1'][0]['template_index']==1
 
 
+def test_ordinary_plan_accepts_a_realistic_catalog_and_rejects_incompatible_formats_before_queue():
+    from knowledge_criterion_generation import request_plan,PreparationRequired
+    c=course();template=c['course_knowledge_base']['mastery_criteria'][0]
+    c['course_knowledge_base']['mastery_criteria']=[{**deepcopy(template),'criterion_id':f'C{i:02}','revision_id':f'CR{i:02}'}for i in range(60)]
+    assert len(request_plan(c,node_ids=['L1'],request_id='catalog')['targets'])==60
+    c=course();c['course_knowledge_base']['mastery_criteria'][0]['assessment_format']='numeric_response'
+    with pytest.raises(PreparationRequired)as error:request_plan(c,node_ids=['L1'],request_id='bad-form')
+    assert error.value.code=='criterion_format_mismatch'
+
+
 @pytest.mark.asyncio
 async def test_failed_unified_job_is_restored_after_reopening_without_starting_generation(monkeypatch,tmp_path):
     from routers import question_bank as routes
