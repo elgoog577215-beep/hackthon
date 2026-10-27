@@ -89,6 +89,18 @@ def test_existing_reviewer_receives_and_preserves_checkpoint_alignment():
     assert 'criterion_alignment'in text and 'checkpoints'in text
 
 
+def test_measurement_design_receives_full_criterion_and_controlled_conditions():
+    from assessment_measurement_design import measurement_design_prompt, measurement_strategy
+    from assessment_orchestrator import _generation_prompt_v2, _batch_generation_prompt
+    from knowledge_criterion_generation import plan
+    target=plan(course(),{'C':'CR'},['K'],['L1'],'request-one')['targets'][0]
+    slot={'slot_id':'slot','criterion_target':target,'input_mode':'rich_text','question_form':'short_answer'}
+    context={'assessment_slot':slot}
+    assert measurement_strategy(slot)['kind']=='criterion_check'
+    for text in [measurement_design_prompt([context]),_generation_prompt_v2(context),_batch_generation_prompt([context])]:
+        assert 'controlled_conditions' in text and '题面已知条件' in text
+
+
 def test_generated_reviewed_binding_is_consumed_without_editing_the_knowledge_base():
     from knowledge_criterion_generation import plan,seal_binding
     from knowledge_check_flow import task_criterion

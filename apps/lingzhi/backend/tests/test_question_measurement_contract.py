@@ -73,6 +73,25 @@ def test_complete_grounded_witness_is_accepted():
     assert not review_witness_issues(sample(), witness())
 
 
+def test_short_answer_has_no_correct_option_set():
+    c = sample(); w = witness()
+    c['question_spec']['options'] = []
+    c['solution_envelope']['canonical_answer'] = {'text': '2'}
+    w['option_audit'] = []
+    assert not review_witness_issues(c, w)
+    w['option_audit'] = [{'option_id':'invented','meaning':'2','is_correct':True,'reason':'invented'}]
+    assert 'OPTION_AUDIT_INCOMPLETE' in {i['code'] for i in review_witness_issues(c,w)}
+
+
+def test_math_delimiters_do_not_hide_a_public_anchor():
+    c = sample(); w = witness()
+    c['prompt'] = '判断 $g(t)$ 在 $[0, 2]$ 上的变化。'
+    w['observation_test']['public_anchor'] = '判断 g(t) 在 [0, 2] 上的变化'
+    assert 'OBSERVATION_ANCHOR_MISSING' not in {i['code'] for i in review_witness_issues(c,w)}
+    w['observation_test']['public_anchor'] = '判断 h(t) 在 [0, 2] 上的变化'
+    assert 'OBSERVATION_ANCHOR_MISSING' in {i['code'] for i in review_witness_issues(c,w)}
+
+
 def test_same_prediction_cannot_demonstrate_target_rule():
     w = witness()
     w["observation_test"]["incorrect_prediction"] = "2.0"
