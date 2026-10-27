@@ -14,7 +14,8 @@ def current_question_assets(course: dict, assets: dict, bank: dict | None) -> di
     from knowledge_practice import adopted_knowledge_checks
     from question_bank import FINAL_ASSESSMENT_ROLES, approved_formal_tasks
 
-    tasks = approved_formal_tasks(bank)
+    from knowledge_check_flow import current_criterion_tasks
+    tasks = current_criterion_tasks(course,approved_formal_tasks(bank))
     result = deepcopy(assets)
     result["questions"] = [
         *[q for q in tasks if q.get("assessment_role") not in FINAL_ASSESSMENT_ROLES],

@@ -48,6 +48,7 @@ from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from knowledge_assessment import atomic_baseline, item_slot_keys, slot_keys_by_node
 from knowledge_question_supply import knowledge_question_supply, select_knowledge_slots
+from knowledge_criterion_generation import plan as build_criterion_plan
 from course_versions import course_version_repository
 from dependencies import get_course_or_404, get_task_manager_optional
 from exam_papers import exam_paper_repository
@@ -656,7 +657,13 @@ def _published_practice_levels_by_node(
     blueprint = (bundle or {}).get("assessment_blueprint") or {}
     expected_keys = slot_keys_by_node(blueprint)
     if atomic_baseline(course) and not course.get('_assessment_quantity_plan'):
-        current = compile_course_assessment_blueprint(course)
+        scoped=course
+        if blueprint.get('criterion_generation_plan'):
+            from knowledge_criterion_generation import validate_plan
+            try:validate_plan(course,blueprint['criterion_generation_plan'])
+            except ValueError:return {}
+            scoped={**course,'_criterion_generation_plan':blueprint['criterion_generation_plan']}
+        current = compile_course_assessment_blueprint(scoped)
         if current.get("blueprint_revision_id") != blueprint.get("blueprint_revision_id"):
             return {}
     solutions = (bundle or {}).get("solution_envelopes") or {}
@@ -970,6 +977,8 @@ async def rebuild_question_bank(
     course = await _question_bank_course(course_id)
     if payload.scope == "nodes":
         payload.node_ids = _resolve_rebuild_node_ids(course, payload.node_ids)
+    if payload.criterion_revision_refs and course.get('owner_id')!=actor_id:
+        raise HTTPException(404,'课程不存在或不属于当前拥有者')
     _selected_knowledge_slots(course, payload)
     question_source_material_ids = _question_bank_source_material_asset_ids(
         course_id,
@@ -1120,7 +1129,7 @@ async def rebuild_question_bank(
             knowledge_ids=payload.knowledge_ids,
             knowledge_baseline_revision=payload.knowledge_baseline_revision,
             criterion_revision_refs=payload.criterion_revision_refs,
-            criterion_generation_plan=(__import__('knowledge_criterion_generation').plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id) if payload.criterion_revision_refs else None),
+            criterion_generation_plan=(build_criterion_plan(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id) if payload.criterion_revision_refs else None),
             questions_per_lesson=payload.questions_per_lesson,
             append_only=payload.append_only,
             quantity_batch_id=payload.quantity_batch_id,

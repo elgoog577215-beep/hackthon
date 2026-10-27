@@ -22,7 +22,8 @@ def task_criterion(course,task,catalog=None):
     if task.get('review_status')!='approved' or task.get('quality_status')!='passed':return None
     if task.get('question_type') not in {'short_answer','essay','explanation'}:return None
     tid=task.get('task_revision_id')or task.get('revision_id')
-    matches=[c for c in (criteria(course)if catalog is None else catalog)if tid in c.get('assessment_bindings',[])
+    from knowledge_criterion_generation import valid_binding
+    matches=[c for c in (criteria(course)if catalog is None else catalog)if (valid_binding(task,c)if task.get("criterion_binding")else tid in c.get('assessment_bindings',[]))
         and set(task.get('concept_ids',[]))==set(c['knowledge_ids'])
         and task.get('knowledge_revision_refs')==c['knowledge_revision_refs']]
     return matches[0]if len(matches)==1 else None
@@ -112,3 +113,8 @@ async def grade_checkpoints(grader,task,criterion,attempt):
     return {'status':'graded','score':score,'passed':passed,'grading_confidence':confidence,'grading_method':'knowledge_checkpoint_v2',
         'criterion_results':{criterion['criterion_id']:checks},'checkpoint_feedback':feedback,'rubric_results':[],
         'feedback':'本次各项均满足。可换一个任务再独立验证。'if passed else '本次还有未满足的项目，可以先看对应反馈。'}
+
+
+def current_criterion_tasks(course,tasks):
+    catalog=criteria(course)
+    return [t for t in tasks if not t.get('criterion_binding')or task_criterion(course,t,catalog)is not None]

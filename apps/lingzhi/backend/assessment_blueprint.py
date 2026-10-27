@@ -459,6 +459,8 @@ def compile_course_assessment_blueprint(
                                          "passed": None, "status": "not_applicable"}
         for node in nodes:
             node["diversity_checks"] = {"status": "not_applicable", "passed": None}
+    if course_data.get("_criterion_generation_plan"):
+        blueprint["criterion_generation_plan"]=deepcopy(course_data["_criterion_generation_plan"])
     blueprint["blueprint_revision_id"] = stable_hash(
         blueprint,
         prefix="abp_",

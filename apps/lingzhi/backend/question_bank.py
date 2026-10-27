@@ -514,6 +514,9 @@ def approved_formal_tasks(
         if solution:
             hydrated["_solution_envelope"] = deepcopy(solution)
         projected = _formal_task_from_item(hydrated)
+        if item.get('criterion_target'):
+            from knowledge_criterion_generation import valid_binding
+            if not valid_binding(projected,item['criterion_target']['criterion']):continue
         if item.get('assessment_binding_schema') and not independent_evidence_admitted(projected):
             continue
         if (
@@ -2393,8 +2396,14 @@ def _generated_course_items(
                 generated_contract["solution_envelope"]
             )
             item["_solution_envelope"] = solution_envelope
+            if assessment_slot.get('criterion_target'):
+                from knowledge_criterion_generation import seal_binding
+                item['criterion_binding']=seal_binding(item,assessment_slot['criterion_target'],generated_contract.get('criterion_generation_review')or{})
             item["hint_contract"] = _hint_contract(item)
             item_quality = evaluate_question_item_quality(item)
+            if item.get('criterion_binding') and not item['criterion_binding'].get('reviewed'):
+                item_quality.update(passed=False,status='failed')
+                item_quality.setdefault('issues',[]).append({'code':'CRITERION_ALIGNMENT_INCOMPLETE','severity':'critical','message':'检查判据未完整核对'})
             generated_quality = generated_contract.get(
                 "quality_report"
             )
@@ -4174,6 +4183,7 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     input_contract = deepcopy(compiled["input_contract"])
     task = {
         **assessment_binding(item),
+        **({'criterion_binding':deepcopy(item['criterion_binding'])}if item.get('criterion_binding')else{}),
         **({"evidence_admission": deepcopy(item.get("evidence_admission") or {})} if item.get("assessment_binding_schema") else {}),
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},

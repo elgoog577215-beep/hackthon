@@ -976,7 +976,8 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
         for item in assets.get("validation_questions") or []
         if str(item.get("revision_id") or item.get("task_revision_id") or "") in growth_task_ids
     )
-    questions = _unique_revision_items(questions)
+    from knowledge_check_flow import current_criterion_tasks
+    questions = current_criterion_tasks(course,_unique_revision_items(questions))
     if scope == "node" and node_id:
         questions = [item for item in questions if item.get("node_id") == node_id]
     return questions
@@ -1148,11 +1149,15 @@ def _resolve_task(course: dict[str, Any], user_id: str, revision_id: str) -> dic
             ],
             "final_assessment": bank_finals,
         }
-    return resolve_assessment_task(
+    task=resolve_assessment_task(
         course_with_assets,
         revision_id,
         extra_tasks=diagnostic_workflow_repository.all_tasks(user_id, str(course.get("course_id") or "")),
     )
+    if task and task.get('criterion_binding'):
+        from knowledge_check_flow import task_criterion
+        if not task_criterion(course,task):return None
+    return task
 
 
 def _require_current_workflow_task(course: dict[str, Any], task: dict[str, Any]) -> None:

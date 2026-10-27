@@ -701,6 +701,8 @@ class UniversalAssessmentModel(AIBase):
             "evidence": ["Short evidence without code quotations"],
             "issues": [],
         }
+        from knowledge_criterion_generation import review_schema
+        evaluation_schema.update(review_schema(slot))
         evaluation_schema = _ordered_review_schema(evaluation_schema)
         response = await self._assessment_llm_call(
             call_policy,
@@ -711,6 +713,7 @@ class UniversalAssessmentModel(AIBase):
                 "evidence只写短句，不复制代码，不在字符串中使用引号。\n"
                 f"{json.dumps(evaluation_schema, ensure_ascii=False)}\n"
                 "请在隔离上下文中评审题目质量。只输出JSON，禁止输出思维过程。"
+                "有criterion_target时必须额外逐项评审criterion_alignment，所有检查项和controlled_conditions均须核对，不能只核对题目标题。"
                 "输出字段：passed、confidence、solution_consistent、dimensions、"
                 "evidence、issues、evidence_checks、review_witness。dimensions仅可包含curriculum_targeting(0-20)、"
                 "answerability_and_completeness(0-15)、difficulty_fit(0-10)、"
@@ -2680,6 +2683,10 @@ class AssessmentGenerationOrchestrator:
                         next_action = "generate"
                     continue
 
+                if slot.get('criterion_target'):
+                    from knowledge_criterion_generation import enforce_alignment
+                    semantic_report=enforce_alignment(semantic_report,slot)
+                    contract['criterion_generation_review']=deepcopy(semantic_report)
                 if slot.get("assessment_binding_schema"):
                     contract.update(assessment_binding(slot))
                     stamp_evidence_admission(contract, semantic_report)
@@ -3150,7 +3157,7 @@ class AssessmentGenerationOrchestrator:
         expected_hash = delivery_hash(contract)
         fact_state = fact_publication_state(contract)
         evaluator = getattr(self.model,"evaluate_computed_target" if fact_state == "verified" else "evaluate_unverified_target",None)
-        if fact_state == "verified" or (fact_state == "unverified" and not slot.get("assessment_binding_schema") and callable(evaluator)):
+        if not slot.get("criterion_target") and (fact_state == "verified" or (fact_state == "unverified" and not slot.get("assessment_binding_schema") and callable(evaluator))):
             if not callable(evaluator):
                 return attest_final_solution_review(contract, {"passed":False,"confidence":0,"solution_consistent":True,
                     "issues":[{"code":"SEMANTIC_REVIEW_UNAVAILABLE","severity":"major","message":"缺少教学目标适配检查"}]}, expected_hash)
@@ -3179,7 +3186,7 @@ class AssessmentGenerationOrchestrator:
     ) -> dict[str, Any]:
         validation = contract.get("solution_validation") or {}
         preflight = contract.get("semantic_preflight") or {}
-        reviewer_triggered = should_run_semantic_review(
+        reviewer_triggered = bool(slot.get("criterion_target")) or should_run_semantic_review(
             contract,
             preflight,
         )
@@ -4533,6 +4540,7 @@ def _normalize_semantic_report(
         confidence = 0.0
     return {
         "passed": value.get("passed") is True,
+        **({'criterion_alignment':deepcopy(value['criterion_alignment'])}if 'criterion_alignment'in value else {}),
         "evidence_checks": deepcopy(value.get("evidence_checks") or {}),
         "review_witness": deepcopy(value.get("review_witness") or {}),
         "confidence": max(0.0, min(1.0, confidence)),
@@ -5578,7 +5586,7 @@ def _candidate_output_schema(contexts: list[dict[str, Any]], *, compact: bool) -
         candidate_schema["solution"].pop("blanks", None)
     if any((context.get("assessment_slot") or {}).get("assessment_binding_schema") for context in contexts):
         candidate_schema["solution"]["measurement_plan"] = {
-            "target_rule": "完整主考规则", "observable": "题目实际要求的观测量与代码位置",
+            "target_rule": "完整主考规则", "observable": "题目实际要求的观察或判断、给定条件以及每条检查判据" if any((c.get('assessment_slot')or{}).get('criterion_target')for c in contexts)else "题目实际要求的观测量与代码位置",
             "incorrect_rule": "只改变目标规则中的一个方面，其他行为不变",
             "correct_prediction": "正确规则下观测", "incorrect_prediction": "错误规则下不同的观测",
         }
@@ -6023,11 +6031,13 @@ def _batch_evaluation_prompt(
         }],
     }
     report_schema = _ordered_review_schema(report_schema)
+    from knowledge_criterion_generation import review_schema
     envelope = {
         "reports": [{
             "slot_id": str(item.get("slot_id") or ""),
             "report": {
                 **report_schema,
+                **review_schema(item.get('slot')or{}),
                 "review_witness": _review_witness_schema(
                     next(iter((item.get("objective") or {}).get("knowledge") or []), ""),
                     atomic=bool((item.get("slot") or {}).get("assessment_binding_schema")),
@@ -6044,7 +6054,7 @@ def _batch_evaluation_prompt(
         "dimensions只能包含curriculum_targeting(0-20)、"
         "answerability_and_completeness(0-15)、"
         "difficulty_fit(0-10)、clarity(0-5)。"
-        "confidence必须是0到1之间的数字。\n"
+        "confidence必须是0到1之间的数字。有criterion_target时逐项检查判据和干扰控制，填写criterion_alignment，不得只按标题判断。\n"
         "<REQUIRED_OUTPUT_ENVELOPE>\n"
         f"{json.dumps(envelope, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_ENVELOPE>\n"
@@ -6057,9 +6067,9 @@ def _batch_evaluation_prompt(
 def _ordered_review_schema(schema: dict) -> dict:
     # Ask for grounded observations before the verdict, not after a guessed flag.
     return {key: schema[key] for key in (
-        "review_witness", "evidence", "evidence_checks", "solution_consistent",
+        "review_witness", "criterion_alignment", "evidence", "evidence_checks", "solution_consistent",
         "dimensions", "confidence", "passed", "issues",
-    )}
+    )if key in schema}
 
 
 def _review_witness_schema(target_statement: str = "", *, atomic: bool = True) -> dict:
