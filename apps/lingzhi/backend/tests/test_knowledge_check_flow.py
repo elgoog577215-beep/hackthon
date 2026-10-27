@@ -153,12 +153,14 @@ def test_help_consumes_only_reviewed_shared_objects_at_current_knowledge_revisio
 def test_reading_back_feedback_is_current_private_and_does_not_expose_reference_answers():
     from knowledge_check_flow import check_view
     course,c,t=fixture()
+    t['input_contract']={'mode':'rich_text','fields':[{'field_id':'text','kind':'rich_text','required':True}]}
     a={'attempt_id':'A','revision':3,'user_id':'u','course_id':'c','course_version_id':'cv','status':'graded',
         'task_revision_id':'T1','criterion_revision_refs':{'C':'CR'},'knowledge_revision_refs':{'K':'KR'},
         'answer_payload':{'text':'自己的回答'},'result':{'status':'graded','passed':False,'support_level':0,
             'checkpoint_feedback':[{'checkpoint_id':'A','label':'判断','met':False,'feedback':'分别判断'}],'canonical_answer':'private answer'}}
     view=check_view(course,[t],[a],'K','KR','u')
     assert view['last_check']['result']['checkpoint_feedback'][0]['feedback']=='分别判断'
+    assert view['last_check']['task']['question']['input_contract']==t['input_contract']
     assert 'private answer'not in json.dumps(view)
     assert check_view(course,[t],[a],'K','KR','other')['last_check']is None
     a['criterion_revision_refs']['C']='old'
