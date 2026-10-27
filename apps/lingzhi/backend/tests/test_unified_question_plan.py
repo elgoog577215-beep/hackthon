@@ -343,7 +343,7 @@ def test_numeric_slot_has_consistent_type_semantics_and_does_not_require_a_dimen
     from knowledge_criterion_generation import request_plan
     from assessment_blueprint import compile_course_assessment_blueprint
     from assessment_contracts import compile_course_assessment_profile
-    from question_type_semantics import semantics_for_question_type
+    from assessment_semantics import semantics_for_question_type
     c=course();criterion=c['course_knowledge_base']['mastery_criteria'][0]
     criterion['assessment_format']='numeric_response';criterion['checkpoints']=criterion['checkpoints'][:1]
     c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='typed-consistent')
