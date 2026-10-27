@@ -139,3 +139,19 @@ def test_supply_is_owner_only_and_generation_scope_is_not_a_student_write(monkey
     assert client.get(url,params=params,headers={'X-User-Id':'student'}).status_code==404
     c['course_knowledge_base']['mastery_criteria'][0]['readiness']='needs_core_review'
     assert client.get(url,params=params,headers={'X-User-Id':'teacher'}).status_code==409
+
+
+@pytest.mark.asyncio
+async def test_criterion_publication_uses_the_original_atomic_metadata_command(monkeypatch):
+    from knowledge_criterion_generation import plan
+    from routers import question_bank as routes
+    c=course();c.update(course_schema_version=routes.COURSE_DOCUMENT_SCHEMA,course_document_revision='doc')
+    c['_criterion_generation_plan']=plan(c,{'C':'CR'},['K'],['L1'],'request-one')
+    saved=[]
+    class Repository:
+        async def apply_metadata_command(self,course_id,*,expected_document_revision,operation,mutation):
+            fresh=deepcopy(c);mutation(fresh);saved.append(fresh)
+            assert expected_document_revision=='doc' and operation['actor']=='teacher'
+    monkeypatch.setattr(routes,'CourseDocumentRepository',lambda *_:Repository())
+    await routes._persist_rebuilt_course('c',c,{**c,'learning_assets':{'questions':[]}})
+    assert saved[0]['learning_assets']=={'questions':[]}
