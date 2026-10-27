@@ -118,3 +118,24 @@ async def test_stale_criterion_stops_publication_before_any_bundle_write(monkeyp
     monkeypatch.setattr(routes,'_course_with_rebuilt_assets',forbidden)
     with pytest.raises(ValueError,match='标准'):
         await routes._publish_rebuilt_course('c',c,{}, {},request_id='r',previous_question_bank_revision_id=None,previous_asset_revision_id=None)
+
+
+def test_supply_is_owner_only_and_generation_scope_is_not_a_student_write(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from unittest.mock import AsyncMock
+    from routers import question_bank as routes,practice
+    c=course();monkeypatch.setattr(routes,'get_course_or_404',AsyncMock(return_value=c))
+    monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=c))
+    monkeypatch.setattr(routes,'load_active_question_bank',lambda *a,**k:None)
+    monkeypatch.setattr(practice,'_questions',lambda *a,**k:[])
+    monkeypatch.setattr(routes.question_bank_rebuild_job_repository,'latest_for_course',lambda *a:None)
+    app=FastAPI();app.include_router(routes.router,prefix='/api');client=TestClient(app)
+    url='/api/courses/c/question-bank/criterion-supply'
+    params={'knowledge_id':'K','knowledge_revision':'KR','criterion_id':'C','criterion_revision':'CR'}
+    result=client.get(url,params=params,headers={'X-User-Id':'teacher'})
+    assert result.status_code==200 and result.json()['can_generate']is True
+    assert result.json()['available_count']==0
+    assert client.get(url,params=params,headers={'X-User-Id':'student'}).status_code==404
+    c['course_knowledge_base']['mastery_criteria'][0]['readiness']='needs_core_review'
+    assert client.get(url,params=params,headers={'X-User-Id':'teacher'}).status_code==409
