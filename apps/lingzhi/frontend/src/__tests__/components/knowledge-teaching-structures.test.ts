@@ -18,34 +18,35 @@ const tree:any={knowledge_points:[{knowledge_id:'K',revision_id:'R',name:'操作
   teaching_coverage:{K:{status:'ready',knowledge_revision:'R',note:'',no_mistakes:'',no_extensions:''}}}
 const options={global:{stubs:{MarkdownRenderer:{props:['content'],template:'<span>{{content}}</span>'}}}}
 beforeEach(()=>vi.restoreAllMocks())
-it.each([['zh',zh,'逐项判定','选学'],['en',en,'Checkpoint decisions','Optional']])('shows structured standards in %s without inventing learner scores',async(locale,messages,checkLabel,extensionLabel)=>{
+
+it.each([['zh',zh],['en',en]])('shows one teaching section at a time in %s',async(locale,messages)=>{
   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>messages})));await setLocale(locale as 'zh'|'en')
   const w=mount(Panel,{props:{tree,knowledgeId:'K'},...options})
-  expect(w.text()).toContain(checkLabel as string);expect(w.text()).toContain(extensionLabel as string)
-  expect(w.text()).toContain('指出规定位置');expect(w.text()).toContain('也可能读图失误')
-  expect(w.text()).not.toContain('0/2');expect(w.text()).not.toContain('100%')
+  expect(w.findAll('[role="tab"]')).toHaveLength(3)
+  expect(w.find('[data-testid="structured-mistake"]').exists()).toBe(false)
+  expect(w.find('[data-testid="structured-criterion"]').element.tagName).toBe('DETAILS')
+  expect(w.find('[data-testid="structured-criterion"]').attributes('open')).toBeUndefined()
+  expect(w.findAll('.evidence-policy')).toHaveLength(1)
+  await w.findAll('[role="tab"]')[1]!.trigger('click')
+  expect(w.find('[data-testid="structured-criterion"]').exists()).toBe(false)
+  expect(w.text()).toContain('也可能读图失误')
   await w.findAll('button').find(b=>b.text()==='另一知识')!.trigger('click')
   expect(w.emitted('select-knowledge')).toEqual([['J']]);w.unmount()
 })
-it('hides stale check revisions instead of assigning a zero score',async()=>{
+it('resets the section when switching knowledge and hides stale records',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
+  const w=mount(Panel,{props:{tree,knowledgeId:'K'},...options})
+  await w.findAll('[role="tab"]')[1]!.trigger('click')
   const stale=structuredClone(tree);stale.knowledge_points[0].revision_id='new'
-  const w=mount(Panel,{props:{tree:stale,knowledgeId:'K'},...options})
-  expect(w.text()).not.toContain('独立判断操作位置');expect(w.text()).not.toContain('0分');w.unmount()
+  await w.setProps({tree:stale,knowledgeId:'J'})
+  expect(w.findAll('[role="tab"]')[0]!.attributes('aria-selected')).toBe('true')
+  expect(w.text()).not.toContain('独立判断操作位置');w.unmount()
 })
-it('shows specific review findings for teaching objects without turning them into learner failures',async()=>{
+it('preserves specific review notes and formula names inside disclosed items',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
-  const reviewed=structuredClone(tree)
-  reviewed.mastery_criteria[0].review_notes=['判据遗漏了合法的边界情况']
-  reviewed.misconceptions[0].review_notes=['复测答案需核对']
-  reviewed.extensions[0].review_notes=['需区分选学与普通变式']
+  const reviewed=structuredClone(tree);reviewed.misconceptions[0].name='遗漏阶乘 $k!$';reviewed.misconceptions[0].review_notes=['复测答案需核对']
   const w=mount(Panel,{props:{tree:reviewed,knowledgeId:'K'},...options})
-  for(const note of ['判据遗漏了合法的边界情况','复测答案需核对','需区分选学与普通变式'])expect(w.text()).toContain(note)
-  expect(w.text()).not.toContain('0/2');w.unmount()
-})
-it('renders formulas in structured teaching names',async()=>{
-  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
-  const math=structuredClone(tree);math.misconceptions[0].name='遗漏阶乘 $k!$'
-  const w=mount(Panel,{props:{tree:math,knowledgeId:'K'},...options})
-  expect(w.find('[data-testid="structured-mistake"] h4 .katex').exists()).toBe(true);w.unmount()
+  await w.findAll('[role="tab"]')[1]!.trigger('click')
+  expect(w.text()).toContain('复测答案需核对')
+  expect(w.find('[data-testid="structured-mistake"] summary .katex').exists()).toBe(true);w.unmount()
 })
