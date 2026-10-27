@@ -6,6 +6,13 @@ import zh from '../../../public/locales/zh/translation.json'
 const http=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn()}))
 vi.mock('@/utils/http',()=>({default:http}))
 const props={courseId:'c',knowledgeId:'K',knowledgeRevision:'KR',preview:false}
+it('uses the original numeric answer renderer and submits a typed payload including zero',async()=>{
+ http.post.mockImplementation(async(url:string)=>url.endsWith('/target')?{data:{status:'available',task_revision_id:'T',question:{prompt:'计算数值',question_type:'numeric_response',input_contract:{mode:'numeric_unit',fields:[{field_id:'value',kind:'number',label:'数值',required:true}]}}}}:url.endsWith('/attempts')?{data:{attempt:{attempt_id:'A',revision:1,status:'in_progress'}}}:{data:{attempt:{attempt_id:'A',revision:2,status:'graded'},result:{status:'graded',passed:true,checkpoint_feedback:[]}}})
+ const w=mount(Journey,{props});await flushPromises();await w.get('[data-testid=check-start]').trigger('click');await flushPromises()
+ await w.get('input[type=number]').setValue('0');await w.get('[data-testid=check-submit]').trigger('click');await flushPromises()
+ const sent=http.post.mock.calls.find(([url])=>String(url).endsWith('/submit'))![1]
+ expect(Number(sent.answer_payload.value)).toBe(0);expect(sent.answer_payload.text).toBeUndefined();w.unmount()
+})
 const options={global:{stubs:{MarkdownRenderer:{props:['content'],template:'<div>{{content}}</div>'}}}}
 const view={criteria:[{criterion_id:'C',revision_id:'CR',name:'区分两个量',observable_performance:'分别判断变化',has_next:true,
  measurement:{status:'unassessed',latest_score:null,max_score:2,independent_successes:0}}]}
