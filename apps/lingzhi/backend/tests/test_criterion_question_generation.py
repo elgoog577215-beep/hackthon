@@ -157,13 +157,16 @@ def test_supply_is_owner_only_and_generation_scope_is_not_a_student_write(monkey
 async def test_criterion_publication_uses_the_original_atomic_metadata_command(monkeypatch):
     from knowledge_criterion_generation import plan
     from routers import question_bank as routes
-    c=course();c.update(course_schema_version=routes.COURSE_DOCUMENT_SCHEMA,course_document_revision='doc')
+    c=course();c.update(course_schema_version=routes.COURSE_DOCUMENT_SCHEMA,course_document_revision='projected-doc')
     c['_criterion_generation_plan']=plan(c,{'C':'CR'},['K'],['L1'],'request-one')
     saved=[]
     class Repository:
+        def load_raw(self,course_id):
+            return {**deepcopy(c),'course_document_revision':'stored-doc','course_document':{'document_revision':'stored-doc'}}
         async def apply_metadata_command(self,course_id,*,expected_document_revision,operation,mutation):
             fresh=deepcopy(c);mutation(fresh);saved.append(fresh)
-            assert expected_document_revision=='doc' and operation['actor']=='teacher'
+            assert expected_document_revision=='stored-doc' and operation['actor']=='teacher'
     monkeypatch.setattr(routes,'CourseDocumentRepository',lambda *_:Repository())
-    await routes._persist_rebuilt_course('c',c,{**c,'learning_assets':{'questions':[]}})
+    await routes._persist_rebuilt_course('c',c,{**c,'learning_assets':{'questions':[]},'course_knowledge_base':{'bad':'overwrite'}})
     assert saved[0]['learning_assets']=={'questions':[]}
+    assert saved[0]['course_knowledge_base']==c['course_knowledge_base']

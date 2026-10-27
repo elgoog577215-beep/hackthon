@@ -1,9 +1,9 @@
 """Criterion planning and bindings inside the existing question-bank pipeline."""
 from copy import deepcopy
 from course_versioning import stable_hash
+from knowledge_criterion_binding import BINDING, criterion_signature, content_signature, valid_binding
 
 CONTRACT='knowledge_criterion_generation_v1'
-BINDING='knowledge_criterion_binding_v1'
 
 
 def authoring_directive():
@@ -11,11 +11,6 @@ def authoring_directive():
         'controlled_conditions必须落实为题面已知条件或明确的作答环境，以排除其他能力干扰，不能变成额外的学生计算任务。'
         '给定数据和定义不等于泄漏目标结论；不得给出目标的答案或推理规则。'
         '允许同一目标下的关联小问，不强制改成选择题、代码或单个数值；各判据必须能独立评分。')
-
-
-def criterion_signature(c):
-    return stable_hash({k:deepcopy(c.get(k))for k in ('criterion_id','revision_id','knowledge_ids','knowledge_revision_refs',
-        'dimension','observable_performance','verification_method','controlled_conditions','checkpoints','scoring','evidence_policy')},prefix='kcgs_')
 
 
 def plan(course,refs,knowledge_ids,node_ids,request_id):
@@ -90,10 +85,6 @@ def enforce_alignment(report,slot):
     return r
 
 
-def content_signature(q):
-    return stable_hash({'prompt':q.get('prompt'),'spec':q.get('question_spec'),'solution':q.get('solution_revision_id')},prefix='kcqcontent_')
-
-
 def seal_binding(q,target,report):
     verified=enforce_alignment(report,{'criterion_target':target})
     c=target['criterion']
@@ -104,10 +95,3 @@ def seal_binding(q,target,report):
         'alignment':deepcopy(verified.get('criterion_alignment')or{})}
 
 
-def valid_binding(q,c):
-    b=q.get('criterion_binding')or{}
-    return bool(b.get('contract')==BINDING and b.get('reviewed')is True
-        and b.get('criterion_id')==c['criterion_id'] and b.get('criterion_revision')==c['revision_id']
-        and b.get('criterion_signature')==criterion_signature(c) and b.get('knowledge_revision_refs')==c['knowledge_revision_refs']
-        and b.get('checkpoint_ids')==[p['checkpoint_id']for p in c['checkpoints']]
-        and b.get('content_signature')==content_signature(q))
