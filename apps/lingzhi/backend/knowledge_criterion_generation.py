@@ -12,6 +12,16 @@ class PreparationRequired(ValueError):
         self.code = code
 
 
+def generation_readiness(course):
+    base=course.get('course_knowledge_base')or{}
+    if not base.get('revision_id') or not (base.get('status')=='accepted' or base.get('lifecycle_status')=='active'):
+        return {'ready':False,'code':'knowledge_baseline_required','reviewed_criterion_count':0}
+    from knowledge_check_flow import criteria
+    catalog=criteria(course)
+    return {'ready':bool(catalog),'code':'' if catalog else 'reviewed_criteria_required',
+            'knowledge_baseline_revision':base['revision_id'],'reviewed_criterion_count':len(catalog)}
+
+
 def request_plan(course, *, node_ids, request_id, knowledge_ids=None, criterion_revision_refs=None, prior_plan=None):
     """Resolve every new authoring entry against the same reviewed catalog."""
     if prior_plan:

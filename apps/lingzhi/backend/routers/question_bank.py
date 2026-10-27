@@ -605,8 +605,11 @@ async def get_question_bank(
         course,
         repository=question_bank_repository,
     )
+    from knowledge_criterion_generation import generation_readiness
+    readiness=generation_readiness(course)
     if not bundle:
         return {
+            'generation_readiness':readiness,
             "schema_version": "question_bank_api_v1",
             "course_id": course_id,
             "bundle_revision_id": "",
@@ -644,6 +647,7 @@ async def get_question_bank(
     ]
     return {
         "schema_version": "question_bank_api_v1",
+        'generation_readiness':readiness,
         "course_id": course_id,
         "bundle_revision_id": bundle.get("bundle_revision_id"),
         "coverage": bundle.get("coverage") or {},

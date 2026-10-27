@@ -1,4 +1,11 @@
 {
+  "unifiedGeneration": {
+    "ready": "Questions use confirmed knowledge and reviewed criteria. Generation, binding and review have separate statuses.",
+    "baselineRequired": "Confirm the knowledge baseline before generating check questions. Existing questions are retained.",
+    "criteriaRequired": "This course has no reviewed criteria yet. Prepare its criteria first.",
+    "openKnowledge": "View knowledge and criteria",
+    "counts": "Published {published} · Awaiting review {pending} · Not precisely bound {unbound}"
+  },
   "courseChangeUi": {
     "generateLinkedCandidates": "Generate linked proposals",
     "generatingLinkedHint": "The structure is confirmed. Prepare changes for the related course files.",

@@ -348,6 +348,7 @@
                 <span class="question-review-item__question">
                   <strong class="question-review-item__preview"><MathText :content="questionPreview(item)" /></strong>
                   <small>{{ questionTypeLabel(item) }} · {{ validationModeLabel(item.validation_mode) }}</small>
+                  <small>{{ questionKnowledgeStatusLabel(item.knowledge_binding_status || 'unbound') }}</small>
                 </span>
                 <span class="question-review-item__status" :data-status="item.lifecycle_status">
                   <i aria-hidden="true"></i>
@@ -664,6 +665,7 @@
               <ul v-if="failedChapterSummaries.length">
                 <li v-for="chapter in failedChapterSummaries" :key="chapter.node_id">
                   <i aria-hidden="true"></i>{{ chapter.label }}
+                  <span v-if="chapter.reason">{{ chapter.reason }}</span>
                 </li>
               </ul>
               <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
@@ -713,6 +715,11 @@
       </div>
 
       <div class="question-generation-flow">
+        <p data-testid="question-pipeline-counts">{{ pipelineCounts }}</p>
+        <section v-if="generationReadiness" class="question-generation-step" data-testid="unified-generation-readiness" role="status">
+          <p>{{ generationReadiness.ready ? t('unifiedGeneration.ready') : t(generationReadiness.code === 'knowledge_baseline_required' ? 'unifiedGeneration.baselineRequired' : 'unifiedGeneration.criteriaRequired') }}</p>
+          <a v-if="!generationReadiness.ready" :href="`/course/${encodeURIComponent(courseId)}/workspace/build?stage=knowledge`">{{ t('unifiedGeneration.openKnowledge') }}</a>
+        </section>
         <div class="question-generation-target" data-testid="question-generation-target" role="status" aria-live="polite">
           <span>{{ t('questionBank.studio.currentLesson', '当前讲次') }}</span>
           <strong>{{ generationScopeReady ? generationTargetLabel : t('questionBank.studio.selectChapterHint', '请先选择一个讲次') }}</strong>
@@ -754,7 +761,7 @@
               type="button"
               data-testid="generate-question-bank"
               class="question-generation-primary"
-              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid"
+              :disabled="loading || rebuilding || !generationScopeReady || !quantityValid || generationReadiness?.ready === false"
               @click="startGeneration"
             >
               <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
@@ -996,6 +1003,7 @@ const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
 const errorMessage = ref('')
+const generationReadiness = ref<{ready:boolean;code:string}|null>(null)
 const questionBankMissing = ref(false)
 const rebuildErrorMessage = ref('')
 const bundleRevisionId = ref('')
@@ -1092,6 +1100,10 @@ const selectedQuestions = computed(() => {
 const publishedCount = computed(() => activeItems.value.filter(
   item => item.lifecycle_status === 'approved',
 ).length)
+const pipelineCounts = computed(() => t('unifiedGeneration.counts')
+  .replace('{published}',String(publishedCount.value))
+  .replace('{pending}',String(activeItems.value.filter(i=>i.lifecycle_status==='needs_review').length))
+  .replace('{unbound}',String(activeItems.value.filter(i=>i.knowledge_binding_status!=='bound').length)))
 const selectedQuestionBinding = computed(() => {
   const question = selectedQuestion.value
   const directPoints = question?.knowledge_points || []
@@ -1435,6 +1447,7 @@ const failedChapterSummaries = computed(() => (
       .find(item => String(item?.node_id || '') === nodeId)
     return {
       node_id: nodeId,
+      reason: String(failedChapter?.error_message || ''),
       label: chapter
         ? chapterLabel(chapter)
         : String(failedChapter?.node_name || '').trim()
@@ -1486,6 +1499,7 @@ onBeforeUnmount(() => {
   rebuildAbortController?.abort()
 })
 watch(() => props.courseId, () => {
+  generationReadiness.value = null
   workspaceMode.value = 'bank'
   questionReferences.value = []
   rebuildAbortController?.abort()
@@ -1743,6 +1757,7 @@ async function load() {
     )
     if (!current()) return
     const data = response.data || {}
+    generationReadiness.value = data.generation_readiness || null
     bundleRevisionId.value = String(data.bundle_revision_id || '')
     coverage.value = data.coverage || {}
     reviewQueue.value = data.review_queue || {}

@@ -3619,6 +3619,8 @@ def _question_quality_failure_message(items: list[dict[str, Any]]) -> str:
         "OBJECTIVE_MISMATCH": "题目没有考查所选知识目标",
         "INDEPENDENT_EVIDENCE_UNVERIFIED": "独立解答缺少可核对的推导依据",
         "independent_solution_mismatch": "独立求解结果与答案不一致",
+        'ANSWER_DOMAIN_MISMATCH':'题目没有确定的数值结果，不能用0或数量代替不存在的结果',
+        'REPAIR_PAIR_CHANGED':'修复改变了题目但试图沿用另一题的答案，已停止并保留原结果',
     }
     failed = []
     for item in items:
@@ -3892,7 +3894,7 @@ def _apply_targeted_repair_candidate(
     # A new answer derived for a proposed new question cannot be attached to
     # the old question after the field guard restores that question.
     public_restored = any(path.startswith('question_spec.') for path in restored_paths)
-    solution_changed = any(path.startswith('solution.') for path in proposed_changes)
+    solution_changed = bool(set(changed_paths) & {'solution.canonical_answer','solution.worked_solution','solution.solution_graph'})
     rejected = public_restored and solution_changed
     if rejected:
         result = deepcopy(original)

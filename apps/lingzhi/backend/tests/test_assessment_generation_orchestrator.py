@@ -521,7 +521,7 @@ async def test_orchestrator_uses_bounded_repair_and_isolates_solver():
     ).prepare_course(_course())
 
     assert model.generate_calls == 3
-    assert model.solve_calls == 3
+    assert model.solve_calls == 4  # The repaired answer creates a new solve/review pair.
     assert model.repair_calls == 1
     assert all(
         "canonical_answer" not in repr(payload)
@@ -573,14 +573,14 @@ async def test_one_correction_disagreement_discards_only_failed_slot():
     contracts = prepared['_assessment_generated_contracts']['thermo-1']
     assert model.generate_calls == 3
     assert model.repair_calls == 1
-    assert model.solve_calls == 3
+    assert model.solve_calls == 4
     assert contracts['objective_practice']['generation_status'] == 'discarded'
     assert contracts['concept_check']['generation_status'] == 'ready'
     assert contracts['mastery_check']['generation_status'] == 'ready'
     item = next(i for i in prepared['_assessment_generation_audit']['items']
                 if i['practice_level'] == 'objective_practice')
     assert len(item['attempts']) == 2
-    assert item['attempts'][-1]['issue_codes'] == ['VALIDATION_FAILED']
+    assert item['attempts'][-1]['issue_codes'] == ['VALIDATION_FAILED','independent_solution_mismatch']
     assert item['final_decision'] == 'discard'
 
 
@@ -968,7 +968,7 @@ async def test_task_length_preflight_repairs_before_independent_solving():
     assert mastery["attempts"][0]["issue_codes"] == ["TASK_TOO_LONG"]
     assert mastery["attempts"][0]["next_action"] == "repair"
     assert model.repair_calls == 2
-    assert model.solve_calls == 3
+    assert model.solve_calls == 4
     assert mastery["final_decision"] == "teacher_review"
 
 

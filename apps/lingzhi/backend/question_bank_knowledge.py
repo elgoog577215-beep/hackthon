@@ -59,6 +59,9 @@ def binding_view(course: dict, bundle: dict) -> dict:
     base, points = _baseline(course)
     rows = []
     counts = dict(bound=0, pending=0, unbound=0, stale=0)
+    from knowledge_check_flow import criteria
+    from knowledge_criterion_binding import valid_binding
+    catalog={c['criterion_id']:c for c in criteria(course)}
     for item in bundle.get("items") or []:
         if item.get("lifecycle_status") in {"retired", "rejected"}:
             continue
@@ -75,6 +78,9 @@ def binding_view(course: dict, bundle: dict) -> dict:
                 status = "bound" if ids and set(ids) == set(refs) and all(
                     kid in points and refs[kid] == points[kid]["revision_id"] for kid in ids
                 ) else "stale"
+        if item.get('criterion_binding'):
+            criterion=catalog.get(item['criterion_binding'].get('criterion_id'))
+            status='bound' if criterion and valid_binding(item,criterion) else 'stale'
         counts[status] += 1
         rows.append({
             "revision_id": item["revision_id"], "item_id": item.get("item_id"),

@@ -1,4 +1,11 @@
 {
+  "unifiedGeneration": {
+    "ready": "按已确认的知识和检查标准编排题目；生成、绑定和审阅状态分别记录。",
+    "baselineRequired": "知识树尚未确认，暂不能生成可用于检查的题目。已有题目保留。",
+    "criteriaRequired": "所选课程尚无已审阅的检查标准，请先准备检查标准。",
+    "openKnowledge": "查看知识树与检查标准",
+    "counts": "已发布 {published} · 待审阅 {pending} · 未精确绑定 {unbound}"
+  },
   "courseChangeUi": {
     "generateLinkedCandidates": "生成联动建议",
     "generatingLinkedHint": "课程结构已确认，正在形成相关课程文件的修改建议。",

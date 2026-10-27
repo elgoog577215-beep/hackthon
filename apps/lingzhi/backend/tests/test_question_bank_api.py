@@ -379,6 +379,11 @@ def _client(
         tmp_path / "question-bank-rebuilds"
     )
     course_storage = MemoryCourseStorage(course or _course())
+    course_storage.course.setdefault('owner_id','teacher-1')
+    # These fixtures exercise persisted legacy campaigns and their publication
+    # recovery. Current admission (including a missing baseline) is covered by
+    # test_unified_question_plan, with the production planner enabled.
+    monkeypatch.setattr(question_bank,'_admit_generation_plan',lambda *_:None)
 
     async def get_course(course_id: str):
         course = deepcopy(course_storage.course)
@@ -433,6 +438,7 @@ def test_unbuilt_question_bank_is_a_normal_empty_state(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.json() == {
+        'generation_readiness':{'ready':False,'code':'knowledge_baseline_required','reviewed_criterion_count':0},
         "schema_version": "question_bank_api_v1",
         "course_id": "course-api",
         "bundle_revision_id": "",
