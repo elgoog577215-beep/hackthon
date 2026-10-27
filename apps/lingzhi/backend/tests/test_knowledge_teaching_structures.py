@@ -30,6 +30,21 @@ def identity_reply(payload):
     return {'decisions':{p['key']:{'action':'keep','reason':'没有确认等价对象'}for p in payload['candidates']}}
 
 
+def test_original_teaching_generator_preserves_an_optional_reviewable_response_form():
+    from knowledge_teaching_contract import compile_batch
+    from knowledge_teaching_assets import assemble
+    points=[{'key':'K1','knowledge_id':'kid','revision_id':'rev','name':'关系','statement':'明确关系'}]
+    response=teaching_reply({'focus':points})
+    row=response['points']['K1'];row['criteria'][0]['assessment_format']='single_choice'
+    row['criteria'][0]['checkpoints']=row['criteria'][0]['checkpoints'][:1];row['criteria'][0]['mistake_keys']=[]
+    response['mistakes']=[];response['extensions']=[];row['no_mistakes']='本次只验证格式保存';row['no_extensions']='本次只验证格式保存'
+    batch=compile_batch(response,points,points,'B')
+    tree=assemble({'knowledge_points':points},[{'id':'B','result':batch}],{},[],'c','L','origin')
+    assert tree['mastery_criteria'][0]['assessment_format']=='single_choice'
+    legacy=deepcopy(response);legacy['points']['K1']['criteria'][0].pop('assessment_format')
+    assert compile_batch(legacy,points,points,'B')
+
+
 @pytest.mark.asyncio
 async def test_structuring_reuses_core_profiles_and_relations_without_learner_writes(svc,monkeypatch):
     await seed(svc,monkeypatch);calls=[];provider(svc,calls)
