@@ -9,6 +9,26 @@ from ai_base import AIProviderRequestError
 from assessment_variants import ChoicePositionAllocator, variant_instruction
 
 
+def model_design_contexts(contexts):
+    result=deepcopy(contexts)
+    for index,context in enumerate(result,1):
+        context['assessment_slot']['slot_id']=f'item-{index}'
+    return result
+
+
+def restore_design_contexts(original,designed):
+    expected={f'item-{i}':context for i,context in enumerate(original,1)}
+    keys=[str(c['assessment_slot']['slot_id'])for c in designed]
+    if len(keys)!=len(expected) or set(keys)!=set(expected):
+        raise ValueError('Measurement transport identity mismatch')
+    result=[]
+    for context in designed:
+        restored=deepcopy(context)
+        restored['assessment_slot']=deepcopy(expected[context['assessment_slot']['slot_id']]['assessment_slot'])
+        result.append(restored)
+    return result
+
+
 def measurement_strategy(slot: dict) -> dict:
     """Choose an observation from the rule's semantics, never its identity."""
     if slot.get('criterion_target'):

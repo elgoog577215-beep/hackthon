@@ -40,7 +40,8 @@ async def test_atomic_generator_designs_before_rendering_without_mutating_contex
     async def call(policy, prompt, **kwargs):
         seen.append((policy.stage, prompt))
         if policy.stage == "design":
-            return json.dumps({"plans": [{"slot_id": "slot-a", "plan": plan()}]})
+            assert '"slot_id": "item-1"' in prompt
+            return json.dumps({"plans": [{"slot_id": "item-1", "plan": plan()}]})
         return json.dumps({"question_spec": {}, "solution": {}})
 
     model._assessment_llm_call = call
@@ -166,7 +167,7 @@ async def test_batch_design_preserves_slot_mapping():
 
     async def call(policy, prompt, **kwargs):
         if policy.stage == "design":
-            return json.dumps({"plans": [{"slot_id": s, "plan": {**plan(), "ask": s}} for s in ["b", "a"]]})
+            return json.dumps({"plans": [{"slot_id": wire, "plan": {**plan(), "ask": original}} for wire,original in [("item-2","b"),("item-1","a")]]})
         return json.dumps(
             {"candidates": [{"slot_id": s, "candidate": {"question_spec": {}, "solution": {}}} for s in ["a", "b"]]}
         )
