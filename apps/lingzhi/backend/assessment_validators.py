@@ -15,6 +15,10 @@ except ImportError:  # pragma: no cover - deployment guard
 VALIDATION_REPORT_SCHEMA = "solution_validation_report_v1"
 VALIDATOR_RESULT_SCHEMA = "assessment_validator_result_v1"
 
+# Canonical unit semantics, shared by generation and student grading. An
+# absent unit denotes a dimensionless scalar, never a missing physical unit.
+_DIMENSIONLESS_UNITS = frozenset({'', '1', 'dimensionless', 'unitless', '无量纲', '无单位', '无'})
+
 _UNIT_FACTORS: dict[str, tuple[str, float]] = {
     "j": ("energy", 1.0),
     "kj": ("energy", 1000.0),
@@ -260,7 +264,7 @@ def _numeric_equivalent(
 ) -> bool:
     expected_value, expected_unit = _number_and_unit(expected)
     actual_value, actual_unit = _number_and_unit(actual)
-    if expected_value is None or actual_value is None:
+    if expected_value is None or actual_value is None or not math.isfinite(expected_value) or not math.isfinite(actual_value):
         return False
     expected_value, actual_value, units_compatible = _normalize_units(
         expected_value,
@@ -314,7 +318,8 @@ def _normalize_units(
 
 
 def _normalize_unit(value: str) -> str:
-    return re.sub(r"\s+", "", str(value or "")).casefold()
+    normalized = re.sub(r"\s+", "", str(value or "")).casefold()
+    return '' if normalized in _DIMENSIONLESS_UNITS else normalized
 
 
 def _number_and_unit(value: Any) -> tuple[float | None, str]:
