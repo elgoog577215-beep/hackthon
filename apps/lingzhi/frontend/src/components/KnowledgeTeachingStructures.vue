@@ -15,6 +15,7 @@
       <span class="kind">{{ t(`knowledgeTeaching.dimensions.${criterion.dimension}`) }}</span>
       <MarkdownRenderer :content="criterion.observable_performance" />
       <h5>{{ t('knowledgeTeaching.method') }}</h5><MarkdownRenderer :content="criterion.verification_method" />
+      <p>{{ t('unifiedGeneration.formLabel') }} · {{ t(criterion.assessment_format === 'single_choice' ? 'unifiedGeneration.formChoice' : criterion.assessment_format === 'numeric_response' ? 'unifiedGeneration.formNumeric' : 'unifiedGeneration.formShort') }}</p>
       <template v-if="criterion.controlled_conditions?.length"><h5>{{ t('knowledgeTeaching.controls') }}</h5><ul><li v-for="value in criterion.controlled_conditions" :key="value"><MarkdownRenderer :content="value" /></li></ul></template>
       <h5>{{ t('knowledgeTeaching.checkpoints') }}</h5>
       <ol><li v-for="item in criterion.checkpoints" :key="item.checkpoint_id"><MathText tag="strong" :content="item.label" /><MarkdownRenderer :content="item.pass_condition" /></li></ol>

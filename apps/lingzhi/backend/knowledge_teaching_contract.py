@@ -30,6 +30,8 @@ def response_schema(focus_keys,catalog_keys):
         'observable_performance':text(),'verification_method':text(),'controlled_conditions':array(text(180),4),
         'checkpoints':array(obj({'label':text(80),'pass_condition':text(200)}),4,1),
         'mistake_keys':array(text(20),6)})
+    # Additive: completed historical structures remain valid and unchanged.
+    criterion['properties']['assessment_format']={'enum':['short_answer','single_choice','numeric_response']}
     point=obj({'status':{'enum':['ready','needs_core_review']},'note':text(300,True),
         'criteria':array(criterion,3),'no_mistakes':text(180,True),'no_extensions':text(180,True)})
     mistake=obj({'key':text(20),'name':text(80),'observable_error_pattern':text(),'hypothesis':text(),
@@ -45,6 +47,7 @@ def prompt(tree,focus):
     return render('把已有知识及教学提示整理为结构化教学设计，不修改知识、ID、类别、条件或分类，也不生成学生画像或掌握分。'
         'points恰好覆盖focus。每点给1到3项可独立观察的检查标准，不固定凑理解/操作/迁移三套；每项1到4条能判定是否满足的具体条件。'
         'name与observable_performance用简短陈述句。verification_method是具体检查任务提纲，controlled_conditions说明提供哪些前提以减少其他知识干扰。'
+        '每项建议assessment_format为short_answer、single_choice或numeric_response。需要分别说明多个判据时用short_answer；单选和数值只检查一条能由该结果直接判定的判据。数值任务必须有确定有限结果及明确精度，不能用一个参考数值代替多个合法答案。'
         'checkpoints每条label简短，pass_condition明确什么表现算满足，不写“基本掌握”“理解正确”这类空话，不自定分数或阈值。'
         '发现核心条件矛盾、结论不严谨或同义重复时标needs_core_review并在note说明，检查标准保持待核对；不能偷偷改知识。'
         'mistakes保存一个具体错误假设，给可见错误、可能原因、其他可能解释、区分性检查、补救及独立复测；同一错误可关联多个知识key。'

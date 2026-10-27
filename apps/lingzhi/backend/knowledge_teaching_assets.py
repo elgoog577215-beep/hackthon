@@ -114,6 +114,7 @@ def assemble(tree,batches,identities,existing,course_id,lesson_id,origin_id):
                 checks=[{'checkpoint_id':stable_hash({'criterion':cid,'index':i},prefix='kti_'),**deepcopy(c),'max_score':1}
                         for i,c in enumerate(source['checkpoints'],1)]
                 row={'criterion_id':cid,'course_id':course_id,'contract':CONTRACT,
+                    **({'assessment_format':source['assessment_format']}if source.get('assessment_format')else {}),
                     **{k:deepcopy(source[k])for k in ('name','dimension','observable_performance','verification_method','controlled_conditions')},
                     'knowledge_ids':[kid],'knowledge_revision_refs':{kid:point['revision_id']},'section_refs':[lesson_id],
                     'source_refs':deepcopy(point.get('source_refs',[])),'skill_ids':[],

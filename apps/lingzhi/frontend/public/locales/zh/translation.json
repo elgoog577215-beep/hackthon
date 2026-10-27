@@ -1,5 +1,9 @@
 {
   "unifiedGeneration": {
+    "formLabel": "作答形式",
+    "formChoice": "单选",
+    "formNumeric": "数值",
+    "formShort": "简答（未声明形式时默认使用）",
     "countUnknown": "题目数量尚未读取",
     "reviewComplete": "本轮生成已结束，审阅结果见题目状态。",
     "ready": "按已确认的知识和检查标准编排题目；生成、绑定和审阅状态分别记录。",

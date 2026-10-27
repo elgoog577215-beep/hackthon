@@ -1,5 +1,9 @@
 {
   "unifiedGeneration": {
+    "formLabel": "Response format",
+    "formChoice": "Single choice",
+    "formNumeric": "Numeric",
+    "formShort": "Short answer (default when unspecified)",
     "countUnknown": "Question count not loaded",
     "reviewComplete": "Generation has finished. Review outcomes are shown on each question.",
     "ready": "Questions use confirmed knowledge and reviewed criteria. Generation, binding and review have separate statuses.",
