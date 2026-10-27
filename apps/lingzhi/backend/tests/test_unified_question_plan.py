@@ -276,16 +276,35 @@ def test_ordinary_plan_accepts_a_realistic_catalog_and_rejects_incompatible_form
     assert error.value.code=='criterion_format_mismatch'
 
 
-def test_lecture_references_resolve_through_real_parent_links_without_rewriting_knowledge():
+@pytest.mark.parametrize('topic_only',[False,True])
+def test_lecture_references_resolve_through_real_parent_links_without_rewriting_knowledge(topic_only):
     from knowledge_criterion_generation import request_plan
     c=course();c['nodes'].append({'node_id':'lecture-opaque','node_level':1,'node_name':'任意讲次'})
     c['nodes'][0]['parent_node_id']='lecture-opaque'
     point=c['course_knowledge_base']['knowledge_points'][0];point['section_refs']=['lecture-opaque'];point['topic']='lecture-opaque'
+    if topic_only:point['section_refs']=[]
     c['course_knowledge_base']['mastery_criteria'][0]['section_refs']=['lecture-opaque']
     frozen=deepcopy(c['course_knowledge_base'])
     p=request_plan(c,node_ids=['L1'],request_id='real-reference-shape')
     assert p['targets'][0]['node_id']=='L1'
     assert c['course_knowledge_base']==frozen
+
+
+@pytest.mark.asyncio
+async def test_standard_supply_uses_the_same_lecture_reference_resolution(monkeypatch):
+    from routers import question_bank as routes,practice
+    from unittest.mock import AsyncMock
+    c=course();c['nodes'].append({'node_id':'lecture-opaque','node_level':1,'node_name':'父讲次'})
+    c['nodes'][0]['parent_node_id']='lecture-opaque';c['course_knowledge_base']['knowledge_points'][0]['section_refs']=['lecture-opaque']
+    monkeypatch.setattr(routes,'_owned_binding_course',AsyncMock(return_value=c))
+    monkeypatch.setattr(practice,'_questions',lambda *args,**kwargs:[])
+    monkeypatch.setattr(routes,'load_active_question_bank',lambda *args,**kwargs:{'items':[]})
+    class Jobs:
+        def latest_for_course(self,*_):return None
+        def active_for_course(self,*_):return None
+    monkeypatch.setattr(routes,'question_bank_rebuild_job_repository',Jobs())
+    result=await routes.get_criterion_question_supply('c',knowledge_id='K',knowledge_revision='KR',criterion_id='C',criterion_revision='CR',x_user_id='teacher')
+    assert result['can_generate']is True and result['node_id']=='L1'
 
 
 @pytest.mark.asyncio
