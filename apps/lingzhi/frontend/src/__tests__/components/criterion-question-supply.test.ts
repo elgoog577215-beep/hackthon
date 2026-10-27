@@ -10,8 +10,8 @@ beforeEach(async()=>{vi.clearAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>({o
 it('calls the existing bank rebuild with exact criterion and knowledge revisions',async()=>{
  http.post.mockResolvedValue({data:{job_id:'J',status:'queued'}})
  const w=mount(Supply,{props});await flushPromises();await w.get('[data-testid=criterion-generate]').trigger('click');await flushPromises()
- expect(http.post.mock.calls[0][0]).toBe('/api/courses/c/question-bank/rebuild')
- expect(http.post.mock.calls[0][1]).toMatchObject({scope:'nodes',mode:'incremental',knowledge_ids:['K'],knowledge_baseline_revision:'kb',criterion_revision_refs:{C:'CR'},retrieval_enabled:false})
+ expect(http.post.mock.calls[0]![0]).toBe('/api/courses/c/question-bank/rebuild')
+ expect(http.post.mock.calls[0]![1]).toMatchObject({scope:'nodes',mode:'incremental',knowledge_ids:['K'],knowledge_baseline_revision:'kb',criterion_revision_refs:{C:'CR'},retrieval_enabled:false})
  w.unmount()
 })
 it('does not start another job when the course bank is already running',async()=>{
