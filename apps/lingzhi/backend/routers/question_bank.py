@@ -517,7 +517,9 @@ async def get_criterion_question_supply(course_id:str,knowledge_id:str=Query(min
         and c['knowledge_revision_refs'].get(knowledge_id)==knowledge_revision),None)
     if not c:raise HTTPException(409,'检查标准尚未审阅采用，或版本已变化')
     point=next(p for p in course['course_knowledge_base']['knowledge_points']if p['knowledge_id']==knowledge_id)
-    node=next((s for s in point.get('section_refs',[])if any(n.get('node_id')==s and int(n.get('node_level')or 1)==2 for n in course.get('nodes',[]))),None)
+    from knowledge_criterion_generation import resolve_target_node
+    nodes={n['node_id']for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2}
+    node=resolve_target_node(course,point,nodes)
     can_generate=bool(node)
     if node:
         try:
@@ -558,7 +560,8 @@ async def get_knowledge_question_supply(course_id: str) -> dict[str, Any]:
     from knowledge_check_flow import criteria
     eligible={c['knowledge_ids'][0]for c in criteria(course)}
     node_ids={n['node_id']for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2}
-    slots={p['knowledge_id']:next((n for n in p.get('section_refs',[])if n in node_ids),'')
+    from knowledge_criterion_generation import resolve_target_node
+    slots={p['knowledge_id']:resolve_target_node(course,p,node_ids)or ''
            for p in base.get('knowledge_points',[])if p.get('knowledge_id')in eligible}
     for row in rows:
         row["node_id"] = slots.get(row["knowledge_id"], "")

@@ -25,7 +25,8 @@ def generation_readiness(course):
 def resolve_target_node(course, point, requested):
     """Resolve saved lecture IDs through actual topology, never title text."""
     nodes={n['node_id']:n for n in course.get('nodes',[])}
-    refs=[r for r in point.get('section_refs',[])if isinstance(r,str)]
+    saved=point.get('section_refs')or ([point['topic']]if point.get('topic')else [])
+    refs=[r for r in saved if isinstance(r,str)]
     direct=[r for r in refs if r in requested and int((nodes.get(r)or{}).get('node_level')or 1)==2]
     if direct:return direct[0]
     candidates=[]
