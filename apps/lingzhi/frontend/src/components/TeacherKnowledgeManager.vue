@@ -137,7 +137,7 @@
               <KnowledgeMasteryTree v-else :content-tree="contentTree" :tree-revision="displayTree.revision_id" :show-mastery="false" :selected-id="selectedId" @select="selectGraphPoint" />
             </div>
             <nav v-if="selectedPoint" class="knowledge-reading-nav" :aria-label="t('knowledgeDetailLayout.navigation')"><button v-for="point in displayTree.knowledge_points" :key="point.knowledge_id" :aria-current="point.knowledge_id === selectedId ? 'true' : undefined" @click="selectedId = point.knowledge_id"><MathText :content="knowledgeDisplayName(point)" /></button></nav>
-            <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" tabindex="-1" :aria-label="t('knowledgeFirst.pointDetails')">
+            <aside v-if="selectedPoint" ref="detailPane" class="knowledge-detail-pane" tabindex="-1" :aria-label="t('knowledgeFirst.pointDetails')" @keydown.esc.stop="closePoint">
             <button v-if="!selectedSource" type="button" class="close-point-detail" @click="closePoint">{{ t('knowledgeFirst.backToTree') }}</button>
             <KnowledgeSourceReader v-if="selectedSource" :course-id="courseId" :tree-revision="displayTree.revision_id" :knowledge-id="selectedId" :source="selectedSource" @close="closeSource" />
             <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
@@ -278,7 +278,15 @@ const treeViewMode = ref<'tree' | 'graph'>('tree')
 const detailPane = ref<HTMLElement | null>(null)
 const selectedSource = ref<any>(null)
 let pointTrigger: HTMLElement | null = null
-function selectGraphPoint(id: string, trigger: HTMLElement) { pointTrigger = trigger; selectedId.value = id }
+let readingReturn: { element:HTMLElement; top:number } | null = null
+function selectGraphPoint(id: string, trigger: HTMLElement) {
+  if (!selectedId.value) {
+    let parent=trigger.parentElement
+    while(parent && !(parent.scrollHeight>parent.clientHeight && /auto|scroll/.test(getComputedStyle(parent).overflowY))) parent=parent.parentElement
+    if(parent) readingReturn={element:parent,top:parent.scrollTop}
+  }
+  pointTrigger = trigger; selectedId.value = id
+}
 function selectRelationNode(node: any) {
   if (displayTree.value?.knowledge_points.some((point: any) => point.knowledge_id === node.knowledge_id)) selectedId.value = node.knowledge_id
   else {
@@ -286,7 +294,8 @@ function selectRelationNode(node: any) {
     if (lessonId) void navigateRelated({ lesson_id: lessonId, knowledge_id: node.knowledge_id })
   }
 }
-async function closePoint() { selectedId.value = ''; await nextTick(); pointTrigger?.focus({ preventScroll: true }) }
+async function closePoint() { selectedId.value = ''; await nextTick(); if(readingReturn)readingReturn.element.scrollTop=readingReturn.top; pointTrigger?.focus({ preventScroll: true }) }
+watch(selectedId,async id=>{if(!id || !props.treeOnly)return;await nextTick();detailPane.value?.scrollIntoView({block:'start'});detailPane.value?.focus({preventScroll:true})})
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false, requestSequence = 0
 let retryCount = 0, observationStopped = false
@@ -837,6 +846,7 @@ onBeforeUnmount(() => { disposed = true; requestSequence++; readController?.abor
 
 <style scoped>
 .teacher-knowledge-manager .tree-layout.has-selection { grid-template-columns:200px minmax(0,1fr); gap:20px; }
+.knowledge-detail-pane { scroll-margin-top:20px; }
 .knowledge-reading-nav { display:grid; gap:4px; position:sticky; top:16px; max-height:70vh; overflow:auto; padding:8px; border:1px solid #e5dff0; border-radius:12px; background:#fff; }
 .knowledge-reading-nav button { text-align:left; border:0; background:transparent; padding:11px 12px; font-size:15px; line-height:1.5; }
 .knowledge-reading-nav button[aria-current=true] { background:#f0edfc; color:#604799; }
