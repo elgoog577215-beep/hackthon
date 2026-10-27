@@ -1103,6 +1103,7 @@ const publishedCount = computed(() => activeItems.value.filter(
 const pipelineCounts = computed(() => t('unifiedGeneration.counts')
   .replace('{published}',String(publishedCount.value))
   .replace('{pending}',String(activeItems.value.filter(i=>i.lifecycle_status==='needs_review').length))
+  .replace('{rejected}',String(activeItems.value.filter(i=>i.lifecycle_status==='rejected').length))
   .replace('{unbound}',String(activeItems.value.filter(i=>i.knowledge_binding_status!=='bound').length)))
 const selectedQuestionBinding = computed(() => {
   const question = selectedQuestion.value
@@ -2161,7 +2162,7 @@ function shortItemStatusLabel(item: QuestionBankItem) {
     return t('questionBank.status.published', '已发布')
   }
   if (item.lifecycle_status === 'rejected') {
-    return t('questionBank.status.reworkShort', '重做中')
+    return t('questionBank.status.reworkShort', '待重做')
   }
   if (item.lifecycle_status === 'needs_review') {
     if (item.risk_flags?.includes('facts_unverified')) return t('questionBank.factsPendingShort', '待事实复核')

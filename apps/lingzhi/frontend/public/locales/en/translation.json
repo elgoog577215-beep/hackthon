@@ -5,7 +5,7 @@
     "baselineRequired": "Confirm the knowledge baseline before generating check questions. Existing questions are retained.",
     "criteriaRequired": "This course has no reviewed criteria yet. Prepare its criteria first.",
     "openKnowledge": "View knowledge and criteria",
-    "counts": "Published {published} · Awaiting review {pending} · Not precisely bound {unbound}"
+    "counts": "Published {published} · Awaiting review {pending} · Needs revision {rejected} · Not precisely bound {unbound}"
   },
   "courseChangeUi": {
     "generateLinkedCandidates": "Generate linked proposals",
@@ -6529,7 +6529,7 @@
     },
     "status": {
       "published": "Published",
-      "reworkShort": "In rework",
+      "reworkShort": "Needs revision",
       "reviewShort": "Needs review",
       "rework": "Unpublished · awaiting rework",
       "mandatory": "Review before publishing"

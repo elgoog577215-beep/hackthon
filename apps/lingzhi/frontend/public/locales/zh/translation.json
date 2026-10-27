@@ -5,7 +5,7 @@
     "baselineRequired": "知识树尚未确认，暂不能生成可用于检查的题目。已有题目保留。",
     "criteriaRequired": "所选课程尚无已审阅的检查标准，请先准备检查标准。",
     "openKnowledge": "查看知识树与检查标准",
-    "counts": "已发布 {published} · 待审阅 {pending} · 未精确绑定 {unbound}"
+    "counts": "已发布 {published} · 待审阅 {pending} · 待重做 {rejected} · 未精确绑定 {unbound}"
   },
   "courseChangeUi": {
     "generateLinkedCandidates": "生成联动建议",
@@ -6529,7 +6529,7 @@
     },
     "status": {
       "published": "已发布",
-      "reworkShort": "重做中",
+      "reworkShort": "待重做",
       "reviewShort": "待审核",
       "rework": "已下架 · 等待重做",
       "mandatory": "发布前审核"
