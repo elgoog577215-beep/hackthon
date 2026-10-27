@@ -3986,6 +3986,18 @@ def _normalize_candidate_layout(candidate: dict[str, Any]) -> tuple[dict[str, An
     if not isinstance(spec, dict):
         return result, []
     receipt = []
+    solution=result.get('solution')or{}
+    if solution.get('validation_mode')=='numeric_unit_validator' and isinstance(solution.get('validator_config'),dict):
+        config=solution['validator_config']
+        normalized={k:deepcopy(config[k])for k in ('absolute_tolerance','relative_tolerance','unit_aliases')if k in config}
+        if 'tolerance'in config and 'absolute_tolerance'not in normalized:
+            normalized['absolute_tolerance']=config['tolerance']
+        for key in ('absolute_tolerance','relative_tolerance'):
+            if key in normalized and (type(normalized[key])not in {int,float} or not math.isfinite(normalized[key]) or normalized[key]<0):
+                raise AIProviderRequestError('invalid_numeric_validator_parameter:'+key)
+        if normalized!=config:
+            receipt.append('numeric validator_config normalized to supported parameters; canonical_answer is the only expected answer')
+            solution['validator_config']=normalized
     if "solver_contract" in spec and spec["solver_contract"] is None:
         spec["solver_contract"] = {}
         receipt.append("question_spec.solver_contract: null -> empty optional contract")
