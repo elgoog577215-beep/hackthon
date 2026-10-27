@@ -79,7 +79,7 @@ async def knowledge_checks(course_id:str,knowledge_id:str,knowledge_revision:str
     course=await read_learning_course(course_id,user)
     tasks=await run_in_threadpool(_questions,course,node_id=None,scope='all')
     attempts=await run_in_threadpool(practice_attempt_repository.list,user['id'],course_id)
-    return check_view(course,tasks,attempts,knowledge_id,knowledge_revision,user['id'])
+    return await run_in_threadpool(check_view,course,tasks,attempts,knowledge_id,knowledge_revision,user['id'])
 
 
 @router.post('/courses/{course_id}/learning-records/knowledge-checks/target')

@@ -1171,7 +1171,7 @@ def _criterion_for_task(course: dict[str, Any], task: dict[str, Any]) -> dict[st
     if task.get("task_purpose") == "course_practice":
         return _criterion_for_question(course, str(task.get("task_revision_id") or task.get("revision_id") or ""))
     return next((
-        item for item in _learning_assets(course).get("mastery_criteria") or []
+        item for item in _learning_assets(course).get("mastery_criteria") or [] if item.get('contract')!='knowledge_teaching_structures_v1'
         if (
             item.get("objective_revision_id") == task.get("objective_revision_id")
             if task.get("objective_revision_id")
@@ -1183,7 +1183,7 @@ def _criterion_for_task(course: dict[str, Any], task: dict[str, Any]) -> dict[st
 def _criterion_for_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:
     return next((
         item for item in _learning_assets(course).get("mastery_criteria") or []
-        if revision_id in (item.get("assessment_bindings") or [])
+        if revision_id in (item.get("assessment_bindings") or []) and item.get('contract')!='knowledge_teaching_structures_v1'
     ), None)
 
 

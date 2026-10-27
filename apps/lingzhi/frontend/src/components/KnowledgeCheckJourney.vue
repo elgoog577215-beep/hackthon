@@ -20,7 +20,7 @@
         </template>
         <MarkdownRenderer v-if="help" :content="help" />
         <div v-if="result" class="check-result" role="status">
-          <p>{{ result.status === 'pending_review' ? t('knowledgeCheckJourney.pending') : result.support_level > 0 ? t('knowledgeCheckJourney.assisted') : result.passed ? t('knowledgeCheckJourney.passed') : t('knowledgeCheckJourney.retry') }}</p>
+          <p>{{ result.status === 'pending_review' ? t('knowledgeCheckJourney.pending') : result.passed && result.support_level > 0 ? t('knowledgeCheckJourney.assisted') : result.passed ? t('knowledgeCheckJourney.passed') : t('knowledgeCheckJourney.retry') }}</p>
           <ul><li v-for="item in result.checkpoint_feedback" :key="item.checkpoint_id"><MathText tag="strong" :content="item.label" /> · {{ t(item.met ? 'knowledgeCheckJourney.met' : 'knowledgeCheckJourney.notMet') }}<MarkdownRenderer :content="item.feedback" /></li></ul>
           <div class="check-actions"><button v-if="attempt.status === 'graded'" :disabled="busy" @click="hint">{{ t('knowledgeCheckJourney.helpRetry') }}</button><button v-if="rows.find(r => r.criterion_id === selected?.criterion_id)?.has_next" data-testid="check-next" :disabled="busy" @click="start(selected)">{{ t('knowledgeCheckJourney.next') }}</button></div>
         </div>
@@ -46,7 +46,9 @@ let draftSaving:Promise<void>|null=null
 const valid=(token:number)=>!disposed && token===epoch && !props.preview
 const root=()=>`/api/courses/${encodeURIComponent(props.courseId)}`
 function status(m:any){return t(`knowledgeCheckJourney.${m.status === 'unassessed' ? 'unassessed' : m.status === 'check_supported' ? 'supported' : 'moreEvidence'}`)}
-async function load(token:number){const {data}=await http.get(`${root()}/learning-records/knowledge-checks`,{params:{knowledge_id:props.knowledgeId,knowledge_revision:props.knowledgeRevision}});if(valid(token))rows.value=data.criteria || []}
+async function load(token:number){const {data}=await http.get(`${root()}/learning-records/knowledge-checks`,{params:{knowledge_id:props.knowledgeId,knowledge_revision:props.knowledgeRevision}});if(valid(token)){rows.value=data.criteria || [];const saved=data.last_check
+ if(!attempt.value && saved && rows.value.some(r=>r.criterion_id===saved.criterion_id)){attempt.value=saved.attempt;task.value=saved.task;result.value=saved.result;selected.value=rows.value.find(r=>r.criterion_id===saved.criterion_id);answer.value=saved.attempt.answer_payload?.text || ''}
+ }}
 watch(()=>[props.courseId,props.knowledgeId,props.knowledgeRevision,props.preview],async()=>{
  const token=++epoch;rows.value=[];attempt.value=null;task.value=null;selected.value=null;result.value=null;answer.value='';help.value='';error.value='';notice.value='';busy.value=false;loading.value=false
  if(props.preview || !props.courseId)return
