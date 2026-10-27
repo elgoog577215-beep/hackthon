@@ -77,3 +77,44 @@ def test_request_and_job_identity_freeze_criterion_selection(tmp_path):
     other,_=jobs.create_job('c',mode='incremental',actor_id='teacher',**{**args,'criterion_revision_refs':{'D':'DR'}})
     assert first['job_id']!=other['job_id']
     assert jobs.load('c',first['job_id'])['criterion_revision_refs']=={'C':'CR'}
+
+
+def test_existing_reviewer_receives_and_preserves_checkpoint_alignment():
+    from assessment_orchestrator import _normalize_semantic_report,_batch_evaluation_prompt
+    from knowledge_criterion_generation import plan
+    c=course();target=plan(c,{'C':'CR'},['K'],['L1'],'request-one')['targets'][0]
+    alignment={'checkpoints':{'A':True,'B':True},'conditions_controlled':True,'reason':'任务同时要求两个表现'}
+    assert _normalize_semantic_report({'criterion_alignment':alignment})['criterion_alignment']==alignment
+    text=_batch_evaluation_prompt([{'slot_id':'slot','slot':{'criterion_target':target},'question_spec':{},'objective':{}}])
+    assert 'criterion_alignment'in text and 'checkpoints'in text
+
+
+def test_generated_reviewed_binding_is_consumed_without_editing_the_knowledge_base():
+    from knowledge_criterion_generation import plan,seal_binding
+    from knowledge_check_flow import task_criterion
+    c=course();criterion=c['course_knowledge_base']['mastery_criteria'][0];criterion['assessment_bindings']=[]
+    target=plan(c,{'C':'CR'},['K'],['L1'],'request-one')['targets'][0]
+    q={'prompt':'分别判断并说明依据','question_spec':{'task':{'rendered_text':'分别判断并说明依据'}},'solution_revision_id':'S',
+        'primary_knowledge_ids':['K'],'concept_ids':['K'],'knowledge_revision_refs':{'K':'KR'},'question_type':'short_answer',
+        'revision_id':'new-task','review_status':'approved','quality_status':'passed'}
+    report={'passed':True,'confidence':.95,'solution_consistent':True,'reviewer_triggered':True,
+        'criterion_alignment':{'checkpoints':{'A':True,'B':True},'conditions_controlled':True,'reason':'逐项覆盖'},'issues':[]}
+    q['criterion_binding']=seal_binding(q,target,report)
+    assert task_criterion(c,q)['criterion_id']=='C'
+    assert criterion['assessment_bindings']==[]
+    q['prompt']='改动后的另一个问题'
+    assert task_criterion(c,q)is None
+
+
+@pytest.mark.asyncio
+async def test_stale_criterion_stops_publication_before_any_bundle_write(monkeypatch):
+    from knowledge_criterion_generation import plan
+    from routers import question_bank as routes
+    from unittest.mock import AsyncMock
+    c=course();c['_criterion_generation_plan']=plan(c,{'C':'CR'},['K'],['L1'],'request-one')
+    stale=deepcopy(c);stale['course_knowledge_base']['mastery_criteria'][0]['revision_id']='new'
+    monkeypatch.setattr(routes,'_question_bank_course',AsyncMock(return_value=stale))
+    def forbidden(*a,**k):raise AssertionError('stale criterion reached publication')
+    monkeypatch.setattr(routes,'_course_with_rebuilt_assets',forbidden)
+    with pytest.raises(ValueError,match='标准'):
+        await routes._publish_rebuilt_course('c',c,{}, {},request_id='r',previous_question_bank_revision_id=None,previous_asset_revision_id=None)
