@@ -41,6 +41,16 @@ vi.mock('@/components/QuestionBankImportWorkspace.vue', () => ({
 }))
 
 describe('QuestionBankReviewPanel', () => {
+  it('does not report an empty bank or zero supply when the initial read fails',async()=>{
+    get.mockRejectedValue(new Error('network unavailable'))
+    const w=mount(QuestionBankReviewPanel,{props:{courseId:'read-failed'}})
+    await flushPromises()
+    expect(w.text()).toContain('题库读取失败')
+    expect(w.text()).not.toContain('课程题库还没有题目')
+    expect(w.get('[data-testid="retry-question-bank-read"]').exists()).toBe(true)
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    w.unmount()
+  })
   it('shows a preparation gap without hiding retained questions or starting a job', async () => {
     get.mockResolvedValue({data:{bundle_revision_id:'bank',generation_readiness:{ready:false,code:'knowledge_baseline_required'},
       items:[{revision_id:'old',prompt:'保留的题目',lifecycle_status:'needs_review',knowledge_binding_status:'tree_unavailable'}]}})

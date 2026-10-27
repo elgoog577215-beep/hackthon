@@ -25,5 +25,5 @@ def test_course_reads_project_only_working_materials_without_copying_history(mon
     monkeypatch.setattr(module,'authoring_repository',lambda *_:Repository())
     actual=project_teacher_content(deepcopy(raw),storage=object())
     assert actual==expected
-    assert actual['nodes'][1]['node_content']=='已保存的完整正文'
+    assert actual['nodes'][1]['node_content'].endswith('已保存的完整正文')
     assert source['lessons']['L']['working_script_revision_id']=='H2'
