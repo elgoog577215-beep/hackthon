@@ -201,3 +201,18 @@ def test_numeric_units_compare_dimensions_not_wording_and_require_finite_numbers
     assert not answers_equivalent('numeric_unit_validator',{'value':0,'unit':'无'},{'value':0,'unit':'个'})
     assert answers_equivalent('numeric_unit_validator',{'value':1,'unit':'m'},{'value':100,'unit':'cm'})
     assert not answers_equivalent('numeric_unit_validator',{'value':float('inf')},{'value':float('inf')})
+
+
+def test_numeric_disagreement_is_an_untrusted_proposal_until_full_delivery_review():
+    from assessment_orchestrator import _apply_independent_validation
+    from assessment_solution_protocol import attest_final_solution_review,delivery_hash
+    c={'question_spec':{'task':{'rendered_text':'计算15乘8'}},'solution_envelope':{'canonical_answer':12,'validation_mode':'numeric_unit_validator'}}
+    independent={'answer':{'value':120,'unit':'无'},'work':[{'title':'乘法','calculation':'15*8=120','explanation':'按给定两数相乘','result':'120'}],
+                 'checks':['核对乘积'],'summary':'乘积为120','result_status':'determinate'}
+    _apply_independent_validation(c,{'passed':False,'deterministic':True,'validation_mode':'numeric_unit_validator','issue_code':'numeric_or_unit_mismatch'},
+                                  independent,resolve_numeric=True)
+    assert c['solution_envelope']['author_answer_proposal']==12
+    assert c['solution_envelope']['canonical_answer']==independent['answer']
+    assert c['solution_validation']['passed']is False
+    report=attest_final_solution_review(c,{'passed':False,'solution_consistent':False,'confidence':.99},delivery_hash(c))
+    assert report['passed']is False and c['solution_validation']['passed']is False
