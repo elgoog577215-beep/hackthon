@@ -690,7 +690,7 @@ class UniversalAssessmentModel(AIBase):
         atomic = bool(slot.get("assessment_binding_schema"))
         evaluation_schema = {
             "evidence_checks": {key: True for key in EVIDENCE_CHECKS} if atomic else {},
-            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), ""), atomic=atomic),
+            "review_witness": _review_witness_schema(next(iter(objective.get("knowledge") or []), ""), atomic=atomic, anchor_refs=bool(slot.get('criterion_target'))),
             "passed": True,
             "confidence": 0.9,
             "solution_consistent": True,
@@ -3189,6 +3189,9 @@ class AssessmentGenerationOrchestrator:
             contract, independent=independent, objective=objective, slot=slot,
             audit=audit, semantic_batcher=semantic_batcher,
         )
+        if slot.get('criterion_target'):
+            from question_measurement_contract import bind_review_anchor
+            report=bind_review_anchor(report,contract['question_spec'])
         return attest_final_solution_review(contract, report, expected_hash)
 
     async def _review_solution(
@@ -6087,6 +6090,7 @@ def _batch_evaluation_prompt(
                 "review_witness": _review_witness_schema(
                     next(iter((item.get("objective") or {}).get("knowledge") or []), ""),
                     atomic=bool((item.get("slot") or {}).get("assessment_binding_schema")),
+                    anchor_refs=bool((item.get('slot')or{}).get('criterion_target')),
                 ),
                 "evidence_checks": {key: True for key in EVIDENCE_CHECKS}
                     if (item.get("slot") or {}).get("assessment_binding_schema") else {},
@@ -6119,7 +6123,7 @@ def _ordered_review_schema(schema: dict) -> dict:
     )if key in schema}
 
 
-def _review_witness_schema(target_statement: str = "", *, atomic: bool = True) -> dict:
+def _review_witness_schema(target_statement: str = "", *, atomic: bool = True, anchor_refs: bool = False) -> dict:
     if not atomic:
         return {
             "delivery_checks": [{"path": "所核查的答案/解析/量规字段路径",
@@ -6132,7 +6136,8 @@ def _review_witness_schema(target_statement: str = "", *, atomic: bool = True) -
                           "is_correct": True, "reason": "依题面条件核对的具体理由"}],
         "observation_test": {
             "target_statement": target_statement or "原样复制objective.knowledge中的完整主考命题", "observed_quantity": "被问到的值、输出或语法归属",
-            "public_anchor": "从公开题面原样复制观测位置的短片段",
+            **({'public_anchor_ref':'task或stimulus，选择实际提供观测位置的公开字段'} if anchor_refs else
+               {'public_anchor':'从公开题面原样复制观测位置的短片段'}),
             "incorrect_rule": "只改变目标规则的一个方面，不能改变其他行为来强造差异",
             "correct_prediction": "正确规则下的观测", "incorrect_prediction": "错误规则下的观测",
             "trace": "独立、可复核的简短执行或推导摘要，不是声明有区别",
@@ -6187,7 +6192,8 @@ def _semantic_review_directive(*, atomic: bool = True) -> str:
         "If an incorrect rule still yields the same asked-for observation, set observation_discriminates=false "
         "and emit OBSERVATION_NOT_DISCRIMINATING. For example, an update wrongly performed just before exiting "
         "must still exit; do not change it into continuing the whole loop just to make outputs differ. "
-        "The public_anchor must actually appear in the displayed question; you cannot invent a printed counter "
+        "When the schema has public_anchor_ref, return exactly task or stimulus; the program resolves the actual public text. "
+        "Otherwise the public_anchor must actually appear in the displayed question; you cannot invent a printed counter "
         "or a condition side effect that exists only in the explanation. "
         "For numeric/output tasks, evaluate BOTH predictions at the SAME public input. The prediction fields "
         "must contain concrete results (or nontermination), never unevaluated conditionals such as 'if true X, "

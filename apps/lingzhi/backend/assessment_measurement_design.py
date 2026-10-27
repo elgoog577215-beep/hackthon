@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 import re
 import operator
+import math
 
 from ai_base import AIProviderRequestError
 from assessment_variants import ChoicePositionAllocator, variant_instruction
@@ -171,6 +172,11 @@ def attach_measurement_designs(contexts: list[dict], response: dict) -> list[dic
         key, plan = str(entry.get("slot_id") or ""), entry.get("plan")
         if key not in expected or key in plans or not isinstance(plan, dict):
             raise AIProviderRequestError("invalid_measurement_design_slot")
+        plan=deepcopy(plan)
+        for field in ('correct_prediction','incorrect_prediction'):
+            value=plan.get(field)
+            if type(value)in {int,float} and math.isfinite(value):
+                plan[field]=json.dumps(value,ensure_ascii=False)
         required = (
             "target_rule",
             "public_material",
@@ -180,8 +186,9 @@ def attach_measurement_designs(contexts: list[dict], response: dict) -> list[dic
             "incorrect_prediction",
             "trace",
         )
-        if not all(isinstance(plan.get(k), str) and plan[k].strip() for k in required):
-            raise AIProviderRequestError("invalid_measurement_design_fields")
+        missing=[k for k in required if not isinstance(plan.get(k),str) or not plan[k].strip()]
+        if missing:
+            raise AIProviderRequestError("invalid_measurement_design_fields:"+','.join(missing))
         plans[key] = plan
     if plans.keys() != expected:
         raise AIProviderRequestError("invalid_measurement_design_missing_slot")

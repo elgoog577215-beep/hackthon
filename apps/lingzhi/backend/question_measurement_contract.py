@@ -8,6 +8,7 @@ student diagnostic validity; domain execution checks can strengthen it later.
 import ast
 import json
 import re
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation, localcontext
 
 
@@ -17,6 +18,20 @@ def _issue(code: str, message: str, evidence: str = "") -> dict:
 
 def _plain(value) -> str:
     return re.sub(r"\s+|`", "", str(value or "")).casefold()
+
+
+def bind_review_anchor(report, question_spec):
+    """Resolve a reviewer-selected public field, never a rewritten formula."""
+    result=deepcopy(report)
+    observation=result.setdefault('review_witness',{}).setdefault('observation_test',{})
+    ref=observation.get('public_anchor_ref')
+    text=(question_spec.get(ref)or{}).get('rendered_text') if ref in {'task','stimulus'} else None
+    if not isinstance(text,str) or not text.strip():
+        result['passed']=False
+        result.setdefault('issues',[]).append(_issue('OBSERVATION_ANCHOR_MISSING','评审没有引用当前题面的有效字段。'))
+    else:
+        observation['public_anchor']=text
+    return result
 
 
 def _number(value) -> Decimal | None:
