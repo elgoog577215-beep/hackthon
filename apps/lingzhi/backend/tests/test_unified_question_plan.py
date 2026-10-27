@@ -216,3 +216,20 @@ def test_numeric_disagreement_is_an_untrusted_proposal_until_full_delivery_revie
     assert c['solution_validation']['passed']is False
     report=attest_final_solution_review(c,{'passed':False,'solution_consistent':False,'confidence':.99},delivery_hash(c))
     assert report['passed']is False and c['solution_validation']['passed']is False
+
+
+def test_item_rework_keeps_the_selected_target_and_generation_identity(monkeypatch):
+    from routers import question_bank as routes
+    from knowledge_criterion_generation import request_plan
+    from assessment_blueprint import compile_course_assessment_blueprint
+    c=course();c['_criterion_generation_plan']=request_plan(c,node_ids=['L1'],request_id='first')
+    slot=compile_course_assessment_blueprint(c)['nodes'][0]['slots'][0]
+    class Bank:
+        def load_bundle(self,*_):return {'items':[{'revision_id':'Q','assessment_slot':slot,'criterion_target':slot['criterion_target']}]}
+    monkeypatch.setattr(routes,'question_bank_repository',Bank())
+    p=routes.QuestionBankRebuildRequest(request_id='rework-one',scope='items',node_ids=['L1'],revision_ids=['Q'])
+    frozen=routes._admit_generation_plan(c,p,'teacher')
+    scoped={**c,'_criterion_generation_plan':frozen}
+    after=compile_course_assessment_blueprint(scoped)['nodes'][0]['slots']
+    assert len(after)==1 and after[0]['generation_key']==slot['generation_key']
+    assert frozen['entrypoint']=='items'
