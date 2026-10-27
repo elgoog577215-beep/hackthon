@@ -1396,6 +1396,7 @@ const rebuildHeadline = computed(() => {
     )
   }
   if (status === 'waiting_review') {
+    if (!activeItems.value.some(item=>item.lifecycle_status==='needs_review')) return t('unifiedGeneration.reviewComplete')
     return t(
       'questionBank.regenerateWaitingReview',
       '题目已生成，待事实复核',
