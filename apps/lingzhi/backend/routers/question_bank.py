@@ -1197,6 +1197,16 @@ def _admit_generation_plan(course, payload, actor_id):
     from knowledge_criterion_generation import request_plan, PreparationRequired
     nodes = payload.node_ids or [str(n['node_id'])for n in course.get('nodes',[])if int(n.get('node_level')or 1)==2]
     payload.request_id = payload.request_id or uuid4().hex
+    selected_items=[]
+    refs=payload.criterion_revision_refs
+    knowledge_ids=payload.knowledge_ids
+    if payload.scope=='items':
+        bank=question_bank_repository.load_bundle(course['course_id'])or{}
+        selected_items=[q for q in bank.get('items',[])if q.get('revision_id')in payload.revision_ids]
+        if len(selected_items)!=len(payload.revision_ids) or any(not q.get('criterion_target') or not q.get('assessment_slot')for q in selected_items):
+            raise HTTPException(409,detail={'code':'question_target_missing','message':'原题尚未绑定检查标准，不能按讲次标签猜测重做目标；请先确认其知识绑定。'})
+        refs={q['criterion_target']['criterion']['criterion_id']:q['criterion_target']['criterion']['revision_id']for q in selected_items}
+        knowledge_ids=sorted({q['criterion_target']['knowledge_id']for q in selected_items})
     prior = None
     if payload.quantity_batch_id:
         job = question_bank_rebuild_job_repository.load(course['course_id'],payload.quantity_batch_id)
@@ -1206,11 +1216,14 @@ def _admit_generation_plan(course, payload, actor_id):
         if not prior:
             raise HTTPException(409,detail={'code':'question_plan_missing','message':'旧任务未冻结知识和检查标准；结果保留，请确认知识树后按新计划补题。'})
     try:
-        frozen=request_plan(course,node_ids=nodes,request_id=payload.request_id,knowledge_ids=payload.knowledge_ids,
-                            criterion_revision_refs=payload.criterion_revision_refs,prior_plan=prior)
+        frozen=request_plan(course,node_ids=nodes,request_id=payload.request_id,knowledge_ids=knowledge_ids,
+                            criterion_revision_refs=refs,prior_plan=prior)
     except PreparationRequired as exc:
         raise HTTPException(409,detail={'code':exc.code,'message':str(exc)}) from exc
     frozen.setdefault('default_count',3)
+    if selected_items:
+        frozen['entrypoint']='items'
+        frozen['replacement_slots']=[deepcopy(q['assessment_slot'])for q in selected_items]
     return frozen
 
 

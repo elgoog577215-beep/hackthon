@@ -138,6 +138,15 @@ def criterion_slots(course, objective, recipe):
             'target_content_evidence':evidence,'input_mode':mode,'question_type':question_type,'question_form':form,
             'validation_mode':validator,'archetype_id':archetype,'practice_level':'mastery_check',
             'observable_evidence':target_objective['observable_evidence'],'criterion_target':deepcopy(target)})
+    if frozen.get('replacement_slots'):
+        replacements=[]
+        for original in frozen['replacement_slots']:
+            cid=original['criterion_target']['criterion']['criterion_id']
+            target=next((s for s in slots if s['criterion_target']['criterion']['criterion_id']==cid),None)
+            if target:
+                replacements.append({**deepcopy(original),**deepcopy(target),
+                    'slot_id':original['slot_id'],'generation_key':original['generation_key']})
+        return replacements
     return slots
 
 
