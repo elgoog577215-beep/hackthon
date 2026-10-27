@@ -1327,6 +1327,10 @@ async def get_active_question_bank_rebuild(
                 course_id,
                 checkpoint_job_id,
             )
+    if not job:
+        latest=question_bank_rebuild_job_repository.latest_for_course(course_id)
+        if latest and latest.get('status')in {'failed','waiting_review'}:
+            job=latest
     job = _settle_rebuild_from_previous_worker(job)
     if not job:
         return {

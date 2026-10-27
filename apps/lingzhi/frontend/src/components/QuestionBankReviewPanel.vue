@@ -1437,6 +1437,7 @@ const failedChapterNodeIds = computed(() => [
 ])
 const canRetryFailedChapters = computed(() => Boolean(
   rebuildJob.value?.status === 'failed'
+  && generationReadiness.value?.ready !== false
   && rebuildJob.value?.error?.retryable !== false
   && failedChapterNodeIds.value.length,
 ))

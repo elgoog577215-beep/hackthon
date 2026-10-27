@@ -31,9 +31,18 @@ def build_quantity_plan(course, blueprint, *, previous, node_ids, count, append_
         plan['lectures'][lecture] = {'node_ids':nodes,'existing':existing,'requested_additions':needed}
         for node_id in nodes:
             plan['slots'][node_id] = []
+        coverage={}
+        if targets is not None:
+            from knowledge_criterion_binding import valid_binding
+            for node_id in nodes:
+                coverage[node_id]=[sum(i.get('node_id')==node_id and i.get('lifecycle_status')not in {'rejected','discarded'}
+                    and valid_binding(i,slot['criterion_target']['criterion'])for i in (previous or {}).get('items',[]))
+                    for slot in templates[node_id]]
         for index in range(needed):
             node_id = nodes[index % len(nodes)]
-            template_index = (index // len(nodes)) % len(templates[node_id])
+            template_index = (min(range(len(templates[node_id])),key=lambda j:(coverage[node_id][j],j))
+                              if targets is not None else (index // len(nodes)) % len(templates[node_id]))
+            if targets is not None:coverage[node_id][template_index]+=1
             plan['slots'][node_id].append({
                 'generation_key':stable_hash({'batch':batch_id,'node':node_id,'index':index},prefix='aqs_'),
                 'template_index':template_index,'variant_index':existing+index,
