@@ -32,6 +32,13 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('renders the student home without secure-context crypto.randomUUID', async () => {
+    vi.stubGlobal('crypto', undefined)
+    const { wrapper } = await page()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    expect(api.courses).toHaveBeenCalledTimes(1)
+  })
+
   it('reconnects the visible authorized course library together with personal sources', async () => {
     api.sources.mockRejectedValueOnce(new Error('另一端暂不可达'))
     api.courses.mockRejectedValueOnce(new Error('另一端暂不可达'))

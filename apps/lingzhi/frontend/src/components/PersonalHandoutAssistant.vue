@@ -25,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -43,7 +44,7 @@ const { followingLatest, handleMessageScroll, scrollToBottom } = useFollowingScr
   () => [conversation.value?.messages.length, conversation.value?.messages.at(-1)?.content], () => true, threadContent)
 const active = computed(() => conversation.value?.messages.some(m => ['pending','running'].includes(m.status)) || false)
 const key = `lingzhi-study-ai:${props.ownerId}:${props.materialId}:${props.revisionId}`
-let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), fingerprint = '', observation = 0
+let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), fingerprint = '', observation = 0
 try { const draft = JSON.parse(sessionStorage.getItem(key) || '{}'); input.value = draft.input || ''; requestId = draft.requestId || requestId; fingerprint = draft.fingerprint || '' } catch { /* Saved replies remain server-owned. */ }
 function keepDraft() { try { sessionStorage.setItem(key, JSON.stringify({ input: input.value, requestId, fingerprint })) } catch { /* Browser storage must not prevent asking or editing. */ } }
 watch(input, keepDraft)
@@ -62,9 +63,9 @@ async function send(prompt?: string) {
   const text = (prompt || input.value).trim(); if (!text) return
   if (prompt) input.value = prompt
   const body = { revision_id: props.revisionId, section_id: props.context.section_id, block_id: props.context.block_id, quote: props.context.quote, text, language: activeLocale.value }
-  const next = JSON.stringify(body); if (fingerprint && fingerprint !== next) requestId = crypto.randomUUID(); fingerprint = next; keepDraft()
+  const next = JSON.stringify(body); if (fingerprint && fingerprint !== next) requestId = createUuid(); fingerprint = next; keepDraft()
   busy.value = true; error.value = ''; observation++; clearTimeout(timer); scrollToBottom()
-  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; conversation.value = result; if (input.value.trim() === text) input.value = ''; requestId = crypto.randomUUID(); fingerprint = ''; keepDraft(); await load() }
+  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; conversation.value = result; if (input.value.trim() === text) input.value = ''; requestId = createUuid(); fingerprint = ''; keepDraft(); await load() }
   catch (cause) { fail(cause) }
   finally { if (!disposed) busy.value = false }
 }

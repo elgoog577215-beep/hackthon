@@ -116,6 +116,7 @@
 </template>
 
 <script setup lang="ts">
+import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
@@ -253,7 +254,7 @@ const filteredReadingSections = computed(() => {
 })
 const conceptSections = computed(() => buildHandoutConceptSections(material.value?.plans || [], readingSections.value))
 const selectedSourceScopes = computed(() => material.value?.sources || (material.value?.revisions[0]?.sections || []).map(section => ({ node_id: section.id, title: section.title, ...section.source })))
-let timer: ReturnType<typeof setTimeout> | undefined, requestId = crypto.randomUUID(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
+let timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
 const noteKey = () => `lingzhi-study-note:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}`
 
@@ -265,7 +266,7 @@ function clearPrivateUi() { librarySequence++; material.value = null; library.va
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
-function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); Object.assign(form, draft.form || {}); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || crypto.randomUUID(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
+function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); Object.assign(form, draft.form || {}); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || createUuid(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
 watch([form, selectedRanges, sourceTitle, sourceText], persistDraft, { deep: true })
 watch(noteText, () => { if (material.value && user.value) sessionStorage.setItem(noteKey(), noteText.value) })
 
@@ -317,11 +318,11 @@ async function generate() {
     const owner = user.value?.id
     const payload = { ...form, title: form.title.trim(), language: activeLocale.value, selections: selectedRanges.value.map(range => { const [asset_id, section_id] = range.split(':'); return { asset_id: asset_id!, section_id: section_id! } }) }
     const fingerprint = JSON.stringify(payload)
-    if (submittedFingerprint && submittedFingerprint !== fingerprint) requestId = crypto.randomUUID()
+    if (submittedFingerprint && submittedFingerprint !== fingerprint) requestId = createUuid()
     submittedFingerprint = fingerprint; persistDraft()
     const result = await studyApi.generate({ ...payload, request_id: requestId })
     if (!sameOwner(owner)) return
-    requestId = crypto.randomUUID(); submittedFingerprint = ''; persistDraft(); creating.value = false; await router.push(`/study/${result.id}`); await loadLibrary()
+    requestId = createUuid(); submittedFingerprint = ''; persistDraft(); creating.value = false; await router.push(`/study/${result.id}`); await loadLibrary()
   })
 }
 async function openMaterial() {

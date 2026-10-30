@@ -15,7 +15,7 @@ beforeEach(() => {
   http.get.mockImplementation(async (url: string) => ({ data: url.endsWith('/preview') ? { availability: { reading: true } } : url.endsWith('/feedback') ? { items: [] } : { enabled: true, current_revision: 'doc-a', status: 'unpublished', ppt_options: [{ project_id: 'ppt-a', title: '课程幻灯片' }] } }))
   http.post.mockResolvedValue({ data: {} })
 })
-afterEach(() => { wrapper?.unmount(); activeLocale.value = 'zh' })
+afterEach(() => { wrapper?.unmount(); activeLocale.value = 'zh'; vi.unstubAllGlobals() })
 describe('two-service course publication and feedback', () => {
   it('blocks publication until the public preview confirms readable handout content', async () => {
     http.get.mockImplementation(async (url: string) => ({ data: url.endsWith('/preview') ? { availability: { reading: false } } : url.endsWith('/feedback') ? { items: [] } : { enabled: true, current_revision: 'doc-a', status: 'unpublished' } }))
@@ -44,7 +44,8 @@ describe('two-service course publication and feedback', () => {
     await wrapper.get('textarea').setValue('请看第三段。'); await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(http.post).toHaveBeenCalledWith('/api/teacher/courses/source-a/exchange/feedback/feedback-a/reply', { expected_revision: 4, text: '请看第三段。' }, { identityScope: 'teacher' })
   })
-  it('keeps a lost-response feedback submission id stable on manual retry', async () => {
+  it('keeps a lost-response feedback submission id stable on manual retry over HTTP', async () => {
+    vi.stubGlobal('crypto', undefined)
     api.sendCourseFeedback.mockRejectedValueOnce(new Error('Connection interrupted')).mockResolvedValueOnce({ feedback_id: 'feedback-a', status: 'pending' })
     wrapper = mount(StudentCourseFeedback, { props: { courseId: 'course-a', revisionId: 'release-a' } })
     await flushPromises(); await wrapper.get('textarea').setValue('为什么这样计算？')

@@ -14,6 +14,13 @@ function page(owner = 'student-a') { wrapper = mount(Assistant, { props: { owner
 beforeEach(() => { vi.clearAllMocks(); sessionStorage.clear(); activeLocale.value = 'zh'; api.assistant.mockResolvedValue({ conversation_id: 'conv', messages: [] }) })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 describe('personal handout assistant', () => {
+  it('opens the assistant without secure-context crypto.randomUUID', async () => {
+    vi.stubGlobal('crypto', undefined)
+    const view = page(); await flushPromises()
+    expect(view.find('textarea').exists()).toBe(true)
+    expect(api.assistant).toHaveBeenCalled()
+  })
+
   it('describes the selected passage instead of offering a misleading whole-chapter shortcut', async () => {
     const view = page(); await flushPromises()
     expect(view.get('.assistant-prompts button').text()).toBe('解释选中内容')

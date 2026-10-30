@@ -8,6 +8,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { createUuid } from '../utils/client-id'
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { studyApi, type CourseFeedback } from '../api/study'
 import { activeLocale } from '../shared/i18n'
@@ -25,7 +26,7 @@ async function load() {
 async function send() {
   const current = ++generation; busy.value = true; error.value = ''; notice.value = ''
   const message = text.value.trim()
-  if (!submission || submission.text !== message || submission.expected_release_id !== props.revisionId) submission = { request_id: crypto.randomUUID(), expected_release_id: props.revisionId, text: message }
+  if (!submission || submission.text !== message || submission.expected_release_id !== props.revisionId) submission = { request_id: createUuid(), expected_release_id: props.revisionId, text: message }
   try { const result = await studyApi.sendCourseFeedback(props.courseId, submission); if (current !== generation) return; text.value = ''; submission = null; notice.value = result.status === 'delivered' ? copy('教师已收到你的问题。', 'Your question reached your teacher.') : copy('问题已保存，待教师端恢复后可重新发送。', 'Question saved. Send again when the teacher service is available.'); await load() }
   catch (cause) { if (current === generation) error.value = cause instanceof Error ? cause.message : copy('发送失败', 'Could not send feedback') }
   finally { if (current === generation) busy.value = false }
