@@ -1,5 +1,13 @@
 from copy import deepcopy
 import pytest
+
+
+def test_readiness_does_not_treat_one_adopted_lecture_as_all_lectures_ready():
+    from knowledge_criterion_generation import generation_readiness
+    c=course();c['nodes'].append({'node_id':'unadopted','node_level':2,'node_name':'Another lecture'})
+    result=generation_readiness(c)
+    assert result['scopes']['L1']['ready'] is True
+    assert result['scopes']['unadopted']=={'ready':False,'code':'knowledge_baseline_required','reviewed_criterion_count':0}
 from backend.tests.test_criterion_question_generation import course
 
 
