@@ -9,7 +9,7 @@
         </div>
       </template>
       <template v-if="user && !materialId" #center>
-        <UiSegmentedControl class="study-home-navigation" model-value="courses" :options="[{ value: 'courses', label: t('workspaceUi.myCourses'), icon: BookOpen }]" :accessibility-label="t('studentWorkspace.space')" @update:model-value="openStudySection('home')" />
+        <UiSegmentedControl class="study-home-navigation" :model-value="creating ? '' : 'courses'" :options="[{ value: 'courses', label: t('workspaceUi.myCourses'), icon: BookOpen }]" :accessibility-label="t('studentWorkspace.space')" @update:model-value="openStudySection('home')" />
       </template>
       <template #actions>
         <div class="study-header-actions">
@@ -47,23 +47,16 @@
     </main>
 
     <div v-else ref="studyLayoutRoot" class="study-workspace" :class="{ 'is-reading': !!materialId, 'is-library': !materialId && !creating }" :style="columnLayoutStyle">
-      <aside v-if="(materialId && directoryOpen) || creating" class="study-navigation">
-        <button v-if="creating" type="button" class="study-back" @click="goLibrary"><ArrowLeft :size="17" />{{ t('workspaceUi.backToCourses') }}</button>
-        <template v-if="materialId">
+      <aside v-if="materialId && directoryOpen" class="study-navigation">
           <header class="study-directory-heading"><BookOpen :size="18" /><strong>{{ t('workspaceUi.directory') }}</strong><button type="button" :aria-label="c('hideDirectory')" @click="directoryOpen = false"><PanelLeftClose :size="17" /></button></header>
           <ElInput v-model="chapterQuery" class="study-chapter-search" size="large" type="search" clearable :placeholder="c('searchChapters')" :aria-label="c('searchChapters')"><template #prefix><Search :size="16" /></template></ElInput>
           <nav class="study-chapter-list" :aria-label="t('workspaceUi.directory')">
             <button v-for="section in filteredReadingSections" :key="section.id" type="button" :class="{ active: activeChapter === section.id }" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="navigateChapter(section.id)"><span class="study-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><span>{{ section.title }}</span></button>
           </nav>
           <p v-if="!filteredReadingSections.length" class="study-nav-hint">{{ readingSections.length ? c('noChapterMatches') : t('workspaceUi.noContents') }}</p>
-        </template>
-        <template v-else>
-          <header class="study-directory-heading"><Plus :size="18" /><strong>{{ c('create') }}</strong></header>
-          <nav class="study-create-steps" :aria-label="c('create')"><a href="#study-create-sources">{{ c('sourceHeading') }}</a><a href="#study-create-purpose">{{ c('purposeHeading') }}</a><a href="#study-create-settings">{{ c('settingsHeading') }}</a></nav>
-        </template>
       </aside>
 
-      <ColumnResizeHandle v-if="(materialId && directoryOpen) || creating" v-bind="leftColumnHandle" />
+      <ColumnResizeHandle v-if="materialId && directoryOpen" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
         <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
@@ -123,7 +116,7 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Plus, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
@@ -243,7 +236,7 @@ function closeReadingSettings(event: KeyboardEvent) {
 watch(materialId, () => { chapterQuery.value = ''; directoryOpen.value = true })
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(studyLayoutRoot, {
   storageKey: 'lingzhi:personal-study:columns', left: 244, right: 350, leftMin: 170, rightMin: 280,
-  leftVisible: () => Boolean((materialId.value && directoryOpen.value) || creating.value),
+  leftVisible: () => Boolean(materialId.value && directoryOpen.value),
   rightVisible: () => Boolean(materialId.value && material.value && toolsOpen.value),
 })
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
@@ -431,9 +424,6 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-chapter-list button.active { background: #eef2ff; color: var(--lz-brand-strong); }
 .study-chapter-number { flex: none; color: var(--lz-text-muted); font-size: 15px; }
 .study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }
-.study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
-.study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); }
-.study-create-steps a:hover { color: var(--lz-brand-strong); }
 .study-main-scroll { flex: 1; min-width: 0; overflow: auto; }
 .study-reading-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-radius: 16px; overflow: hidden; background: white; }
 .study-reading-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
@@ -528,9 +518,6 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-generate-bar > div { flex: 1; min-width: 220px; color: var(--lz-text); font-size: 15px; }
 .study-generate-bar p { margin: 6px 0 0; font-size: 15px; line-height: 1.6; color: var(--lz-text-secondary); }
 .study-generate-bar button { flex: none; }
-.study-create-steps { display: grid; gap: 8px; padding: 6px 14px; }
-.study-create-steps a { padding: 10px 0; color: var(--lz-text-secondary); text-decoration: none; font-size: 15px; line-height: 1.6; }
-.study-create-steps a:hover { color: var(--lz-brand-strong); }
 @media(max-width:1200px) { .study-login-page { gap:40px; } }
 @media(max-width:980px) { .study-login-page { grid-template-columns:minmax(0,1fr) 350px; gap:30px; padding:30px; } .login-story h1 { font-size:31px; } .study-purpose-options { gap:12px; } }
 

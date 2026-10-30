@@ -88,7 +88,7 @@ describe('personal study handouts', () => {
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
     await wrapper.get('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.find('.study-create').exists()).toBe(true)
-    await wrapper.get('.study-back').trigger('click'); await flushPromises()
+    await wrapper.get('.study-home-navigation button').trigger('click'); await flushPromises()
     await wrapper.findAll('.library-filter-tabs button').find(button => button.text() === '教师课程')!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.study-create').exists()).toBe(false)
