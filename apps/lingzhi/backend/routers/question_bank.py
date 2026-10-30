@@ -583,6 +583,16 @@ def _selected_knowledge_slots(course: dict, payload: QuestionBankRebuildRequest,
     try:
         from knowledge_criterion_generation import configure
         scoped=course if course.get('_criterion_generation_plan') else configure(course,payload.criterion_revision_refs,payload.knowledge_ids,payload.node_ids,payload.request_id)
+        if course.get('_assessment_quantity_plan') and course.get('_criterion_generation_plan') and blueprint is not None:
+            selected={}
+            allowed=set(course['_criterion_generation_plan']['knowledge_ids'])
+            for node in blueprint.get('nodes',[]):
+                if node['node_id'] not in payload.node_ids:continue
+                for slot in node.get('slots',[]):
+                    primary=slot.get('primary_knowledge_ids')or[]
+                    if len(primary)!=1 or primary[0]not in allowed:raise ValueError('Quantity slot is outside its frozen targets')
+                    selected.setdefault(node['node_id'],[]).append(slot['generation_key'])
+            return selected
         return select_knowledge_slots(blueprint or compile_course_assessment_blueprint(scoped), payload.knowledge_ids, payload.node_ids)
     except ValueError as error:
         raise HTTPException(status_code=422, detail={"code": "knowledge_slots_unavailable", "message": "所选知识点缺少可出题依据或不属于本讲"}) from error
