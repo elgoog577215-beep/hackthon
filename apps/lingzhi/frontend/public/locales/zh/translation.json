@@ -1,5 +1,18 @@
 {
   "unifiedGeneration": {
+    "preparing": "正在读取本讲知识候选…",
+    "baselinePreview": "确认本讲知识基线",
+    "baselineScope": "采用本讲已有知识和就绪检查标准；待核对内容保留，关系不在本次确认范围内。",
+    "pendingStandard": "待核对，暂不用于出题",
+    "confirmBaselineRead": "已阅读本讲知识和待核对提示，确认采用就绪标准",
+    "baselineBlocked": "候选未就绪或有任务运行，请先到知识树处理。",
+    "confirming": "正在确认…",
+    "confirmBaseline": "确认基线并返回出题",
+    "noCandidate": "本讲尚无完成的知识候选，请先到知识树生成或核对。",
+    "baselineReadFailed": "知识候选读取失败，请到知识树重新读取。",
+    "baselineConflict": "确认失败，课程可能已变化，请到知识树刷新后核对。",
+    "historyLabel": "历史生成记录（当前未运行）",
+    "historyRetained": "旧题与失败结果保留；新生成使用当前已确认的知识标准。",
     "formLabel": "作答形式",
     "formChoice": "单选",
     "formNumeric": "数值",

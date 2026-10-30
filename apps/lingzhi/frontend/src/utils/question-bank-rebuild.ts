@@ -25,6 +25,10 @@ export interface QuestionBankRebuildRequest {
 }
 
 export interface QuestionBankRebuildJob {
+  observation_kind?: 'current' | 'historical'
+  can_resume_plan?: boolean
+  created_at?: string
+  completed_at?: string
   questions_per_lesson?: number
   append_only?: boolean
   quantity_batch_id?: string | null

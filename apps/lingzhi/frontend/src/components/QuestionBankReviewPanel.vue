@@ -640,6 +640,12 @@
     <ColumnResizeHandle v-if="!settingsCollapsed" v-bind="questionRightHandle" />
     <aside v-show="!settingsCollapsed" ref="workspaceSideRef" class="question-bank-workspace-side" data-testid="question-settings-pane" :aria-label="t('questionBank.settingsPane', 'AI 出题设置')">
       <header class="question-settings-heading"><strong><SlidersHorizontal :size="17" />{{ t('questionBank.settingsPane', 'AI 出题设置') }}</strong><button type="button" data-testid="collapse-question-settings" :aria-label="t('questionBank.collapseSettings', '收起出题设置')" @click="settingsCollapsed = true"><PanelRightClose :size="17" /></button></header>
+      <details v-if="historicalJob" class="question-bank-history" data-testid="question-bank-history">
+        <summary>{{t('unifiedGeneration.historyLabel','历史生成记录（当前未运行）')}}</summary>
+        <time>{{historicalJob.completed_at || historicalJob.created_at}}</time>
+        <p>{{historicalJob.message || historicalJob.error?.message}}</p>
+        <p>{{t('unifiedGeneration.historyRetained','旧题与失败结果保留；新生成使用当前已确认的知识标准。')}}</p>
+      </details>
         <div
           v-if="rebuildJob"
           class="question-bank-progress question-bank-progress--compact"
@@ -720,6 +726,7 @@
         <section v-if="generationReadiness" class="question-generation-step" data-testid="unified-generation-readiness" role="status">
           <p>{{ generationReadiness.ready ? t('unifiedGeneration.ready') : t(generationReadiness.code === 'knowledge_baseline_required' ? 'unifiedGeneration.baselineRequired' : 'unifiedGeneration.criteriaRequired') }}</p>
           <a v-if="!generationReadiness.ready" :href="`/course/${encodeURIComponent(courseId)}/workspace/build?stage=knowledge`">{{ t('unifiedGeneration.openKnowledge') }}</a>
+          <QuestionKnowledgePreparation v-if="generationReadiness.code === 'knowledge_baseline_required' && activeQuestionChapter" :course-id="courseId" :lesson-id="activeQuestionChapter.node_id" @adopted="load" />
         </section>
         <div class="question-generation-target" data-testid="question-generation-target" role="status" aria-live="polite">
           <span>{{ t('questionBank.studio.currentLesson', '当前讲次') }}</span>
@@ -840,6 +847,7 @@ import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
+import QuestionKnowledgePreparation from './QuestionKnowledgePreparation.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import QuestionKnowledgeBinding from './QuestionKnowledgeBinding.vue'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '@/utils/http'
@@ -1024,6 +1032,7 @@ const expandedQuestionRevision = ref('')
 const questionListRef = ref<HTMLElement | null>(null)
 let questionListScrollTop = 0
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
+const historicalJob = ref<QuestionBankRebuildJob | null>(null)
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
 const selectedQuestionChapterId = ref('')
@@ -1440,6 +1449,7 @@ const failedChapterNodeIds = computed(() => [
 ])
 const canRetryFailedChapters = computed(() => Boolean(
   rebuildJob.value?.status === 'failed'
+  && rebuildJob.value?.can_resume_plan !== false
   && generationReadiness.value?.ready !== false
   && rebuildJob.value?.error?.retryable !== false
   && failedChapterNodeIds.value.length,
@@ -1511,6 +1521,7 @@ watch(() => props.courseId, () => {
   rebuilding.value = false
   actingRevision.value = ''
   rebuildJob.value = null
+  historicalJob.value = null
   rebuildErrorMessage.value = ''
   items.value = []
   for (const key of Object.keys(solutions)) delete solutions[key]
@@ -1707,6 +1718,12 @@ async function recoverActiveRebuild() {
             controller.signal.aborted
             || props.courseId !== courseId
           ) return
+          if(update.observation_kind === 'historical') {
+            historicalJob.value=update
+            rebuildJob.value=null
+            rebuilding.value=false
+            return
+          }
           rebuildJob.value = update
           rebuilding.value = (
             update.status === 'queued'
@@ -1725,6 +1742,13 @@ async function recoverActiveRebuild() {
   } catch (error: any) {
     if (!controller.signal.aborted && props.courseId === courseId && !isAbortError(error)) {
       if (error?.job) {
+        if(error.job.observation_kind === 'historical') {
+          historicalJob.value=error.job
+          rebuildJob.value=null
+          rebuilding.value=false
+          await load()
+          return
+        }
         rebuildJob.value = error.job
         rebuildErrorMessage.value = error?.message || t(
           'questionBank.rebuildFailed',
@@ -2671,11 +2695,18 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel .question-generation-studio>footer { padding:16px; border-top:1px solid #e4e9f1; }
 .question-bank-panel .question-bank-panel__header-action,.question-bank-panel .question-bank-panel__header-buttons { width:100%; flex-direction:column; align-items:stretch; }
 .question-bank-panel .question-bank-panel__header-buttons button { min-height:42px; font-size:15px; justify-content:center; }
-.question-bank-panel .question-bank-progress { display:flex; flex-wrap:wrap; margin:12px; padding:12px; max-width:none; font-size:14px; }
+.question-bank-panel .question-bank-progress { display:flex; flex-wrap:wrap; height:auto; min-height:54px; align-items:flex-start; margin:12px; padding:12px; max-width:none; font-size:15px; }
 .question-bank-panel .question-bank-progress__summary { white-space:normal; }
 .question-bank-panel .question-bank-progress__summary strong { font-size:15px; }
 .question-bank-panel .question-bank-progress__popover { position:static; width:auto; min-width:0; padding:10px 0 0; border:0; box-shadow:none; background:transparent; }
 .question-bank-panel .question-bank-progress details { width:100%; }
+.question-bank-panel .question-bank-progress summary { white-space:normal; overflow-wrap:anywhere; }
+.question-bank-panel .question-bank-progress__popover { left:auto; top:auto; max-width:100%; overflow-wrap:anywhere; }
+.question-bank-history { margin:12px; padding:12px; border:1px solid #e4e0ef; border-radius:8px; font-size:15px; line-height:1.6; }
+.question-bank-history summary { cursor:pointer; color:#665781; }
+.question-bank-history p,.question-bank-history time { display:block; margin:8px 0 0; overflow-wrap:anywhere; }
+.question-bank-panel [data-testid="unified-generation-readiness"] { display:flex; flex-direction:column; align-items:stretch; gap:12px; line-height:1.65; }
+.question-bank-panel [data-testid="unified-generation-readiness"] p { margin:0; }
 .question-settings-binding { border-top:1px solid #e4e9f1; padding:16px; }
 .question-settings-binding>summary { cursor:pointer; font-size:15px; font-weight:700; color:#475569; }
 .question-bank-panel .question-bank-workspace-side :deep(.reference-tray) { height:auto; min-height:0; max-height:none; border:0; border-top:1px solid #e4e9f1; border-radius:0; }

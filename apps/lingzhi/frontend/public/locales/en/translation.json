@@ -1,5 +1,18 @@
 {
   "unifiedGeneration": {
+    "preparing": "Loading this lesson's knowledge candidate…",
+    "baselinePreview": "Confirm this lesson's knowledge baseline",
+    "baselineScope": "Adopt existing knowledge and ready criteria for this lesson. Flagged content stays pending; relations are outside this confirmation.",
+    "pendingStandard": "Pending review; excluded from generation",
+    "confirmBaselineRead": "I have read the knowledge and review notes and confirm adoption of ready criteria",
+    "baselineBlocked": "The candidate is not ready or another task is running. Resolve this in the knowledge tree first.",
+    "confirming": "Confirming…",
+    "confirmBaseline": "Confirm baseline and return to questions",
+    "noCandidate": "No completed knowledge candidate for this lesson. Generate or review it in the knowledge tree first.",
+    "baselineReadFailed": "Could not load the knowledge candidate. Reload it in the knowledge tree.",
+    "baselineConflict": "Confirmation failed; the course may have changed. Refresh and review the knowledge tree.",
+    "historyLabel": "Previous generation (not running)",
+    "historyRetained": "Previous questions and failed outputs are retained. New generation uses the current confirmed criteria.",
     "formLabel": "Response format",
     "formChoice": "Single choice",
     "formNumeric": "Numeric",

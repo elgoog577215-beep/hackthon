@@ -1363,7 +1363,9 @@ async def get_active_question_bank_rebuild(
             "active": False,
             "job": None,
         }
-    return _job_response(job, deduplicated=False)
+    return {**_job_response(job, deduplicated=False),
+            'observation_kind': 'current' if job.get('status') in {'queued','running'} else 'historical',
+            'can_resume_plan': bool(job.get('criterion_generation_plan')) and job.get('status') == 'failed'}
 
 
 @router.get("/rebuilds/{job_id}")
