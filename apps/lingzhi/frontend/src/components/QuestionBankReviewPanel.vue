@@ -1012,7 +1012,12 @@ const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
 const errorMessage = ref('')
-const generationReadiness = ref<{ready:boolean;code:string}|null>(null)
+const generationReadinessState = ref<{ready:boolean;code:string;scopes?:Record<string,{ready:boolean;code:string}>}|null>(null)
+const generationReadiness = computed(()=>{
+  const state=generationReadinessState.value
+  const scoped=generationNodeIds.value.map(id=>state?.scopes?.[id]).filter(Boolean)
+  return scoped.find(scope=>!scope!.ready) || (scoped.length ? scoped[0] : state) || null
+})
 const questionBankMissing = ref(false)
 const rebuildErrorMessage = ref('')
 const bundleRevisionId = ref('')
@@ -1513,7 +1518,7 @@ onBeforeUnmount(() => {
   rebuildAbortController?.abort()
 })
 watch(() => props.courseId, () => {
-  generationReadiness.value = null
+  generationReadinessState.value = null
   workspaceMode.value = 'bank'
   questionReferences.value = []
   rebuildAbortController?.abort()
@@ -1785,7 +1790,7 @@ async function load() {
     )
     if (!current()) return
     const data = response.data || {}
-    generationReadiness.value = data.generation_readiness || null
+    generationReadinessState.value = data.generation_readiness || null
     bundleRevisionId.value = String(data.bundle_revision_id || '')
     coverage.value = data.coverage || {}
     reviewQueue.value = data.review_queue || {}

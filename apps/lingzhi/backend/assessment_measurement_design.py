@@ -17,6 +17,15 @@ def model_design_contexts(contexts):
     return result
 
 
+def measurement_output_budget(contexts):
+    """Size final design JSON by the evidence it must express, without shrinking criteria."""
+    total=0
+    for context in contexts:
+        criterion=((context.get('assessment_slot')or{}).get('criterion_target')or{}).get('criterion')
+        total += min(8192,3072+256*(len(criterion.get('checkpoints')or[])+len(criterion.get('controlled_conditions')or[]))) if criterion else 2048
+    return total
+
+
 def restore_design_contexts(original,designed):
     expected={f'item-{i}':context for i,context in enumerate(original,1)}
     keys=[str(c['assessment_slot']['slot_id'])for c in designed]
@@ -125,6 +134,9 @@ def measurement_design_prompt(contexts: list[dict]) -> str:
             'trace':'同一输入下可核对的简短推导','correct_prediction':'正确判断的具体结果',
             'incorrect_prediction':'仅改变目标理解后的具体错误结果','options':[]}}for item in items]}
         return (authoring_directive()+'先设计检查任务，暂不写教学解析。每项标准只设计一个自足情境，覆盖全部判据。'
+            '只输出required_output里的plans，不要回显items、criterion_target、sources或整份判据清单。'
+            '每个plan只保留一个最终实例，不写讨论或换题过程；trace最多320字，预测最多200字，错误规则最多60字。'
+            'public_material和ask保留完整必要条件及各项作答要求，按判据组织小问，不重复引用整段标准。'
             '条件必须足以唯一判断，不能从离散样本、局部信息或部分情形直接推出整体结论。'
             '核对所有断言及边界；不要提供超出标准的提示，不额外引入前置计算。'
             '推导、正确结果和错误结果必须对应同一公开输入。非选择题不设计选项。只返回完整JSON。\n'

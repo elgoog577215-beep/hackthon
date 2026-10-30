@@ -18,8 +18,16 @@ def generation_readiness(course):
         return {'ready':False,'code':'knowledge_baseline_required','reviewed_criterion_count':0}
     from knowledge_check_flow import criteria
     catalog=criteria(course)
+    scopes={}
+    for node in course.get('nodes',[]):
+        if int(node.get('node_level')or 1)!=2:continue
+        nid=node['node_id']
+        points=[p for p in base.get('knowledge_points',[])if resolve_target_node(course,p,[nid])==nid]
+        ids={p['knowledge_id']for p in points}
+        count=sum(c['knowledge_ids'][0]in ids for c in catalog)
+        scopes[nid]={'ready':bool(count),'code':''if count else 'reviewed_criteria_required'if points else 'knowledge_baseline_required','reviewed_criterion_count':count}
     return {'ready':bool(catalog),'code':'' if catalog else 'reviewed_criteria_required',
-            'knowledge_baseline_revision':base['revision_id'],'reviewed_criterion_count':len(catalog)}
+            'knowledge_baseline_revision':base['revision_id'],'reviewed_criterion_count':len(catalog),'scopes':scopes}
 
 
 def resolve_target_node(course, point, requested):
