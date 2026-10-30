@@ -66,6 +66,25 @@ describe('TeacherCourseSpaceView', () => {
     await setLocale('zh')
   })
 
+  it('keeps narrow desktop lists readable and lets the user reopen and close file details', async () => {
+    const original = window.matchMedia
+    window.matchMedia = (() => ({ matches: true })) as any
+    let wrapper: ReturnType<typeof mount>
+    try {
+      wrapper = mount(TeacherCourseSpaceView, { global: { plugins: [createPinia(), router], stubs: { ElDialog: true } } })
+      mountedWrappers.push(wrapper)
+      await flushPromises()
+    } finally { window.matchMedia = original }
+    expect(wrapper!.get('.file-layout').classes()).toContain('is-inspector-collapsed')
+    await wrapper!.get('.inspector-toggle').trigger('click')
+    expect(wrapper!.get('.file-layout').classes()).not.toContain('is-inspector-collapsed')
+    await wrapper!.get('.file-inspector header button').trigger('click')
+    expect(wrapper!.get('.file-layout').classes()).toContain('is-inspector-collapsed')
+    await wrapper!.findAll('.file-row')[1]!.trigger('click', { ctrlKey: true })
+    expect(wrapper!.get('.file-layout').classes()).not.toContain('is-inspector-collapsed')
+    expect(wrapper!.get('.file-inspector').text()).toContain('分讲教案')
+  })
+
   it('以文件树、文件列表和右侧状态栏组成单一课程空间', async () => {
     const pinia = createPinia()
     const wrapper = mount(TeacherCourseSpaceView, {
@@ -101,7 +120,8 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.findAll('.file-name small')).toHaveLength(1)
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
     expect(wrapper.get('.inspector-overview').text()).toContain('修改时间')
-    expect(wrapper.get('.inspector-actions').text()).toContain('导出整课文件')
+    expect(wrapper.get('.file-tree-pane footer').text()).toContain('导出整课文件')
+    expect(wrapper.find('.inspector-actions').exists()).toBe(false)
     expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
     await wrapper.findAll('.file-row').find(row => row.text().includes('教学大纲'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('大纲'))!.trigger('click')
@@ -254,7 +274,7 @@ describe('TeacherCourseSpaceView', () => {
     await wrapper.findAll('.file-row').find(row => row.text().includes('其他资料'))!.trigger('click')
     expect(wrapper.find('.inspector-actions').exists()).toBe(false)
     const toolbarActions = wrapper.get('.folder-title__actions')
-    expect(toolbarActions.findAll('button')).toHaveLength(2)
+    expect(toolbarActions.findAll('button:not(.inspector-toggle)')).toHaveLength(2)
     expect(toolbarActions.text()).toContain('导入资料')
     expect(toolbarActions.text()).toContain('新建文件夹')
     await toolbarActions.get('.batch-import-button').trigger('click')

@@ -7072,6 +7072,8 @@
     "globalChange": "全局修改"
   },
   "courseFiles": {
+    "showProperties": "文件信息",
+    "hideProperties": "收起文件信息",
     "headerActions": {
       "change": "全局修改",
       "preview": "学生视角"

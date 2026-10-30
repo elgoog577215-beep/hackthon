@@ -27,7 +27,7 @@
     </section>
 
     <section v-else class="workspace-ready">
-      <section v-if="workspaceView === 'files'" ref="fileLayoutRoot" class="file-layout" :style="columnLayoutStyle">
+      <section v-if="workspaceView === 'files'" ref="fileLayoutRoot" class="file-layout" :class="{ 'is-inspector-collapsed': !inspectorOpen }" :style="columnLayoutStyle">
       <aside class="file-tree-pane">
         <header class="pane-heading">
           <span><FolderTree :size="15" /><strong>{{ t('courseFiles.folderNavigation') }}</strong></span>
@@ -83,6 +83,7 @@
             <button class="selection-clear" type="button" :aria-label="t('common.close')" @click="clearRowSelection"><X :size="14" /></button>
           </div>
           <div v-else class="folder-title__actions">
+            <button type="button" class="inspector-toggle" :aria-label="t(inspectorOpen ? 'courseFiles.hideProperties' : 'courseFiles.showProperties')" :aria-expanded="inspectorOpen" aria-controls="course-file-inspector" @click="inspectorOpen = !inspectorOpen">{{ t('courseFiles.showProperties') }}</button>
             <span>{{ t('courseFiles.itemCount').replace('{count}', String(visibleRows.length)) }}</span>
             <button v-if="viewingTrash && visibleRows.length" class="empty-trash-button" type="button" @click="emptyRecycleBin"><Trash2 :size="14" />{{ t('courseFiles.management.emptyRecycleBin') }}</button>
             <div v-if="canBatchImport && !query.trim()" class="import-action">
@@ -169,13 +170,13 @@
         <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
       </section>
 
-      <ColumnResizeHandle v-bind="rightColumnHandle" />
-      <aside class="file-inspector">
+      <ColumnResizeHandle v-if="inspectorOpen" v-bind="rightColumnHandle" />
+      <aside v-show="inspectorOpen" id="course-file-inspector" class="file-inspector" :aria-label="t('courseFiles.showProperties')">
         <template v-if="inspectedNode">
           <header>
             <span class="inspector-icon" :data-type="inspectedNode.type"><component :is="inspectedNode.trashItem || inspectedNode.type === 'trash' ? Trash2 : inspectedNode.kind === 'folder' ? FolderOpen : nodeIcon(inspectedNode)" :size="22" /></span>
             <div><small v-if="typeLabel(inspectedNode) !== inspectedNode.label">{{ typeLabel(inspectedNode) }}</small><strong>{{ inspectedNode.label }}</strong></div>
-            <button v-if="selectedNode" type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
+            <button type="button" :aria-label="t('courseFiles.hideProperties')" @click="inspectorOpen = false"><X :size="15" /></button>
           </header>
           <section class="inspector-status" :data-state="inspectedNode.status">
             <span><i />{{ statusLabel(inspectedNode) }}</span>
@@ -242,11 +243,10 @@
               <span v-if="!inspectedUsageLinks.length" class="relationship-empty">—</span>
             </section>
           </section>
-          <footer v-if="inspectorHasActions(inspectedNode)" class="inspector-actions">
+          <footer v-if="inspectorHasActions()" class="inspector-actions">
             <button v-if="selectedNode" class="primary" type="button" :disabled="busy || primaryDisabled(selectedNode)" @click="primaryAction(selectedNode)">
               <LoaderCircle v-if="busy" :size="15" class="spin" /><component :is="primaryIcon(selectedNode)" v-else :size="15" />{{ primaryLabel(selectedNode) }}
             </button>
-            <button v-if="!selectedNode && inspectedNode.type === 'root'" class="primary" type="button" @click="downloadPackage"><Download :size="15" />{{ t('courseFiles.exportCourse') }}</button>
             <div v-if="selectedNode?.asset || selectedNode && canExportManaged(selectedNode)" class="inspector-actions__secondary">
               <button v-if="selectedNode?.asset" type="button" @click="downloadAsset(selectedNode.asset)"><Download :size="14" />{{ t('courseFiles.download') }}</button>
               <button v-else-if="selectedNode && canExportManaged(selectedNode)" type="button" :disabled="exportingNodeId === selectedNode.id" @click="exportManagedNode(selectedNode)"><LoaderCircle v-if="exportingNodeId === selectedNode.id" :size="14" class="spin" /><Download v-else :size="14" />{{ t('courseFiles.exportFile') }}</button>
@@ -601,8 +601,10 @@ const courseTitle = computed(() => props.courseTitle)
 const selected = ref<Package | null>(null)
 const initializing = ref(true)
 const fileLayoutRoot = ref<HTMLElement | null>(null)
+const inspectorOpen = ref(!(typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1279px)').matches))
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(fileLayoutRoot, {
   storageKey: 'lingzhi:course-files:columns', left: 260, right: 312, leftMin: 180, rightMin: 240,
+  rightVisible: inspectorOpen,
 })
 const busy = ref(false)
 const exportingNodeId = ref('')
@@ -1423,8 +1425,8 @@ function latestUpdatedAt(node: WorkspaceNode): string | undefined {
 
 const folderUpdatedLabel = (node: WorkspaceNode) => dateLabel(latestUpdatedAt(node))
 
-function inspectorHasActions(node: WorkspaceNode) {
-  return Boolean(selectedNode.value || node.type === 'root')
+function inspectorHasActions() {
+  return Boolean(selectedNode.value)
 }
 
 function shortRevision(revision: string) {
@@ -1510,6 +1512,7 @@ function openTrash() {
 }
 function selectNode(node: WorkspaceNode) {
   selectedNode.value = node
+  inspectorOpen.value = true
   emit('contextChange', { lessonId: node.lessonId || '', nodeId: node.id, label: node.label, type: node.type, path: node.path })
 }
 function revealNode(node: WorkspaceNode) {
@@ -2388,4 +2391,6 @@ onBeforeUnmount(() => {
 @media (max-width:760px){.file-layout{grid-template-rows:170px minmax(280px,45vh) auto;align-content:start;overflow-y:auto}.file-inspector{max-height:none;display:block;overflow:visible}.inspector-overview{min-height:auto;overflow:visible}.inspector-actions{margin-top:0}}
 @media(min-width:761px){.file-layout{grid-template-columns:var(--column-left-width) 10px minmax(0,1fr) 10px var(--column-right-width)}}
 @media(max-width:760px){.file-layout>.column-resize-handle{display:none}}
+@media(min-width:761px){.file-layout.is-inspector-collapsed{grid-template-columns:var(--column-left-width) 10px minmax(0,1fr)}}
+.inspector-toggle{min-height:36px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font:inherit;font-size:15px;cursor:pointer}.inspector-toggle[aria-expanded="true"]{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 </style>

@@ -236,6 +236,24 @@ describe('teacher course workbench outline streaming', () => {
     return store
   }
 
+  it('starts narrow desktops with the auxiliary context pane collapsed and allows reopening', async () => {
+    const store = scopedScriptRecoveryFixture()
+    store.jobs = []
+    store.productionState = null as any
+    store.lessons[0]!.script = { ...store.lessons[0]!.script, ready: true, current_revision_id: 'script-ready', sections: [{ section_node_id: 's1', title: '已完成讲义', content: '已完成的内容', blocks: [] }] } as any
+    const original = window.matchMedia
+    window.matchMedia = (() => ({ matches: true })) as any
+    let wrapper: ReturnType<typeof mountWorkbench>
+    try { wrapper = mountWorkbench({ initialStage: 'script', initialLessonId: 'L1-1' }) }
+    finally { window.matchMedia = original }
+    expect(wrapper!.classes()).toContain('is-context-collapsed')
+    await wrapper!.get('.context-pane-reopen').trigger('click')
+    expect(wrapper!.classes()).not.toContain('is-context-collapsed')
+    await wrapper!.get('.context-pane-heading__collapse').trigger('click')
+    expect(wrapper!.classes()).toContain('is-context-collapsed')
+    wrapper!.unmount()
+  })
+
   it('来源变化时保留旧讲义，显示重新生成并阻止继续原任务', async () => {
     const store = scopedScriptRecoveryFixture(true)
     const resume = vi.spyOn(store, 'generateScript')

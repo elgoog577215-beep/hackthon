@@ -7072,6 +7072,8 @@
     "globalChange": "Global changes"
   },
   "courseFiles": {
+    "showProperties": "File details",
+    "hideProperties": "Hide file details",
     "headerActions": {
       "change": "Changes",
       "preview": "Student view"

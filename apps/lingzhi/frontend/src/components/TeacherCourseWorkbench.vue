@@ -1393,7 +1393,7 @@ const aiPaneMaxWidth = ref(AI_PANE_MAX_WIDTH)
 const aiPaneResizing = ref(false)
 const aiPhase = ref<TeacherProductionAiPhase>('ready')
 const aiCandidate = ref<Record<string, any> | null>(null)
-const contextPaneCollapsed = ref(false)
+const contextPaneCollapsed = ref(typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1279px)').matches)
 const aiSelectionContext = ref('')
 const aiMessages = ref<TeacherProductionAiMessage[]>([])
 const aiSessionScopeKey = ref('')
@@ -4866,6 +4866,10 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 watch([() => props.courseId, () => generationTask.value?.id, outlineTaskCompleted], ([, , completed]) => {
   if (completed) reloadOutlineResult()
 }, { immediate: true })
+watch(contextPhase, phase => {
+  if (phase === 'during' || phase === 'failed') contextPaneCollapsed.value = false
+}, { immediate: true })
+
 onMounted(() => {
   try {
     const storedWidth = Number(window.localStorage.getItem(AI_PANE_STORAGE_KEY))
