@@ -759,7 +759,7 @@ async def test_course_deletion_removes_teacher_assets_and_cancels_only_its_worke
     manager, storage, _ = _lifecycle_manager(tmp_path, monkeypatch)
     authoring = TeacherLessonAuthoringRepository(tmp_path / 'teacher-assets')
     spaces = TeacherCourseSpaceRepository(tmp_path / 'course-spaces')
-    monkeypatch.setattr(dependencies, '_teacher_lesson_authoring_repository', authoring)
+    monkeypatch.setattr('teacher_authoring_provider._teacher_lesson_authoring_repository', authoring)
     monkeypatch.setattr(teacher_course_space, 'teacher_course_space_repository', spaces)
     course_id = (await manager._create_generation_job({'subject': '删除范围测试'}))['course_id']
     job = authoring.create_job(course_id, 'lesson-1')

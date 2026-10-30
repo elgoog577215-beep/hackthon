@@ -325,6 +325,12 @@ def test_workflow_builds_artifact_before_tuotu_activation() -> None:
     assert "scripts/github-action-restore.sh" in workflow
     assert "LINGZHI_DEPLOY_BUSY=true" in workflow
     assert "env.LINGZHI_DEPLOY_BUSY != 'true'" in workflow
+    # A normal push must not contact production with revoked credentials.
+    activation_conditions = [line for line in workflow.splitlines()
+                             if "if:" in line and "github.event_name == 'push'" in line]
+    assert activation_conditions
+    assert all("vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true'" in line
+               for line in activation_conditions)
 
 
 def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:

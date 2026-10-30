@@ -4,10 +4,10 @@ import json
 import re
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from material_models import MaterialBinding
 
-WORKFLOW = 'knowledge_first_generic_v1'
+from knowledge_contracts import GENERIC_WORKFLOW as WORKFLOW
 TREE_OUTPUT_FORMAT_VERSION = 'knowledge_relation_endpoints_v2'
 RELATIONS = {'prerequisite', 'derives', 'applies_to', 'contrasts_with', 'equivalent_to', 'generalizes'}
 

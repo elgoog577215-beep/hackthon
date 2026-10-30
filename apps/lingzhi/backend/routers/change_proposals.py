@@ -31,7 +31,7 @@ from change_proposals import (
 )
 from course_commands import CourseCommandService
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository
 from learner_context import require_user_id
 from representation_compiler import rebuild_core_representations_safely

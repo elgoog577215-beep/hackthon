@@ -25,7 +25,7 @@
 
 浙大的清单给出受影响服务，发布包始终携带同一提交的完整应用构建上下文，因此身份和调用方可以一起恢复。论文检查源码随仓库保存，现有联合 Compose 通过外部论文服务代理接入；该外部服务尚不在本次自动激活范围。
 
-## 拓途：构建与既有自动发布
+## 拓途：构建与显式启用发布
 
 `Deploy Lingzhi to Tuotu` 复用 `Lingzhi Checks`，通过后构建 `lingzhi-release-<SHA>`。发布包从 `apps/lingzhi` 子树生成，服务器解包后仍是 `backend/`、`frontend/`、`shared/` 等平铺结构，保持 `/opt/lingzhi`、原 systemd 服务和数据路径兼容。
 
@@ -35,7 +35,7 @@
 ./deploy/tuotu/build.sh /tmp/lingzhi-release.tgz
 ```
 
-正常 `main` 代码推送沿用已有自动发布。仅检查构建时，提交信息包含 `[no deploy]`，或手动运行工作流保持 `deploy=false`；这两种情况下生成产物，但全部 SSH、模型探测和服务器激活步骤跳过。PR 只检查。回滚沿用已有 `github-action-restore.sh` 和上一版本，失败不删除持久数据。
+正常 `main` 代码推送先检查并构建产物。只有仓库变量 `LINGZHI_AUTO_DEPLOY_ENABLED=true` 才会自动连接服务器；默认关闭，避免使用已经撤销的部署凭据。维护者重新授权专用部署凭据后方可启用；也可使用现有本人 SSH 权限部署同一提交的已验证产物。仅检查构建时，提交信息包含 `[no deploy]`，或手动运行工作流保持 `deploy=false`；这两种情况下生成产物，但全部 SSH、模型探测和服务器激活步骤跳过。PR 只检查。回滚沿用已有 `github-action-restore.sh` 和上一版本，失败不删除持久数据。
 
 ## 浙大：仓库侧准备
 

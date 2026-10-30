@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
 from knowledge_first import KnowledgeFirstService, JOB_TYPES
 from learner_context import require_actor_id

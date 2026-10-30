@@ -5,7 +5,7 @@ import pytest
 
 from ai_base import AIBase
 from course_evolution.scan_batching import pack_scan_batches
-from course_evolution.scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
+from course_scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
 from course_evolution.semantic_scan import scan_batches
 
 

@@ -24,7 +24,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from course_baseline import confirmed_generation_request
 from course_generation.service import get_course_service
 from course_production_state import read_course_production_state
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound, CourseMigrationConflict
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound, CourseMigrationConflict
 from course_schedule import (
     COURSE_PERIOD_MINUTES,
     legacy_schedule_labels,

@@ -37,7 +37,7 @@ jobs:
     # Documentation-only runs never acquire the production queue. Build-only
     # runs have independent groups and cannot displace a queued real release.
     concurrency:
-      group: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || inputs.deploy) && 'lingzhi-tuotu-production' || format('lingzhi-tuotu-build-{0}', github.run_id) }}
+      group: ${{ ((github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || inputs.deploy) && 'lingzhi-tuotu-production' || format('lingzhi-tuotu-build-{0}', github.run_id) }}
       cancel-in-progress: false
     if: ${{ github.event_name != 'pull_request' }}
     needs: verify
@@ -76,7 +76,7 @@ jobs:
           retention-days: 7
 
       - name: Configure deployment SSH
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -93,7 +93,7 @@ jobs:
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Verify ZJU Qwen text provider
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           ZJU_QWEN_API_KEY: ${{ secrets.ZJU_QWEN_API_KEY }}
           ZJU_QWEN_BASE_URL: ${{ secrets.ZJU_QWEN_BASE_URL }}
@@ -120,7 +120,7 @@ jobs:
           CHAT_PAYLOAD="$chat_payload" python3 -c 'import json,os; payload=json.loads(os.environ["CHAT_PAYLOAD"]); choice=(payload.get("choices") or [{}])[0]; content=str((choice.get("message") or {}).get("content") or ""); choice.get("finish_reason") == "stop" and "ok" in content or (_ for _ in ()).throw(SystemExit("ZJU Qwen chat probe failed")); print("ZJU Qwen chat probe verified")'
 
       - name: Configure production ZJU Qwen provider
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -190,7 +190,7 @@ jobs:
           trap - EXIT
 
       - name: Upload release artifact
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -213,7 +213,7 @@ jobs:
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_artifact"
 
       - name: Activate release on Tuotu server
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -239,7 +239,7 @@ jobs:
           exit "$deployment_status"
 
       - name: Verify production ZJU Qwen routes
-        if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
+        if: ${{ (github.event_name == 'push' && vars.LINGZHI_AUTO_DEPLOY_ENABLED == 'true' && !contains(github.event.head_commit.message, '[no deploy]')) || (github.event_name == 'workflow_dispatch' && inputs.deploy) }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}

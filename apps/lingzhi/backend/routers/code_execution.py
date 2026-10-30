@@ -161,9 +161,11 @@ def _build_sandbox_command(base_command: list, file_path: str, language: str) ->
     if platform.system() != "Linux":
         return base_command + [file_path]
 
-    # Linux 资源限制
+    # Node 24 reserves address space for V8 tables before running any code.
+    # Its JS heap is separately capped at 64 MB. Python retains its 256 MB cap.
+    virtual_memory_kb = 1048576 if language == "javascript" else 262144
     limits = [
-        "ulimit -v 262144;",    # 虚拟内存 256MB
+        f"ulimit -v {virtual_memory_kb};",
         "ulimit -f 1024;",      # 文件大小 512KB
         "ulimit -u 32;",        # 最大进程数 32
         "ulimit -t 10;",        # CPU 时间 10 秒
@@ -183,7 +185,12 @@ def _runtime_command(language: str) -> list[str]:
     executable = shutil.which("node")
     if not executable:
         raise FileNotFoundError("JavaScript runtime is unavailable")
-    return [executable]
+    # V8's default JIT and background workers reserve more virtual address
+    # space than this teaching sandbox permits, even for console.log(). Keep
+    # bounded OS limits and run small snippets without JIT or worker pools.
+    # Disabling the Wasm trap handler avoids its large address-space reservation.
+    return [executable, "--single-threaded", "--jitless", "--disable-wasm-trap-handler",
+            "--max-old-space-size=64"]
 
 
 def _sandbox_environment(temp_dir: str, runtime: str) -> dict[str, str]:

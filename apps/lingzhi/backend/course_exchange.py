@@ -7,12 +7,12 @@ Learning attempts stay in the original learner repositories.
 
 from __future__ import annotations
 
+from course_exchange_digest import digest
+
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
 import hmac
-import json
 import os
 import re
 from urllib.parse import urlparse
@@ -49,10 +49,6 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def digest(value):
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
 
 
 @dataclass(frozen=True)

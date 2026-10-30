@@ -13,7 +13,8 @@ from course_knowledge_base import (
     COURSE_KNOWLEDGE_BASE_SCHEMA,
     course_knowledge_source_fingerprint,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from learning_assets import compile_learning_assets
 

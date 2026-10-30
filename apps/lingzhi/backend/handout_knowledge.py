@@ -34,7 +34,7 @@ def handout_sources(raw, state, lesson_id=""):
 def handout_context(raw, state, lesson_id=""):
     lessons, sources = handout_sources(raw, state, lesson_id)
     if lesson_id and not lessons:
-        from course_repository import CourseDocumentConflict
+        from course_errors import CourseDocumentConflict
         raise CourseDocumentConflict("本讲没有可用的已保存讲义，请先生成本讲讲义")
     course = deepcopy(raw)
     # Tree extraction observes saved handouts, not old upload caches or sample facts.
@@ -132,7 +132,7 @@ def merge_lesson_tree(existing, candidate, lesson_id):
         edges[edge['id']] = deepcopy(edge)
     for edge in candidate['relations']:
         if edge['source_id'] not in retained or edge['target_id'] not in retained:
-            from course_repository import CourseDocumentConflict
+            from course_errors import CourseDocumentConflict
             raise CourseDocumentConflict('关联的元知识已不在课程中，请显式复用本讲需要保留的知识')
         edges[edge['id']] = {**deepcopy(edge), 'scope_lesson_id': lesson_id}
     adjacency = {}
@@ -141,7 +141,7 @@ def merge_lesson_tree(existing, candidate, lesson_id):
     seen, visiting = set(), set()
     def visit(node):
         if node in visiting:
-            from course_repository import CourseDocumentConflict
+            from course_errors import CourseDocumentConflict
             raise CourseDocumentConflict('跨讲先修关系存在环，候选未采用')
         if node in seen: return
         visiting.add(node)

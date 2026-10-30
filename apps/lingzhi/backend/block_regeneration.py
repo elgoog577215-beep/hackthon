@@ -16,7 +16,8 @@ import uuid
 from change_proposals import ChangeProposalRepository, create_authoring_change
 from course_commands import CourseCommandService
 from course_document import CourseBlock, stable_hash
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 from learning_events import record_learning_event, summarize_text
 from storage import DATA_DIR
 

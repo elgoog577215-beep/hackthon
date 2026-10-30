@@ -85,7 +85,13 @@ async def test_running_code_does_not_block_other_requests_or_event_loop(app, mon
 
 
 @pytest.mark.asyncio
-async def test_timeout_keeps_existing_limit_and_cleans_temporary_files(app, monkeypatch):
+@pytest.mark.parametrize("language,code", [
+    ("python", "import time\ntime.sleep(5)"),
+    ("javascript", "while (true) {}"),
+])
+async def test_timeout_keeps_existing_limit_and_cleans_temporary_files(app, monkeypatch, language, code):
+    if language == "javascript" and not shutil.which("node"):
+        pytest.skip("Node.js is not installed on this test host")
     directories = []
     original = api.tempfile.mkdtemp
 
@@ -97,7 +103,7 @@ async def test_timeout_keeps_existing_limit_and_cleans_temporary_files(app, monk
     monkeypatch.setattr(api.tempfile, "mkdtemp", track_temp_directory)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/execute", json={
-            "code": "import time\ntime.sleep(5)", "timeout": 1,
+            "code": code, "language": language, "timeout": 1,
         })
     result = response.json()
     assert result["success"] is False
@@ -129,15 +135,16 @@ async def test_existing_security_validation_blocks_execution(app, monkeypatch):
     assert "安全" in response.json()["error"]
 
 
-def test_linux_command_quotes_paths_and_preserves_resource_limits(monkeypatch):
+@pytest.mark.parametrize("language,memory_limit", [("python", 262144), ("javascript", 1048576)])
+def test_linux_command_quotes_paths_and_preserves_resource_limits(monkeypatch, language, memory_limit):
     monkeypatch.setattr(api.platform, "system", lambda: "Linux")
     runtime = "/opt/teaching runtime/python;echo wrong"
     source = "/tmp/student's work/code.py"
-    command = api._build_sandbox_command([runtime], source, "python")
+    command = api._build_sandbox_command([runtime], source, language)
     assert command[:2] == ["bash", "-c"]
     limits, execution = command[2].split(" exec ", 1)
     assert shlex.split(execution) == [runtime, source]
-    for limit in ("-v 262144", "-f 1024", "-u 32", "-t 10"):
+    for limit in (f"-v {memory_limit}", "-f 1024", "-u 32", "-t 10"):
         assert limit in limits
 
 

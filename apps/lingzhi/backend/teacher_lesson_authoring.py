@@ -6,6 +6,8 @@ project these assets without persisting a second course body.
 
 from __future__ import annotations
 
+from teacher_authoring_errors import TeacherLessonAuthoringError
+
 from course_production_state import teacher_asset_job_can_resume
 from ppt_manuscript_quality import manuscript_quality_passed
 
@@ -113,13 +115,6 @@ def teacher_lesson_authoring_read_state(state: dict[str, Any]) -> dict[str, Any]
         if isinstance(job, dict)
     }
     return projected
-
-
-class TeacherLessonAuthoringError(RuntimeError):
-    def __init__(self, code: str, message: str, *, details: dict[str, Any] | None = None):
-        super().__init__(message)
-        self.code = code
-        self.details = details or {}
 
 
 def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
@@ -1598,7 +1593,7 @@ def teacher_lesson_v6_source(
     persisted to the learner CourseDocument repository.
     """
     if course_data.get("teacher_production_schema") == "unified_teacher_v1":
-        from teacher_content_projection import project_teacher_content
+        from teacher_content_view import project_teacher_content
         course_data = project_teacher_content(course_data, authoring={
             "outline_revision_id": plan_revision.get("source_outline_revision_id", ""),
             "lessons": {lesson_unit_id: {"working_revision_id": plan_revision.get("revision_id"),
@@ -4260,7 +4255,7 @@ class TeacherLessonAuthoringRepository:
         Caller holds the course storage lock and has checked the frozen knowledge
         revision. Body + completed job checkpoint commit together in this file.
         """
-        from knowledge_first import WORKFLOW, ACTIVE, require
+        from knowledge_contracts import WORKFLOW, ACTIVE, require
         from course_document import stable_hash
         with self._course_lock(course_id):
             value = self.load(course_id)

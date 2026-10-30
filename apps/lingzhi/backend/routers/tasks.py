@@ -16,7 +16,8 @@ from dependencies import (
     get_teacher_lesson_authoring_repository,
     require_task_manager,
 )
-from course_repository import CourseDocumentRepository, CourseDocumentNotFound
+from course_errors import CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 from learner_context import resolve_actor_id
 from teacher_lesson_authoring import project_current_teacher_scripts
 

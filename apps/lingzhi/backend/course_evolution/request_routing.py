@@ -1,12 +1,13 @@
 """Resolve explicit scope locally; uncertain requests retain the full scan."""
 from __future__ import annotations
 
+from .scan_fingerprints import routing_fingerprint, unit_fingerprint
+
 import re
 from copy import deepcopy
 from collections import defaultdict
 from typing import Any
 
-from course_document import stable_hash
 
 ROUTING_CONTRACT = 'course_change_routing_v1'
 ROUTED_SCAN_CONTRACT = 'teacher_semantic_scan_v2+routing_v1'
@@ -111,14 +112,9 @@ def canonical_aliases(context: Any, selected: set[str]) -> dict[str, str]:
     return aliases
 
 
-def routing_fingerprint(routing: dict) -> str:
-    return stable_hash({k:routing.get(k) for k in ('contract','mode','topics','lecture_ids','selected_unit_ids','aliases')}, prefix='routing-')
-
-
 def reusable_observation(*, plans, context, user_id, instruction, asset_types, model_identity, routing, contract,
                          answer_digest='', confirmed=False):
     """Reuse judgments only; never copy an older plan's edits or approval authority."""
-    from .scan_recovery import unit_fingerprint
     from .semantic_scan import validate_batch
     if not model_identity:
         return None

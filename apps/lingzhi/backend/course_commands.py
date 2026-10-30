@@ -12,7 +12,8 @@ from course_document import (
     refresh_block_revision,
     stable_hash,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 
 
 class CourseCommandService:

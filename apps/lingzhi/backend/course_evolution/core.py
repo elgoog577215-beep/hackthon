@@ -26,7 +26,8 @@ from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
 from course_knowledge_impact import dependent_knowledge_ids
 from course_knowledge_revisions import knowledge_revision_vector
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 from course_revisions import revision_vector_for_document
 from learning_asset_storage import learning_asset_repository
 from learning_events import load_learning_events

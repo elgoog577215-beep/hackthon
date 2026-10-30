@@ -1,17 +1,13 @@
 """Reuse compatible observations, never historical review or apply authority."""
 from __future__ import annotations
 
+from .scan_fingerprints import routing_fingerprint, unit_fingerprint
+
 from typing import Any
 
-from course_document import stable_hash
 
 from .partial_review import retained_analysis
 from .semantic_scan import SCAN_CONTRACT, validate_batch
-
-
-def unit_fingerprint(unit: Any) -> str:
-    return stable_hash({**unit.model_dump(mode="json"), "full_text_fields": unit.full_text_fields},
-                       prefix="scan-unit-")
 
 
 def historical_scan_results(
@@ -25,7 +21,6 @@ def historical_scan_results(
     additionally verify the complete indexed unit, including its full text.
     """
     retained, analyses, origins = set(), [], []
-    from .request_routing import routing_fingerprint
     expected = source.impact_summary
     outline = [{k: v for k, v in node.items() if k != "section_snapshot"} for node in context.outline]
     outline_ids = {f"outline:{node['node_id']}" for node in outline}

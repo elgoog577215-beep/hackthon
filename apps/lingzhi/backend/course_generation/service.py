@@ -8989,7 +8989,7 @@ class CourseService(AIBase):
         IDs must come from the supplied candidate set and are validated again
         by the orchestration service.
         """
-        from course_evolution.scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
+        from course_scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
 
         prompt = build_scan_prompt(overview, ranked_candidates, instruction)
         response = await self._call_llm(

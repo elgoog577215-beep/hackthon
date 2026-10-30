@@ -385,7 +385,8 @@ def _detach_aggregated_course_products(
     课程正文的聚合路径。那种情况下关联无法仅靠清 ID 断开，回执用
     `content_not_detachable` 标出，等待 owner 裁决，不在本模块自行处置。
     """
-    from course_repository import CourseDocumentNotFound, CourseDocumentRepository
+    from course_errors import CourseDocumentNotFound
+    from course_repository import CourseDocumentRepository
 
     detached: list[dict[str, Any]] = []
     try:

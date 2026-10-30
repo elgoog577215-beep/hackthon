@@ -25,7 +25,8 @@ import uuid
 from course_commands import CourseCommandService
 from course_document import refresh_block_revision, stable_hash
 from course_knowledge_base import compile_course_knowledge_base
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 
 
 COURSE_AUTHORING_CHANGE_SCHEMA = "course_authoring_change_v1"

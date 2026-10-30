@@ -196,7 +196,7 @@ async def test_long_inputs_are_scanned_in_small_complete_fragments(tmp_path):
     async def analyze(overview, candidates, instruction):
         pieces.extend(item['content'] for item in candidates)
         from ai_base import AIBase
-        from course_evolution.scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
+        from course_scan_prompt import build_scan_prompt, SCAN_SYSTEM_PROMPT, SCAN_INPUT_TOKEN_LIMIT
         assert AIBase.estimate_request_tokens(build_scan_prompt(overview, candidates, instruction), SCAN_SYSTEM_PROMPT) <= SCAN_INPUT_TOKEN_LIMIT
         assert len(candidates) <= 8
         return {'affected_units': [], 'signal_kind': 'semantic', 'structure': {'required': False}}

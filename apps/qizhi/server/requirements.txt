@@ -6,7 +6,7 @@ psycopg[binary]==3.3.3
 pydantic==2.12.5
 python-dotenv==1.2.2
 python-multipart==0.0.31
-pyjwt==2.13.0
+pyjwt==2.15.1
 httpx==0.28.1
 sse-starlette==3.3.2
 python-docx==1.2.0

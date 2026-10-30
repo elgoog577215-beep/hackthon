@@ -90,7 +90,7 @@ def env(tmp_path, monkeypatch):
     events = []
     monkeypatch.setattr(routes, 'record_learning_event', lambda **kw: events.append({"event_id":f"e{len(events)}", "created_at":f"2026-10-11T12:00:{len(events):02}Z", **kw}) or events[-1])
     from routers import learning_records
-    monkeypatch.setattr(learning_records, '_record_event', lambda *a, **kw:None)
+    monkeypatch.setattr('learning_record_events._record_event', lambda *a, **kw:None)
     app = FastAPI()
     app.include_router(routes.router, prefix='/courses/{course_id}')
     client = TestClient(app)

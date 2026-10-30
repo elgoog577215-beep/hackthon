@@ -33,6 +33,13 @@ jobs:
       - name: Install locked PPT verification runtime
         run: sudo python3 scripts/provision_ppt_runtime.py --install
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/lingzhi/frontend/package-lock.json
+
       - name: Run backend tests
         run: python -m pytest backend/tests
 
@@ -41,13 +48,6 @@ jobs:
 
       - name: Lint backend and tests
         run: python -m ruff check backend tests --select E9,F63,F7,F82
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: apps/lingzhi/frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: apps/lingzhi/frontend

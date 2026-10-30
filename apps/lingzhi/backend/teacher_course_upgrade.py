@@ -29,7 +29,8 @@ from course_document import (
     refresh_document_revision,
     stable_hash,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 
 UPGRADE_REPORT_SCHEMA = "teacher_course_upgrade_report_v1"
 UPGRADE_SOURCE_FORMAT = "legacy_chapter_section_v1"

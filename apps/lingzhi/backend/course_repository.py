@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from course_errors import CourseDocumentNotFound, CourseDocumentConflict, CourseMigrationConflict
+
 import asyncio
 import inspect
 import threading
@@ -62,18 +64,6 @@ def _publish_course_revision(course_id: str, receipt: dict[str, Any]) -> None:
         except Exception:
             # Derived-state availability must never roll back the course commit.
             continue
-
-
-class CourseDocumentNotFound(KeyError):
-    pass
-
-
-class CourseDocumentConflict(RuntimeError):
-    pass
-
-
-class CourseMigrationConflict(RuntimeError):
-    pass
 
 
 class CourseDocumentRepository:

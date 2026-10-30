@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from course_document import CourseDocument, document_from_generation_draft, document_from_legacy_course, refresh_document_revision
-from course_repository import CourseDocumentConflict, _publish_course_revision
+from course_errors import CourseDocumentConflict
+from course_repository import _publish_course_revision
 from course_revisions import revision_event_for_documents
 
 SCHEMA = "unified_teacher_v1"

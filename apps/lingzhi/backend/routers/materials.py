@@ -11,7 +11,7 @@ from course_web_research_policy import (
     COURSE_WEB_RESEARCH_ENABLED,
     historical_web_course_asset_ids,
 )
-from course_repository import CourseDocumentNotFound
+from course_errors import CourseDocumentNotFound
 from dependencies import get_course_document_repository
 from material_parser import parse_material_asset
 from material_storage import MaterialStorageError, material_repository

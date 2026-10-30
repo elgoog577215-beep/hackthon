@@ -1178,7 +1178,7 @@ def repair_teacher_script_section_formats(section: dict[str, Any]) -> dict[str, 
     for block in section.get("blocks") or []:
         if not isinstance(block, dict):
             continue
-        from canonical_content_repair import repair_display_math_shape
+        from display_math_repair import repair_display_math_shape
 
         original = str(block.get("content") or "")
         fence = None

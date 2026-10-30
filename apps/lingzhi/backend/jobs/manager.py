@@ -85,11 +85,8 @@ from course_quality import (
     dedupe_quality_issues,
     evaluate_node_content,
 )
-from course_repository import (
-    CourseDocumentConflict,
-    CourseDocumentNotFound,
-    CourseDocumentRepository,
-)
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 from course_retrieval import (
     build_course_retrieval_queries,
     build_outline_research_instruction,

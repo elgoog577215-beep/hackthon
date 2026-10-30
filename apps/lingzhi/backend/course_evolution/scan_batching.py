@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .scan_prompt import SCAN_INPUT_TOKEN_LIMIT, SCAN_SYSTEM_PROMPT, build_scan_prompt
+from course_scan_prompt import SCAN_INPUT_TOKEN_LIMIT, SCAN_SYSTEM_PROMPT, build_scan_prompt
 
 TOKEN_BATCH_POLICY = 'prompt_budget_v1'
 LEGACY_BATCH_POLICY = 'legacy_chars_v1'
