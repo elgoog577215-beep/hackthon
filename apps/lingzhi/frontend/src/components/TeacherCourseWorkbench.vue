@@ -4866,8 +4866,8 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 watch([() => props.courseId, () => generationTask.value?.id, outlineTaskCompleted], ([, , completed]) => {
   if (completed) reloadOutlineResult()
 }, { immediate: true })
-watch(contextPhase, phase => {
-  if (phase === 'during' || phase === 'failed') contextPaneCollapsed.value = false
+watch([contextPhase, hasContextNotices], ([phase, notices]) => {
+  if (phase === 'during' || phase === 'failed' || notices) contextPaneCollapsed.value = false
 }, { immediate: true })
 
 onMounted(() => {

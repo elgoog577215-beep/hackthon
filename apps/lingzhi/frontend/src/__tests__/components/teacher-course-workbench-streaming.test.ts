@@ -238,6 +238,7 @@ describe('teacher course workbench outline streaming', () => {
 
   it('starts narrow desktops with the auxiliary context pane collapsed and allows reopening', async () => {
     const store = scopedScriptRecoveryFixture()
+    const failedJobs = [...store.jobs]
     store.jobs = []
     store.productionState = null as any
     store.lessons[0]!.script = { ...store.lessons[0]!.script, ready: true, current_revision_id: 'script-ready', sections: [{ section_node_id: 's1', title: '已完成讲义', content: '已完成的内容', blocks: [] }] } as any
@@ -251,6 +252,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper!.classes()).not.toContain('is-context-collapsed')
     await wrapper!.get('.context-pane-heading__collapse').trigger('click')
     expect(wrapper!.classes()).toContain('is-context-collapsed')
+    store.jobs = failedJobs
+    await flushPromises()
+    expect(wrapper!.classes()).not.toContain('is-context-collapsed')
     wrapper!.unmount()
   })
 
