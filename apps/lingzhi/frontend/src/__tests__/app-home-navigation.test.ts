@@ -78,7 +78,7 @@ describe('App home navigation', () => {
     expect(generationStore.stopGlobalMonitor).toHaveBeenCalled()
     await router.push('/courses')
     await flushPromises()
-    expect(wrapper.find('a[href="/study"]').exists()).toBe(true)
+    expect(wrapper.get('.workspace-switcher').text()).toContain('学生端')
     expect(generationStore.startGlobalMonitor).toHaveBeenCalled()
     expect(homeLink.attributes('target')).toBeUndefined()
     expect(wrapper.find('.app-course-stages').exists()).toBe(false)
@@ -88,6 +88,7 @@ describe('App home navigation', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('course-workspace')
+    expect(wrapper.get('.workspace-switcher').text()).toContain('学生端')
     if (schoolDeployment) {
       expect(wrapper.get('a.qizhi-home-link').isVisible()).toBe(true)
       expect(wrapper.get('a.qizhi-home-link').attributes('href')).toBe('/')

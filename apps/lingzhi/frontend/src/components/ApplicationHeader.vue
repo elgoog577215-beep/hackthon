@@ -6,12 +6,16 @@
       <div v-if="!learning" :id="contextId" class="route-header-context"><slot name="context" /></div>
     </div>
     <div v-if="!learning && centered" :id="centerId" class="app-header-center"><slot name="center" /></div>
-    <div :id="learning ? undefined : actionsId" :class="learning ? 'header-actions' : 'route-header-actions'"><slot name="actions" /></div>
+    <div class="app-header-tools">
+      <div :id="learning ? undefined : actionsId" :class="learning ? 'header-actions' : 'route-header-actions'"><slot name="actions" /></div>
+      <WorkspaceSwitcher :surface="surface" />
+    </div>
   </header>
 </template>
 
 <script setup lang="ts">
 import ProductBrand from './ProductBrand.vue'
+import WorkspaceSwitcher from './WorkspaceSwitcher.vue'
 import type { ProductSurface } from '../shared/product-brand'
 withDefaults(defineProps<{
   surface: ProductSurface
@@ -68,6 +72,7 @@ withDefaults(defineProps<{
 }
 
 .app-header .app-header-center { min-width:0; width:100%; justify-self:center; }
+.app-header .app-header-tools { min-width:0; grid-column:3; justify-self:end; display:flex; align-items:center; gap:12px; }
 .app-header .route-header-actions { min-width:0; grid-column:3; justify-self:end; }
 .app-header.is-library { grid-template-columns:minmax(0,1fr) auto minmax(max-content,1fr); }
 .app-header.is-library .route-header-actions { display:flex; align-items:center; gap:10px; }
@@ -97,7 +102,7 @@ withDefaults(defineProps<{
     justify-content:center;
     border-top:1px solid var(--lz-border);
   }
-  .app-header.is-contextual:lang(en) .route-header-actions { grid-column:2; grid-row:1; }
+  .app-header.is-contextual:lang(en) .app-header-tools { grid-column:2; grid-row:1; }
 }
 
 @media (max-width: 1100px) {
@@ -117,7 +122,7 @@ withDefaults(defineProps<{
     justify-content:center;
     border-top:1px solid var(--lz-border);
   }
-  .app-header.is-contextual .route-header-actions { grid-column:2; grid-row:1; }
+  .app-header.is-contextual .app-header-tools { grid-column:2; grid-row:1; }
 }
 
 @media (max-width: 600px) {
@@ -130,5 +135,5 @@ withDefaults(defineProps<{
 .app-header .header-actions .el-dropdown { display: none; }
 }
 .app-header.has-no-center { grid-template-columns: minmax(0, 1fr) auto; }
-.app-header.has-no-center > .route-header-actions { grid-column: 2; }
+.app-header.has-no-center > .app-header-tools { grid-column: 2; }
 </style>

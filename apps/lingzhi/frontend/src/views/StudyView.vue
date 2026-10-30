@@ -24,7 +24,6 @@
             </details>
           </template>
           <CourseWorkspaceHeaderAction :label="activeLocale === 'zh' ? 'English' : '中文'" @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')" />
-          <RouterLink v-if="!user" to="/courses">{{ c('teacher') }}</RouterLink>
           <span v-if="user && !developmentMode" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
           <CourseWorkspaceHeaderAction v-if="user && !developmentMode" :label="c('logout')" @click="logout" />
         </div>

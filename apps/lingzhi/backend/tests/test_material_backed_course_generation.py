@@ -41,6 +41,7 @@ from course_pedagogy import (
 )
 from course_generation.budget import build_teaching_plan_batches
 from course_generation.service import CourseService
+from course_generation.prompts import PROMPT_CONTRACT_VERSION
 from course_generation.outline import review_course_outline_document
 from course_generation.planning_state import (
     _remap_combined_teaching_plan_knowledge_ids,
@@ -1024,7 +1025,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v17"
     assert data["generation_schema_version"] == "course_generation_v17"
-    assert data["prompt_contract_version"] == "course_prompt_v40"
+    assert data["prompt_contract_version"] == PROMPT_CONTRACT_VERSION
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,

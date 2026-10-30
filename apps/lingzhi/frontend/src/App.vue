@@ -27,11 +27,7 @@
         </a>
       </template>
       <template #actions>
-        <template v-if="!isLearningRoute">
-          <a v-if="route.name === 'course-library' && studyPortalUrl" class="header-text-link" :href="studyPortalUrl">{{ t('courseWorkspaceFlow.studentSpace') }}</a>
-          <RouterLink v-else-if="route.name === 'course-library'" class="header-text-link" to="/study">{{ t('courseWorkspaceFlow.studentSpace') }}</RouterLink>
-        </template>
-        <template v-else>
+        <template v-if="isLearningRoute">
           <label class="header-search">
             <Search :size="15" />
             <input
@@ -136,7 +132,6 @@ import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
 import { isQizhiAuthRequired } from './utils/http'
-import { configuredStudyPortal } from './shared/study-portal'
 import { productSurface, syncProductDocument } from './shared/product-brand'
 
 const route = useRoute()
@@ -145,7 +140,6 @@ watchEffect(() => syncProductDocument(brandingSurface.value, activeLocale.value)
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const qizhiHomeEnabled = isQizhiAuthRequired()
-const studyPortalUrl = configuredStudyPortal(import.meta.env.VITE_STUDY_APP_URL)
 const canMonitorGeneration = computed(() => route.name !== 'study'
   && !(route.name === 'learning' && route.query.teacherPreview !== '1'))
 
@@ -278,9 +272,6 @@ function changeLocale(locale: string) {
   transition: transform .2s ease, filter .2s ease;
 }
 .brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
-.header-text-link { flex:none; min-height:38px; display:inline-flex; align-items:center; justify-content:center; padding:0 12px; border:1px solid transparent; border-radius:10px; color:var(--lz-text-secondary); background:transparent; font-size:15px; font-weight:600; line-height:1.4; text-decoration:none; white-space:nowrap; }
-.header-text-link:hover { border-color:var(--lz-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.header-text-link:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .course-context-copy {
   min-width: 0;
   display: flex;

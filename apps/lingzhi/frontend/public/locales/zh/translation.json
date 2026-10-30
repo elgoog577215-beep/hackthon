@@ -1989,6 +1989,7 @@
     }
   },
   "app": {
+    "switchWorkspace": "切换工作空间",
     "brand": "启智",
     "product": "启智",
     "backToLibrary": "返回课程库",

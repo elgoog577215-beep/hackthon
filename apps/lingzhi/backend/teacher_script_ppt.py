@@ -793,11 +793,25 @@ def _grounded_prose_repair_pages(
         for layout in template.layouts
         if fixed_slug(layout.template_layout_id) == "bullets"
     )
-    fragments = _grounded_prose_fragments(str(block.get("content") or ""))
+    source_fragments = _grounded_prose_fragments(str(block.get("content") or ""))
     # Keep table rows separate so a separator cannot occupy a whole screen
     # item, or push the next row's identity out of the visible excerpt.
-    fragments = [line for fragment in fragments for line in fragment.splitlines(keepends=True)
-                 if line.strip() and not re.fullmatch(r"\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?", line.strip())]
+    # Whitespace and Markdown table separators remain in the exact source
+    # quotes, attached to a visible row rather than becoming empty bullets.
+    fragments, pending = [], ""
+    for fragment in source_fragments:
+        for line in fragment.splitlines(keepends=True):
+            separator = re.fullmatch(r"\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?", line.strip())
+            if not line.strip() or separator:
+                if fragments:
+                    fragments[-1] += line
+                else:
+                    pending += line
+            else:
+                fragments.append(pending + line)
+                pending = ""
+    if pending:
+        fragments.append(pending)
     pages = []
     for offset in range(0, len(fragments), 3):
         selected = fragments[offset:offset + 3]

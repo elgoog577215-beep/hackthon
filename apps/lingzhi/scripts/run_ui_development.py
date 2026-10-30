@@ -98,6 +98,7 @@ def main() -> None:
                 "VITE_LEARNER_USER_ID": "local-student:development",
                 "VITE_TEACHER_USER_ID": "development-teacher",
                 "VITE_STUDY_APP_URL": f"http://127.0.0.1:{peer_ui}/study" if surface == "teacher" else "",
+                "VITE_TEACHER_APP_URL": f"http://127.0.0.1:{peer_ui}/courses" if surface == "student" else "",
             }
             for kind, command, cwd in (
                 (

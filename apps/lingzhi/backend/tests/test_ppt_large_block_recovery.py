@@ -295,12 +295,13 @@ def test_502_repartitions_only_the_failed_source_unit_before_retry():
     assert not result["blocks"][0]["ppt_errors"]
 
 
-def test_repeated_502_uses_complete_grounded_prose_fallback():
+@pytest.mark.parametrize("content", [
+    "项目操作步骤说明内容，保持输入、处理与结果之间的关系。\n\n"
+    "运行后核对界面状态、存档结果与项目输出，确认每项内容均已保存。",
+    "| 操作 | 结果 |\n| --- | --- |\n\n| 保存 | 内容保留 |",
+])
+def test_repeated_502_uses_complete_grounded_prose_fallback(content):
     template, contract, _ = sample()
-    content = (
-        "项目操作步骤说明内容，保持输入、处理与结果之间的关系。\n\n"
-        "运行后核对界面状态、存档结果与项目输出，确认每项内容均已保存。"
-    )
     calls, waits = [], []
 
     async def invoke(*_args, **_kwargs):
