@@ -62,6 +62,10 @@ const createLearnerId = () => {
 export const getLearnerIdentity = (): string => {
   const student = getStudyIdentity();
   if (student && (getStudyToken() || QIZHI_AUTH_REQUIRED)) return student.id;
+  return getBrowserLearnerIdentity();
+};
+
+const getBrowserLearnerIdentity = (): string => {
   if (CONFIGURED_LEARNER_USER_ID && CONFIGURED_LEARNER_USER_ID !== 'default_user') {
     return CONFIGURED_LEARNER_USER_ID;
   }
@@ -93,7 +97,7 @@ export const getTeacherIdentity = (
   const normalized = configuredUserId.trim();
   if (normalized && normalized !== 'default_user') return normalized;
   if (isDevelopment) return LOCAL_TEACHER_USER_ID;
-  return getLearnerIdentity();
+  return getBrowserLearnerIdentity();
 };
 
 /**

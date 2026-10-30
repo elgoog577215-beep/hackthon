@@ -24,11 +24,14 @@ const requestConfig = () => ({ headers: new AxiosHeaders() }) as InternalAxiosRe
 describe('learner identity request header', () => {
   afterEach(() => { sessionStorage.removeItem(STUDY_SESSION_KEY); setStudyIdentity(null) })
   it('uses the authenticated student for learning while keeping local student credentials out of teacher requests', async () => {
+    const productionTeacher = getTeacherIdentity('', false)
     sessionStorage.setItem(STUDY_SESSION_KEY, 'student-session')
     setStudyIdentity({ id: 'local-student:a', username: 'student_a', role: 'student' })
     expect(learnerIdentityHeaders().get('Authorization')).toBe('Bearer student-session')
     expect(learnerIdentityHeaders().get('X-User-Id')).toBe('local-student:a')
     expect(teacherIdentityHeaders().has('Authorization')).toBe(false)
+    expect(getTeacherIdentity('', false)).toBe(productionTeacher)
+    expect(getTeacherIdentity('', false)).not.toBe('local-student:a')
     const captured: InternalAxiosRequestConfig[] = []
     const adapter = async (config: InternalAxiosRequestConfig) => {
       captured.push(config)
