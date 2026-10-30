@@ -401,6 +401,7 @@ const atomicCanContinue = computed(() => {
     && ['failed', 'paused', 'cancelled'].includes(run.status)
     && (!pipeline?.batches?.length || [...(pipeline?.inventory_batches || []), ...(pipeline?.batches || [])].some((batch: any) => batch.status !== 'completed')
       || pendingEquivalence(pipeline)
+      || pipeline?.teaching_structures?.status === 'partial'
       || pipeline?.organize_hierarchy && pipeline.hierarchy?.status !== 'completed'
       || pipeline?.include_relations && pipeline.relations?.status !== 'completed'))
 })
@@ -463,16 +464,19 @@ const displayTree = computed(() => {
     knowledge_points: points, relations: (tree.relations || []).filter((r: any) => !perLesson.value || ids.has(r.source_id) || ids.has(r.target_id)) }
 })
 function jobPhase(job: any) {
+  const completion=job.teaching_completion
+  const suffix=completion ? ` · ${t('knowledgeTeaching.completionProgress').replace('{completed}',String(completion.completed)).replace('{total}',String(completion.total))}` : ''
+  if(job.error?.code === 'knowledge_teaching_incomplete') return t('knowledgeTeaching.partialComplete')+suffix
   if ((atomicRun.value?.pipeline?.generation_mode === 'core_v1' || atomicRun.value?.pipeline?.execution_contract === 'knowledge_unified_v1') && job.status !== 'completed') {
     if (job.transport_retry_active_count > 0) return t('knowledgeFirst.modelReconnecting')
-    const label = t(job.pipeline_stage === 'candidate_teaching_structures' ? 'knowledgeTeaching.generating'
+    const label = t(job.pipeline_stage === 'candidate_teaching_completion' ? 'knowledgeTeaching.completing' : job.pipeline_stage === 'candidate_teaching_structures' ? 'knowledgeTeaching.generating'
       : job.pipeline_stage === 'candidate_teaching_identity' ? 'knowledgeTeaching.matching'
       : job.pipeline_stage === 'candidate_relations' ? 'knowledgeFirst.relationCandidates'
       : job.pipeline_stage === 'kc_profiles' ? 'knowledgeFirst.teachingProfile'
       : job.pipeline_stage === 'candidate_required_coverage' ? 'knowledgeFirst.coreCoverage'
       : ['candidate_core_identity','candidate_core_identity_catalog'].includes(job.pipeline_stage || '') ? 'knowledgeFirst.coreIdentity'
       : job.pipeline_stage === 'candidate_core_review' ? 'knowledgeFirst.coreReview' : 'knowledgeFirst.coreExtract')
-    return ['failed','paused','cancelled'].includes(job.status) ? `${label} · ${t(`knowledgeFirst.phase_${job.status}`)}` : label
+    return (['failed','paused','cancelled'].includes(job.status) ? `${label} · ${t(`knowledgeFirst.phase_${job.status}`)}` : label)+suffix
   }
   const phase = job.status === 'pending' ? 'pending' : job.phase || 'model'
   const known = ['pending', 'preparing', 'model', 'model_wait', 'model_streaming', 'structure_check', 'completed', 'failed', 'cancelled', 'paused']

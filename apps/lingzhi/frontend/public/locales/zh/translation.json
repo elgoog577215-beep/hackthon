@@ -8656,6 +8656,9 @@
     "unavailable": "检查入口暂不可用，未创建作答，请稍后再试。"
   },
   "knowledgeTeaching": {
+    "partialComplete": "知识主体已完成，教学配套待完善",
+    "completing": "仅补充缺失的易错、拓展或说明",
+    "completionProgress": "已补齐 {completed}/{total} 项",
     "reviewContent": "内容待核对，暂不作为判分或诊断依据。",
     "draftHint": "以下是共享教学设计草稿。错误解释是待验证假设，量化门槛是可调整的建议，不是个人掌握结论。",
     "coreReview": "原知识需要先核对：",

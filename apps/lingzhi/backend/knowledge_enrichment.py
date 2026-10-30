@@ -10,7 +10,7 @@ from knowledge_unified import body_signature, protected_body, validate_core
 def progress(pipeline):
     def fraction(stage):
         if stage.get('status')=='completed':return 1
-        rows=stage.get('batches',[])
+        rows=[*stage.get('batches',[]),*stage.get('completion_tasks',[])]
         return sum(b['status']=='completed'for b in rows)/len(rows) if rows else 0
     if pipeline.get('include_teaching_structures'):
         return int(60+12*fraction(pipeline.get('registry_relations',{}))+8*fraction(pipeline.get('kc_profiles',{}))+15*fraction(pipeline.get('teaching_structures',{})))

@@ -28,6 +28,12 @@ def job_status(job, server_time):
         job.get("completed_at") if job.get("status") not in ACTIVE and job.get("completed_at") else server_time,
     )
     value["activity_age_seconds"] = _seconds(job.get("last_content_at"), server_time)
+    pipeline=(job.get('checkpoint')or{}).get('atomic_pipeline')or{}
+    teaching=pipeline.get('teaching_structures')or{}
+    tasks=teaching.get('completion_tasks')or[]
+    if tasks:
+        completed=sum(task.get('status')=='completed'for task in tasks)
+        value['teaching_completion']={'total':len(tasks),'completed':completed,'pending':len(tasks)-completed}
     return value
 
 

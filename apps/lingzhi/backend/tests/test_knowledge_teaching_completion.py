@@ -111,4 +111,4 @@ async def test_invalid_supplement_keeps_partial_preview_and_can_resume_only_the_
     calls.clear();fixed=True
     result=await run(None,'c','L',pipeline['core_tree'],pipeline,request,save)
     assert result['knowledge_points']==tree['knowledge_points']and state['status']=='completed'
-    assert calls.count('candidate_teaching_completion')==1and 'candidate_teaching_structures'not in calls
+    assert calls.count('candidate_teaching_completion')==1 and 'candidate_teaching_structures'not in calls

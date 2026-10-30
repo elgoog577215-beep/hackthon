@@ -8656,6 +8656,9 @@
     "unavailable": "Check unavailable. No attempt was created; try later."
   },
   "knowledgeTeaching": {
+    "partialComplete": "Knowledge core completed; teaching additions pending",
+    "completing": "Completing only missing misconceptions, extensions or explanations",
+    "completionProgress": "Completed {completed}/{total} fields",
     "reviewContent": "Content needs review before grading or diagnosis.",
     "draftHint": "Shared teaching-design drafts. Error explanations are hypotheses; evidence thresholds are adjustable proposals, not personal mastery conclusions.",
     "coreReview": "Review the knowledge core first:",

@@ -129,6 +129,8 @@ def generation_failure(exc: Exception, default_code: str) -> dict[str, Any]:
     text = f"{code} {type(exc).__name__} {exc}".lower()
     if isinstance(exc, OSError) and not isinstance(exc, (TimeoutError, ConnectionError)):
         category, action, retryable = "storage", "retry_original", True
+    elif code == 'knowledge_teaching_incomplete':
+        category, action, retryable = 'structure', 'retry_original', True
     elif any(word in text for word in ("conflict", "source_changed", "scope_stale", "revision_changed")):
         category, action, retryable = "conflict", "reanalyze", False
     elif details.get("missing_fields") or details.get("blocking_questions") or "missing_input" in code:
