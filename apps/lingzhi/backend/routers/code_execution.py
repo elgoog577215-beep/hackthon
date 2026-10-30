@@ -153,6 +153,33 @@ def _cleanup_temp_dir(dir_path: str):
         pass
 
 
+def _linux_process_limit(proc_root: str = "/proc") -> int:
+    """Reserve 32 additional tasks without counting the host's existing work.
+
+    RLIMIT_NPROC counts all threads owned by the real UID, not just this child.
+    A fixed limit of 32 can prevent Node from creating its first internal thread
+    on a busy worker even when the submitted snippet starts no workers itself.
+    """
+    existing = 0
+    uid = os.getuid()
+    with os.scandir(proc_root) as processes:
+        for process in processes:
+            if not process.name.isdigit():
+                continue
+            try:
+                if process.stat(follow_symlinks=False).st_uid != uid:
+                    continue
+                with open(os.path.join(process.path, "status"), encoding="utf-8") as handle:
+                    for line in handle:
+                        if line.startswith("Threads:"):
+                            existing += int(line.split()[1])
+                            break
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                # Processes can exit while the snapshot is being collected.
+                continue
+    return existing + 32
+
+
 def _build_sandbox_command(base_command: list, file_path: str, language: str) -> list:
     """
     构建带资源限制的沙箱命令。
@@ -167,7 +194,7 @@ def _build_sandbox_command(base_command: list, file_path: str, language: str) ->
     limits = [
         f"ulimit -v {virtual_memory_kb};",
         "ulimit -f 1024;",      # 文件大小 512KB
-        "ulimit -u 32;",        # 最大进程数 32
+        f"ulimit -u {_linux_process_limit()};",  # UID-wide budget above existing tasks
         "ulimit -t 10;",        # CPU 时间 10 秒
     ]
 

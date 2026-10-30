@@ -138,6 +138,7 @@ async def test_existing_security_validation_blocks_execution(app, monkeypatch):
 @pytest.mark.parametrize("language,memory_limit", [("python", 262144), ("javascript", 1048576)])
 def test_linux_command_quotes_paths_and_preserves_resource_limits(monkeypatch, language, memory_limit):
     monkeypatch.setattr(api.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(api, "_linux_process_limit", lambda: 32)
     runtime = "/opt/teaching runtime/python;echo wrong"
     source = "/tmp/student's work/code.py"
     command = api._build_sandbox_command([runtime], source, language)
@@ -158,3 +159,13 @@ def test_runtime_and_windows_environment_are_explicit(monkeypatch, tmp_path):
     assert "SERVICE_TOKEN" not in environment
     assert environment["TEMP"] == str(tmp_path)
     assert environment["PATH"].split(os.pathsep)[0] == os.path.dirname(sys.executable)
+
+
+def test_linux_process_budget_accounts_for_existing_threads(tmp_path):
+    for pid, threads in (("100", 37), ("101", 11)):
+        process = tmp_path / pid
+        process.mkdir()
+        (process / "status").write_text(f"Name:\ttest\nThreads:\t{threads}\n")
+    (tmp_path / "exited").mkdir()
+    (tmp_path / "102").mkdir()  # exited between directory listing and status read
+    assert api._linux_process_limit(str(tmp_path)) == 37 + 11 + 32
