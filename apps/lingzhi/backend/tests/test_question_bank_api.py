@@ -1130,6 +1130,8 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     assert resumable.status_code == 200
     assert resumable.json()["job_id"] == failed["job_id"]
     assert resumable.json()["status"] == "failed"
+    assert resumable.json()["observation_kind"] == "historical"
+    assert resumable.json()["can_resume_plan"] is False
 
     resume_orchestrator = DeterministicAssessmentOrchestrator()
     monkeypatch.setattr(

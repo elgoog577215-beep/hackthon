@@ -41,6 +41,17 @@ vi.mock('@/components/QuestionBankImportWorkspace.vue', () => ({
 }))
 
 describe('QuestionBankReviewPanel', () => {
+  it('restores a terminal job as history without a current progress bar or legacy retry', async () => {
+    const job={job_id:'old-failure',status:'failed',progress:59,status_url:'/jobs/old',observation_kind:'historical',can_resume_plan:false,completed_at:'2026-10-27T10:29:49Z',message:'旧失败原因',error:{retryable:true}}
+    resumeQuestionBankRebuild.mockImplementation(async (_id,options)=>{options.onUpdate(job);throw Object.assign(new Error('旧失败原因'),{job})})
+    const w=mount(QuestionBankReviewPanel,{props:{courseId:'course-1'}})
+    await flushPromises()
+    expect(w.find('[data-testid="question-bank-progress"]').exists()).toBe(false)
+    expect(w.get('[data-testid="question-bank-history"]').text()).toContain('旧失败原因')
+    expect(w.find('[data-testid="retry-failed-question-bank-chapters"]').exists()).toBe(false)
+    expect(runQuestionBankRebuild).not.toHaveBeenCalled()
+    w.unmount()
+  })
   it('does not report an empty bank or zero supply when the initial read fails',async()=>{
     get.mockRejectedValue(new Error('network unavailable'))
     const w=mount(QuestionBankReviewPanel,{props:{courseId:'read-failed'}})
