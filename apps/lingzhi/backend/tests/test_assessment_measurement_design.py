@@ -18,6 +18,21 @@ def context(slot_id="slot-a"):
     }
 
 
+@pytest.mark.asyncio
+async def test_criterion_design_sizes_output_by_judgement_count_without_echoing_input(monkeypatch):
+    monkeypatch.delenv('ASSESSMENT_MIN_OUTPUT_TOKENS',raising=False)
+    model=object.__new__(UniversalAssessmentModel);seen=[]
+    async def call(policy,prompt,**kwargs):
+        seen.append((prompt,kwargs['max_tokens']))
+        return json.dumps({'plans':[{'slot_id':'item-1','plan':plan()}]})
+    model._assessment_llm_call=call
+    c=context();c['assessment_slot']['criterion_target']={'criterion':{'checkpoints':[{'pass_condition':'判断'}]*4,'controlled_conditions':['已知数据']}}
+    c['assessment_slot']['input_mode']='rich_text'
+    await model._design_measurements([c],None)
+    assert seen[0][1]>=4096
+    assert '不要回显' in seen[0][0]
+
+
 def plan():
     return {
         "public_material": "给定输入5",
