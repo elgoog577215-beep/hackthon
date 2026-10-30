@@ -28,6 +28,7 @@ afterEach(() => { studySession.clear(); vi.unstubAllGlobals() })
 describe('student login recovery', () => {
   it('discovers login and submits credentials while an expired session is stored', async () => {
     expect(await studyApi.config()).toMatchObject({ local_login_enabled: true })
+    expect(await studyApi.guest()).toMatchObject({ token: 'new-session' })
     expect(await studyApi.login('student_demo', 'test-password', false)).toMatchObject({ token: 'new-session' })
     expect(await studyApi.login('new_student', 'test-password', true)).toMatchObject({ token: 'new-session' })
     expect(studySession.get()).toBe('expired-local-session')

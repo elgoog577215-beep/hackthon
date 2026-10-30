@@ -31,6 +31,8 @@
 
 独立构建固定 `VITE_BASE_PATH=/lingzhi/`、`VITE_API_BASE_URL=/lingzhi`、`VITE_QIZHI_AUTH_REQUIRED=false`。生产路由仍只涉及 `/lingzhi/*`。后端运行配置由拓途私有环境提供。
 
+拓途学生端可配置 `LINGZHI_GUEST_STUDY_AUTH=true`，打开 `/study` 即自动进入独立学习空间，不需要账号密码；同时关闭 `LINGZHI_LOCAL_STUDY_AUTH` 可隐藏并禁用密码注册。每个浏览器由服务端分配独立学生身份，HttpOnly Cookie 保留 90 天，每次进入续期；清除站点数据、更换浏览器或超过保留期后会进入新空间，不自动合并旧资料。免密码身份仍受学生权限和资料归属检查约束。配置启智鉴权时强制关闭该入口，不能用于绕过学校登录。
+
 ```bash
 ./deploy/tuotu/build.sh /tmp/lingzhi-release.tgz
 ```

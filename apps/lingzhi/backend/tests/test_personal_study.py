@@ -110,6 +110,96 @@ def test_local_identity_password_session_and_header_spoof(setup_study):
     assert client.get('/api/study/auth/me', headers=headers).status_code == 401
 
 
+def test_guest_entry_is_explicit_and_never_bypasses_school_auth(setup_study, monkeypatch):
+    client, *_ = setup_study
+    monkeypatch.delenv('LINGZHI_GUEST_STUDY_AUTH', raising=False)
+    assert client.post('/api/study/auth/guest').status_code == 403
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    monkeypatch.setenv('QIZHI_AUTH_VERIFY_URL', 'https://identity.example/verify')
+    assert client.post('/api/study/auth/guest').status_code == 403
+    assert client.get('/api/study/auth/config').json()['guest_login_enabled'] is False
+
+
+def test_guest_cookie_restores_identity_without_password_or_plaintext_storage(setup_study, monkeypatch):
+    client, _, repo, _ = setup_study
+    monkeypatch.setenv('LINGZHI_LOCAL_STUDY_AUTH', 'false')
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    config = client.get('/api/study/auth/config').json()
+    assert config['guest_login_enabled'] and not config['local_login_enabled']
+    response = client.post('/api/study/auth/guest')
+    first = response.json()
+    assert first['user']['role'] == 'student' and first['user']['guest']
+    assert 'HttpOnly' in response.headers['set-cookie']
+    assert 'SameSite=lax' in response.headers['set-cookie']
+    assert 'Max-Age=7776000' in response.headers['set-cookie']
+    assert response.headers['cache-control'] == 'no-store'
+    assert client.post('/api/study/auth/guest').json() == first
+    headers = {'Authorization': 'Bearer ' + first['token']}
+    assert client.get('/api/study/auth/me', headers=headers).json() == first['user']
+    ledger = repo.storage.load_data('study_accounts.json')
+    assert ledger['users'] == {}
+    assert first['token'] not in json.dumps(ledger)
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'false')
+    assert client.get('/api/study/auth/me', headers=headers).status_code == 403
+
+
+def test_guest_browsers_have_isolated_sources_and_cannot_claim_teacher_identity(setup_study, monkeypatch):
+    from study.identity_middleware import LocalStudyIdentityMiddleware
+    client, _, repo, _ = setup_study
+    client.app.add_middleware(LocalStudyIdentityMiddleware, course_storage=repo.storage)
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    first = client.post('/api/study/auth/guest').json()
+    headers = {'Authorization': 'Bearer ' + first['token']}
+    source = add_source(client, headers)
+    client.cookies.clear()
+    second = client.post('/api/study/auth/guest').json()
+    assert first['user']['id'] != second['user']['id']
+    other = {'Authorization': 'Bearer ' + second['token'], 'X-User-Id': first['user']['id']}
+    assert client.get('/api/study/sources', headers=other).json() == []
+    assert client.get(f"/api/study/sources/{source['id']}/download", headers=other).status_code == 404
+    assert client.post('/api/courses', headers=headers, json={}).status_code == 403
+    assert client.get('/api/study/auth/me', headers=other).json()['id'] == second['user']['id']
+    assert client.get('/api/study/auth/me', headers={'X-User-Id': first['user']['id']}).status_code == 401
+
+
+def test_guest_cookie_cannot_resume_a_password_account_or_forged_identity(setup_study, monkeypatch):
+    from study.auth import GUEST_COOKIE
+    client, *_ = setup_study
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    owner, headers = account(client)
+    for cookie in (headers['Authorization'][7:], owner, 'forged-session'):
+        client.cookies.clear()
+        client.cookies.set(GUEST_COOKIE, cookie)
+        response = client.post('/api/study/auth/guest', json={'id': owner, 'role': 'teacher'})
+        assert response.json()['user']['id'] != owner
+        assert response.json()['user']['role'] == 'student'
+
+
+def test_guest_logout_revokes_cookie_and_bearer_session(setup_study, monkeypatch):
+    from study.auth import GUEST_COOKIE
+    client, *_ = setup_study
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    guest = client.post('/api/study/auth/guest').json()
+    headers = {'Authorization': 'Bearer ' + guest['token']}
+    assert client.post('/api/study/auth/logout', headers=headers).status_code == 200
+    assert not client.cookies.get(GUEST_COOKIE)
+    assert client.get('/api/study/auth/me', headers=headers).status_code == 401
+    assert client.post('/api/study/auth/guest').json()['user']['id'] != guest['user']['id']
+
+
+def test_guest_session_expiry_creates_new_identity_and_https_cookie_is_secure(setup_study, monkeypatch):
+    import study.auth as auth_module
+    client, *_ = setup_study
+    monkeypatch.setenv('LINGZHI_GUEST_STUDY_AUTH', 'true')
+    now = auth_module.time.time()
+    monkeypatch.setattr(auth_module.time, 'time', lambda: now)
+    first = client.post('/api/study/auth/guest').json()
+    monkeypatch.setattr(auth_module.time, 'time', lambda: now + auth_module.GUEST_SESSION_SECONDS + 1)
+    assert client.post('/api/study/auth/guest').json()['user']['id'] != first['user']['id']
+    with TestClient(client.app, base_url='https://testserver') as https:
+        assert 'Secure' in https.post('/api/study/auth/guest').headers['set-cookie']
+
+
 def test_file_upload_parses_downloads_and_rejects_unsupported_files(setup_study):
     client, _manager, _repo, _writer = setup_study
     _owner, headers = account(client)

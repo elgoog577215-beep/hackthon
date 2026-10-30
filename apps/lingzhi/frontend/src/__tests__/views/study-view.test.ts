@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
+const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), guest: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api, studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
 import zh from '../../../public/locales/zh/translation.json'
@@ -32,6 +32,33 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('enters a guest workspace automatically without a login form or sign-out control', async () => {
+    api.config.mockResolvedValue({ local_login_enabled: false, guest_login_enabled: true })
+    api.guest.mockResolvedValue({ token: 'guest-session', user: { ...user, guest: true } })
+    const { wrapper } = await page()
+    expect(api.guest).toHaveBeenCalledTimes(1)
+    expect(api.me).not.toHaveBeenCalled()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    expect(wrapper.find('.study-login-card').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('退出登录')
+    expect(wrapper.get('.study-user').attributes('title')).toContain('清除站点数据')
+    await setLocale('en'); await flushPromises()
+    expect(wrapper.get('.study-user').text()).toBe('My study space')
+    expect(wrapper.text()).not.toContain('Sign out')
+  })
+
+  it('shows a retry instead of a password form when automatic entry fails', async () => {
+    api.config.mockResolvedValue({ local_login_enabled: false, guest_login_enabled: true })
+    api.guest.mockRejectedValueOnce(new Error('暂时无法连接'))
+    const { wrapper } = await page()
+    expect(wrapper.find('.study-login-card').exists()).toBe(false)
+    expect(wrapper.text()).toContain('请点击重新连接')
+    api.guest.mockResolvedValueOnce({ token: 'guest-session', user: { ...user, guest: true } })
+    await wrapper.get('.study-error button').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    expect(wrapper.find('.study-error').exists()).toBe(false)
+  })
+
   it('renders the student home without secure-context crypto.randomUUID', async () => {
     vi.stubGlobal('crypto', undefined)
     const { wrapper } = await page()

@@ -24,14 +24,17 @@
             </details>
           </template>
           <CourseWorkspaceHeaderAction :label="activeLocale === 'zh' ? 'English' : '中文'" @click="setLocale(activeLocale === 'zh' ? 'en' : 'zh')" />
-          <span v-if="user && !developmentMode" class="study-user"><UserRound :size="17" />{{ user.username }}</span>
-          <CourseWorkspaceHeaderAction v-if="user && !developmentMode" :label="c('logout')" @click="logout" />
+          <span v-if="user && !developmentMode" class="study-user" :title="user.guest ? c('guestHint') : undefined"><UserRound :size="17" />{{ user.guest ? c('guestSpace') : user.username }}</span>
+          <CourseWorkspaceHeaderAction v-if="user && !developmentMode && !user.guest" :label="c('logout')" @click="logout" />
         </div>
       </template>
     </ApplicationHeader>
     <div v-if="error" class="study-error" role="alert">{{ error }}<button @click="reconnect">{{ c('retry') }}</button></div>
 
-    <main v-if="!user" class="study-login-page">
+    <main v-if="!user && (connecting || guestMode)" class="study-login-page">
+      <p role="status">{{ error ? c('connectionFailed') : c('openingSpace') }}</p>
+    </main>
+    <main v-else-if="!user" class="study-login-page">
       <div class="login-story"><span class="study-eyebrow">PERSONAL LEARNING</span><h1>{{ c('welcome') }}</h1><p>{{ c('intro') }}</p><div class="login-purpose"><BookOpen :size="28" /><div><h3>{{ c('systematic') }}</h3><p>{{ c('understandingHint') }}</p></div></div><div class="login-purpose"><Target :size="28" /><div><h3>{{ c('exam_prep') }}</h3><p>{{ c('examHint') }}</p></div></div></div>
       <form v-if="localLoginEnabled" class="study-login-card" @submit.prevent="authenticate">
         <span class="study-eyebrow">{{ c('localAccount') }}</span><h2>{{ c(registerMode ? 'register' : 'login') }}</h2><p>{{ c('loginIntro') }}</p>
@@ -142,6 +145,7 @@ import { useResizableColumns } from '../composables/useResizableColumns'
 
 const router = useRouter(), route = useRoute()
 const developmentMode = ref(false)
+const guestMode = ref(false), connecting = ref(true)
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
@@ -282,10 +286,23 @@ async function loadLibrary() {
   if (current() && failure?.status === 'rejected') showError(failure.reason)
 }
 async function connect() {
-  const config = await studyApi.config(); localLoginEnabled.value = config.local_login_enabled; developmentMode.value = config.development_identity === true
-  if (!studySession.get() && !qizhiAuth && !developmentMode.value) return
-  try { user.value = await studyApi.me(); setStudyIdentity(user.value); restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]) }
-  catch (cause) { showError(cause) }
+  connecting.value = true
+  try {
+    const config = await studyApi.config()
+    localLoginEnabled.value = config.local_login_enabled
+    developmentMode.value = config.development_identity === true
+    guestMode.value = config.guest_login_enabled === true && !qizhiAuth && !developmentMode.value
+    if (guestMode.value) {
+      const result = await studyApi.guest()
+      studySession.set(result.token)
+      user.value = result.user
+    } else {
+      if (!studySession.get() && !qizhiAuth && !developmentMode.value) return
+      user.value = await studyApi.me()
+    }
+    setStudyIdentity(user.value); restoreDraft(); creating.value = !materialId.value && route.query.create === '1'
+    await Promise.all([loadLibrary(), openMaterial()])
+  } finally { connecting.value = false }
 }
 async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else creating.value = !materialId.value && route.query.create === '1' }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }

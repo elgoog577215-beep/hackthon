@@ -1,4 +1,4 @@
-"""Explicit local student login for experiments; production uses Qizhi identity.
+"""Explicit standalone student sessions; school deployments use Qizhi identity.
 
 Local passwords and opaque session hashes stay in the configured data directory.
 Neither browser actor headers nor a client-supplied role grant student identity.
@@ -15,16 +15,55 @@ import uuid
 
 from fastapi import HTTPException, Request
 
+GUEST_COOKIE = "lingzhi_student_guest"
+GUEST_SESSION_SECONDS = 90 * 24 * 3600
+
 
 class LocalStudyAuth:
     def __init__(self, storage, *, enabled: bool | None = None) -> None:
         self.storage = storage
         self.enabled = (os.getenv("LINGZHI_LOCAL_STUDY_AUTH", "").lower() == "true"
                         if enabled is None else enabled)
+        self.guest_enabled = os.getenv("LINGZHI_GUEST_STUDY_AUTH", "").lower() == "true"
 
     def require_enabled(self):
         if not self.enabled or os.getenv("QIZHI_AUTH_VERIFY_URL", "").strip():
             raise HTTPException(403, "请使用启智统一登录")
+
+    def guest(self, token: str = "") -> dict:
+        """Resume this browser's opaque session, or allocate a separate learner.
+
+        The cookie is only a bootstrap credential. Learning requests still use
+        the verified bearer session, so switching to the teacher workspace does
+        not apply a student identity to unrelated teacher requests.
+        """
+        if not self.guest_enabled or os.getenv("QIZHI_AUTH_VERIFY_URL", "").strip():
+            raise HTTPException(403, "免密码学习入口未启用")
+        result = {}
+
+        def update(current):
+            current = current or {"users": {}, "sessions": {}}
+            now = time.time()
+            sessions = {key: value for key, value in current.get("sessions", {}).items()
+                        if value["expires_at"] > now}
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            session = sessions.get(token_hash)
+            resumed_token = token
+            if not session or session.get("kind") != "guest":
+                resumed_token = secrets.token_urlsafe(32)
+                token_hash = hashlib.sha256(resumed_token.encode()).hexdigest()
+                session = {"owner_id": f"local-student:{uuid.uuid4()}",
+                           "username": "guest", "kind": "guest"}
+            session["expires_at"] = now + GUEST_SESSION_SECONDS
+            sessions[token_hash] = session
+            current["sessions"] = sessions
+            result.update({"token": resumed_token, "user": {
+                "id": session["owner_id"], "username": session["username"],
+                "role": "student", "guest": True}})
+            return current
+
+        self.storage.update_data("study_accounts.json", update)
+        return result
 
     @staticmethod
     def digest(password: str, salt: str) -> str:
@@ -65,7 +104,8 @@ class LocalStudyAuth:
         return result
 
     def resolve(self, authorization: str) -> dict:
-        self.require_enabled()
+        if os.getenv("QIZHI_AUTH_VERIFY_URL", "").strip() or not (self.enabled or self.guest_enabled):
+            raise HTTPException(403, "请使用启智统一登录")
         if not authorization.lower().startswith("bearer "):
             raise HTTPException(401, "请登录学生学习空间")
         digest = hashlib.sha256(authorization[7:].strip().encode()).hexdigest()
@@ -75,10 +115,16 @@ class LocalStudyAuth:
         session = (accounts.get("sessions") or {}).get(digest)
         if not session or session["expires_at"] <= time.time():
             raise HTTPException(401, "登录已失效，请重新登录")
-        return {"id": session["owner_id"], "username": session["username"], "role": "student"}
+        guest = session.get("kind") == "guest"
+        if not (self.guest_enabled if guest else self.enabled):
+            raise HTTPException(403, "当前登录方式未启用")
+        user = {"id": session["owner_id"], "username": session["username"], "role": "student"}
+        if guest:
+            user["guest"] = True
+        return user
 
     def logout(self, authorization: str):
-        self.require_enabled()
+        self.resolve(authorization)
         token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
         digest = hashlib.sha256(token.encode()).hexdigest()
         def update(current):

@@ -10,7 +10,7 @@ from dependencies import require_task_manager
 from material_parser import parse_material_asset
 from material_storage import MaterialStorageError
 from storage import storage
-from study.auth import LocalStudyAuth, study_identity
+from study.auth import GUEST_COOKIE, GUEST_SESSION_SECONDS, LocalStudyAuth, study_identity
 from study.repository import StudyConflict, StudyRepository
 from study.service import create_material, source_sections
 
@@ -111,9 +111,20 @@ def auth_config(request: Request):
     auth = LocalStudyAuth(storage)
     from study.development import development_identity
     import os
-    return {"local_login_enabled": auth.enabled and not bool(os.getenv("QIZHI_AUTH_VERIFY_URL", "")),
+    unified = bool(os.getenv("QIZHI_AUTH_VERIFY_URL", "").strip())
+    return {"local_login_enabled": auth.enabled and not unified,
+            "guest_login_enabled": auth.guest_enabled and not unified,
             "development_identity": development_identity(request) is not None,
-            "identity_provider": "qizhi" if os.getenv("QIZHI_AUTH_VERIFY_URL", "") else "local"}
+            "identity_provider": "qizhi" if unified else "local"}
+
+
+@router.post("/auth/guest")
+def guest_login(request: Request, response: Response):
+    result = LocalStudyAuth(storage).guest(request.cookies.get(GUEST_COOKIE, ""))
+    response.set_cookie(GUEST_COOKIE, result["token"], max_age=GUEST_SESSION_SECONDS,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+    response.headers["Cache-Control"] = "no-store"
+    return result
 
 
 @router.post("/auth/register")
@@ -132,10 +143,11 @@ def me(user=Depends(study_identity)):
 
 
 @router.post("/auth/logout")
-def logout(request: Request, user=Depends(study_identity)):
+def logout(request: Request, response: Response, user=Depends(study_identity)):
     from study.development import development_identity
     if not getattr(request.state, "qizhi_identity", None) and not development_identity(request):
         LocalStudyAuth(storage).logout(request.headers.get("Authorization", ""))
+        response.delete_cookie(GUEST_COOKIE)
     return {"status": "logged_out"}
 
 

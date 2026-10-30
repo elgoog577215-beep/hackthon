@@ -4,7 +4,7 @@ import { studyCopy } from '../shared/study-copy'
 import type { NextLearningAction } from '../stores/learningProgress'
 
 export type StudyPurpose = 'systematic' | 'exam_prep'
-export interface StudyUser { id: string; username: string; role: string }
+export interface StudyUser { id: string; username: string; role: string; guest?: boolean }
 export interface StudySource { id: string; filename: string; sha256: string; status: string; warnings: string[]; error: string; sections: { id: string; title: string; characters: number }[] }
 export interface StudyBlock { block_id: string; content_type: string; type_label: string; title: string; content: string; knowledge_names: string[]; answer_to: string }
 export interface StudySection { id: string; title: string; blocks: StudyBlock[]; complete: boolean; fragment: string; source: { filename: string; asset_id: string; source_sha256: string } }
@@ -36,7 +36,7 @@ export class StudyApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   // Login discovery and credentials must remain usable after a session expires.
-  const publicAuth = ['/auth/config', '/auth/login', '/auth/register'].includes(path)
+  const publicAuth = ['/auth/config', '/auth/login', '/auth/register', '/auth/guest'].includes(path)
   const token = publicAuth ? '' : getQizhiAccessToken() || studySession.get()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
@@ -75,7 +75,8 @@ export const studyApi = {
   courseFeedback: (id: string) => request<{ items: CourseFeedback[]; replies_available: boolean }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`),
   sendCourseFeedback: (id: string, body: { request_id: string; expected_release_id: string; text: string }) => request<{ feedback_id: string; status: string }>(`/courses/${encodeURIComponent(id)}/exchange/feedback`, json(body)),
   retryCourseFeedback: (id: string, feedbackId: string) => request(`/courses/${encodeURIComponent(id)}/exchange/feedback/${encodeURIComponent(feedbackId)}/retry`, { method: 'POST' }),
-  config: () => request<{ local_login_enabled: boolean; identity_provider: string; development_identity?: boolean }>('/auth/config'),
+  config: () => request<{ local_login_enabled: boolean; identity_provider: string; development_identity?: boolean; guest_login_enabled?: boolean }>('/auth/config'),
+  guest: () => request<{ token: string; user: StudyUser }>('/auth/guest', { method: 'POST' }),
   me: () => request<StudyUser>('/auth/me'),
   login: (username: string, password: string, register: boolean) => request<{ token: string; user: StudyUser }>(`/auth/${register ? 'register' : 'login'}`, json({ username, password })),
   logout: () => request('/auth/logout', { method: 'POST' }),

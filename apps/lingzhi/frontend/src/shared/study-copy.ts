@@ -1,6 +1,10 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  guestSpace: ['我的学习空间', 'My study space'],
+  guestHint: ['资料保存在当前浏览器的学习身份下；清除站点数据或更换浏览器后会进入新的空间。', 'Your study identity belongs to this browser. Clearing site data or switching browsers opens a new space.'],
+  openingSpace: ['正在进入学习空间…', 'Opening your study space…'],
+  connectionFailed: ['暂时无法连接学习空间，请点击重新连接。', 'Unable to open your study space. Select Reconnect to try again.'],
   readingSettings: ['阅读设置', 'Reading settings'], fontSize: ['字号', 'Text size'],
   serifFont: ['宋体', 'Serif'], sansFont: ['黑体', 'Sans serif'],
   searchChapters: ['搜索章节', 'Search chapters'], noChapterMatches: ['没有匹配的章节', 'No matching chapters'],
