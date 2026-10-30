@@ -8,6 +8,14 @@ def test_readiness_does_not_treat_one_adopted_lecture_as_all_lectures_ready():
     result=generation_readiness(c)
     assert result['scopes']['L1']['ready'] is True
     assert result['scopes']['unadopted']=={'ready':False,'code':'knowledge_baseline_required','reviewed_criterion_count':0}
+
+
+def test_quantity_resume_selects_frozen_requested_slots_not_the_whole_catalog():
+    from routers.question_bank import _selected_knowledge_slots,QuestionBankRebuildRequest
+    c=course();c['_criterion_generation_plan']={'knowledge_ids':['K','other']};c['_assessment_quantity_plan']={'count':1}
+    payload=QuestionBankRebuildRequest(request_id='resume',scope='nodes',node_ids=['L1'],knowledge_ids=['K','other'],knowledge_baseline_revision=c['course_knowledge_base']['revision_id'])
+    blueprint={'nodes':[{'node_id':'L1','slots':[{'primary_knowledge_ids':['K'],'generation_key':'frozen-slot'}]}]}
+    assert _selected_knowledge_slots(c,payload,blueprint)=={'L1':['frozen-slot']}
 from backend.tests.test_criterion_question_generation import course
 
 
