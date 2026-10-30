@@ -56,9 +56,32 @@ it('passes the displayed completed body to additive enrichment',async()=>{
     knowledge_points:[],categories:[],atomic_assessment:{ready_for_adoption:true}}}]
   vi.spyOn(http,'get').mockResolvedValue({data:v})
   const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
-  await w.findAll('button').find(b=>b.text().includes('补充关系与教学档案'))!.trigger('click');await flushPromises()
+  await w.findAll('button').find(b=>b.text().includes('补齐缺失内容'))!.trigger('click');await flushPromises()
   expect(http.post).toHaveBeenCalledWith('/api/courses/c/knowledge-first/generate/tree',expect.objectContaining({generation_mode:'full_v1',base_job_id:'completed-core'}))
   w.unmount()
+})
+it('offers a separate real regeneration request without reusing or resuming a completed body',async()=>{
+  const v:any=view();v.atomic_runs=[]
+  v.candidates=[{job_id:'completed-core',lesson_id:'cpu',tree:{revision_id:'core',knowledge_points:[],categories:[],atomic_assessment:{ready_for_adoption:true}}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.text()).toContain('补齐缺失内容')
+  await w.get('[data-testid="regenerate-lesson-knowledge"]').trigger('click');await flushPromises()
+  const body=vi.mocked(http.post).mock.calls.at(-1)![1]
+  expect(body).toMatchObject({regenerate_core:true,lesson_id:'cpu',source_mode:'handouts',generation_mode:'full_v1'})
+  expect(body).not.toHaveProperty('base_job_id');expect(body).not.toHaveProperty('resume_job_id')
+  w.unmount()
+})
+it('reads an older candidate from the version selector without adopting or generating',async()=>{
+  const v:any=view();v.atomic_runs=[]
+  v.candidates=[{job_id:'current',lesson_id:'cpu',tree:{revision_id:'current',knowledge_points:[],categories:[],atomic_assessment:{ready_for_adoption:true}}}]
+  v.candidate_history=[{job_id:'old',lesson_id:'cpu',revision_id:'old-version'}]
+  vi.spyOn(http,'get').mockImplementation(async(url:any)=>({data:String(url).endsWith('/candidate-history/old')?{job_id:'old',lesson_id:'cpu',tree:{revision_id:'old-version',knowledge_points:[{knowledge_id:'old-k',name:'旧版知识',statement:'原来的内容',section_refs:['cpu']}],categories:[],relations:[]}}:v}))
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  await w.get('.tree-version select').setValue('saved:old');await flushPromises()
+  expect(w.text()).toContain('历史候选只读')
+  expect(w.text()).toContain('旧版知识')
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
 })
 it('starts a fresh core after the handout revision changes instead of forcing stale reuse',async()=>{
   const v:any=view();v.atomic_runs=[];v.source_handouts=[{lesson_id:'cpu',script_revision_id:'new-handout'}]

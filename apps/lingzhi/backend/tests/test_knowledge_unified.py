@@ -48,6 +48,46 @@ async def seed(svc,monkeypatch):
     return saved
 
 
+@pytest.mark.asyncio
+async def test_explicit_regeneration_bypasses_core_reuse_and_keeps_the_previous_candidate(svc,monkeypatch):
+    prior=await seed(svc,monkeypatch);before=deepcopy(svc.repository.load_raw('c-pilot'));calls=[];provider(svc,calls)
+    job=start(svc,'explicit-regenerate',generation_mode='core_v1',regenerate_core=True)
+    assert job['regenerate_core']is True
+    assert not job['checkpoint']['atomic_pipeline'].get('core_tree')
+    assert not job['checkpoint']['atomic_pipeline'].get('core_reuse')
+    await svc.run('c-pilot',job['id']);saved=svc.authoring.get_job('c-pilot',job['id'])
+    assert saved['status']=='completed',saved.get('error')
+    assert calls[0]['stage']=='candidate_core_extract'
+    assert svc.authoring.get_job('c-pilot',prior['id'])==prior
+    assert svc.repository.load_raw('c-pilot')==before
+    with pytest.raises(CourseDocumentConflict):start(svc,'explicit-regenerate',generation_mode='core_v1')
+
+
+@pytest.mark.asyncio
+async def test_regeneration_cannot_also_reuse_or_resume_an_old_job(svc,monkeypatch):
+    prior=await seed(svc,monkeypatch)
+    for extra in [{'base_job_id':prior['id']},{'resume_job_id':prior['id']}]:
+        with pytest.raises(CourseDocumentConflict):start(svc,'invalid-force-'+str(len(extra)),regenerate_core=True,**extra)
+
+
+@pytest.mark.asyncio
+async def test_old_candidate_history_is_owner_only_and_read_without_writes(svc,monkeypatch):
+    from backend.tests.test_knowledge_generation_status import client_for
+    prior=await seed(svc,monkeypatch);before=svc.authoring._path('c-pilot').read_bytes()
+    client=client_for(svc);url='/api/courses/c-pilot/knowledge-first/candidate-history/'+prior['id']
+    r=client.get(url,headers={'X-User-Id':'owner'})
+    assert r.status_code==200
+    assert r.json()['tree']==prior['checkpoint']['candidate']
+    assert client.get(url,headers={'X-User-Id':'foreign'}).status_code==404
+    svc.storage.update_course_data('c-pilot',lambda c:{**c,'is_published':True})
+    assert client.get(url,headers={'X-User-Id':'foreign'}).status_code==404
+    public=client.get('/api/courses/c-pilot/knowledge-first',headers={'X-User-Id':'foreign'}).json()
+    assert public['candidate_history']==[]
+    view=client.get('/api/courses/c-pilot/knowledge-first',headers={'X-User-Id':'owner'}).json()
+    assert any(v['job_id']==prior['id']for v in view['candidate_history'])
+    assert svc.authoring._path('c-pilot').read_bytes()==before
+
+
 def body(tree):
     return {**{k:deepcopy(tree.get(k)) for k in ['categories','concept_groups','knowledge_coverage','lessons']},
         'knowledge_points':[{k:deepcopy(v) for k,v in p.items() if k!='kc_skill_profile'} for p in tree['knowledge_points']]}
