@@ -8161,7 +8161,7 @@
     "coreExtract": "Extract knowledge and categories",
     "coreReview": "Review complete knowledge",
     "coreIdentity": "Consolidate equivalent knowledge",
-    "coreTreeScope": "Reuse the existing knowledge core and add only missing relationships and teaching profiles for this lesson. Generate the core first when none is reusable. Enrichment preserves names, content, and coverage.",
+    "coreTreeScope": "Complete missing content reuses existing knowledge. Regenerate rebuilds this lesson's tree from its current handout as a new candidate. Previous results are preserved; the active baseline changes only after review and adoption.",
     "lessonTreeEmpty": "No knowledge tree for this lecture yet. Generate it from the saved handout.",
     "lessonHandoutRequired": "Save a handout for this lecture before generating its knowledge tree.",
     "crossLessonLinks": "Cross-lecture links",
@@ -8336,7 +8336,10 @@
     "separateKnowledge": "Separating independent claims",
     "discoveryPlanNotice": "This checklist was discovered from the material and tracks the claims after splitting and equivalent-claim merging.",
     "discoveryCoverageTitle": "Automatic candidate mapping",
-    "enrichExistingTree": "Add relationships and teaching profiles",
+    "enrichExistingTree": "Complete missing content",
+    "regenerateLessonTree": "Regenerate this lesson's knowledge tree",
+    "savedCandidate": "Previous candidate",
+    "savedCandidateReadonly": "Previous candidate (read only). Existing results are preserved. Switch to the current candidate to complete missing content. Regeneration always uses this lesson's current handout.",
     "coreCoverage": "Check required knowledge coverage"
   },
   "companionWorkspace": {

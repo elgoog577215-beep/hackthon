@@ -1,6 +1,7 @@
 """Course-owned knowledge endpoints; auth applies to learners' own courses too."""
 import asyncio
 import json
+from copy import deepcopy
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -22,6 +23,7 @@ class SourceRequest(BaseModel):
 
 
 class GenerateRequest(SourceRequest):
+    regenerate_core: bool = Field(default=False,strict=True)
     include_teaching_structures: bool = True
     generation_mode: Literal['full_v1','core_v1'] = 'full_v1'
     base_job_id: str = Field(default='',max_length=200)
@@ -114,7 +116,7 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
     view = svc.view(course_id, source_mode=source_mode)
     view["can_edit"] = svc.repository.load_raw(course_id).get("owner_id") == require_actor_id(request.headers.get("X-User-Id"))
     if not view["can_edit"]:
-        view.update(jobs=[], active_jobs=[], atomic_runs=[], generation_previews=[], relation_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
+        view.update(jobs=[], active_jobs=[], atomic_runs=[], generation_previews=[], relation_runs=[], blocking_job_ids=[], candidate=None, candidate_job_id="", candidates=[], candidate_history=[],lesson_options=[], inputs={}, source_handouts=[], handouts=[], can_generate_tree=False)
         # Historical candidates/source packages remain teacher data.
         view["history"] = []
         tree = view.get("tree") or {}
@@ -124,6 +126,19 @@ def read(course_id: str, request: Request, source_mode: Literal["", "handouts"] 
             raw = svc.repository.load_course_view(course_id)
             view["tree"] = visible_handout_tree(tree, public_document(raw), raw.get("teacher_handouts") or {})
     return view
+
+
+@router.get('/courses/{course_id}/knowledge-first/candidate-history/{job_id}')
+def saved_candidate(course_id:str,job_id:str,request:Request,svc=Depends(service)):
+    if svc is None or request.state.knowledge_first_course.get('owner_id')!=require_actor_id(request.headers.get('X-User-Id')):
+        raise HTTPException(404,'候选不存在或无权限')
+    def project(state):
+        job=state.get('jobs',{}).get(job_id)or{}
+        candidate=(job.get('checkpoint')or{}).get('candidate')
+        if job.get('type')!='course_knowledge_tree_generation' or job.get('status')!='completed' or not candidate:
+            raise HTTPException(404,'候选不存在或尚未完成')
+        return {'job_id':job_id,'lesson_id':job.get('knowledge_lesson_id',''),'tree':deepcopy(candidate)}
+    return svc.authoring.read_projection(course_id,project)
 
 
 @router.post("/courses/{course_id}/knowledge-first/initialize")
@@ -219,7 +234,7 @@ async def generate(course_id: str, topic: str, body: GenerateRequest, svc=Depend
     job, created = await run_in_threadpool(lambda: action(lambda: svc.start(course_id, topic, body.request_id, body.knowledge_revision, body.document_revision,
         source_mode=body.source_mode, lesson_id=body.lesson_id, pipeline=body.pipeline,
         resume_job_id=body.resume_job_id, retry_batch_id=body.retry_batch_id, organize_hierarchy=body.organize_hierarchy,
-        extraction_mode=body.extraction_mode, include_relations=body.include_relations,teaching_focus=body.teaching_focus,coverage_units=body.coverage_units,generation_mode=body.generation_mode,base_job_id=body.base_job_id,include_teaching_structures=body.include_teaching_structures)))
+        extraction_mode=body.extraction_mode, include_relations=body.include_relations,teaching_focus=body.teaching_focus,coverage_units=body.coverage_units,generation_mode=body.generation_mode,base_job_id=body.base_job_id,include_teaching_structures=body.include_teaching_structures,regenerate_core=body.regenerate_core)))
     if created:
         task = asyncio.create_task(svc.run(course_id, job["id"]), name=job["id"])
         svc.authoring.track_runtime_job(course_id, task)

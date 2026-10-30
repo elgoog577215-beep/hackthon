@@ -36,18 +36,21 @@
         </details>
         <div class="toolbar">
           <h2 v-if="treeOnly">{{ t('knowledgeFirst.tree') }}</h2>
-          <label v-if="treeOnly && (historyOptions.length || selectedCandidate)" class="tree-version"><span>{{ t('knowledgeFirst.version') }}</span><select v-model="treeChoice">
+          <label v-if="treeOnly && (historyOptions.length || selectedCandidate || candidateHistory.length)" class="tree-version"><span>{{ t('knowledgeFirst.version') }}</span><select v-model="treeChoice">
             <option v-if="treeChoice === 'candidate' && !selectedCandidate && data.tree" value="candidate" disabled>{{ t('knowledgeFirst.candidatePreparingBaseline') }}</option>
             <option v-if="selectedCandidate && selectedCandidate.revision_id !== data.knowledge_revision" value="candidate">{{ t(selectedCandidate.generation_preview ? 'knowledgeFirst.previewVersion' : 'knowledgeFirst.candidate') }} · {{ short(selectedCandidate.revision_id) }}</option>
             <option v-for="v in historyOptions" :key="v.revision_id" :value="v.revision_id">{{ v.revision_id === data.knowledge_revision ? t('knowledgeFirst.current') : t('knowledgeFirst.history') }} · {{ short(v.revision_id) }}</option>
+            <option v-for="v in candidateHistory" :key="`saved:${v.job_id}`" :value="`saved:${v.job_id}`">{{t('knowledgeFirst.savedCandidate')}} · {{short(v.revision_id)}}</option>
           </select></label>
           <button v-if="treeOnly && treeChoice === 'candidate' && displayTree && data.can_edit && canAdoptSelection" class="primary" :disabled="busy || activeJobs.length > 0 || staleTreeSource || displayTree.revision_id === data.knowledge_revision || displayTree.teaching_assessment?.ready_for_adoption === false || !atomicAdoptionReady" @click="adopt">{{ t('knowledgeFirst.adoptTree') }}</button>
           <div v-if="!treeOnly && (!derived || data.handouts?.length)" class="tabs"><button :class="{ active: tab === 'tree' }" @click="tab = 'tree'">{{ t('knowledgeFirst.tree') }}</button>
             <button :class="{ active: tab === 'handout' }" @click="tab = 'handout'">{{ t('knowledgeFirst.handouts') }}</button></div>
-          <button v-if="data.can_edit" class="primary" :disabled="busy || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? (reusableCoreJobId ? 'knowledgeFirst.enrichExistingTree' : 'knowledgeFirst.generateLessonTree') : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
+          <button v-if="data.can_edit" class="primary" data-testid="supplement-lesson-knowledge" :disabled="busy || historicalChoice || blockingJobs.length > 0 || (perLesson ? !selectedLesson?.can_generate : derived ? !data.can_generate_tree : generic && (inputDirty || !data.inputs?.material_asset_ids?.length))" @click="generate('tree')">{{ t(perLesson ? (reusableCoreJobId ? 'knowledgeFirst.enrichExistingTree' : 'knowledgeFirst.generateLessonTree') : derived ? (data.tree ? 'knowledgeFirst.updateFromHandouts' : 'knowledgeFirst.generateFromHandouts') : data.tree ? 'knowledgeFirst.regenerateTree' : 'knowledgeFirst.generateTree') }}</button>
+          <button v-if="data.can_edit && perLesson && (selectedCandidate || candidateHistory.length || atomicRun || data.tree)" type="button" data-testid="regenerate-lesson-knowledge" :disabled="busy || blockingJobs.length > 0 || !selectedLesson?.can_generate" @click="generate('tree','full_v1',true)">{{t('knowledgeFirst.regenerateLessonTree')}}</button>
           <button v-if="data.can_edit && perLesson" type="button" data-testid="generate-knowledge-relations" :disabled="busy || blockingJobs.length > 0 || !canGenerateRelations" :title="t('knowledgeFirst.relationRequiresBaseline')" @click="generateRelations()">{{ t('knowledgeFirst.generateRelations') }}</button>
         </div>
         <p v-if="perLesson && data.can_edit" class="hint" data-testid="knowledge-core-scope">{{ t('knowledgeFirst.coreTreeScope') }}</p>
+        <p v-if="historicalChoice" class="notice" role="status">{{t('knowledgeFirst.savedCandidateReadonly')}}</p>
         <p v-if="teachingSummary" class="notice" data-testid="structured-teaching-summary">{{ teachingSummary }}</p>
         <div v-if="perLesson" class="knowledge-lesson-switch">
           <button type="button" :disabled="lessonOptions[0]?.lesson_id === knowledgeLessonId" @click="stepLesson(-1)">{{ t('knowledgeFirst.previousLesson') }}</button>
@@ -143,7 +146,7 @@
             <article v-else-if="selectedPoint" :key="selectedId" class="point-card">
               <div class="point-topline"><span>{{ selectedPoint.key }}</span><span data-testid="knowledge-type">{{ t(`knowledgeFirst.knowledgeTypes.${selectedPoint.knowledge_type}`, t('knowledgeFirst.atom')) }}</span></div>
               <MathText tag="h2" :content="knowledgeDisplayName(selectedPoint)" />
-              <details v-if="data.can_edit && !activeJobs.length && !displayTree.generation_preview" class="knowledge-name-editor">
+              <details v-if="data.can_edit && !historicalChoice && !activeJobs.length && !displayTree.generation_preview" class="knowledge-name-editor">
                 <summary>{{ t('knowledgeFirst.editDisplayName') }}</summary>
                 <form data-testid="knowledge-name-form" @submit.prevent="saveDisplayName">
                   <label>{{ t('knowledgeFirst.shortName') }}<input v-model="draftDisplayName" data-testid="knowledge-name-input" required maxlength="200" /></label>
@@ -265,6 +268,7 @@ const emit = defineEmits<{ updated: []; 'open-handouts': []; 'lesson-change': [i
 const courseId = computed(() => props.courseId)
 const knowledgeLessonId = ref(props.initialLessonId)
 const data = ref<any>(null), error = ref(''), busy = ref(false)
+const savedCandidate = ref<any>(null)
 const observationNotice = ref('')
 const refreshingStatus = ref(false)
 const confirmIdentityChanges = ref(false), confirmAtomicReview = ref(false)
@@ -356,6 +360,7 @@ const selectedCandidateRecord = computed(() => {
 })
 const selectedCandidate = computed(() => selectedCandidateRecord.value?.tree)
 const reusableCoreJobId = computed(() => {
+  if(historicalChoice.value)return ''
   const tree = treeChoice.value === 'candidate' ? selectedCandidate.value : data.value?.tree
   if (!perLesson.value || !tree || staleTreeSource.value || tree.generation_preview || tree.atomic_assessment?.ready_for_adoption !== true) return ''
   return treeChoice.value === 'candidate' ? selectedCandidateRecord.value?.job_id || '' : tree.generation_job_id || ''
@@ -438,6 +443,8 @@ const atomicAdoptionReady = computed(() => displayTree.value?.atomic_assessment?
   && (!displayTree.value?.relation_assessment || displayTree.value.relation_assessment.ready_for_adoption && confirmRelations.value)
   && (!atomicReviewRequired.value || confirmAtomicReview.value) && (!identityReviewRequired.value || confirmIdentityChanges.value))
 const canAdoptSelection = computed(() => !perLesson.value || selectedCandidateRecord.value?.lesson_id === knowledgeLessonId.value)
+const historicalChoice = computed(()=>treeChoice.value.startsWith('saved:'))
+const candidateHistory = computed<any[]>(()=>data.value?.can_edit ? (data.value.candidate_history || []).filter((v:any)=>(!perLesson.value || v.lesson_id===knowledgeLessonId.value) && v.job_id!==selectedCandidateRecord.value?.job_id) : [])
 const historyOptions = computed<any[]>(() => {
   const history = data.value?.history || []
   if (!perLesson.value) return history
@@ -452,7 +459,7 @@ const historyOptions = computed<any[]>(() => {
   }).reverse()
 })
 const displayTree = computed(() => {
-  const tree = treeChoice.value === 'candidate' ? (selectedCandidate.value || data.value?.tree) : data.value?.history.find((v: any) => v.revision_id === treeChoice.value)
+  const tree = historicalChoice.value ? (data.value?.can_edit && savedCandidate.value?.job_id===treeChoice.value.slice(6) ? savedCandidate.value.tree : null) : treeChoice.value === 'candidate' ? (selectedCandidate.value || data.value?.tree) : data.value?.history.find((v: any) => v.revision_id === treeChoice.value)
   if (!tree) return null
   const allPoints = (tree.knowledge_points || []).map((p: any) => ({ ...p, parent_id: p.parent_id || p.primary_concept_group_id, source_refs: p.source_refs || [] }))
   const points = perLesson.value ? allPoints.filter((p: any) => (p.section_refs || [p.topic]).includes(knowledgeLessonId.value)) : allPoints
@@ -600,6 +607,13 @@ async function navigateRelated(target: { lesson_id: string; knowledge_id: string
   node?.scrollIntoView?.({ block: 'nearest' })
 }
 watch([selectedId, selectedSource], async () => { await nextTick(); if (detailPane.value) detailPane.value.scrollTop = 0 })
+let savedReadEpoch=0
+watch([treeChoice,courseId,()=>data.value?.can_edit],async()=>{
+  const epoch=++savedReadEpoch;savedCandidate.value=null
+  if(!historicalChoice.value || !data.value?.can_edit)return
+  try{const r=await http.get(`${base.value}/candidate-history/${encodeURIComponent(treeChoice.value.slice(6))}`);if(epoch===savedReadEpoch)savedCandidate.value=r.data}
+  catch(e){if(epoch===savedReadEpoch)error.value=message(e)}
+})
 watch([treeChoice, () => displayTree.value?.revision_id], () => { confirmIdentityChanges.value = false; confirmAtomicReview.value = false; confirmRelations.value = false; selectedRelationIds.value = [...(displayTree.value?.relation_assessment?.proposed_ids || [])] })
 async function closeSource() { selectedSource.value = null; await nextTick(); detailPane.value?.focus({ preventScroll: true }) }
 watch(() => [selectedId.value, treeChoice.value, courseId.value, knowledgeLessonId.value], () => { selectedSource.value = null })
@@ -629,7 +643,7 @@ async function observeStream() {
       if (payload.preview) previews.push({ job_id: job.id, lesson_id: job.knowledge_lesson_id, tree: payload.preview })
       else if (!('preview' in payload)) previews.push(...(current.generation_previews || []).filter((p: any) => p.job_id === job.id))
       data.value = { ...current, jobs, active_jobs: active, generation_previews: previews }
-      if (payload.preview) treeChoice.value = 'candidate'
+      if (payload.preview && !historicalChoice.value) treeChoice.value = 'candidate'
     })
   } catch { /* The status observer reconnects this read stream without restarting generation. */ }
   finally { if (streamController === controller) { streamController = undefined; streamKey = '' } }
@@ -724,13 +738,14 @@ async function mutate(path: string, extra = {}) {
   }
   finally { busy.value = false }
 }
-async function generate(topic: string, generationMode: 'core_v1' | 'full_v1' = 'full_v1') {
-  const baseJobId = topic === 'tree' ? reusableCoreJobId.value : ''
+async function generate(topic: string, generationMode: 'core_v1' | 'full_v1' = 'full_v1', regenerateCore = false) {
+  const baseJobId = topic === 'tree' && !regenerateCore ? reusableCoreJobId.value : ''
   if (topic === 'tree') { tab.value = 'tree'; treeChoice.value = 'candidate' }
   else { tab.value = 'handout'; handoutChoice.value = '' }
-  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', generation_mode:generationMode, ...(baseJobId ? {base_job_id:baseJobId} : {}), organize_hierarchy: true, include_relations: generationMode === 'full_v1' } : {}) })
+  await mutate(`generate/${topic}`, { request_id: createUuid(), ...(derived.value ? { source_mode: 'handouts' } : {}), ...(perLesson.value ? { lesson_id: knowledgeLessonId.value, pipeline: 'inventory_atomic_v1', generation_mode:generationMode, ...(baseJobId ? {base_job_id:baseJobId} : {}), ...(regenerateCore ? {regenerate_core:true} : {}), organize_hierarchy: true, include_relations: generationMode === 'full_v1' } : {}) })
 }
 async function saveDisplayName() {
+  if(historicalChoice.value)return
   if (!selectedPoint.value || !data.value.can_edit || activeJobs.value.length || !draftDisplayName.value.trim()) return
   await mutate('presentation', { command_id: createUuid(), presentation_revision: data.value.presentation_revision || '',
     tree_revision: displayTree.value.revision_id,

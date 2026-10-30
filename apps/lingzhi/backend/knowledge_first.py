@@ -331,7 +331,7 @@ class KnowledgeFirstService:
         return course_generation_context(raw)
 
     def start(self, course_id, topic, request_id, expected_revision, expected_document, *, source_mode="", lesson_id="",
-              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1', base_job_id='', include_teaching_structures=False):
+              pipeline="", resume_job_id="", retry_batch_id="", organize_hierarchy=False, extraction_mode='', include_relations=False, teaching_focus=None, coverage_units=None, generation_mode='full_v1', base_job_id='', include_teaching_structures=False, regenerate_core=False):
         from knowledge_atomic import PIPELINE
         from knowledge_relation_generation import PIPELINE as RELATIONS, validate_baseline
         require(pipeline in {'', PIPELINE, RELATIONS}, '未知知识生成流程')
@@ -341,6 +341,9 @@ class KnowledgeFirstService:
         require(type(include_teaching_structures)is bool,'教学结构生成选项无效')
         from knowledge_unified import CONTRACT as UNIFIED
         unified=pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)
+        require(type(regenerate_core)is bool,'重新生成选项无效')
+        require(not regenerate_core or unified and not(base_job_id or resume_job_id or retry_batch_id),
+                '重新生成仅用于本讲讲义，不能同时复用或续跑旧任务')
         require(not base_job_id or unified and not resume_job_id,'指定知识主体只用于本讲配套生成，不能更换续跑基线')
         if resume_job_id:
             previous_job=self.authoring.get_job(course_id,resume_job_id)
@@ -348,6 +351,7 @@ class KnowledgeFirstService:
             unified=previous_job.get('execution_contract')==UNIFIED or previous_mode=='core_v1'
             if unified:generation_mode=previous_mode
             include_teaching_structures=bool(previous_job.get('include_teaching_structures',False))
+            regenerate_core=bool(previous_job.get('regenerate_core',False))
         require(generation_mode!='core_v1' or (pipeline==PIPELINE and source_mode=='handouts' and bool(lesson_id)), '基础树仅用于单讲讲义')
         if unified:
             include_relations=generation_mode=='full_v1'
@@ -400,6 +404,7 @@ class KnowledgeFirstService:
             kind = TREE_JOB if topic == "tree" else HANDOUT_JOB
             duplicate = next((j for j in existing_jobs.values() if j.get("request_id") == request_id and j.get("type") == kind and j.get("lesson_unit_id") == topic and j.get("source_mode", "") == source_mode and j.get("knowledge_lesson_id", "") == lesson_id), None)
             if duplicate:
+                require(bool(duplicate.get('regenerate_core',False))==regenerate_core,'请求标识对应不同的知识主体生成方式')
                 require(duplicate.get('generation_mode','full_v1')==generation_mode,'请求标识对应不同知识树生成范围')
                 require(duplicate.get('base_job_id','')==base_job_id,'请求标识对应不同知识主体')
                 require(bool(duplicate.get('include_teaching_structures',False))==include_teaching_structures,'请求标识对应不同教学结构范围')
@@ -604,7 +609,7 @@ class KnowledgeFirstService:
             if unified:
                 from knowledge_core_contract import CONTRACT as CORE
                 from knowledge_unified import select_core,prepare_pipeline
-                reuse=None if resume_job_id else select_core(raw,state,context,lesson_id,base_job_id)
+                reuse=None if resume_job_id or regenerate_core else select_core(raw,state,context,lesson_id,base_job_id)
                 lesson=state['lessons'].get(lesson_id) or {}
                 frozen={'actor':raw.get('owner_id'),'source_mode':source_mode,'knowledge_lesson_id':lesson_id,
                     'source_knowledge_revision':expected_revision,'source_document_revision':expected_document,
@@ -614,7 +619,7 @@ class KnowledgeFirstService:
                     'source_scope_revision':context['scope_contract']['revision_id'],
                     'request_snapshot':{'knowledge_generation_context':context},'asset_type':'knowledge_tree',
                     'message':'正在生成本讲基础知识树','knowledge_pipeline':pipeline,'generation_mode':generation_mode,
-                    'generation_contract':CORE,'execution_contract':UNIFIED,'base_job_id':base_job_id,'include_teaching_structures':include_teaching_structures,
+                    'generation_contract':CORE,'execution_contract':UNIFIED,'base_job_id':base_job_id,'include_teaching_structures':include_teaching_structures,'regenerate_core':regenerate_core,
                     'teaching_focus':teaching_focus,'coverage_units':coverage_units,
                     'organize_hierarchy':True,'extraction_mode':extraction_mode,'include_relations':include_relations,
                     'checkpoint':continued_checkpoint or {},'resume_from_job_id':resume_job_id,
@@ -955,10 +960,12 @@ class KnowledgeFirstService:
             job["recheck_available"] = bool(not state["jobs"][job["id"]].get("knowledge_pipeline") and (state["jobs"][job["id"]].get("source_mode") == "handouts" or raw.get("knowledge_first_workflow") == GENERIC_WORKFLOW) and job.get("status") == "failed" and job.get("type") == TREE_JOB and state["jobs"][job["id"]].get("raw_response"))
         candidate_job = next((j for j in reversed(list(state["jobs"].values())) if j.get("type") == TREE_JOB and (j.get("checkpoint") or {}).get("candidate")), None)
         candidates = {}
+        candidate_history=[]
         for job in state["jobs"].values():
             candidate = (job.get("checkpoint") or {}).get("candidate")
             if job.get("type") == TREE_JOB and job.get("status") == "completed" and candidate:
                 scope = job.get("knowledge_lesson_id", "")
+                candidate_history.append({'job_id':job['id'],'lesson_id':scope,'revision_id':candidate['revision_id'],'created_at':job.get('created_at','')})
                 candidates[scope] = {"lesson_id": scope, "job_id": job["id"], "tree": deepcopy(candidate), "source_knowledge_revision": job.get("source_knowledge_revision", ""), "adopted": any(h.get("generation_job_id") == job["id"] for h in (raw.get("knowledge_first_history") or {}).values())}
         generic = raw.get("knowledge_first_workflow") != WORKFLOW
         derived = generic and source_mode == "handouts"
@@ -999,7 +1006,7 @@ class KnowledgeFirstService:
                 "tree": raw.get("course_knowledge_base") if derived or raw.get("knowledge_first_workflow") or tree.get("source_mode") == "handouts" else None,
                 "history": list({**(raw.get("knowledge_first_history") or {}), **({tree["revision_id"]: tree} if tree.get("revision_id") else {})}.values()),
                 "candidate": (candidate_job.get("checkpoint") or {}).get("candidate") if candidate_job else None,
-                "candidate_job_id": candidate_job["id"] if candidate_job else "", "candidates": list(candidates.values()), "lesson_options": lesson_options, "jobs": jobs, "handouts": handouts,
+                "candidate_job_id": candidate_job["id"] if candidate_job else "", "candidates": list(candidates.values()), "candidate_history":candidate_history,"lesson_options": lesson_options, "jobs": jobs, "handouts": handouts,
                 "active_jobs": active_jobs,
                 "blocking_job_ids": [j["id"] for j in tree_generation_blockers(state, source_mode=source_mode)],
                 "scope": tree.get("scope", "上传材料覆盖范围") if generic else material()["scope"],

@@ -8161,7 +8161,7 @@
     "coreExtract": "提取知识与分类",
     "coreReview": "核对完整知识",
     "coreIdentity": "合并同义知识",
-    "coreTreeScope": "复用已有知识主体，只补充缺失的关系与本讲教学档案；没有可复用主体时先生成主体。知识名称、内容和覆盖在补充阶段保持不变。",
+    "coreTreeScope": "补齐缺失内容会复用已有知识；重新生成会从本讲当前讲义重做知识树，形成新候选。旧版和已有结果保留，审阅采用后才替换当前基线。",
     "lessonTreeEmpty": "本讲还没有知识树，点击“生成本讲知识树”开始。",
     "lessonHandoutRequired": "本讲尚无可用讲义，请先生成本讲讲义。",
     "crossLessonLinks": "跨讲关联",
@@ -8336,7 +8336,10 @@
     "separateKnowledge": "逐条拆分独立结论",
     "discoveryPlanNotice": "本清单由材料自动生成，记录知识拆分和同义合并后的对应关系。",
     "discoveryCoverageTitle": "自动候选对应情况",
-    "enrichExistingTree": "补充关系与教学档案",
+    "enrichExistingTree": "补齐缺失内容",
+    "regenerateLessonTree": "重新生成本讲知识树",
+    "savedCandidate": "历史候选",
+    "savedCandidateReadonly": "历史候选只读：旧结果完整保留，切回当前候选后可补齐；重新生成始终依据本讲当前讲义。",
     "coreCoverage": "核对指定知识覆盖"
   },
   "companionWorkspace": {
