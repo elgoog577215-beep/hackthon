@@ -20,6 +20,7 @@ def job_status(job, server_time):
         "created_at", "generation_started_at", "completed_at", "last_content_at", "received_chars",
         "pipeline_stage", "batch_index", "batch_total", "inventory_count", "completed_batches", "relation_count", "model_call_count", "total_model_seconds",
         "failed_stage", "failed_batch_id", "transport_retry_count", "transport_retry_limit", "transport_retry_active_count", "transport_retry_stage",
+        "teaching_completion",
     ) if key in job}
     value["message"] = str(job.get("message") or "")[:300]
     value["received_chars"] = int(job.get("received_chars") or len(job.get("partial_text") or ""))

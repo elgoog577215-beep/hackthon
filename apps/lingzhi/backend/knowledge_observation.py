@@ -26,6 +26,7 @@ def progress_summary(pipeline):
         stage=pipeline[key]
         result[key]={k:deepcopy(stage[k]) for k in ('status','contract') if k in stage}
         if 'batches' in stage:result[key]['batches']=rows(stage['batches'])
+        if 'completion_tasks'in stage:result[key]['completion_tasks']=rows(stage['completion_tasks'])
         if key=='hierarchy' and stage.get('result'):
             result[key]['result']={'schema_version':stage['result'].get('schema_version')}
     if 'registry_relations' in result:result['relations']=deepcopy(result['registry_relations'])
@@ -35,6 +36,11 @@ def progress_summary(pipeline):
 def metadata(job):
     result={k:deepcopy(job[k]) for k in _FIELDS if k in job}
     result['received_chars']=int(job.get('received_chars') or len(job.get('partial_text') or ''))
+    pipeline=(job.get('checkpoint')or{}).get('atomic_pipeline')or{}
+    tasks=(pipeline.get('teaching_structures')or{}).get('completion_tasks')or[]
+    if tasks:
+        done=sum(task.get('status')=='completed'for task in tasks)
+        result['teaching_completion']={'total':len(tasks),'completed':done,'pending':len(tasks)-done}
     return result
 
 
