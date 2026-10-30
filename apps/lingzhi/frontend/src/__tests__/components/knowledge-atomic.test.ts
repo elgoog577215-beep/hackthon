@@ -18,6 +18,18 @@ beforeEach(async()=>{
   vi.restoreAllMocks();vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>zh})));await setLocale('zh')
   vi.spyOn(http,'post').mockResolvedValue({data:{}})
 })
+it('keeps the completed core visible and offers only remaining teaching completion',async()=>{
+  const v:any=view();const pipeline=v.atomic_runs[0].pipeline
+  pipeline.execution_contract='knowledge_unified_v1';pipeline.batches=[{id:'done',status:'completed'}]
+  pipeline.teaching_structures={status:'partial'}
+  v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',progress:92,pipeline_stage:'candidate_teaching_completion',error:{code:'knowledge_teaching_incomplete',message:'知识2 缺少拓展或具体原因'},teaching_completion:{total:2,completed:1,pending:1}}]
+  vi.spyOn(http,'get').mockResolvedValue({data:v})
+  const w=mount(Manager,{props:{courseId:'c',treeOnly:true}});await flushPromises()
+  expect(w.get('[data-testid="knowledge-generation-progress"]').text()).toContain('知识主体已完成，教学配套待完善')
+  expect(w.text()).toContain('1/2')
+  expect(w.get('[data-testid="continue-knowledge-batches"]').attributes('disabled')).toBeUndefined()
+  expect(http.post).not.toHaveBeenCalled();w.unmount()
+})
 it('replaces inventory, batch diagnostics and timings with one percentage bar',async()=>{
   const v:any=view();v.jobs=[{id:'atomic-job',knowledge_lesson_id:'cpu',status:'failed',stage_observations:[{stage:'atomize',seconds:9}]}]
   vi.spyOn(http,'get').mockResolvedValue({data:v})
