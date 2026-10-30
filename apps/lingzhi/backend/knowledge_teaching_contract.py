@@ -66,7 +66,7 @@ def prompt(tree,focus):
          'catalog':[{k:deepcopy(p.get(k))for k in ('key','name','statement','conditions')}for p in tree['knowledge_points']]})
 
 
-def compile_batch(value,focus,catalog,batch_id):
+def compile_batch(value,focus,catalog,batch_id,*,allow_incomplete=False):
     errors=list(Draft202012Validator(response_schema([p['key']for p in focus],[p['key']for p in catalog])).iter_errors(value))
     if errors:raise TeachingDesignInvalid('教学结构响应不符合字段或引用范围：'+errors[0].message)
     focus_keys={p['key']for p in focus};result=deepcopy(value)
@@ -75,14 +75,20 @@ def compile_batch(value,focus,catalog,batch_id):
         if len({r['key']for r in rows})!=len(rows):raise TeachingDesignInvalid('教学对象临时键重复')
         if any(not focus_keys.intersection(r['knowledge_keys']) for r in rows):raise TeachingDesignInvalid('不能修改无关知识的教学对象')
     mistakes={r['key']:r for r in result['mistakes']}
+    pending=[]
     for key,row in result['points'].items():
         if row['status']=='ready' and not row['criteria']:raise TeachingDesignInvalid('可用知识必须有明确检查标准')
         if row['status']=='needs_core_review' and not row['note'].strip():raise TeachingDesignInvalid('待核对知识须说明具体问题')
         for c in row['criteria']:
             if any(m not in mistakes or key not in mistakes[m]['knowledge_keys']for m in c['mistake_keys']):
                 raise TeachingDesignInvalid('检查标准引用了未关联到该知识的错误对象')
-        if not any(key in m['knowledge_keys']for m in result['mistakes']) and not row['no_mistakes'].strip():raise TeachingDesignInvalid('没有易错对象时须说明原因')
-        if not any(key in x['knowledge_keys']for x in result['extensions']) and not row['no_extensions'].strip():raise TeachingDesignInvalid('没有拓展时须说明原因')
+        for field in ('mistakes','extensions'):
+            reason='no_mistakes'if field=='mistakes'else 'no_extensions'
+            if not any(key in obj['knowledge_keys']for obj in result[field]) and not row[reason].strip():
+                pending.append({'knowledge_key':key,'field':field})
+    if pending and not allow_incomplete:
+        raise TeachingDesignInvalid('教学配套待完善：'+', '.join(f"{p['knowledge_key']} 缺少{'易错'if p['field']=='mistakes'else '拓展'}或具体原因"for p in pending))
+    if pending:result['pending_fields']=pending
     result['batch_id']=batch_id
     return result
 
