@@ -84,6 +84,11 @@ def test_pending_optional_work_is_retryable_and_status_exposes_field_progress():
     job={'checkpoint':{'atomic_pipeline':{'teaching_structures':{'completion_tasks':[
         {'status':'completed'},{'status':'pending'}]}}}}
     assert job_status(job,'2026-10-30T00:00:00+00:00')['teaching_completion']=={'total':2,'completed':1,'pending':1}
+    from knowledge_observation import metadata,progress_summary
+    summary=metadata(job)
+    assert summary['teaching_completion']=={'total':2,'completed':1,'pending':1}
+    assert job_status(summary,'2026-10-30T00:00:00+00:00')['teaching_completion']==summary['teaching_completion']
+    assert len(progress_summary(job['checkpoint']['atomic_pipeline'])['teaching_structures']['completion_tasks'])==2
 
 
 @pytest.mark.asyncio
