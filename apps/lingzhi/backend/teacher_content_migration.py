@@ -13,7 +13,7 @@ import os
 import re
 
 from course_document import CourseDocument, refresh_document_revision
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from teacher_course_content import hydrate_authoring, _sections
 
 

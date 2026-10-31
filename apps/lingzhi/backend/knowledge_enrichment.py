@@ -18,7 +18,7 @@ def progress(pipeline):
 
 
 async def enrich(svc,course_id,lesson_id,pipeline,request,save,io):
-    from knowledge_atomic import run_batches
+    from knowledge_batch_runtime import run_batches
     from knowledge_registry_relations import prompt as relation_prompt,compile_edges,attach
     from knowledge_kc_profiles import profile_prompt,compile_profiles,eligible_questions,CONTRACT as PROFILE_CONTRACT,READABLE_CONTRACTS,PROFILE_FIELD_MAX_CHARS
     base=deepcopy(pipeline['core_tree']);validate_core(base,lesson_id)

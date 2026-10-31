@@ -5,7 +5,7 @@ import json
 import re
 from jsonschema import Draft202012Validator
 
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from generic_knowledge import require, normalized
 from knowledge_compact import passage_catalog, parse_complete_json, obj, array, string
 from knowledge_semantic_contract import quality_point, quality_prompt, point_variants, subject_options
@@ -114,7 +114,7 @@ def repair_schema(targets, passages, *, expression_contract=None, semantic_roles
 
 
 async def repair_points(svc, course_id, job_id, provider, raw, context, keys, index, response, record, *, feedback=None):
-    from knowledge_atomic import call_stage
+
     from knowledge_expression import check_contract, named_traces, bound_name, KnowledgeNameValidationError, VALIDATION_CONTRACT
     expression_contract = check_contract(context.get('expression_contract'))
     context = {**context, 'knowledge_passage_mode': 'source_blocks_v1'}
@@ -257,7 +257,7 @@ async def repair_points(svc, course_id, job_id, provider, raw, context, keys, in
         payload['repair_contract'] = context.get('knowledge_correction_contract')
         prompt = build_prompt(payload)
     record.update(status='requested', contract=context.get('knowledge_correction_contract') if compact else 'knowledge_correction_plan_v3' if inspect_names else 'knowledge_correction_plan_v2', target_keys=list(targets), targets=deepcopy(targets))
-    text = await call_stage(svc, course_id, job_id, provider, prompt, 'extract_repair')
+    text = await svc.request_knowledge_stage(course_id, job_id, provider, prompt, 'extract_repair')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
     if compact:

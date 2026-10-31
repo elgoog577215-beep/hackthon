@@ -27,10 +27,8 @@ from course_production_state import (
     read_course_production_state,
     teacher_asset_job_can_resume,
 )
-from dependencies import (
-    get_teacher_lesson_authoring_repository,
-    require_task_manager,
-)
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
+from dependencies import require_task_manager
 from learner_context import resolve_user_id
 from lesson_identity import chapter_matches_lesson
 from generation_streaming import structured_generation_stream
@@ -46,20 +44,8 @@ from material_storage import MaterialStorageError, material_repository
 from material_evidence import load_material_evidence
 from material_parser import parse_document_path, parse_material_asset
 from jobs.manager import TaskManager
-from teacher_lesson_authoring import (
-    LESSON_PLAN_PIPELINE_VERSION,
-    generation_failure,
-    TeacherLessonAuthoringError,
-    TeacherLessonAuthoringRepository,
-    TeacherLessonAuthoringService,
-    build_uploaded_ppt_review_report,
-    extract_uploaded_pptx_evidence,
-    extract_uploaded_pptx_review,
-    lesson_scope,
-    teacher_lesson_job_view,
-    teacher_lesson_deck_to_structured_slide_deck,
-    teacher_lesson_v6_source,
-)
+from teacher_lesson_authoring import LESSON_PLAN_PIPELINE_VERSION, generation_failure, TeacherLessonAuthoringRepository, TeacherLessonAuthoringService, build_uploaded_ppt_review_report, extract_uploaded_pptx_evidence, extract_uploaded_pptx_review, lesson_scope, teacher_lesson_job_view, teacher_lesson_deck_to_structured_slide_deck, teacher_lesson_v6_source
+from teacher_authoring_errors import TeacherLessonAuthoringError
 from teacher_asset_readiness import (
     teacher_lesson_plan_readiness,
     teacher_lesson_plan_revision_has_content,

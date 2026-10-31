@@ -17,7 +17,7 @@ def adopted_knowledge_checks(course: dict) -> list[dict]:
     base = course.get("course_knowledge_base") or {}
     if base.get("tree_schema") != "knowledge_first_c17_v1" or base.get("status") != "accepted":
         return []
-    from knowledge_first import material
+    from knowledge_contracts import material
     package = material()
     if base.get("material_revision") != source_hash(package, prefix="mat_"):
         return []  # Changed source answers must be explicitly adopted again.

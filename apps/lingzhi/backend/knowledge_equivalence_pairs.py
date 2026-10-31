@@ -16,8 +16,8 @@ def response_schema(keys):
 
 
 async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, record, save, validate_source):
-    from knowledge_atomic import call_stage
-    from knowledge_equivalence import validate_groups, complementary_targets, SCOPED_CONTRACT
+
+    from knowledge_equivalence_contract import validate_groups, complementary_targets, SCOPED_CONTRACT
     from knowledge_scope_notation import scope_signature
     scoped=record.get('contract')==SCOPED_CONTRACT
     def scope(p):return scope_signature(p) if scoped else tuple(sorted(normalized(c) for c in p.get('conditions',[])))
@@ -67,7 +67,7 @@ async def confirm_pairs(svc, course_id, job_id, provider, points, proposals, rec
         ) + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
         batch = {'id': f'equivalence-pairs-{offset//WIDTH+1}', 'status': 'requested', 'pairs': deepcopy(pairs)}
         record['pair_batches'].append(batch); validate_source(); save(pipeline_stage='semantic_equivalence_pairs')
-        raw = await call_stage(svc, course_id, job_id, provider, prompt, 'semantic_equivalence_pairs')
+        raw = await svc.request_knowledge_stage(course_id, job_id, provider, prompt, 'semantic_equivalence_pairs')
         batch['raw_response'] = raw; value = parse_complete_json(raw)
         from jsonschema import validate
         validate({k: v for k, v in value.items() if k != '_format_normalizations'}, response_schema(list(pairs)))

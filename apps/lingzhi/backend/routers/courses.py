@@ -24,7 +24,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from course_baseline import confirmed_generation_request
 from course_generation.service import get_course_service
 from course_production_state import read_course_production_state
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound, CourseMigrationConflict
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound, CourseMigrationConflict
 from course_schedule import (
     COURSE_PERIOD_MINUTES,
     legacy_schedule_labels,
@@ -49,14 +49,8 @@ from course_web_research_policy import (
     COURSE_WEB_RESEARCH_ENABLED,
     COURSE_WEB_RESEARCH_FROZEN_DETAIL,
 )
-from dependencies import (
-    get_course_document_repository,
-    get_course_or_404,
-    get_node_or_404,
-    get_task_manager_optional,
-    get_teacher_lesson_authoring_repository,
-    require_task_manager,
-)
+from dependencies import get_course_document_repository, get_course_or_404, get_node_or_404, get_task_manager_optional, require_task_manager
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 from jobs.manager import TaskManager
 from learner_context import DEFAULT_USER_ID, require_actor_id, resolve_user_id
 from learning_progress import project_learning_objective_bindings

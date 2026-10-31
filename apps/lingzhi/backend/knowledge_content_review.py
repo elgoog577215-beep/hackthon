@@ -20,7 +20,7 @@ def prior_question_context(pipeline, batch_index, response):
 
 
 async def review_content(svc, course_id, job_id, provider, raw, context, keys, response, record, feedback=None, reference_points=None, *, frozen=None):
-    from knowledge_atomic import call_stage
+
     from knowledge_expression import check_contract, named_traces, review_instruction, REVIEW_CONTRACT
     expression_contract = check_contract(context.get('expression_contract'))
     from knowledge_review_protocol import CONTRACT as GENERIC_REVIEW, build_prompt
@@ -136,7 +136,7 @@ async def review_content(svc, course_id, job_id, provider, raw, context, keys, r
         record['review_origin_job_id'] = frozen['origin_job_id']
         record.update(deepcopy(frozen.get('review_context', {})))
     else:
-        text = await call_stage(svc, course_id, job_id, provider, prompt, 'content_review')
+        text = await svc.request_knowledge_stage(course_id, job_id, provider, prompt, 'content_review')
     record['raw_response'] = text
     parsed = parse_complete_json(text)
     required = {'point_reviews', 'additions', 'source_issues'} | ({'addition_names'} if expression_contract else set())

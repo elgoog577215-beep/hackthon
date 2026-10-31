@@ -2,7 +2,7 @@
 import json
 from copy import deepcopy
 
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from knowledge_compact import obj, array, string
 from knowledge_semantic_contract import quality_point, subject_options
 from knowledge_expression import review_instruction

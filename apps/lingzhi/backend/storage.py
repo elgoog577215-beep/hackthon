@@ -471,13 +471,13 @@ class Storage:
         def replace(current):
             if current.get("teacher_production_schema") == "unified_teacher_v1":
                 if data.get("teacher_production_schema") != "unified_teacher_v1":
-                    from course_repository import CourseDocumentConflict
+                    from course_errors import CourseDocumentConflict
                     raise CourseDocumentConflict("Teacher course migrated; reload before saving")
                 if current.get("course_document_revision") != data.get("course_document_revision"):
-                    from course_repository import CourseDocumentConflict
+                    from course_errors import CourseDocumentConflict
                     raise CourseDocumentConflict("Course document revision changed")
                 if current.get("course_document") != data.get("course_document"):
-                    from course_repository import CourseDocumentConflict
+                    from course_errors import CourseDocumentConflict
                     raise CourseDocumentConflict("Teacher handouts require the shared commit service")
             merged = deepcopy(data)
             if current.get("teacher_production_schema") == "unified_teacher_v1":

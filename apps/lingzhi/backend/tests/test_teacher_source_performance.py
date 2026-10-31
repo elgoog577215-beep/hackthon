@@ -19,12 +19,12 @@ from backend.tests.test_unified_teacher_content import course, authoring
 
 
 def test_teacher_content_projection_reuses_registered_repository(monkeypatch, tmp_path):
-    import dependencies
+    import teacher_authoring_provider
 
     storage = SimpleNamespace(_courses_dir=tmp_path / "data" / "courses")
     registered = SimpleNamespace(canonical_storage=storage)
     monkeypatch.setattr(
-        dependencies,
+        teacher_authoring_provider,
         "get_teacher_lesson_authoring_repository",
         lambda: registered,
     )

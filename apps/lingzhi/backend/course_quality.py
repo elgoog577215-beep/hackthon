@@ -138,7 +138,7 @@ def _normalize_like_renderer(text: str) -> str:
     # caller of the quality gate — including the offline probes that only want
     # to score text.
     try:
-        from canonical_content_repair import repair_display_math_shape
+        from display_math_repair import repair_display_math_shape
     except ImportError:  # pragma: no cover - repair is optional for scoring
         return normalized
     return repair_display_math_shape(normalized)

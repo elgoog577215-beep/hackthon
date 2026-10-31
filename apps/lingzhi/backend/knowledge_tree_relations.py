@@ -5,7 +5,7 @@ import json
 import re
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from generic_knowledge import require
 from knowledge_compact import obj, array, string, parse_complete_json
 from knowledge_relation_generation import catalog, compile_batch, edge_identity, validate_graph
@@ -291,7 +291,7 @@ def compile_relations(raw, pipeline, focus_keys, response, lesson_id):
 
 
 async def generate(svc, course_id, job_id, provider, raw, context, pipeline, tree, save, validate_source):
-    from knowledge_atomic import call_stage, run_batches
+    from knowledge_batch_runtime import run_batches
     from course_generation_budget import _env_int
     state = pipeline.get('relations') or {}
     contract = state.get('contract') or (QUALITY_CONTRACT if pipeline.get('prompt_contract') == 'knowledge_extract_v9' else CONTRACT)
@@ -330,7 +330,7 @@ async def generate(svc, course_id, job_id, provider, raw, context, pipeline, tre
             batch['generation_origin'] = 'program_no_eligible_owned_pairs'
         else:
             if svc is not None: svc.authoring.update_job_live(course_id, job_id, batch_index=_index, pipeline_stage='tree_relations')
-            response = await call_stage(svc, course_id, job_id, provider,
+            response = await svc.request_knowledge_stage(course_id, job_id, provider,
                 prompt_for(raw, state, batch['focus_keys'], context['scope_lesson_id']), 'tree_relations')
             batch['generation_origin'] = 'model'
         validate_source()

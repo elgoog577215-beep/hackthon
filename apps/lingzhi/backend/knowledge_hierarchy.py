@@ -9,7 +9,7 @@ from copy import deepcopy
 import json
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 
 CONTRACT = 'knowledge_hierarchy_v5'
 PARTITION = 'knowledge_partition_v1'
@@ -165,7 +165,7 @@ def compile_subtree(response, task, points, course_id, lesson_id):
 
 async def repair_assignments(svc, course_id, job_id, provider, raw, context, task, response, points, save, validate_source):
     """One scoped completion of missing memberships; existing choices are immutable."""
-    from knowledge_atomic import call_stage
+
     from knowledge_compact import parse_complete_json
     from generic_knowledge import require
     mapping = response.get('point_categories')
@@ -187,7 +187,7 @@ async def repair_assignments(svc, course_id, job_id, provider, raw, context, tas
         + json.dumps(payload,ensure_ascii=False,separators=(',',':')))
     try:
         await asyncio.to_thread(validate_source)
-        text = await call_stage(svc,course_id,job_id,provider,prompt,'hierarchy_assignment_repair')
+        text = await svc.request_knowledge_stage(course_id,job_id,provider,prompt,'hierarchy_assignment_repair')
         record['raw_response'] = text
         await asyncio.to_thread(validate_source); parsed = parse_complete_json(text)
         require(isinstance(parsed,dict) and set(parsed)-{'_format_normalizations'}=={'point_categories'},'分类补全只能返回缺失归属')
@@ -202,7 +202,7 @@ async def repair_assignments(svc, course_id, job_id, provider, raw, context, tas
 
 async def organize(svc, course_id, job_id, provider, raw, context, pipeline, points, save, validate_source, *, concurrency=None):
     """Partition once, then generate independent recursive subtrees in parallel."""
-    from knowledge_atomic import call_stage, run_batches
+    from knowledge_batch_runtime import run_batches
     from knowledge_compact import parse_complete_json
     state = pipeline.get('hierarchy') or {}
     if state.get('contract') != CONTRACT:
@@ -231,7 +231,7 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
                 entry = {'job_id': job_id, 'attempt': attempt + 1, 'status': 'requested', 'contract': RECOVERY_CONTRACT}
                 pending.setdefault('attempts', []).append(entry)
                 await checkpoint(save, pipeline_stage='hierarchy')
-                response = await call_stage(svc, course_id, job_id, provider, effective, 'hierarchy_subtree')
+                response = await svc.request_knowledge_stage(course_id, job_id, provider, effective, 'hierarchy_subtree')
                 await asyncio.to_thread(validate_source)
                 pending['raw_response'] = response
                 entry['raw_response'] = response
@@ -264,7 +264,7 @@ async def organize(svc, course_id, job_id, provider, raw, context, pipeline, poi
             await checkpoint(save, pipeline_stage='hierarchy')
             return
         else:
-            response = await call_stage(svc, course_id, job_id, provider,
+            response = await svc.request_knowledge_stage(course_id, job_id, provider,
                 partition_prompt(raw, context, pending, [lookup[key] for key in pending['point_keys']]), 'hierarchy_partition')
             await asyncio.to_thread(validate_source)
             result = compile_partition(parse_complete_json(response), pending, pending['point_keys'])

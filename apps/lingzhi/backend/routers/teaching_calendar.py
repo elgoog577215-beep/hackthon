@@ -13,11 +13,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
 from course_production_state import read_course_production_state
-from dependencies import (
-    get_course_or_404,
-    get_task_manager_optional,
-    get_teacher_lesson_authoring_repository,
-)
+from dependencies import get_course_or_404, get_task_manager_optional
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 from learner_context import require_user_id
 from teaching_calendar import (
     TeachingCalendarConflict,

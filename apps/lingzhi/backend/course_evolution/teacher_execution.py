@@ -27,14 +27,8 @@ from runtime_metrics import (
     record_persistence_failure,
 )
 from slide_deck_v6 import SlideDeckV6, project_ppt_manuscript_from_deck_v1
-from teacher_lesson_authoring import (
-    TeacherLessonAuthoringError,
-    TeacherLessonAuthoringRepository,
-    TeacherLessonAuthoringService,
-    lesson_scope,
-    generation_failure,
-    teacher_lesson_v6_source,
-)
+from teacher_authoring_errors import TeacherLessonAuthoringError
+from teacher_lesson_authoring import TeacherLessonAuthoringRepository, TeacherLessonAuthoringService, lesson_scope, generation_failure, teacher_lesson_v6_source
 from teacher_script import (
     script_contract_for_revision,
     normalize_teacher_script_section,

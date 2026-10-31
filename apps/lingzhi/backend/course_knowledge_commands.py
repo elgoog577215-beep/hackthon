@@ -35,7 +35,8 @@ from course_knowledge_base import (
 )
 from course_knowledge_impact import build_knowledge_impact_report
 from course_knowledge_revisions import knowledge_revision_event
-from course_repository import CourseDocumentConflict, CourseDocumentRepository
+from course_errors import CourseDocumentConflict
+from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 
 logger = logging.getLogger(__name__)

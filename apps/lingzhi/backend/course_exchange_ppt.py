@@ -106,7 +106,7 @@ def freeze_published_ppts(storage, course, document, project_ids):
     root = Path(storage._data_dir) / "published_ppts"
     root.mkdir(parents=True, exist_ok=True)
     result = []
-    from course_exchange import digest
+    from course_exchange_digest import digest
     from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 
     for project_id in project_ids:

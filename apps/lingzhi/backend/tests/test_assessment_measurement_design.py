@@ -401,4 +401,3 @@ def test_model_transport_uses_short_ids_but_restores_exact_original_bindings():
     bad=deepcopy(wire);bad[0]['assessment_slot']['slot_id']='item-2'
     import pytest
     with pytest.raises(ValueError):restore_design_contexts(original,bad)
-

@@ -5,7 +5,7 @@ import os
 from copy import deepcopy
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from generic_knowledge import normalized, require, text
 from knowledge_relations import relation_index
 
@@ -180,8 +180,8 @@ def validate_source(svc, raw, job):
 
 
 async def run(svc, course_id, job_id):
-    from knowledge_atomic import call_stage, KnowledgeModelIdleTimeout
-    from knowledge_first import now, parse_response
+    from knowledge_batch_runtime import KnowledgeModelIdleTimeout
+    from knowledge_contracts import now, parse_response
     provider = None
     try:
         job = svc._active(course_id,job_id); raw = svc.repository.load_raw(course_id); validate_source(svc,raw,job)
@@ -213,7 +213,7 @@ async def run(svc, course_id, job_id):
         for i,batch in enumerate(pipeline['batches'],1):
             if batch['status'] == 'completed': continue
             validate_source(svc,svc.repository.load_raw(course_id),job); save(batch_index=i)
-            response = await call_stage(svc,course_id,job_id,provider,prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),'relations')
+            response = await svc.request_knowledge_stage(course_id,job_id,provider,prompt_for(raw,pipeline,batch,job['knowledge_lesson_id']),'relations')
             validate_source(svc,svc.repository.load_raw(course_id),job)
             compiled = compile_batch(raw,pipeline,batch,parse_response(response),job['knowledge_lesson_id'])
             batch.update(status='completed',result=compiled,raw_response=response); save()

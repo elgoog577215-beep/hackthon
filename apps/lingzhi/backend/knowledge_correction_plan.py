@@ -2,7 +2,7 @@
 from copy import deepcopy
 import re
 
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 
 
 class KnowledgePointValidationError(CourseDocumentConflict):

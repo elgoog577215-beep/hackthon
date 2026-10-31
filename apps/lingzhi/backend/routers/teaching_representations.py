@@ -28,7 +28,7 @@ from course_logic_upgrade import (
     CourseLogicUpgradeError,
     compile_course_logic_upgrade,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from dependencies import (
     get_course_document_repository,

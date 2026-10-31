@@ -29,11 +29,8 @@ from course_knowledge_refinement import KnowledgeRefinementService
 from course_knowledge_revisions import KnowledgeRevisionEvent, knowledge_revision_vector
 from course_knowledge_relocation import relocate_point_edit_candidate
 from course_downstream_rebuild import request_rebuild
-from course_repository import (
-    CourseDocumentConflict,
-    CourseDocumentNotFound,
-    CourseDocumentRepository,
-)
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 from dependencies import get_course_document_repository
 from starlette.concurrency import run_in_threadpool
 from teaching_plan_impact import build_downstream_state

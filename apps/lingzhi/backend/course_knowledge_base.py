@@ -83,7 +83,7 @@ def compile_course_knowledge_base(
             set_node_content_blocks(section, str(section.get("node_content") or ""))
     existing = course_data.get("course_knowledge_base")
     if isinstance(existing, dict) and existing.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
-        from knowledge_first import knowledge_projection
+        from knowledge_tree_projection import knowledge_projection
         # Knowledge-first atoms precede prose. Never replace their identities by
         # re-extracting a newly written lecture (including a one-level lecture).
         from knowledge_presentation import present_tree
@@ -783,7 +783,7 @@ def validate_course_knowledge_base(
     """Apply hard structural, semantic, relation, and binding gates."""
     del library  # Optional reference catalogs never participate in product validity.
     if knowledge_base.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
-        from knowledge_first import knowledge_projection
+        from knowledge_tree_projection import knowledge_projection
         knowledge_base = knowledge_projection(knowledge_base)
     issues: list[dict[str, Any]] = []
     if knowledge_base.get("schema_version") != COURSE_KNOWLEDGE_BASE_SCHEMA:

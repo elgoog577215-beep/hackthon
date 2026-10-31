@@ -195,10 +195,8 @@ async def run_analysis(manager: Any, job_id: str, *, service: Any = None) -> Non
     if str(task.get("status") or "") not in _ACTIVE_STATUSES:
         return
     if service is None:
-        from dependencies import (
-            get_course_document_repository,
-            get_teacher_lesson_authoring_repository,
-        )
+        from dependencies import get_course_document_repository
+        from teacher_authoring_provider import get_teacher_lesson_authoring_repository
         from question_bank import question_bank_repository
         from teaching_representations import teaching_representation_repository
 
@@ -415,7 +413,7 @@ async def run_candidates(
     representation_repository: Any = None,
 ) -> None:
     # Resolve the same repository used by teacher routes, including live jobs.
-    from dependencies import get_teacher_lesson_authoring_repository
+    from teacher_authoring_provider import get_teacher_lesson_authoring_repository
     from teaching_representations import teaching_representation_repository
 
     repository = repository or course_evolution_repository

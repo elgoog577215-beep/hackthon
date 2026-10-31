@@ -6,14 +6,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from dependencies import get_teacher_lesson_authoring_repository
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 from material_storage import MaterialStorageError, material_repository
 from ppt_projects import PptProjectService
 from routers.teacher_preview import owned_course
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from slide_deck_v6_models import V6BuildError
 from storage import storage
-from teacher_lesson_authoring import TeacherLessonAuthoringError
+from teacher_authoring_errors import TeacherLessonAuthoringError
 
 router = APIRouter(prefix="/teacher/courses/{course_id}/ppt-projects", tags=["ppt-projects"])
 

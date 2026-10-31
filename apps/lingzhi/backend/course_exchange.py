@@ -7,6 +7,8 @@ Learning attempts stay in the original learner repositories.
 
 from __future__ import annotations
 
+from course_exchange_digest import digest
+
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -54,12 +56,6 @@ async def publisher_grade_lock(storage, key):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
-
-
-def digest(value):
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -498,7 +494,7 @@ def remote_task_action(course, actor, action, payload):
 def public_knowledge_tree(course, document):
     tree = course.get("course_knowledge_base") or {}
     if tree.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
-        from knowledge_first import knowledge_projection
+        from knowledge_tree_projection import knowledge_projection
 
         tree = knowledge_projection(tree)
     if tree.get("lifecycle_status") != "active":

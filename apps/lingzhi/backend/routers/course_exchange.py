@@ -7,16 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from course_exchange import (
-    ExchangeClient,
-    ExchangeConfig,
-    ExchangeRepository,
-    INTERNAL_PREFIX,
-    digest,
-    now,
-    require_peer,
-    register_learning_summary_validator,
-)
+from course_exchange import ExchangeClient, ExchangeConfig, ExchangeRepository, INTERNAL_PREFIX, now, require_peer, register_learning_summary_validator
+from course_exchange_digest import digest
 from dependencies import get_course_or_404
 from routers.course_learning_access import owner_course
 from storage import storage

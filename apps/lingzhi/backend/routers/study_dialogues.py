@@ -349,7 +349,7 @@ async def command(course_id: str, conversation_id: str, payload: DialogueCommand
             ws["saved_revision"] = saved["revision"]
             if not any(v["revision"] == saved["revision"] for v in ws["versions"]):
                 ws["versions"].append({"revision": saved["revision"], "content": saved["content"], "assisted": ws["assisted"], "saved_at": stamp})
-            from routers.learning_records import _record_event
+            from learning_record_events import _record_event
             _record_event("learning_record_created" if saved["revision"] == 1 else "learning_record_updated", saved, user_id=user_id)
         elif payload.action == "check":
             # Starting another note does not erase help already received for

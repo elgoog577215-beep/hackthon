@@ -11,12 +11,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from jobs.manager import TaskManager, TaskRecoveryConflict, TaskStateConflict
-from dependencies import (
-    get_course_document_repository,
-    get_teacher_lesson_authoring_repository,
-    require_task_manager,
-)
-from course_repository import CourseDocumentRepository, CourseDocumentNotFound
+from dependencies import get_course_document_repository, require_task_manager
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
+from course_repository import CourseDocumentRepository
+from course_errors import CourseDocumentNotFound
 from learner_context import resolve_actor_id
 from teacher_lesson_authoring import project_current_teacher_scripts
 

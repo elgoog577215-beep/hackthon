@@ -1,4 +1,6 @@
 """Bounded lesson-core generation within the existing authoring job/store."""
+
+from knowledge_core_setup import initial_pipeline
 import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -11,15 +13,6 @@ from knowledge_registry_identity import existing_catalog
 from knowledge_registry_projection import build_tree
 from knowledge_transport import REQUEST_SCOPE
 from teacher_lesson_authoring import TeacherLessonAuthoringService, generation_failure
-
-
-def initial_pipeline(raw,context,job_id):
-    materials=[{'key':key,'text':unit['source_text']} for key,unit in sources(context).items()]
-    return {'schema_version':'inventory_atomic_v1','generation_contract':CONTRACT,'prompt_contract':CONTRACT,
-        'processing_contract':CONTRACT,'generation_mode':'core_v1','revision':0,'identity_job_id':job_id,
-        'organize_hierarchy':True,'include_relations':False,'items':[],'batches':[],
-        'inventory_batches':[{'id':f'core-{i}','source_keys':[m['key'] for m in group],'status':'pending'}
-            for i,group in enumerate(group_materials(materials),1)],'names':{'result':{}},'catalog':existing_catalog(raw)}
 
 
 def hierarchy_for(points, paths, raw, context):
@@ -58,8 +51,8 @@ def compile_tree(raw, context, pipeline, job_id, *, preview):
 
 
 async def run(svc, course_id, job_id):
-    from knowledge_first import knowledge_revision, now
-    from knowledge_atomic import call_stage, run_batches
+    from knowledge_contracts import knowledge_revision, now
+    from knowledge_batch_runtime import run_batches
     io=TeacherLessonAuthoringService(svc.authoring)._authoring_io
     job=await io(svc._active,course_id,job_id)
     raw=await io(svc.repository.load_raw,course_id)
@@ -110,7 +103,7 @@ async def run(svc, course_id, job_id):
                 return result
         record.update(status='requested');record.pop('validation_error',None)
         try:
-            response=await call_stage(svc,course_id,job_id,provider,prompt,stage)
+            response=await svc.request_knowledge_stage(course_id,job_id,provider,prompt,stage)
             record['raw_response']=response
             value=parse_json(response);result=compile_result(value)
             await io(svc.authoring.save_knowledge_response,course_id,job_id,pipeline['identity_job_id'],request_key,response)

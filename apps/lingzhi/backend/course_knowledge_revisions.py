@@ -141,7 +141,7 @@ def knowledge_revision_vector(
     """Address every knowledge record by a stable revision-vector key."""
     base = knowledge_base if isinstance(knowledge_base, dict) else {}
     if base.get("tree_schema") in {"knowledge_first_c17_v1", "knowledge_first_generic_v1"}:
-        from knowledge_first import knowledge_projection
+        from knowledge_tree_projection import knowledge_projection
         base = knowledge_projection(base)
     revisions: dict[str, str] = {}
     base_revision = _text(base.get("revision_id"))

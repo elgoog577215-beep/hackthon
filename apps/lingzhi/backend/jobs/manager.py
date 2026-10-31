@@ -85,11 +85,8 @@ from course_quality import (
     dedupe_quality_issues,
     evaluate_node_content,
 )
-from course_repository import (
-    CourseDocumentConflict,
-    CourseDocumentNotFound,
-    CourseDocumentRepository,
-)
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 from course_retrieval import (
     build_course_retrieval_queries,
     build_outline_research_instruction,
@@ -287,9 +284,6 @@ DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 
 
-
-
-
 # 指数退避参数
 BACKOFF_BASE = 2
 BACKOFF_MAX = 60
@@ -478,8 +472,6 @@ def _teacher_outline_result_ready(course_data: Any) -> bool:
     )
 
 
-
-
 class TaskRecoveryConflict(RuntimeError):
     def __init__(self, message: str, *, recovery: dict[str, Any]) -> None:
         super().__init__(message)
@@ -502,8 +494,6 @@ class TaskLeaderConflictError(RuntimeError):
     """Raised before task loading when another process owns the data directory."""
 
     code = "generation_job_leader_unavailable"
-
-
 
 
 class TaskManager:
@@ -5634,7 +5624,7 @@ class TaskManager:
 
     async def delete_course(self, course_id: str) -> int:
         """Stop every related job before deleting the formal course and sidecars."""
-        from dependencies import get_teacher_lesson_authoring_repository
+        from teacher_authoring_provider import get_teacher_lesson_authoring_repository
         from teacher_course_space import teacher_course_space_repository
 
         await get_teacher_lesson_authoring_repository().delete_course(course_id)

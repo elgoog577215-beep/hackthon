@@ -1,3 +1,5 @@
+
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 # =============================================================================
 # 共享依赖模块
 # 提供路由处理器共用的辅助函数，避免在 main.py 中重复定义。
@@ -11,7 +13,8 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from storage import storage
-from course_repository import CourseDocumentNotFound, CourseDocumentRepository
+from course_errors import CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 
 
 def get_course_document_repository() -> CourseDocumentRepository:
@@ -22,7 +25,6 @@ def get_course_document_repository() -> CourseDocumentRepository:
 # 模块级引用，由 main.py 在初始化后通过 init_task_manager() / init_ws_service() 设置
 _task_manager = None
 _ws_service = None
-_teacher_lesson_authoring_repository = None
 
 
 def init_task_manager(tm):
@@ -54,19 +56,6 @@ def require_ws_service():
     if not _ws_service:
         raise HTTPException(status_code=500, detail="WebSocket Service not initialized")
     return _ws_service
-
-
-def get_teacher_lesson_authoring_repository():
-    """Return the teacher-only lesson asset repository lazily.
-
-    Kept out of the student course repository so teacher drafts cannot become
-    learner-visible merely by being saved.
-    """
-    global _teacher_lesson_authoring_repository
-    if _teacher_lesson_authoring_repository is None:
-        from teacher_lesson_authoring import TeacherLessonAuthoringRepository
-        _teacher_lesson_authoring_repository = TeacherLessonAuthoringRepository()
-    return _teacher_lesson_authoring_repository
 
 
 async def get_course_or_404(course_id: str) -> dict:

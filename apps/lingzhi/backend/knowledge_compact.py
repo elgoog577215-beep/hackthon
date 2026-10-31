@@ -14,7 +14,7 @@ LEAVES = 'knowledge_leaf_claims_v4'
 
 def parse_complete_json(raw):
     """Escape literal string characters only; never repair structure or fill data."""
-    from knowledge_first import parse_response
+    from knowledge_contracts import parse_response
     try:return parse_response(raw,handout_sources=True)
     except json.JSONDecodeError:
         out=[];inside=False;index=0;notes=set()

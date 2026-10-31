@@ -233,5 +233,3 @@ def seal_binding(q,target,report):
         'criterion_signature':target['criterion_signature'],'content_signature':content_signature(q),
         'reviewed':verified.get('passed')is True and verified.get('solution_consistent')is True,
         'alignment':deepcopy(verified.get('criterion_alignment')or{})}
-
-

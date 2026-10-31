@@ -32,7 +32,7 @@ from slide_deck_v6_orchestrator import SlideDeckV6CandidateRepository, SlideDeck
 from slide_deck_v6_models import V6BuildError
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 from teaching_representations import teaching_representation_repository
-from teacher_lesson_authoring import TeacherLessonAuthoringError
+from teacher_authoring_errors import TeacherLessonAuthoringError
 
 
 def conflict(message="所选内容已变化，请重新选择来源。"):

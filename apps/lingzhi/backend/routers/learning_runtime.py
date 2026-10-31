@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from dependencies import get_course_document_repository, get_course_or_404
-from course_repository import CourseDocumentNotFound
+from course_errors import CourseDocumentNotFound
 from learner_context import require_user_id
 from learning_events import record_learning_event
 from learning_runtime import build_learning_runtime

@@ -18,7 +18,7 @@ from course_outline_adjustments import (
     apply_outline_operations,
     compile_outline_draft,
 )
-from course_repository import CourseDocumentNotFound
+from course_errors import CourseDocumentNotFound
 from course_generation.outline import _QUALITY_RULE_VERSION, review_course_outline_document
 from course_versioning import (
     analyze_blueprint_impact,

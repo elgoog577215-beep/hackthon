@@ -46,7 +46,7 @@ def partition_failed_batches(state,*,catalog=None):
 
 
 async def run(svc,course_id,lesson_id,tree,pipeline,request,save):
-    from knowledge_atomic import run_batches
+    from knowledge_batch_runtime import run_batches
     frozen=protected_body(tree);signature=input_signature(tree,lesson_id)
     certificates=tree.get('enrichment',{}).get('teaching_structures',{})
     cert=certificates.get(lesson_id,{}) if isinstance(certificates,dict)else{}

@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from generic_knowledge import require
 from handout_knowledge import handout_input_signature
 
@@ -67,7 +67,7 @@ def validate_core(tree,lesson_id):
 
 def select_core(raw,state,context,lesson_id,base_job_id=''):
     """Prefer the current displayed candidate; accepted content remains authoritative."""
-    from knowledge_first import knowledge_revision
+    from knowledge_contracts import knowledge_revision
     jobs=state.get('jobs',{})
     current=raw.get('course_knowledge_base') or {}
     def eligible(job,tree,*,adopted=False):
@@ -122,7 +122,7 @@ def select_core(raw,state,context,lesson_id,base_job_id=''):
 
 
 def prepare_pipeline(raw,context,job_id,generation_mode,reuse=None):
-    from knowledge_core import initial_pipeline
+    from knowledge_core_setup import initial_pipeline
     pipeline=initial_pipeline(raw,context,job_id)
     pipeline.update(execution_contract=CONTRACT,generation_mode=generation_mode,
                     include_relations=generation_mode=='full_v1')

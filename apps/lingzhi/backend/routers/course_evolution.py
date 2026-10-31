@@ -16,13 +16,8 @@ from course_evolution import (
 from course_evolution.application import CourseEvolutionApplicationService
 from course_evolution.teacher_planning import context_view
 from course_generation.service import get_course_service
-from dependencies import (
-    get_course_document_repository,
-    get_course_or_404,
-    get_task_manager_optional,
-    get_teacher_lesson_authoring_repository,
-    require_task_manager,
-)
+from dependencies import get_course_document_repository, get_course_or_404, get_task_manager_optional, require_task_manager
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 from generation_streaming import structured_generation_stream
 from jobs.manager import TaskManager
 from learner_context import require_user_id

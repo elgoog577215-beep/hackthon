@@ -21,7 +21,7 @@ from change_proposals import change_proposal_repository, propose_kb_linkage_from
 from dependencies import get_course_document_repository
 from generation_streaming import structured_generation_stream
 from learner_context import require_user_id
-from course_repository import CourseDocumentNotFound
+from course_errors import CourseDocumentNotFound
 from teaching_representations import teaching_representation_repository
 
 

@@ -25,7 +25,8 @@ from course_baseline import (
     merge_ai_baseline_draft,
     normalize_course_information,
 )
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound, CourseDocumentRepository
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
+from course_repository import CourseDocumentRepository
 from dependencies import get_course_document_repository
 from learner_context import resolve_user_id
 from models import CourseGenerationRequest

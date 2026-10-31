@@ -10,7 +10,8 @@ from course_material_understanding import (
     course_material_understanding_service,
 )
 from course_material_absorption import compile_material_absorption_plan, material_absorption_bundle
-from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
+from dependencies import get_course_document_repository
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
 from learner_context import require_user_id
 from material_parser import parse_material_asset
 from material_storage import MaterialStorageError, material_repository

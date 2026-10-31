@@ -4,7 +4,7 @@ import json
 import re
 
 from generic_knowledge import require, text, sources
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from knowledge_source_rules import claims_parenthesis_substring_ban
 from knowledge_compact import obj, array, string, passage_catalog, passage_schema
 
@@ -15,7 +15,7 @@ QUALITY_CONTRACT = 'knowledge_extract_v9'
 
 
 def subject_options(content, *, contract=LEGACY_CONTRACT):
-    from knowledge_extract import focus_choices
+    from knowledge_extract_contract import focus_choices
     terms = list(focus_choices(content))
     for token in re.findall(r'[\u3400-\u9fff]+', content):
         terms.extend(re.split(r'依赖|维护|必须|需要|确保|保证|采用|利用|基于|具有|体现|导致|分配|保存|生成|控制|涉及|的|是|在|将|把|为|与|和|并|则|当|若', token))
@@ -437,7 +437,7 @@ def quality_point(point, source_text, *, allow_literal_slash=False, general_know
 
 
 def compile_extraction(raw, context, keys, index, response):
-    from knowledge_extract import compile_extraction as compile_legacy
+    from knowledge_extract_legacy import compile_extraction as compile_legacy
     from knowledge_expression import check_contract, bound_name, symbolic_name, KnowledgeNameValidationError
     from knowledge_relation_binding import with_bindings,relation_kwargs
     context=with_bindings(context,response)

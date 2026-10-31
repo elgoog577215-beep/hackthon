@@ -12,7 +12,8 @@ def lesson_ppt_projects(storage, course, public_document):
     from course_revisions import revision_vector_for_course
     from ppt_manuscript_quality import manuscript_quality_passed
     from teacher_content_projection import authoring_repository
-    from teacher_lesson_authoring import TeacherLessonAuthoringError, teacher_lesson_v6_source
+    from teacher_authoring_errors import TeacherLessonAuthoringError
+    from teacher_lesson_authoring import teacher_lesson_v6_source
     from teaching_representations import teaching_representation_repository
 
     state = authoring_repository(storage).load(course["course_id"])

@@ -9,9 +9,11 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
-from course_repository import CourseDocumentConflict, CourseDocumentNotFound
-from dependencies import get_course_document_repository, get_teacher_lesson_authoring_repository
-from knowledge_first import KnowledgeFirstService, JOB_TYPES
+from course_errors import CourseDocumentConflict, CourseDocumentNotFound
+from dependencies import get_course_document_repository
+from teacher_authoring_provider import get_teacher_lesson_authoring_repository
+from knowledge_first import KnowledgeFirstService
+from knowledge_contracts import JOB_TYPES
 from learner_context import require_actor_id
 
 router = APIRouter(tags=["knowledge_first"])
@@ -182,7 +184,7 @@ async def events(course_id: str, job_id: str, request: Request, svc=Depends(serv
         raise HTTPException(404, '任务不存在或无权限')
     from knowledge_atomic import project_preview
     from knowledge_generation_status import job_status
-    from knowledge_first import now
+    from knowledge_contracts import now
 
     def snapshot():
         if svc.repository.load_raw(course_id).get('owner_id') != actor:

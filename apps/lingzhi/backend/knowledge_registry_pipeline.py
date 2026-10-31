@@ -4,7 +4,7 @@ from copy import deepcopy
 import json
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 from generic_knowledge import require, sources
 from knowledge_registry_contract import CONTRACT, identity_prompt, names_prompt, parse_names, parse_json
 from knowledge_registry_identity import existing_catalog, apply_decisions
@@ -73,8 +73,8 @@ def extend_batches(state, points, prefix, width):
 
 
 async def run(svc, course_id, job_id):
-    from knowledge_first import knowledge_revision, now
-    from knowledge_atomic import call_stage, run_batches, KnowledgeBatchValidationError
+    from knowledge_contracts import knowledge_revision, now
+    from knowledge_batch_runtime import run_batches, KnowledgeBatchValidationError
     from knowledge_coverage import parse_plan, units_prompt, parse_unit_points
     from knowledge_discovery import material_batches, discovery_prompt, completion_prompt, parse_discovery, coverage_inputs, atomization_prompt, parse_atoms
     job = await asyncio.to_thread(svc._active, course_id, job_id)
@@ -163,7 +163,7 @@ async def run(svc, course_id, job_id):
             entry = {'stage': stage, 'attempt': attempt + 1, 'status': 'requested', 'job_id': job_id}
             record.setdefault('attempts', []).append(entry)
             try:
-                response = await call_stage(svc, course_id, job_id, provider, effective, stage)
+                response = await svc.request_knowledge_stage(course_id, job_id, provider, effective, stage)
                 entry['raw_response'] = response
                 value = parse_json(response)
                 result = compile_result(value)

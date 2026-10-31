@@ -19,7 +19,7 @@ from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, migrate_question_bank_review_policy, question_bank_repository
 from storage import storage
 from teacher_content_projection import project_teacher_content
-from teacher_lesson_authoring import TeacherLessonAuthoringError
+from teacher_authoring_errors import TeacherLessonAuthoringError
 
 router = APIRouter(prefix="/teacher/courses/{course_id}/preview", tags=["teacher-preview"])
 qa_service = AIQAService()

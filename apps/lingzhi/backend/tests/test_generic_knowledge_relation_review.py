@@ -78,7 +78,7 @@ async def test_teacher_projection_relation_command_checks_reading_version_and_ke
             for section in revision['sections']:
                 for block in section['blocks']:block['status']='final'
     svc.authoring._save(state)
-    monkeypatch.setattr('dependencies.get_teacher_lesson_authoring_repository',lambda:svc.authoring)
+    monkeypatch.setattr('teacher_authoring_provider.get_teacher_lesson_authoring_repository',lambda:svc.authoring)
     canonical=deepcopy(svc.repository.load_raw('c-pilot')['course_document'])
     view=svc.repository.load_course_view('c-pilot')
     assert len(view['course_document']['blocks'])==2

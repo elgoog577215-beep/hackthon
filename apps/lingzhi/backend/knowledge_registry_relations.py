@@ -91,7 +91,7 @@ def attach(tree, batches):
             try:
                 validate_graph(tree['knowledge_points'], [*edges.values(), edge])
             except Exception as error:
-                from course_repository import CourseDocumentConflict
+                from course_errors import CourseDocumentConflict
                 if not isinstance(error, CourseDocumentConflict):
                     raise
                 excluded.append({'relation_id': edge['id'], 'reason': str(error)})

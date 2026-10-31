@@ -6,7 +6,7 @@ one knowledge ID AND semantic revision; it never silently follows a new claim.
 from copy import deepcopy
 
 from course_document import stable_hash
-from course_repository import CourseDocumentConflict
+from course_errors import CourseDocumentConflict
 
 CONTRACT = 'knowledge_presentation_v1'
 
