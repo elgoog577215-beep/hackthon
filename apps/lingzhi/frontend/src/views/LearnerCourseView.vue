@@ -119,7 +119,14 @@
         @resume="runResumeAction"
         @reading="activateTool('reading')"
         @mistakes="activateTool('mistakes')"
-      />
+      >
+        <template #mobile-more>
+          <button v-if="!navigatorVisible" type="button" class="learning-dock__more-action" data-more-domain="navigator" :class="{ 'is-active': navigatorOpen }" :aria-current="navigatorOpen ? 'page' : undefined" @click="navigatorOpen = true"><PanelLeftOpen :size="18" /><span>{{ t('learningNavigator.title', '课程目录') }}</span></button>
+          <button type="button" class="learning-dock__more-action" data-more-domain="mistakes" :class="{ 'is-active': mistakesOpen }" :aria-current="mistakesOpen ? 'page' : undefined" @click="activateTool('mistakes')"><BookOpenCheck :size="18" /><span>{{ t('studentWorkspace.mistakes', '错题') }}</span></button>
+          <button type="button" class="learning-dock__more-action" data-more-domain="overview" :class="{ 'is-active': statsOpen }" :aria-current="statsOpen ? 'page' : undefined" @click="activateTool('overview')"><ChartNoAxesCombined :size="18" /><span>{{ t('learningDock.stats', '学习概况') }}</span></button>
+          <button type="button" class="learning-dock__more-action" data-more-domain="knowledge-library" :class="{ 'is-active': courseStore.showKnowledgeLibrary }" :aria-current="courseStore.showKnowledgeLibrary ? 'page' : undefined" @click="activateTool('knowledge')"><Library :size="18" /><span>{{ t('learningDock.knowledgeLibrary', '知识树') }}</span></button>
+        </template>
+      </LearningDock>
     </main>
 
     <ColumnResizeHandle v-if="dockedSidePanelVisible" v-bind="rightColumnHandle" />
@@ -189,7 +196,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
-import { History, LoaderCircle } from 'lucide-vue-next'
+import { BookOpenCheck, ChartNoAxesCombined, History, Library, LoaderCircle, PanelLeftOpen } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
 import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
 import CourseKnowledgeStudy from '../components/CourseKnowledgeStudy.vue'
@@ -1106,8 +1113,8 @@ function closeMobileSurfaces() {
   .notebook-side-panel { display:none; }
 }
 @media (max-width: 767px) {
-  .learning-view { padding-bottom:calc(58px + env(safe-area-inset-bottom, 0px)); }
-  .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
+  .learning-view { padding-bottom:0; }
+  .learning-view.has-mobile-resume { padding-bottom:0; }
   .navigator-surface { left:0; top:96px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:96px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }

@@ -10,6 +10,7 @@
       </template>
       <template v-if="user && !materialId && !creating" #center>
         <UiSegmentedControl class="study-home-navigation" :model-value="creating ? '' : 'courses'" :options="[{ value: 'courses', label: t('workspaceUi.myCourses'), icon: BookOpen }]" :accessibility-label="t('studentWorkspace.space')" @update:model-value="openStudySection('home')" />
+        <h1 class="study-home-mobile-title">{{ t('workspaceUi.myCourses') }}</h1>
       </template>
       <template #actions>
         <div class="study-header-actions">
@@ -118,7 +119,7 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, Sparkles, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
@@ -161,7 +162,7 @@ function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRang
 const toolTabs = ['note', 'assistant', 'concepts', 'sources'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
-const toolIcons = { assistant: Sparkles, note: NotebookPen, concepts: Network, sources: FileText }
+const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText }
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
   try { sessionStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
@@ -530,9 +531,12 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 @media(max-width:980px) { .study-login-page { grid-template-columns:minmax(0,1fr) 350px; gap:30px; padding:30px; } .login-story h1 { font-size:31px; } .study-purpose-options { gap:12px; } }
 
 .study-home-navigation { --ui-segment-font-size: 15px; width: max-content; margin: 0 auto; }
+.study-home-mobile-title { display: none; margin: 0; color: var(--lz-text-strong); font-size: 16px; font-weight: 650; line-height: 1.3; }
 
 @media (max-width: 760px) {
-  .study-space { padding: 6px 6px 0; gap: 7px; }
+  .study-space { padding: max(6px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px)) 0 max(6px, env(safe-area-inset-left, 0px)); gap: 7px; }
+  .study-home-navigation { display: none; }
+  .study-home-mobile-title { display: block; }
   .study-error { padding: 8px 12px; font-size: 14px; }
   .study-error button { min-height: 40px; }
   .study-space :deep(.app-header:has(.study-course-context)) {
@@ -604,10 +608,10 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-note-footer { align-items: start; flex-direction: column; }
   .study-note-footer button { align-self: stretch; min-height: 44px; }
   .study-source-list { overflow: auto; padding: 14px; }
-  .study-reading-workspace .learning-dock { position: sticky; z-index: 93; bottom: 0; min-height: 54px; flex-wrap: nowrap; padding: 5px 6px calc(5px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
-  .study-reading-workspace :deep(.learning-dock__actions) { width: 100%; justify-content: flex-start; flex-wrap: nowrap; gap: 2px; margin: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .study-reading-workspace :deep(.learning-dock__actions::-webkit-scrollbar) { display: none; }
-  .study-reading-workspace .learning-dock :deep(button) { min-width: max-content; min-height: 44px; padding: 7px 10px; }
+  .study-reading-workspace .learning-dock { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
+  .study-reading-workspace :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
+  .study-reading-workspace .learning-dock :deep(button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size: 11px; line-height: 1.2; white-space: normal; }
+  .study-reading-workspace .learning-dock :deep(button > svg) { flex: none; width: 19px; height: 19px; }
   .study-login-page { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 18px 14px 28px; }
   .login-story h1 { margin: 8px 0 12px; font-size: 30px; }
   .login-story > p { margin-bottom: 18px; font-size: 16px; }

@@ -2,7 +2,7 @@
   <component
     :is="toolbar && placement === 'top' ? 'header' : 'footer'"
     class="learning-dock"
-    :class="{ 'has-resume': resumeActionLabel, 'is-toolbar': toolbar, 'is-bottom': toolbar && placement === 'bottom' }"
+    :class="{ 'has-resume': resumeActionLabel, 'is-toolbar': toolbar, 'is-bottom': toolbar && placement === 'bottom', 'has-mobile-more': hasMobileMore }"
     :aria-label="t('learningDock.title', '学习工具')"
   >
     <div class="learning-dock__location" :title="location">
@@ -37,7 +37,7 @@
           :title="t('learningDock.questionBookHint', '查看本课程题目、练习与作答记录')"
           @click="emit('question-book')"
         >
-          <BookOpenCheck :size="16" />
+          <PencilLine :size="16" />
           <span>{{ t('learningDock.questionBook', '题库本') }}</span>
           <b v-if="questionCount" class="learning-dock__count">{{ questionCount }}</b>
         </button>
@@ -94,24 +94,74 @@
           <span>{{ t('learningDock.assistant', 'AI 助手') }}</span>
         </button>
       </slot>
+      <button
+        v-if="hasMobileMore"
+        ref="moreButton"
+        type="button"
+        class="learning-dock__more"
+        :class="{ 'is-active': mobileMoreOpen || isMoreToolActive }"
+        :aria-expanded="mobileMoreOpen"
+        :aria-pressed="mobileMoreOpen || isMoreToolActive"
+        aria-controls="learning-dock-more-panel"
+        @click="toggleMore"
+      >
+        <Ellipsis :size="20" />
+        <span>{{ t('learningDock.more', '更多') }}</span>
+      </button>
     </nav>
+
+    <Transition name="learning-dock-more">
+      <div v-if="hasMobileMore && mobileMoreOpen" class="learning-dock__more-layer">
+        <button
+          type="button"
+          class="learning-dock__more-backdrop"
+          :aria-label="t('common.close', '关闭')"
+          @click="closeMore"
+        ></button>
+        <section
+          id="learning-dock-more-panel"
+          ref="morePanel"
+          class="learning-dock__more-panel"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="t('learningDock.moreTools', '更多学习工具')"
+          tabindex="-1"
+          @keydown="handleMoreKeydown"
+        >
+          <header>
+            <div>
+              <h2>{{ t('learningDock.moreTools', '更多学习工具') }}</h2>
+              <p>{{ t('learningDock.moreToolsHint', '错题、知识树、课程目录与学习概况') }}</p>
+            </div>
+            <button type="button" :aria-label="t('common.close', '关闭')" @click="closeMore"><X :size="19" /></button>
+          </header>
+          <div class="learning-dock__more-actions" @click="closeMore">
+            <slot name="mobile-more" />
+          </div>
+        </section>
+      </div>
+    </Transition>
   </component>
 </template>
 
 <script setup lang="ts">
+import { computed, nextTick, ref, toRefs, useSlots } from 'vue'
 import {
   ArrowRight,
   BookOpenCheck,
   ChartNoAxesCombined,
+  Ellipsis,
   Library,
   LoaderCircle,
   MapPin,
   NotebookTabs,
   PanelLeftOpen,
+  PencilLine,
+  X,
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   location: string
   assistantOpen?: boolean
   toolbar?: boolean
@@ -137,10 +187,58 @@ withDefaults(defineProps<{
   resumeActionAvailable: true,
   resumeActionBusy: false,
 })
+const { location, assistantOpen, toolbar, placement, navigatorHidden, notebookOpen, activeDomain, noteCount, questionCount, resumeActionLabel, resumeActionAvailable, resumeActionBusy } = toRefs(props)
 
 const emit = defineEmits<{
   (event: 'navigator' | 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume' | 'reading' | 'mistakes'): void
 }>()
+
+const slots = useSlots()
+const hasMobileMore = computed(() => Boolean(slots['mobile-more']))
+const mobileMoreOpen = ref(false)
+const moreButton = ref<HTMLButtonElement | null>(null)
+const morePanel = ref<HTMLElement | null>(null)
+const isMoreToolActive = computed(() => ['mistakes', 'overview', 'knowledge-library'].includes(props.activeDomain || ''))
+
+async function toggleMore() {
+  if (mobileMoreOpen.value) {
+    closeMore()
+    return
+  }
+  mobileMoreOpen.value = true
+  await nextTick()
+  morePanel.value?.querySelector<HTMLElement>('button:not(:disabled), a[href], select:not(:disabled)')?.focus()
+}
+
+function closeMore() {
+  if (!mobileMoreOpen.value) return
+  mobileMoreOpen.value = false
+  void nextTick(() => moreButton.value?.focus())
+}
+
+function handleMoreKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMore()
+    return
+  }
+  if (event.key !== 'Tab' || !morePanel.value) return
+  const items = [...morePanel.value.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], select:not(:disabled)')]
+  if (!items.length) {
+    event.preventDefault()
+    morePanel.value.focus()
+    return
+  }
+  const first = items[0]!
+  const last = items[items.length - 1]!
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 </script>
 
 <style scoped>
@@ -166,5 +264,74 @@ const emit = defineEmits<{
 .learning-dock__spin { animation: learning-dock-spin .8s linear infinite; }
 @keyframes learning-dock-spin { to { transform: rotate(360deg); } }
 @media(max-width: 1280px) { .learning-dock { flex-wrap: wrap; } .learning-dock__location { display: none; } }
+@media (max-width: 767px) {
+  .learning-dock.is-toolbar.is-bottom {
+    display: block;
+    box-sizing: border-box;
+    min-height: 62px;
+    padding: 4px max(6px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid #e3e7ef;
+    background: rgba(255,255,255,.98);
+    box-shadow: 0 -5px 18px rgba(29,39,66,.055);
+  }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 2px;
+    margin: 0;
+  }
+  .learning-dock.is-toolbar.is-bottom.has-mobile-more .learning-dock__actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__divider,
+  .learning-dock.is-toolbar.is-bottom .learning-dock__resume,
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep([data-domain="navigator"]),
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep([data-domain="mistakes"]),
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep([data-domain="overview"]),
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep([data-domain="knowledge-library"]) { display: none; }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain),
+  .learning-dock.is-toolbar.is-bottom .learning-dock__more {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 54px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 1px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: normal;
+  }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain > svg),
+  .learning-dock.is-toolbar.is-bottom .learning-dock__more > svg { flex: none; width: 19px; height: 19px; }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain[data-domain="assistant"] > span:first-of-type) { font-size: 11px; }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__count) { position: absolute; top: 2px; right: calc(50% - 24px); min-width: 15px; padding: 1px 3px; border-radius: 8px; color: #fff; background: var(--lz-brand-strong); font-size: 9px; line-height: 1.2; text-align: center; }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__more { display: flex; }
+  .learning-dock__more-layer { position: fixed; inset: 0; z-index: 150; display: grid; align-items: end; padding: 8px 8px max(10px, env(safe-area-inset-bottom, 0px)); background: rgba(24,31,49,.28); }
+  .learning-dock__more-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: default; }
+  .learning-dock__more-panel { position: relative; z-index: 1; width: min(520px,100%); max-height: min(68dvh,620px); overflow: auto; box-sizing: border-box; margin: 0 auto; padding: 16px 15px max(14px, env(safe-area-inset-bottom, 0px)); border: 1px solid #e2e6ee; border-radius: 19px 19px 13px 13px; background: #fff; box-shadow: 0 18px 48px rgba(20,28,47,.2); overscroll-behavior: contain; }
+  .learning-dock__more-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .learning-dock__more-panel h2 { margin: 0; color: var(--lz-text-strong); font-size: 17px; line-height: 1.4; }
+  .learning-dock__more-panel p { margin: 3px 0 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.45; }
+  .learning-dock__more-panel > header > button { flex: none; width: 42px; min-height: 42px; padding: 0; border: 1px solid var(--lz-border); border-radius: 10px; background: #fff; }
+  .learning-dock__more-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+  .learning-dock__more-actions :slotted(.learning-dock__more-action) { box-sizing: border-box; min-width: 0; min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #e1e5ed; border-radius: 12px; color: var(--lz-text-strong); background: #fff; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+  .learning-dock__more-actions :slotted(.learning-dock__more-action:hover),
+  .learning-dock__more-actions :slotted(.learning-dock__more-action:focus-visible) { border-color: #c7c4f3; color: var(--lz-brand-strong); background: #f8f7ff; outline: none; }
+  .learning-dock__more-actions :slotted(.learning-dock__more-action.is-active) { border-color: #d4d1f4; color: var(--lz-brand-strong); background: #f5f4ff; }
+  .learning-dock__more-actions :slotted(.learning-dock__more-action > svg) { flex: none; color: var(--lz-brand-strong); }
+  .learning-dock-more-enter-active,.learning-dock-more-leave-active { transition: opacity .18s ease; }
+  .learning-dock-more-enter-active .learning-dock__more-panel,.learning-dock-more-leave-active .learning-dock__more-panel { transition: transform .2s cubic-bezier(.2,.8,.2,1); }
+  .learning-dock-more-enter-from,.learning-dock-more-leave-to { opacity: 0; }
+  .learning-dock-more-enter-from .learning-dock__more-panel,.learning-dock-more-leave-to .learning-dock__more-panel { transform: translateY(12px); }
+}
+@media (min-width:768px) { .learning-dock__more { display: none !important; } .learning-dock__more-layer { display: none !important; } }
+@media (prefers-reduced-motion: reduce) { .learning-dock-more-enter-active,.learning-dock-more-leave-active,.learning-dock-more-enter-active .learning-dock__more-panel,.learning-dock-more-leave-active .learning-dock__more-panel { transition: none; } }
 @media(prefers-reduced-motion: reduce) { .learning-dock__spin { animation: none; } }
 </style>
