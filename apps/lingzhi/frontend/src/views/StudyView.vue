@@ -1,6 +1,6 @@
 <template>
   <div class="study-space">
-    <ApplicationHeader surface="student" :show-brand="!materialId" :centered="!materialId" :library="!materialId">
+    <ApplicationHeader surface="student" :show-brand="!materialId" :centered="!materialId && !creating" :library="!materialId">
       <template v-if="materialId" #context>
         <div class="study-course-context">
           <CourseWorkspaceHeaderAction :label="t('workspaceUi.backToCourses')" icon-only @click="goLibrary"><ArrowLeft :size="18" /></CourseWorkspaceHeaderAction>
@@ -8,7 +8,7 @@
           <h1>{{ material?.title }}</h1>
         </div>
       </template>
-      <template v-if="user && !materialId" #center>
+      <template v-if="user && !materialId && !creating" #center>
         <UiSegmentedControl class="study-home-navigation" :model-value="creating ? '' : 'courses'" :options="[{ value: 'courses', label: t('workspaceUi.myCourses'), icon: BookOpen }]" :accessibility-label="t('studentWorkspace.space')" @update:model-value="openStudySection('home')" />
       </template>
       <template #actions>
@@ -61,19 +61,18 @@
       <section v-if="!materialId" class="study-main-scroll">
         <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
-          <div class="study-page-heading"><div><h1>{{ c('create') }}</h1></div></div>
-          <section class="study-form-section"><h2>{{ c('generationModeHeading') }}</h2><div class="study-generation-modes"><button type="button" data-generation-mode="direct" :class="{ selected: form.generation_mode === 'direct' }" :aria-pressed="form.generation_mode === 'direct'" @click="form.generation_mode = 'direct'"><strong>{{ c('directMode') }}</strong><span>{{ c('directModeHint') }}</span></button><button type="button" data-generation-mode="materials" :class="{ selected: form.generation_mode === 'materials' }" :aria-pressed="form.generation_mode === 'materials'" @click="form.generation_mode = 'materials'"><strong>{{ c('materialsMode') }}</strong><span>{{ c('materialsModeHint') }}</span></button></div></section>
-          <section v-if="form.generation_mode === 'materials'" id="study-create-sources" class="study-form-section"><h2>{{ c('materialsRequiredHeading') }}</h2><p>{{ c('materialsRequiredHint') }}</p>
+          <div class="study-page-heading"><button type="button" class="study-create-back" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /><span>{{ t('workspaceUi.backToCourses') }}</span></button><h1>{{ c('create') }}</h1></div>
+          <section id="study-create-purpose" class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div><p class="study-purpose-mobile-hint" aria-live="polite">{{ c(form.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p></section>
+          <section id="study-create-settings" class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<ElInput v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><label>{{ c('requirements') }}<ElInput v-model="form.requirements" type="textarea" :rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div></section>
+          <section id="study-create-sources" class="study-form-section"><h2>{{ c('materialsOptionalHeading') }}</h2><p>{{ c('materialsOptionalHint') }}</p>
             <div class="study-source-actions"><input ref="sourceFileInput" class="study-upload-input" type="file" :accept="STUDY_UPLOAD_ACCEPT" :disabled="sourceBusy || busy" multiple @change="uploadFiles" /><button type="button" class="study-upload" :disabled="sourceBusy || busy" @click="sourceFileInput?.click()"><Upload :size="19" />{{ sourceBusy ? c('busy') : c('upload') }}</button><button type="button" class="study-paste-toggle" :disabled="sourceBusy || busy" :aria-expanded="pasting" @click="pasting = !pasting"><ClipboardPaste :size="18" />{{ c('paste') }}</button><span>{{ c('uploadHint') }}</span></div>
             <div v-if="pasting" class="study-paste"><label>{{ c('sourceTitle') }}<ElInput v-model="sourceTitle" maxlength="160" /></label><label>{{ c('sourceContent') }}<ElInput v-model="sourceText" type="textarea" :rows="8" maxlength="120000" /></label><button type="button" :disabled="sourceBusy || !sourceTitle.trim() || !sourceText.trim()" @click="addText">{{ sourceBusy ? c('busy') : c('addSource') }}</button></div>
             <p v-if="!sources.length && !pasting" class="study-source-empty">{{ c('emptySources') }}</p>
-            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('sourceRanges') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters || (selectedRanges.length >= 6 && !selectedRanges.includes(`${source.id}:${section.id}`))" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
+            <div v-for="source in sources" :key="source.id" class="study-source"><div class="source-name"><FileText :size="18" /><strong>{{ source.filename }}</strong><span>{{ source.sections.length }} · {{ c('sourceRanges') }}</span></div><p v-if="!source.sections.length" class="source-warning">{{ source.error || c('sourceFailed') }}</p><p v-for="warning in source.warnings" :key="warning" class="source-warning">{{ warning }}</p><label v-for="section in source.sections" :key="section.id" class="source-selection"><input v-model="selectedRanges" type="checkbox" :value="`${source.id}:${section.id}`" :disabled="!section.characters" /><span>{{ section.title }}</span><small>{{ section.characters.toLocaleString() }}</small></label></div>
 
             <div v-if="hasInvalidRanges && !busy" class="study-range-recovery" role="status"><span>{{ c('invalidRanges') }}</span><button type="button" @click="removeInvalidRanges">{{ c('removeInvalidRanges') }}</button></div>
           </section>
-          <section id="study-create-purpose" class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div></section>
-          <section id="study-create-settings" class="study-form-section"><h2>{{ c('settingsHeading') }}</h2><label>{{ c('title') }}<ElInput v-model="form.title" required maxlength="160" :placeholder="c('titlePlaceholder')" /></label><div class="study-settings-row"><label>{{ c('level') }}<select v-model="form.level" :aria-label="c('level')"><option v-for="level in levels" :key="level" :value="level">{{ c(level) }}</option></select></label><label>{{ c('time') }}<input v-model.number="form.time_minutes" type="number" min="10" max="600" required /></label></div><label>{{ c('requirements') }}<ElInput v-model="form.requirements" type="textarea" :rows="3" maxlength="2000" :placeholder="c(form.purpose === 'exam_prep' ? 'examRequirementsPlaceholder' : 'requirementsPlaceholder')" /></label></section>
-          <div class="study-generate-bar"><div><strong>{{ form.generation_mode === 'direct' ? c('directReady') : `${selectedRanges.length} / 6 · ${c('scope')}` }}</strong><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
+          <div class="study-generate-bar"><div><strong>{{ selectedRanges.length ? `${selectedRanges.length} ${c('scope')}` : c('directReady') }}</strong><p v-if="generationIssue && !busy && !sourceBusy" id="study-generation-issue" class="study-generation-issue" role="status">{{ c(generationIssue) }}</p></div><button class="study-primary" :aria-describedby="generationIssue ? 'study-generation-issue' : undefined" :disabled="busy || sourceBusy || !canGenerate">{{ busy ? c('busy') : c('generate') }}<ArrowRight :size="19" /></button></div>
         </form>
       </section>
 
@@ -126,7 +125,7 @@ import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
-import { studyApi, studySession, StudyApiError, STUDY_UPLOAD_ACCEPT, STUDY_UPLOAD_MAX_BYTES, type StudyGenerationMode, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
+import { studyApi, studySession, StudyApiError, STUDY_UPLOAD_ACCEPT, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
 import ApplicationHeader from '../components/ApplicationHeader.vue'
 import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
@@ -146,17 +145,13 @@ const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiA
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
-const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, generation_mode: 'direct' as StudyGenerationMode, level: 'beginner', time_minutes: 60, requirements: '' })
+const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
 const sourceFileInput = ref<HTMLInputElement | null>(null)
 const availableRanges = computed(() => new Set(sources.value.flatMap(source => source.sections.filter(section => section.characters > 0).map(section => `${source.id}:${section.id}`))))
 const hasInvalidRanges = computed(() => new Set(selectedRanges.value).size !== selectedRanges.value.length || selectedRanges.value.some(range => !availableRanges.value.has(range)))
 const generationIssue = computed<StudyCopyKey | ''>(() => {
-  if (form.generation_mode === 'materials') {
-    if (hasInvalidRanges.value) return 'invalidRanges'
-    if (!selectedRanges.value.length) return 'rangeRequired'
-    if (selectedRanges.value.length > 6) return 'tooManyRanges'
-  }
+  if (hasInvalidRanges.value) return 'invalidRanges'
   if (!form.title.trim()) return 'titleRequired'
   if (!Number.isInteger(form.time_minutes) || form.time_minutes < 10 || form.time_minutes > 600) return 'timeInvalid'
   return ''
@@ -271,11 +266,11 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', generation_mode: 'direct', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
-function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); Object.assign(form, draft.form || {}); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || createUuid(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
+function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); const savedForm = { ...(draft.form || {}) }; delete savedForm.generation_mode; Object.assign(form, savedForm); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || createUuid(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
 watch([form, selectedRanges, sourceTitle, sourceText], persistDraft, { deep: true })
 watch(noteText, () => { if (material.value && user.value) sessionStorage.setItem(noteKey(), noteText.value) })
 
@@ -317,7 +312,7 @@ async function openStudySection(view: 'home' | 'courses' | 'materials') { creati
 async function goLibrary() { await openStudySection('home') }
 async function setCourseFilter(value: 'all' | 'teacher' | 'owned') { await router.replace({ path: '/study', query: value === 'all' ? {} : { view: value === 'teacher' ? 'courses' : 'materials' } }) }
 async function startNew(purpose?: StudyPurpose) { if (!user.value) return; persistDraft(); await router.push('/study?create=1'); creating.value = true; if (purpose) form.purpose = purpose }
-async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { form.generation_mode = 'materials'; sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
+async function createFromCourse(source: StudySource) { const owner = user.value?.id; await startNew(); if (sameOwner(owner)) { sources.value = sources.value.filter(item => item.id !== source.id); selectedRanges.value = []; form.title = ''; rememberSource(source) } }
 function rememberSource(source: StudySource) {
   sources.value = [source, ...sources.value.filter(existing => existing.id !== source.id)]
   if (!source.sections.length) { error.value = source.error || c('sourceFailed'); return }
@@ -327,8 +322,6 @@ async function addText() { if (sourceBusy.value || busy.value || !user.value) re
 async function uploadFiles(event: Event) {
   const input = event.target as HTMLInputElement, files = Array.from(input.files || [])
   if (sourceBusy.value || busy.value || !user.value || !files.length) return
-  const oversized = files.find(file => file.size > STUDY_UPLOAD_MAX_BYTES)
-  if (oversized) { error.value = `${oversized.name}: ${c('sourceTooLarge')}`; input.value = ''; return }
   const owner = user.value?.id
   sourceBusy.value = true; error.value = ''
   try { for (const file of files) { const source = await studyApi.upload(file); if (!sameOwner(owner)) return; rememberSource(source) } } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false; input.value = '' }
@@ -338,7 +331,7 @@ async function generate() {
   if (generationIssue.value) { error.value = c(generationIssue.value); return }
   await action(async () => {
     const owner = user.value?.id
-    const payload = { ...form, title: form.title.trim(), language: activeLocale.value, selections: form.generation_mode === 'materials' ? selectedRanges.value.map(range => { const [asset_id, section_id] = range.split(':'); return { asset_id: asset_id!, section_id: section_id! } }) : [] }
+    const payload = { ...form, title: form.title.trim(), language: activeLocale.value, selections: selectedRanges.value.map(range => { const [asset_id, section_id] = range.split(':'); return { asset_id: asset_id!, section_id: section_id! } }) }
     const fingerprint = JSON.stringify(payload)
     if (submittedFingerprint && submittedFingerprint !== fingerprint) requestId = createUuid()
     submittedFingerprint = fingerprint; persistDraft()
@@ -492,17 +485,14 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-login-card>p { color: #7b889c; margin-bottom: 25px; }
 .study-login-card .study-primary { width: 100%; margin-top: 14px; }
 .study-login-card .study-text-button { display: flex; margin: 17px auto 0; border: 0; color: #6551c7; }
-.study-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 25px; margin-bottom: 34px; }
-.study-page-heading h1 { font-size: 30px; margin: 8px 0 10px; }
+.study-page-heading { display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin-bottom: 34px; }
+.study-page-heading h1 { font-size: 30px; margin: 0; }
+.study-create-back { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 7px; min-height: 44px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--lz-text-secondary); font-size: 15px; font-weight: 550; cursor: pointer; }
+.study-create-back:hover { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
 .study-page-heading p { color: #7a889c; margin: 0; }
 .study-form-section { background: #fff; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); padding: 26px 28px; margin: 22px 0; }
 .study-form-section h2 { font-size: 20px; margin: 0 0 10px; }
 .study-form-section>p { margin: 0 0 22px; color: #7b879b; }
-.study-generation-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
-.study-generation-modes button { display: grid; align-content: start; gap: 9px; min-height: 110px; padding: 18px 20px; border: 1px solid #e1e5ef; border-radius: var(--lz-radius-control); background: #fcfcff; color: var(--lz-text); text-align: left; cursor: pointer; }
-.study-generation-modes button.selected { border-color: var(--lz-brand); background: var(--lz-brand-soft); }
-.study-generation-modes strong { font-size: 17px; color: #3c4260; }
-.study-generation-modes span { color: var(--lz-text-secondary); font-size: 15px; line-height: 1.65; }
 .study-space :is(.study-create, .study-login-card) label:not(.source-selection):not(.study-upload) { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; font-weight: 550; }
 .study-space :is(.study-create, .study-login-card) input:not([type=checkbox]):not([type=file]),.study-space :is(.study-create, .study-login-card) textarea,.study-space :is(.study-create, .study-login-card) select { width: 100%; min-width: 0; border: 1px solid #d7deeb; border-radius: 9px; background: #fcfdff; padding: 11px 13px; color: #33455f; box-sizing: border-box; }
 .study-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 22px; }
@@ -529,6 +519,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
 .study-create { width: 100%; max-width: 980px; margin: 0 auto; padding: 28px; box-sizing: border-box; }
 .study-create .study-page-heading p { max-width: 740px; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.7; margin: 10px 0 0; }
 .study-purpose-options button > span { font-size: 15px; line-height: 1.7; color: var(--lz-text-secondary); }
+.study-purpose-mobile-hint { display: none; }
 .study-range-recovery { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--lz-text-secondary); font-size: 15px; }
 .study-generation-issue { color: var(--lz-brand-strong) !important; }
 .study-range-hint { color: var(--lz-text-secondary); font-size: 15px; margin-top: 14px; }
@@ -628,15 +619,21 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-login-card h2 { font-size: 22px; }
   .study-login-card :is(input, button) { min-height: 44px; }
   .study-create { padding: 14px 12px 24px; }
-  .study-page-heading { margin-bottom: 18px; }
-  .study-page-heading h1 { font-size: 25px; }
+  .study-page-heading { justify-content: flex-start; gap: 10px; margin-bottom: 12px; }
+  .study-page-heading h1 { margin: 0; font-size: 23px; }
+  .study-create-back { min-height: 44px; gap: 5px; padding: 0 2px; font-size: 14px; }
   .study-form-section { padding: 18px 15px; margin: 14px 0; border-radius: 12px; }
-  .study-generation-modes { grid-template-columns: minmax(0, 1fr); gap: 9px; margin-top: 12px; }
-  .study-generation-modes button { min-height: 0; padding: 15px; }
-  .study-generation-modes strong { font-size: 16px; }
-  .study-purpose-options { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 14px; }
-  .study-purpose-options button { min-height: 104px; padding: 16px; }
-  .study-purpose-options strong { font-size: 16px; }
+  .study-purpose-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+  .study-purpose-options button { min-height: 50px; flex-direction: row; align-items: center; padding: 10px; gap: 8px; }
+  .study-purpose-options button > svg:not(.purpose-check) { width: 21px; height: 21px; }
+  .study-purpose-options strong { font-size: 15px; }
+  .study-purpose-options button > span { display: none; }
+  .study-purpose-options .purpose-check { right: 10px; top: 10px; width: 16px; height: 16px; }
+  .study-purpose-mobile-hint { display: block; margin: 8px 0 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.55; }
+  .study-create :deep(.el-input__wrapper) { min-height: 44px; box-sizing: border-box; }
+  .study-create :deep(.el-input__inner) { min-height: 24px; }
+  .study-create :deep(.el-textarea__inner) { min-height: 92px; }
+  .study-create select,.study-create input[type=number] { min-height: 44px; }
   .study-settings-row { gap: 10px; }
   .study-source-actions { gap: 8px; }
   .study-source-actions button { min-height: 44px; }
@@ -652,5 +649,9 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools::-webkit-scrollbar) { display: none; }
   .study-header-actions :deep(.workspace-header-action) { min-width: 44px; }
   .study-settings-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 340px) {
+  .study-purpose-options { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

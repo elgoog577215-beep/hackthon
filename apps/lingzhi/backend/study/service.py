@@ -55,11 +55,9 @@ def source_sections(asset, document) -> list[dict]:
 
 
 def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
-    generation_mode = request.get("generation_mode", "materials")
-    if generation_mode == "direct" and request.get("selections"):
-        raise ValueError("直接生成不使用上传资料；如需依据资料整理，请切换生成方式")
-    if generation_mode == "materials" and not request.get("selections"):
-        raise ValueError("按资料整理时，请至少上传或粘贴一份资料并选择范围")
+    # Students use one flow: selected source ranges mean source-based generation;
+    # no selected ranges means generate from the topic and learning goals.
+    generation_mode = "materials" if request.get("selections") else "direct"
     selected = []
     seen = set()
     for selection in request["selections"]:
@@ -166,7 +164,7 @@ async def create_material(manager, repo: StudyRepository, owner: str, request: d
         material = repo.reserve(owner, request["request_id"], fingerprint, {
             "id": material_id, "owner_id": owner, "request_key": request["request_id"],
             "fingerprint": fingerprint, "title": request["title"], "purpose": request["purpose"],
-            "generation_mode": request.get("generation_mode", "materials"),
+            "generation_mode": frozen["generation_mode"],
             "created_at": now(), "updated_at": now(), "task_id": task_id,
             "request": frozen, "status": "pending", "plans": [], "notes": {},
             "revisions": [{"id": task_id, "status": "draft", "sections": [], "created_at": now()}],

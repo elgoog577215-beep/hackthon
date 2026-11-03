@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), guest: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
-vi.mock('@/api/study', () => ({ studyApi: api, STUDY_UPLOAD_ACCEPT: '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff', STUDY_UPLOAD_MAX_BYTES: 50 * 1024 * 1024, studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
+vi.mock('@/api/study', () => ({ studyApi: api, STUDY_UPLOAD_ACCEPT: '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff', studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
 import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
@@ -23,8 +23,6 @@ async function page(path = '/study') {
   await flushPromises()
   return { wrapper, router }
 }
-async function chooseMaterials(wrapper: VueWrapper) { await wrapper.get('[data-generation-mode="materials"]').trigger('click') }
-
 beforeEach(async () => {
   vi.clearAllMocks(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/en/') ? en : zh }))); await setLocale('zh')
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
@@ -89,7 +87,7 @@ describe('personal study handouts', () => {
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
     await wrapper.get('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
     expect(wrapper.find('.study-create').exists()).toBe(true)
-    await wrapper.get('.study-home-navigation button').trigger('click'); await flushPromises()
+    await wrapper.get('.study-create-back').trigger('click'); await flushPromises()
     await wrapper.findAll('.library-filter-tabs button').find(button => button.text() === '教师课程')!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.study-create').exists()).toBe(false)
@@ -100,35 +98,46 @@ describe('personal study handouts', () => {
     expect(wrapper.text()).toContain('student_a')
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    await chooseMaterials(wrapper)
     expect(wrapper.findAll('.source-selection')).toHaveLength(2)
     expect(wrapper.findAll('.study-purpose-options button')).toHaveLength(2)
     expect(wrapper.text()).not.toMatch(/教师预览|课程代码|学分|教案确认|teacherPreview/)
+    expect(wrapper.get('.study-purpose-mobile-hint').text()).toContain('知识脉络')
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
     expect(wrapper.findAll('.study-purpose-options button')[1]!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('.study-purpose-mobile-hint').text()).toContain('考试范围')
   })
 
-  it('starts with direct generation and submits without requiring uploaded sources', async () => {
+  it('uses one generation flow and allows a self-study handout without uploaded sources', async () => {
+    api.sources.mockResolvedValueOnce([])
     const { wrapper, router } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    expect(wrapper.get('[data-generation-mode="direct"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-generation-mode]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('学习资料（选填）')
     expect(wrapper.findAll('.source-selection')).toHaveLength(0)
-    expect(wrapper.text()).toContain('不用上传资料')
+    expect(wrapper.text()).toContain('未添加资料，将按课程主题、目标与场景生成讲义。')
     await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('C语言：面向图像项目')
     await wrapper.get('.study-create textarea').setValue('我想做一个华为成像项目，希望理论结合场景，并安排实战练习。')
     api.generate.mockResolvedValueOnce(saved)
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
     expect(api.generate).toHaveBeenCalledWith(expect.objectContaining({
-      generation_mode: 'direct', title: 'C语言：面向图像项目', selections: [],
+      title: 'C语言：面向图像项目', selections: [],
       requirements: '我想做一个华为成像项目，希望理论结合场景，并安排实战练习。',
     }))
     expect(router.currentRoute.value.params.materialId).toBe('material-a')
   })
 
+  it('shows a clear return action and keeps the course switch out of the create flow', async () => {
+    const { wrapper, router } = await page('/study?create=1')
+    expect(wrapper.find('.study-home-navigation').exists()).toBe(false)
+    expect(wrapper.get('.study-create-back').text()).toContain('返回我的课程')
+    await wrapper.get('.study-create-back').trigger('click'); await flushPromises()
+    expect(router.currentRoute.value.query.create).toBeUndefined()
+    expect(wrapper.find('.study-create').exists()).toBe(false)
+  })
+
   it('prevents duplicate submissions and passes the exact selected range and purpose', async () => {
     const { wrapper, router } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    await chooseMaterials(wrapper)
     await wrapper.findAll('.source-selection input')[1]!.setValue(true)
     await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('方程组备考')
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
@@ -143,6 +152,22 @@ describe('personal study handouts', () => {
     resolve(saved); await flushPromises()
     expect(router.currentRoute.value.params.materialId).toBe('material-a')
     expect(wrapper.text()).toContain('真实讲义正文')
+  })
+
+  it('allows selecting and using more than six material ranges', async () => {
+    const manyRanges = { ...source, sections: Array.from({ length: 8 }, (_, index) => ({ id: `blk-${index + 1}`, title: `第${index + 1}章`, characters: 300 })) }
+    api.sources.mockResolvedValueOnce([manyRanges])
+    const { wrapper } = await page('/study?create=1')
+    const checkboxes = wrapper.findAll('.source-selection input')
+    expect(checkboxes).toHaveLength(8)
+    for (const checkbox of checkboxes) {
+      expect((checkbox.element as HTMLInputElement).disabled).toBe(false)
+      await checkbox.setValue(true)
+    }
+    await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('多章节课程')
+    api.generate.mockResolvedValueOnce(saved)
+    await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
+    expect(api.generate).toHaveBeenCalledWith(expect.objectContaining({ selections: expect.arrayContaining(Array.from({ length: 8 }, (_, index) => ({ asset_id: source.id, section_id: `blk-${index + 1}` }))) }))
   })
 
   it('moves only the reading scroller when restoring a chapter', async () => {
@@ -242,9 +267,8 @@ describe('personal study handouts', () => {
     activeLocale.value = 'en'
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    expect(wrapper.text()).toContain('Choose how to create your handout')
-    expect(wrapper.text()).toContain('Generate with AI')
-    expect(wrapper.text()).not.toContain('Upload your first source')
+    expect(wrapper.text()).toContain('Study materials (optional)')
+    expect(wrapper.text()).toContain('Materials optional')
     expect(wrapper.text()).toContain('Systematic learning')
     expect(wrapper.text()).toContain('Exam preparation')
     expect(wrapper.text()).toContain('Generate course handout')
@@ -254,7 +278,6 @@ describe('personal study handouts', () => {
   it('retries the same submission id after a lost response but uses a new id for changed input', async () => {
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    await chooseMaterials(wrapper)
     await wrapper.find('.source-selection input').setValue(true)
     await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('原讲义')
     api.generate.mockRejectedValue(new Error('连接中断'))
@@ -270,7 +293,6 @@ describe('personal study handouts', () => {
   it('discards an old owner’s late source response after logout and a different login', async () => {
     const { wrapper } = await page()
     await wrapper.find('[data-testid="student-create-handout"]').trigger('click'); await flushPromises()
-    await chooseMaterials(wrapper)
     await wrapper.find('.study-paste-toggle').trigger('click')
     await wrapper.find('.study-paste input').setValue('A 的私有资料')
     await wrapper.find('.study-paste textarea').setValue('A 的私有正文')
@@ -292,7 +314,6 @@ describe('personal study handouts', () => {
   it('uploads an owned source and blocks generation until parsing returns', async () => {
     api.sources.mockResolvedValue([])
     const { wrapper } = await page('/study?create=1')
-    await chooseMaterials(wrapper)
     let complete!: (value: unknown) => void
     api.upload.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
     const file = new File(['# First lesson\nSource text'], 'my-course.md', { type: 'text/markdown' })
@@ -305,38 +326,40 @@ describe('personal study handouts', () => {
     expect(api.upload).toHaveBeenCalledExactlyOnceWith(file)
     expect(wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').element).toHaveProperty('value', 'my-course')
     expect(wrapper.findAll('.source-selection input').some(input => (input.element as HTMLInputElement).checked)).toBe(false)
-    expect(wrapper.get('.study-generation-issue').text()).toContain('上传或粘贴资料')
+    expect(wrapper.find('.study-generation-issue').exists()).toBe(false)
     for (const input of wrapper.findAll('.source-selection input')) await input.setValue(true)
     api.generate.mockResolvedValueOnce(saved)
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
     expect(api.generate).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'systematic', selections: [{ asset_id: 'mat-123', section_id: 'blk-1' }, { asset_id: 'mat-123', section_id: 'blk-3' }] }))
   })
 
-  it('rejects oversized uploads and stale draft ranges before a generation request', async () => {
-    sessionStorage.setItem('lingzhi-study-draft:student-a', JSON.stringify({ form: { title: 'Old draft', generation_mode: 'materials' }, selectedRanges: ['missing:deleted'] }))
+  it('accepts uploads above the former size cap and keeps materials optional', async () => {
+    sessionStorage.setItem('lingzhi-study-draft:student-a', JSON.stringify({ form: { title: 'Old draft', generation_mode: 'materials' }, selectedRanges: [] }))
     const { wrapper } = await page('/study?create=1')
-    await chooseMaterials(wrapper)
     const file = new File(['data'], 'too-large.pdf', { type: 'application/pdf' })
     Object.defineProperty(file, 'size', { value: 51 * 1024 * 1024 })
+    api.upload.mockResolvedValueOnce({ ...source, filename: file.name })
     const input = wrapper.get('.study-upload-input')
     Object.defineProperty(input.element, 'files', { value: [file] })
     await input.trigger('change'); await flushPromises()
-    expect(wrapper.text()).toContain('50 MB')
-    expect(api.upload).not.toHaveBeenCalled()
+    expect(api.upload).toHaveBeenCalledExactlyOnceWith(file)
+    expect(wrapper.text()).not.toContain('50 MB')
+    expect(wrapper.find('[data-generation-mode]').exists()).toBe(false)
     await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
-    expect(api.generate).not.toHaveBeenCalled()
+    expect(api.generate).toHaveBeenCalledWith(expect.objectContaining({ title: 'Old draft', selections: [] }))
   })
 
-  it('restores the create URL and chosen mode after returning from a saved course', async () => {
+  it('restores the create URL and selected source ranges after returning from a saved course', async () => {
     const { wrapper, router } = await page('/study?create=1')
-    await chooseMaterials(wrapper)
+    await wrapper.findAll('.source-selection input')[0]!.setValue(true)
     await wrapper.findAll('.study-purpose-options button')[1]!.trigger('click')
     await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('自建课程草稿')
     await router.push('/study/material-a'); await flushPromises()
     await router.push('/study?create=1'); await flushPromises()
     expect(wrapper.find('form.study-create').exists()).toBe(true)
     expect(wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').element).toHaveProperty('value', '自建课程草稿')
-    expect(wrapper.get('[data-generation-mode="materials"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-generation-mode]').exists()).toBe(false)
+    expect((wrapper.findAll('.source-selection input')[0]!.element as HTMLInputElement).checked).toBe(true)
     expect(wrapper.findAll('.study-purpose-options button')[1]!.attributes('aria-pressed')).toBe('true')
     expect(api.generate).not.toHaveBeenCalled()
   })
@@ -394,7 +417,6 @@ describe('personal study handouts', () => {
   it('keeps sources available and supports reconnecting when only the course list fails', async () => {
     api.list.mockRejectedValueOnce(new Error('课程列表暂不可用'))
     const { wrapper } = await page('/study?create=1')
-    await chooseMaterials(wrapper)
     expect(wrapper.find('form.study-create').exists()).toBe(true)
     expect(wrapper.findAll('.source-selection')).toHaveLength(2)
     expect(wrapper.text()).toContain('课程列表暂不可用')

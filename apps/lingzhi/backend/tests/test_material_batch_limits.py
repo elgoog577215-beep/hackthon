@@ -101,6 +101,29 @@ async def test_different_batches_do_not_share_limits(tmp_path):
     assert asset is not None
 
 
+@pytest.mark.asyncio
+async def test_student_upload_opt_out_ignores_file_count_and_size_caps(tmp_path, monkeypatch):
+    monkeypatch.setenv("MATERIAL_MAX_FILE_BYTES", "1")
+    monkeypatch.setenv("MATERIAL_MAX_BATCH_FILES", "1")
+    monkeypatch.setenv("MATERIAL_MAX_BATCH_BYTES", "1")
+    repository = MaterialRepository(tmp_path / "materials")
+
+    first = await repository.save_upload(
+        FakeUpload("first.md", b"first material"),
+        upload_batch_id="study",
+        enforce_limits=False,
+    )
+    second = await repository.save_upload(
+        FakeUpload("second.md", b"second material"),
+        upload_batch_id="study",
+        enforce_limits=False,
+    )
+
+    assert first.size_bytes > 1
+    assert second.size_bytes > 1
+    assert first.upload_batch_id == second.upload_batch_id == "study"
+
+
 def test_material_upload_api_returns_422_on_batch_overflow(monkeypatch, tmp_path):
     from routers import materials
 

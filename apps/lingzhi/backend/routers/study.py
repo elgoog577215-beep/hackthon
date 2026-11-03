@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from dependencies import require_task_manager
 from material_parser import parse_material_asset
-from material_storage import DEFAULT_MAX_FILE_BYTES, MaterialStorageError
+from material_storage import MaterialStorageError
 from storage import storage
 from study.auth import GUEST_COOKIE, GUEST_SESSION_SECONDS, LocalStudyAuth, study_identity
 from study.repository import StudyConflict, StudyRepository
@@ -38,8 +38,8 @@ class GenerationRequest(BaseModel):
     request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{16,64}$")
     title: str = Field(min_length=1, max_length=160)
     purpose: Literal["systematic", "exam_prep"]
-    generation_mode: Literal["direct", "materials"] = "materials"
-    selections: list[Selection] = Field(default_factory=list, max_length=6)
+    generation_mode: Literal["direct", "materials"] | None = None  # Legacy clients only; the server infers it from selections.
+    selections: list[Selection] = Field(default_factory=list)
     level: Literal["beginner", "intermediate", "advanced"] = "beginner"
     time_minutes: int = Field(default=60, ge=10, le=600)
     requirements: str = Field(default="", max_length=2000)
@@ -183,8 +183,7 @@ async def text_source(request: TextSource, user=Depends(study_identity), repo=De
 async def upload_source(file: UploadFile = File(...), user=Depends(study_identity), repo=Depends(repository)):
     source_repo = repo.sources(user["id"])
     try:
-        asset = await source_repo.save_upload(file, upload_batch_id="study", max_bytes=DEFAULT_MAX_FILE_BYTES,
-                                             max_batch_files=100, max_batch_bytes=300 * 1024 * 1024)
+        asset = await source_repo.save_upload(file, upload_batch_id="study", enforce_limits=False)
         return await parse_source(source_repo, asset)
     except MaterialStorageError as exc:
         raise HTTPException(422, str(exc))

@@ -123,6 +123,7 @@ class MaterialRepository:
         max_bytes: int | None = None,
         max_batch_files: int | None = None,
         max_batch_bytes: int | None = None,
+        enforce_limits: bool = True,
     ) -> MaterialAsset:
         filename = str(getattr(upload, "filename", "") or "").strip()
         if not filename or filename != Path(filename).name or "/" in filename or "\\" in filename or "\x00" in filename:
@@ -133,13 +134,12 @@ class MaterialRepository:
         if extension not in ALLOWED_EXTENSIONS:
             raise MaterialStorageError(f"不支持的文件类型：{extension or '无扩展名'}")
 
-        limit = max_bytes or int(os.getenv("MATERIAL_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES))
-        batch_file_limit = max_batch_files or int(
-            os.getenv("MATERIAL_MAX_BATCH_FILES", DEFAULT_MAX_BATCH_FILES)
-        )
-        batch_bytes_limit = max_batch_bytes or int(
-            os.getenv("MATERIAL_MAX_BATCH_BYTES", DEFAULT_MAX_BATCH_BYTES)
-        )
+        if enforce_limits:
+            limit = max_bytes or int(os.getenv("MATERIAL_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES))
+            batch_file_limit = max_batch_files or int(os.getenv("MATERIAL_MAX_BATCH_FILES", DEFAULT_MAX_BATCH_FILES))
+            batch_bytes_limit = max_batch_bytes or int(os.getenv("MATERIAL_MAX_BATCH_BYTES", DEFAULT_MAX_BATCH_BYTES))
+        else:
+            limit = batch_file_limit = batch_bytes_limit = 0
         temp_dir = self.root / ".tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_path = temp_dir / f"{uuid.uuid4().hex}.upload"
@@ -153,7 +153,7 @@ class MaterialRepository:
                     if not chunk:
                         break
                     size += len(chunk)
-                    if size > limit:
+                    if enforce_limits and size > limit:
                         raise MaterialStorageError(f"文件过大，单文件最大支持 {limit // (1024 * 1024)} MB")
                     if len(prefix) < 16:
                         prefix += chunk[: 16 - len(prefix)]
@@ -172,21 +172,22 @@ class MaterialRepository:
                     temp_path.unlink(missing_ok=True)
                     return existing
 
-                batch_count, batch_bytes = self._batch_stats(upload_batch_id)
-                if batch_count + 1 > batch_file_limit:
-                    raise MaterialStorageError(
-                        "本批次材料数量已超出上限："
-                        f"当前已有 {batch_count} 份，加上本次上传共 {batch_count + 1} 份，"
-                        f"上限为 {batch_file_limit} 份，请先移除部分材料或分批上传。"
-                    )
-                if batch_bytes + size > batch_bytes_limit:
-                    raise MaterialStorageError(
-                        "本批次材料总大小已超出上限："
-                        f"当前已有 {batch_bytes} 字节，加上本次上传共 {batch_bytes + size} 字节，"
-                        f"上限为 {batch_bytes_limit} 字节"
-                        f"（约 {batch_bytes_limit // (1024 * 1024)} MB），"
-                        "请先移除部分材料或分批上传。"
-                    )
+                if enforce_limits:
+                    batch_count, batch_bytes = self._batch_stats(upload_batch_id)
+                    if batch_count + 1 > batch_file_limit:
+                        raise MaterialStorageError(
+                            "本批次材料数量已超出上限："
+                            f"当前已有 {batch_count} 份，加上本次上传共 {batch_count + 1} 份，"
+                            f"上限为 {batch_file_limit} 份，请先移除部分材料或分批上传。"
+                        )
+                    if batch_bytes + size > batch_bytes_limit:
+                        raise MaterialStorageError(
+                            "本批次材料总大小已超出上限："
+                            f"当前已有 {batch_bytes} 字节，加上本次上传共 {batch_bytes + size} 字节，"
+                            f"上限为 {batch_bytes_limit} 字节"
+                            f"（约 {batch_bytes_limit // (1024 * 1024)} MB），"
+                            "请先移除部分材料或分批上传。"
+                        )
 
                 asset_id = f"mat-{uuid.uuid4().hex}"
                 asset_dir = self._asset_dir(asset_id)

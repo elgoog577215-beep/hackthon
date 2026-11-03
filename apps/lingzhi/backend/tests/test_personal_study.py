@@ -221,14 +221,14 @@ def test_file_upload_parses_downloads_and_rejects_unsupported_files(setup_study)
                        files={'file': ('bad.exe', b'unsupported', 'application/octet-stream')}).status_code == 422
 
 
-def test_student_upload_uses_shared_fifty_megabyte_limit(setup_study, monkeypatch):
+def test_student_upload_disables_file_and_batch_size_limits(setup_study, monkeypatch):
     client, _manager, repo, _writer = setup_study
     _owner, headers = account(client)
     saved_limits = []
 
     class UploadRepo:
         async def save_upload(self, _file, **kwargs):
-            saved_limits.append(kwargs['max_bytes'])
+            saved_limits.append(kwargs)
             return object()
 
     async def parsed_source(_source_repo, _asset):
@@ -239,7 +239,7 @@ def test_student_upload_uses_shared_fifty_megabyte_limit(setup_study, monkeypatc
     response = client.post('/api/study/sources/upload', headers=headers,
                            files={'file': ('small.pdf', b'not-parsed-in-this-test', 'application/pdf')})
     assert response.status_code == 200
-    assert saved_limits == [50 * 1024 * 1024]
+    assert saved_limits == [{'upload_batch_id': 'study', 'enforce_limits': False}]
 
 
 @pytest.mark.asyncio
@@ -248,7 +248,7 @@ async def test_direct_generation_builds_self_study_handout_without_sources(setup
     owner, headers = account(client)
     request = {
         'request_id': 'direct_generation_request_12345', 'title': 'C语言：面向图像项目',
-        'purpose': 'systematic', 'generation_mode': 'direct', 'selections': [],
+        'purpose': 'systematic', 'selections': [],
         'level': 'beginner', 'time_minutes': 90,
         'requirements': '我想做一个华为成像项目，希望理论结合场景，并安排实战练习。', 'language': 'zh',
     }
@@ -291,17 +291,26 @@ async def test_direct_generation_builds_self_study_handout_without_sources(setup
     assert conversation['messages'][-1]['content'] == '我根据当前讲义解释这个问题。'
 
 
-def test_material_based_generation_requires_a_selected_source(setup_study):
+def test_legacy_material_mode_without_selected_ranges_falls_back_to_direct_generation(setup_study):
     client, _manager, _repo, _writer = setup_study
     _owner, headers = account(client)
     request = {
-        'request_id': 'material_mode_missing_source_123', 'title': '没有资料',
+        'request_id': 'legacy_material_mode_without_scope_123', 'title': '没有资料',
         'purpose': 'systematic', 'generation_mode': 'materials', 'selections': [],
         'level': 'beginner', 'time_minutes': 60, 'requirements': '', 'language': 'zh',
     }
     response = client.post('/api/study/materials', headers=headers, json=request)
-    assert response.status_code == 422
-    assert '至少上传或粘贴一份资料' in response.json()['detail']
+    assert response.status_code == 200, response.text
+    assert response.json()['generation_mode'] == 'direct'
+
+
+def test_generation_request_accepts_more_than_six_selected_ranges():
+    request = study.GenerationRequest.model_validate({
+        'request_id': 'many_ranges_request_12345', 'title': '多章节课程', 'purpose': 'systematic',
+        'selections': [{'asset_id': 'mat-' + str(index).zfill(32), 'section_id': f'chapter-{index}'}
+                       for index in range(1, 9)],
+    })
+    assert len(request.selections) == 8
 
 
 def test_direct_outline_requires_unique_complete_lectures():

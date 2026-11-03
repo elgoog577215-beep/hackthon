@@ -12,7 +12,7 @@ vi.mock('@/shared/study-copy', () => ({
 }))
 
 const request: StudyGenerationRequest = {
-  request_id: 'stable-request-123456', title: '函数基础', purpose: 'systematic', generation_mode: 'materials',
+  request_id: 'stable-request-123456', title: '函数基础', purpose: 'systematic',
   selections: [{ asset_id: 'mat-123', section_id: 'section-1' }],
   level: 'beginner', time_minutes: 30, requirements: '', language: 'zh',
 }
@@ -92,6 +92,20 @@ describe('student API transport boundaries', () => {
     expect(headers.has('X-User-Id')).toBe(false)
     expect(options?.body).toBeInstanceOf(FormData)
     expect((options?.body as FormData).get('file')).toBeInstanceOf(File)
+    await expectNoPendingDeadline()
+  })
+
+  it('does not impose a fixed request deadline on large file uploads', async () => {
+    let complete!: (value: Response) => void
+    const fetcher = vi.fn((_url: string, _options: RequestInit) => new Promise<Response>(resolve => { complete = resolve }))
+    vi.stubGlobal('fetch', fetcher)
+    const file = new File(['# large source'], 'large-source.md', { type: 'text/markdown' })
+    const uploading = studyApi.upload(file)
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
+    complete(response({ id: 'large-source' }) as Response)
+    await expect(uploading).resolves.toMatchObject({ id: 'large-source' })
     await expectNoPendingDeadline()
   })
 

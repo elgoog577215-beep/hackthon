@@ -587,7 +587,49 @@ summary:focus-visible {
     flex-wrap: wrap;
   }
   .student-courses {
-    padding: 24px;
+    padding: 18px 16px 24px;
+  }
+  .library-filters {
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .library-search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .library-search :deep(.el-input__wrapper) {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+  .library-filter-tabs :deep(.ui-segmented-control) {
+    height: 48px;
+  }
+  .library-filter-tabs :deep(.ui-segmented-control button) {
+    height: 40px;
+  }
+  .library-heading-actions {
+    margin-left: auto;
+    gap: 8px;
+  }
+  .student-courses :deep(.el-button) {
+    min-height: 44px;
+  }
+  .course-start,
+  .course-detail-toggle,
+  .feedback-button {
+    min-height: 44px;
+  }
+  .course-resources summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .course-tools a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding-inline: 6px;
   }
 }
 .library-search { flex: 0 1 330px; min-width: 240px; }

@@ -5,7 +5,6 @@ import type { NextLearningAction } from '../stores/learningProgress'
 
 export type StudyPurpose = 'systematic' | 'exam_prep'
 export type StudyGenerationMode = 'direct' | 'materials'
-export const STUDY_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 export const STUDY_UPLOAD_ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff'
 export interface StudyUser { id: string; username: string; role: string; guest?: boolean }
 export interface StudySource { id: string; filename: string; sha256: string; status: string; warnings: string[]; error: string; sections: { id: string; title: string; characters: number }[] }
@@ -20,7 +19,7 @@ export interface StudyMaterial extends StudySummary {
   task?: { id: string; status: string; progress: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
 }
 export interface StudyGenerationRequest {
-  request_id: string; title: string; purpose: StudyPurpose; generation_mode: StudyGenerationMode
+  request_id: string; title: string; purpose: StudyPurpose
   selections: { asset_id: string; section_id: string }[]
   level: string; time_minutes: number; requirements: string; language: 'zh' | 'en'
 }
@@ -49,8 +48,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (options.signal?.aborted) abort()
   else options.signal?.addEventListener('abort', abort, { once: true })
   let timedOut = false
-  const timeout = !binary && (!options.method || options.method === 'GET') ? INTERACTIVE_READ_TIMEOUT_MS : 120000
-  const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeout)
+  const upload = typeof FormData !== 'undefined' && options.body instanceof FormData
+  const timeout = upload ? 0 : !binary && (!options.method || options.method === 'GET') ? INTERACTIVE_READ_TIMEOUT_MS : 120000
+  const timer = timeout ? setTimeout(() => { timedOut = true; controller.abort() }, timeout) : undefined
   try {
     const response = await fetch(withApiBase(`/api/study${path}`), { ...options, headers, signal: controller.signal })
     if (!response.ok) {
@@ -64,7 +64,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (timedOut) throw new StudyApiError(408, studyCopy('requestTimeout'))
     throw error
   } finally {
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
     options.signal?.removeEventListener('abort', abort)
   }
 }
