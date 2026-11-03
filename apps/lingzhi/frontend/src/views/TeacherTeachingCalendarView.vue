@@ -167,10 +167,26 @@
             </button>
             </div>
           </div>
+
+          <div class="week-agenda" :aria-label="t('teacherHome.calendarView')">
+            <section v-for="day in weekDays" :key="`agenda-${day.date}`" class="week-agenda-day">
+              <header>
+                <button type="button" :aria-pressed="selectedDate === day.date" @click="selectDay(day.date)">
+                  <strong>{{ day.label }}</strong><time>{{ day.date }}</time><span>{{ day.sessions.length }}</span>
+                </button>
+              </header>
+              <button v-for="session in day.sessions" :key="session.session_id || `${session.course_id}-${day.date}-${session.sequence}`" type="button" @click="selectSession(session)">
+                <time>{{ session.start_time?.slice(0, 5) || '--:--' }}</time>
+                <span><strong>{{ session.course_title || t('teacherHome.untitledCourse') }}</strong><small>{{ session.content_summary || t('teacherHome.contentPending') }}</small></span>
+                <ChevronRight :size="16" />
+              </button>
+              <p v-if="!day.sessions.length" class="week-agenda-day__empty">{{ t('teacherHome.noClassOnDate') }}</p>
+            </section>
+          </div>
         </template>
       </main>
 
-      <aside class="day-inspector" :aria-label="t('teacherHome.dayInspector')">
+      <aside class="day-inspector" :class="{ 'has-selection': Boolean(selectedSession || selectedDate) }" :aria-label="t('teacherHome.dayInspector')">
         <template v-if="selectedSession">
           <header>
             <div><small>{{ t('teacherHome.selectedSession') }}</small><strong>{{ selectedSession.course_title || t('teacherHome.untitledCourse') }}</strong></div>
@@ -738,6 +754,53 @@ onBeforeUnmount(() => {
 @media(max-width:1200px){.home-layout{grid-template-columns:220px minmax(0,1fr) 280px}.session-focus,.preparation-summary{padding-left:14px;padding-right:14px}}
 @media(max-width:980px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:220px minmax(580px,1fr)}.course-rail,.calendar-surface{min-height:650px}.day-inspector{grid-column:1/-1;min-height:350px;border-top:1px solid var(--lz-border);border-left:0}}
 @media(max-width:820px){.home-layout{display:block}.course-rail{min-height:0;grid-template-columns:180px minmax(0,1fr);grid-template-rows:92px 42px;border-right:0;border-bottom:1px solid var(--lz-border)}.course-rail>header{grid-column:1;grid-row:1}.course-list{grid-column:2;grid-row:1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,240px);gap:4px;overflow-x:auto;overflow-y:hidden;padding:5px 10px}.course-entry{min-height:82px}.course-rail>footer{grid-column:1/-1;grid-row:2}.calendar-surface{min-height:650px}}
-@media(max-width:620px){.home-primary-tabs button{gap:6px;padding-inline:8px;font-size:12px}.home-header-actions .header-quiet{display:none}.home-header-actions .header-primary{width:38px;padding:0;justify-content:center;font-size:0}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:102px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:8px;padding:9px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end}.month-canvas{padding:6px}}
+@media(max-width:620px){.home-primary-tabs button{gap:6px;padding-inline:8px;font-size:14px}.home-header-actions .header-quiet{display:none}.home-header-actions .header-primary{width:42px;min-height:42px;padding:0;justify-content:center;font-size:0}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:102px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:8px;padding:9px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end}.month-canvas{padding:6px}}
+.week-agenda{display:none}
+@media(max-width:620px){
+  .teacher-home{height:100%;overflow:auto;overscroll-behavior:contain}
+  .home-layout{display:flex;flex-direction:column;gap:0}
+  .course-rail{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;min-height:0;border-right:0;border-bottom:1px solid var(--lz-border)}
+  .course-rail>header{grid-column:1;grid-row:1;min-height:48px;padding:0 12px}
+  .course-list{grid-column:1;grid-row:2;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,76vw);gap:8px;overflow-x:auto;overflow-y:hidden;padding:5px 10px 10px;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
+  .course-entry{min-height:72px;scroll-snap-align:start}
+  .course-entry__focus{padding-block:8px}
+  .course-rail>footer{grid-column:1;grid-row:3;min-height:38px;padding-inline:10px}
+  .calendar-surface{display:flex;flex-direction:column;min-height:0;background:var(--lz-surface)}
+  .calendar-toolbar{flex:none;min-height:104px;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:7px;padding:9px 10px}
+  .calendar-title strong{font-size:15px}
+  .view-switch button{min-width:44px;height:44px;justify-content:center;padding:0 9px;font-size:14px}
+  .period-actions button{min-width:44px;height:44px;justify-content:center;font-size:14px}
+  .week-canvas{display:none}
+  .week-agenda{display:grid;flex:1;min-height:220px;max-height:calc(100dvh - 250px);align-content:start;gap:12px;overflow:auto;padding:10px 12px;background:#fff;overscroll-behavior:contain}
+  .week-agenda-day{display:grid;gap:4px}
+  .week-agenda-day>header{min-height:48px;border-bottom:1px solid var(--lz-border)}
+  .week-agenda-day>header button{width:100%;min-height:47px;display:flex;align-items:center;gap:8px;padding:0 4px;border:0;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}
+  .week-agenda-day>header button[aria-pressed="true"]{color:var(--lz-brand-strong)}
+  .week-agenda-day>header strong{color:var(--lz-text-strong);font-size:15px}
+  .week-agenda-day>header time{color:var(--lz-text-muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .week-agenda-day>header span{margin-left:auto;color:var(--lz-text-muted);font-size:12px}
+  .week-agenda-day__empty{margin:0;padding:8px 4px;color:var(--lz-text-muted);font-size:13px}
+  .week-agenda-day>button{width:100%;min-height:64px;display:grid;grid-template-columns:50px minmax(0,1fr) 18px;align-items:center;gap:9px;padding:8px 3px;border:0;border-bottom:1px solid var(--lz-border);color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}
+  .week-agenda-day>button>time{color:var(--lz-brand-strong);font-size:14px;font-variant-numeric:tabular-nums}
+  .week-agenda-day>button>span{min-width:0;display:grid;gap:4px}
+  .week-agenda-day>button strong,.week-agenda-day>button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .week-agenda-day>button strong{color:var(--lz-text-strong);font-size:15px}
+  .week-agenda-day>button small{color:var(--lz-text-muted);font-size:14px}
+  .week-agenda-empty{min-height:210px;display:grid;place-content:center;justify-items:center;gap:10px;color:var(--lz-text-muted);text-align:center}
+  .week-agenda-empty strong{color:var(--lz-text-secondary);font-size:14px}
+  .day-inspector:not(.has-selection){display:none}
+  .day-inspector.has-selection{position:fixed;z-index:120;inset:auto 8px max(8px,env(safe-area-inset-bottom));height:min(78dvh,760px);max-height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));grid-template-rows:58px minmax(0,1fr) auto;overflow:hidden;border:1px solid var(--lz-border);border-radius:16px;background:var(--lz-surface);box-shadow:0 18px 58px rgb(21 31 55 / 24%)}
+  .day-inspector.has-selection>header{padding-inline:14px}
+  .day-inspector.has-selection>header button{width:42px;height:42px}
+  .day-inspector.has-selection .session-inspector-body{overscroll-behavior:contain}
+  .day-inspector.has-selection .inspector-actions{padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+  .day-inspector.has-selection .inspector-actions button{min-height:44px}
+  .preparation-list article{grid-template-columns:32px minmax(0,1fr);gap:8px}
+  .preparation-state{grid-column:2;justify-self:start;margin:0}
+  .preparation-list article>div strong{font-size:14px}
+  .preparation-list article>div small{font-size:13px}
+  .preparation-state{font-size:12px}
+  .calendar-issue{margin:8px 10px 0}
+}
 @media(prefers-reduced-motion:reduce){.spin,.month-canvas,.week-canvas{animation:none}.home-surface-enter-active,.home-surface-leave-active{transition:none}.home-surface-enter-from,.home-surface-leave-to{transform:none}}
 </style>

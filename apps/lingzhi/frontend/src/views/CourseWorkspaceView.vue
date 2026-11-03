@@ -625,4 +625,21 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
   .global-change-choice__panel { padding:22px; }
   .global-change-choice__panel h2 { font-size:21px; }
 }
+@media (max-width:720px) {
+  :global(.app-header:has(.workspace-view-switch)) { min-height:146px; grid-template-columns:minmax(0,1fr); grid-template-rows:54px 48px 44px; gap:0; padding:0 8px; }
+  :global(.app-header:has(.workspace-view-switch) .app-header-start) { grid-column:1; grid-row:1; }
+  :global(.app-header:has(.workspace-view-switch) .app-header-center) { grid-column:1; grid-row:2; display:flex; align-items:center; justify-content:flex-start; min-width:0; overflow:hidden; border-top:1px solid var(--lz-border); }
+  :global(.app-header:has(.workspace-view-switch) .app-header-tools) { grid-column:1; grid-row:3; justify-self:stretch; gap:6px; min-width:0; max-width:none; }
+  :global(.app-header:has(.workspace-view-switch) .route-header-actions) { flex:1; min-width:0; max-width:none; overflow-x:auto; scrollbar-width:none; }
+  :global(.app-header:has(.workspace-view-switch) .route-header-actions::-webkit-scrollbar) { display:none; }
+  .workspace-route-context { gap:4px; }
+  .workspace-route-context>h1 { max-width:35vw; font-size:15px; }
+  .back-button { width:44px; height:44px; }
+  .workspace-view-switch { width:100%; max-width:100%; justify-content:flex-start; overflow-x:auto; padding:3px 2px; border:0; border-radius:0; background:transparent; scrollbar-width:none; }
+  .workspace-view-switch::-webkit-scrollbar { display:none; }
+  .workspace-view-switch button { flex:none; width:auto; min-width:44px; height:44px; gap:6px; padding:0 11px; font-size:14px; white-space:nowrap; }
+  .workspace-view-switch button svg { margin:0; }
+  .workspace-route-actions { gap:4px; }
+  .workspace-route-actions :deep(.workspace-header-action) { min-width:42px; min-height:42px; }
+}
 </style>

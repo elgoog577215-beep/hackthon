@@ -911,6 +911,7 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
+    <button v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" type="button" class="context-pane-backdrop" :aria-label="t('courseWorkbench.contextPane.collapse', '收起当前内容信息')" @click="contextPaneCollapsed = true" />
     <ColumnResizeHandle v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" v-bind="rightColumnHandle" />
     <aside v-if="!knowledgeOpen && activeStage !== 'question-bank' && contextPaneVisible" class="context-pane" :aria-label="t('courseWorkbench.contextPane.title', '当前内容信息')">
       <header class="context-pane-heading" :data-phase="contextPhase">
@@ -5257,4 +5258,38 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .foundation-options{padding:17px 0;border-top:1px solid #e3e7ef}.foundation-options>summary{cursor:pointer;color:var(--lz-text-secondary);font-size:15px;font-weight:600}.foundation-options[open]>summary{margin-bottom:20px}.stage-form .form-field>span,.stage-form input,.stage-form textarea,.stage-form select{font-size:15px}.stage-form>footer{align-items:center}.stage-form>footer>span{font-size:15px;line-height:1.6}.course-settings-entry{min-height:44px;padding:11px 10px}
+</style>
+
+<style scoped>
+.context-pane-backdrop { display:none; }
+@media (max-width:760px) {
+  .teacher-workbench { height:100%; min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
+  .teacher-workbench.is-context-collapsed { grid-template-columns:minmax(0,1fr); }
+  .stage-rail { display:grid; gap:7px; padding:8px 9px; border-right:0; border-bottom:1px solid #e4e9f1; }
+  .stage-rail>header,.stage-rail>footer,.rail-group-label { display:none; }
+  .course-settings-entry { width:100%; min-height:44px; margin:0; padding:7px 9px; }
+  .stage-rail nav { display:flex; gap:6px; overflow-x:auto; padding:0; overscroll-behavior-x:contain; scrollbar-width:none; }
+  .stage-rail nav::-webkit-scrollbar,.companion-entry::-webkit-scrollbar { display:none; }
+  .stage-rail nav button { display:flex; flex:0 0 auto; gap:6px; min-width:max-content; min-height:44px; padding:6px 10px; }
+  .stage-rail nav button>span:first-child { font-size:12px; }
+  .stage-rail nav button>strong { font-size:15px; }
+  .companion-entry { display:flex; align-items:center; gap:6px; overflow-x:auto; padding-top:6px; border-top:1px solid #eef0f4; scrollbar-width:none; }
+  .companion-entry>small { flex:none; margin-right:2px; white-space:nowrap; }
+  .companion-entry>button { flex:none; min-height:42px; padding:6px 9px; }
+  .workbench-center { min-height:0; overflow:auto; padding:15px 12px calc(24px + env(safe-area-inset-bottom)); overscroll-behavior:contain; }
+  .workbench-center.is-knowledge-workspace { padding:14px 8px calc(24px + env(safe-area-inset-bottom)); }
+  .workspace-document-scope { gap:5px; margin-bottom:12px; font-size:14px; }
+  .center-heading h2 { font-size:21px; }
+  .context-pane-reopen { position:sticky; z-index:16; top:4px; float:right; display:grid; place-items:center; width:44px; min-height:44px; margin:0 0 -44px 8px; border-radius:10px; background:#fff; box-shadow:0 2px 12px rgb(22 32 56 / 12%); }
+  .context-pane-backdrop { display:block; position:fixed; z-index:79; inset:0; width:100%; height:100%; min-height:0; padding:0; border:0; border-radius:0; background:rgb(20 28 48 / 42%); cursor:default; }
+  .context-pane { position:fixed; z-index:85; inset:auto 8px max(8px,env(safe-area-inset-bottom)); width:auto; height:min(74dvh,720px); max-height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border:1px solid #e4e9f1; border-radius:16px; box-shadow:0 18px 58px rgb(21 31 55 / 24%); }
+  .context-pane-heading { padding:13px 12px; }
+  .context-pane-heading__collapse { width:44px; min-height:44px; }
+  .context-pane-heading__actions { padding-left:0; }
+  .context-pane-heading__actions button,.context-pane-notices :deep(.app-error-notice__action button) { min-height:44px; }
+  .context-pane>.context-pane-references { overflow:auto; overscroll-behavior:contain; }
+  .stage-form { padding:17px 14px; }
+  .stage-form input,.stage-form select,.stage-form textarea { min-height:44px; font-size:15px; }
+  .stage-form textarea { min-height:96px; }
+}
 </style>

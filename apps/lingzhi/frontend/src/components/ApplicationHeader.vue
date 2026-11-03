@@ -1,5 +1,5 @@
 <template>
-  <header class="app-header glass-panel-elevated" :class="{ 'is-contextual': contextual, 'is-library': library, 'has-no-center': !centered }">
+  <header class="app-header glass-panel-elevated" :class="{ 'is-contextual': contextual, 'is-library': library, 'has-library-center': library && !learning && centered, 'has-no-center': !centered }">
     <div class="app-header-start">
       <slot name="before-brand" />
       <ProductBrand v-if="showBrand" :surface="surface" />
@@ -128,6 +128,24 @@ withDefaults(defineProps<{
 @media (max-width: 600px) {
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-header { grid-template-columns: auto minmax(70px, 1fr) auto; min-height:60px; }
+  .app-header.is-library.has-library-center {
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:58px 44px;
+    gap:0 8px;
+    min-height:104px;
+    padding:0 10px;
+  }
+  .app-header.is-library.has-library-center > .app-header-start { grid-column:1; grid-row:1; }
+  .app-header.is-library.has-library-center > .app-header-center {
+    grid-column:1/-1;
+    grid-row:2;
+    align-self:stretch;
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    border-top:1px solid var(--lz-border);
+  }
+  .app-header.is-library.has-library-center > .app-header-tools { grid-column:2; grid-row:1; gap:6px; }
   .app-header .route-header-actions,
 .app-header .header-actions { grid-column:3; grid-row:1; }
   .app-header .header-actions .header-icon-button:nth-of-type(1),
