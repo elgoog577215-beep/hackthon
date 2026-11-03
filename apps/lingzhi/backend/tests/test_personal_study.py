@@ -17,7 +17,7 @@ from routers import study, tasks as tasks_router
 from storage import Storage
 from study.auth import LocalStudyAuth
 from study.repository import StudyRepository, StudyConflict
-from study.service import create_material, freeze_request, plan_prompt, validate_plans
+from study.service import create_material, freeze_request, plan_prompt, validate_direct_outline, validate_plans
 
 
 class SharedWriter:
@@ -28,6 +28,12 @@ class SharedWriter:
 
     async def _call_llm(self, prompt, *args, **kwargs):
         request = json.loads(prompt.rpartition('\n')[2])
+        if 'learning_goal_and_scene' in request:
+            self.calls.append(('direct_outline', kwargs))
+            return json.dumps({'sections': [
+                {'title': 'C语言基础', 'learning_objective': '能解释变量、类型与表达式，并完成基础运算。'},
+                {'title': '成像项目中的数据处理', 'learning_objective': '能用数组和函数组织简单的图像数据处理流程。'},
+            ]})
         self.calls.append(('scope', kwargs))
         return json.dumps({'sections': [{'node_id': section['node_id'],
                          'knowledge_structure': [{'knowledge_points': [{'name': '向量', 'statement': '有序分量'}, {'name': '组合', 'statement': '分量的运算'}]}],
@@ -213,6 +219,101 @@ def test_file_upload_parses_downloads_and_rejects_unsupported_files(setup_study)
     assert downloaded.status_code == 200 and downloaded.content == content
     assert client.post('/api/study/sources/upload', headers=headers,
                        files={'file': ('bad.exe', b'unsupported', 'application/octet-stream')}).status_code == 422
+
+
+def test_student_upload_uses_shared_fifty_megabyte_limit(setup_study, monkeypatch):
+    client, _manager, repo, _writer = setup_study
+    _owner, headers = account(client)
+    saved_limits = []
+
+    class UploadRepo:
+        async def save_upload(self, _file, **kwargs):
+            saved_limits.append(kwargs['max_bytes'])
+            return object()
+
+    async def parsed_source(_source_repo, _asset):
+        return {'status': 'parsed', 'sections': []}
+
+    monkeypatch.setattr(StudyRepository, 'sources', lambda _self, _owner: UploadRepo())
+    monkeypatch.setattr(study, 'parse_source', parsed_source)
+    response = client.post('/api/study/sources/upload', headers=headers,
+                           files={'file': ('small.pdf', b'not-parsed-in-this-test', 'application/pdf')})
+    assert response.status_code == 200
+    assert saved_limits == [50 * 1024 * 1024]
+
+
+@pytest.mark.asyncio
+async def test_direct_generation_builds_self_study_handout_without_sources(setup_study):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    request = {
+        'request_id': 'direct_generation_request_12345', 'title': 'C语言：面向图像项目',
+        'purpose': 'systematic', 'generation_mode': 'direct', 'selections': [],
+        'level': 'beginner', 'time_minutes': 90,
+        'requirements': '我想做一个华为成像项目，希望理论结合场景，并安排实战练习。', 'language': 'zh',
+    }
+    created = client.post('/api/study/materials', headers=headers, json=request)
+    assert created.status_code == 200, created.text
+    material = created.json()
+    assert material['generation_mode'] == 'direct'
+    assert material['sources'] == []
+
+    await manager._process_task(material['task_id'])
+
+    saved = StudyRepository(Storage(repo.storage._data_dir)).get(owner, material['id'])
+    assert saved['status'] == 'completed'
+    assert saved['request']['source_sections'] == []
+    assert [section['title'] for section in saved['request']['generated_sections']] == ['C语言基础', '成像项目中的数据处理']
+    assert len(saved['revisions'][0]['sections']) == 2
+    assert all(section['complete'] and section['source'] == {'kind': 'ai_generated'}
+               for section in saved['revisions'][0]['sections'])
+    assert all('按学生的目标与场景直接生成' in call[1]['requirements']
+               for call in writer.calls if call[0].startswith('study-section-'))
+    assert writer.calls[0][0] == 'direct_outline'
+    assert client.get(f"/api/study/materials/{material['id']}/export", headers=headers).status_code == 200
+    assert client.get(f"/api/study/materials/{material['id']}", headers=headers).json()['sources'] == []
+
+    async def answer_from_handout(prompt, _system, **_kwargs):
+        context = json.loads(prompt)
+        assert context['source'] == {'kind': 'ai_generated'}
+        assert context['handout']
+        return '我根据当前讲义解释这个问题。'
+
+    writer._call_llm = answer_from_handout
+    assistant = client.post(f"/api/study/materials/{material['id']}/assistant", headers=headers, json={
+        'request_id': 'direct_handout_question_12345', 'revision_id': saved['revisions'][0]['id'],
+        'section_id': saved['revisions'][0]['sections'][0]['id'], 'text': '请解释这讲的重点。', 'language': 'zh',
+    })
+    assert assistant.status_code == 200, assistant.text
+    assistant_task_id = assistant.json()['messages'][-1]['task_ref']['task_id']
+    await manager._process_task(assistant_task_id)
+    conversation = client.get(f"/api/study/materials/{material['id']}/assistant", headers=headers).json()
+    assert conversation['messages'][-1]['content'] == '我根据当前讲义解释这个问题。'
+
+
+def test_material_based_generation_requires_a_selected_source(setup_study):
+    client, _manager, _repo, _writer = setup_study
+    _owner, headers = account(client)
+    request = {
+        'request_id': 'material_mode_missing_source_123', 'title': '没有资料',
+        'purpose': 'systematic', 'generation_mode': 'materials', 'selections': [],
+        'level': 'beginner', 'time_minutes': 60, 'requirements': '', 'language': 'zh',
+    }
+    response = client.post('/api/study/materials', headers=headers, json=request)
+    assert response.status_code == 422
+    assert '至少上传或粘贴一份资料' in response.json()['detail']
+
+
+def test_direct_outline_requires_unique_complete_lectures():
+    assert len(validate_direct_outline(json.dumps({'sections': [
+        {'title': '第一讲', 'learning_objective': '理解概念。'},
+        {'title': '第二讲', 'learning_objective': '完成应用。'},
+    ]}))) == 2
+    with pytest.raises(ValueError, match='重复讲次'):
+        validate_direct_outline(json.dumps({'sections': [
+            {'title': '同一讲', 'learning_objective': '目标一。'},
+            {'title': '同一讲', 'learning_objective': '目标二。'},
+        ]}))
 
 
 def test_students_cannot_read_sources_materials_notes_or_tasks_of_others(setup_study):

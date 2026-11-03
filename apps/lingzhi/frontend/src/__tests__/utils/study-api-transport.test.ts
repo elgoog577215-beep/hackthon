@@ -12,7 +12,7 @@ vi.mock('@/shared/study-copy', () => ({
 }))
 
 const request: StudyGenerationRequest = {
-  request_id: 'stable-request-123456', title: '函数基础', purpose: 'systematic',
+  request_id: 'stable-request-123456', title: '函数基础', purpose: 'systematic', generation_mode: 'materials',
   selections: [{ asset_id: 'mat-123', section_id: 'section-1' }],
   level: 'beginner', time_minutes: 30, requirements: '', language: 'zh',
 }

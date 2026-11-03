@@ -18,7 +18,8 @@ PURPOSES = {
 
 
 def visual_requirements(outline: dict) -> str:
-    text = '\n'.join(block['text'] for block in outline['blocks'])
+    text = '\n'.join(block.get('text', '') for block in outline.get('blocks', []))
+    text += '\n' + str(outline.get('title', '')) + '\n' + str(outline.get('learning_objective', ''))
     hints = ['把本章最有解释价值的关系、过程、空间或数据与正文同步画出，用 lingzhi-diagram 格式；图前说明问题，图后解释结论。只放对比表不等于图解。来源不足时明确说明，不凑图、不编造数据。']
     if re.search(r'向量|线性组合|vector|linear combination', text, re.I):
         hints.append('优先用 vector_plot 呈现题设二维向量、数乘与首尾连接的线性组合，展示目标向量；坐标只取题设或正文已计算出的结果。')
@@ -54,6 +55,11 @@ def source_sections(asset, document) -> list[dict]:
 
 
 def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
+    generation_mode = request.get("generation_mode", "materials")
+    if generation_mode == "direct" and request.get("selections"):
+        raise ValueError("直接生成不使用上传资料；如需依据资料整理，请切换生成方式")
+    if generation_mode == "materials" and not request.get("selections"):
+        raise ValueError("按资料整理时，请至少上传或粘贴一份资料并选择范围")
     selected = []
     seen = set()
     for selection in request["selections"]:
@@ -94,11 +100,62 @@ def freeze_request(repo: StudyRepository, owner: str, request: dict) -> dict:
             block["evidence_id"] = f"{asset.asset_id}:{block['block_id']}"
         # These exact blocks, their IDs, locators and hashes are the durable evidence.
         selected.append(section)
-    if not selected or not any(section["characters"] for section in selected):
+    if generation_mode == "materials" and (not selected or not any(section["characters"] for section in selected)):
         raise ValueError("请选择至少一个有正文的资料范围")
     frozen = deepcopy(request)
+    frozen["generation_mode"] = generation_mode
     frozen["source_sections"] = selected
     return frozen
+
+
+def direct_outline_prompt(request: dict) -> str:
+    scope = {
+        "course_title": request["title"], "purpose": request["purpose"],
+        "level": request["level"], "time_minutes": request["time_minutes"],
+        "learning_goal_and_scene": request.get("requirements", ""),
+        "language": request["language"],
+    }
+    return (
+        "为学生设计一门可以直接自学的课程目录。根据主题、目的、学习起点、总时间和学生描述的目标/应用场景，"
+        "拆成 2–8 讲；每讲只负责一个清楚的学习任务，前后顺序合理，篇幅与总时间相称。"
+        "场景具体时，把相关应用贯穿讲解、练习和提问；不要把场景当装饰案例。"
+        "系统学习重视概念、原理、推导和迁移；期末备考围绕常见知识结构与题型组织，但没有真实考试资料时，"
+        "不得声称掌握特定课程的考试范围、频率、分值或历年题。"
+        "只返回 JSON：{\"sections\":[{\"title\":\"本讲标题\",\"learning_objective\":\"学完后能完成什么\"}]}。"
+        "标题和目标用自然教学语言，不生成资料来源、引文、教师讲稿、内部计划说明或 Markdown 围栏。\n"
+        + json.dumps(scope, ensure_ascii=False)
+    )
+
+
+def validate_direct_outline(raw: str) -> list[dict]:
+    fenced = re.fullmatch(r"\s*```(?:json)?\s*\n(.*?)\n```\s*", raw, re.DOTALL)
+    if fenced:
+        raw = fenced.group(1)
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("课程目录没有生成完整，请保留输入后主动继续") from exc
+    sections = data.get("sections") if isinstance(data, dict) else None
+    if not isinstance(sections, list) or not 2 <= len(sections) <= 8:
+        raise ValueError("课程目录不完整，请保留输入后主动继续")
+    result = []
+    seen = set()
+    for index, section in enumerate(sections, start=1):
+        if not isinstance(section, dict):
+            raise ValueError("课程目录格式不完整，请保留输入后主动继续")
+        title = section.get("title")
+        objective = section.get("learning_objective")
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 120:
+            raise ValueError("课程目录标题不完整，请保留输入后主动继续")
+        if not isinstance(objective, str) or not objective.strip() or len(objective.strip()) > 600:
+            raise ValueError("课程学习目标不完整，请保留输入后主动继续")
+        normalized = title.strip().casefold()
+        if normalized in seen:
+            raise ValueError("课程目录出现重复讲次，请保留输入后主动继续")
+        seen.add(normalized)
+        result.append({"node_id": f"study-section-{index}", "title": title.strip(),
+                       "learning_objective": objective.strip()})
+    return result
 
 
 async def create_material(manager, repo: StudyRepository, owner: str, request: dict) -> dict:
@@ -109,6 +166,7 @@ async def create_material(manager, repo: StudyRepository, owner: str, request: d
         material = repo.reserve(owner, request["request_id"], fingerprint, {
             "id": material_id, "owner_id": owner, "request_key": request["request_id"],
             "fingerprint": fingerprint, "title": request["title"], "purpose": request["purpose"],
+            "generation_mode": request.get("generation_mode", "materials"),
             "created_at": now(), "updated_at": now(), "task_id": task_id,
             "request": frozen, "status": "pending", "plans": [], "notes": {},
             "revisions": [{"id": task_id, "status": "draft", "sections": [], "created_at": now()}],
@@ -181,14 +239,32 @@ async def run_personal_handout(manager, task_id: str) -> None:
     material = repo.for_task(owner, task_id)
     material_id = material["id"]
     request, revision = material["request"], deepcopy(material["revisions"][-1])
-    outlines = request["source_sections"]
-    await manager._update_task_status(task_id, "running", total_nodes=len(outlines))
+    generation_mode = request.get("generation_mode", "materials")
+    outlines = request.get("source_sections", []) if generation_mode == "materials" else request.get("generated_sections", [])
+    await manager._update_task_status(task_id, "running", total_nodes=max(1, len(outlines)))
     repo.update(owner, material_id, {"status": "running"})
     plans = material["plans"]
     try:
-        for outline in outlines:
-            repo.require_origin_access(owner, outline.get("course_origin"))
-        if not plans:
+        if generation_mode == "direct" and not outlines:
+            await manager._update_phase(task_id, "study_scope", 3, "正在按学习目标安排课程")
+            budget = manager.course_service._generation_budget
+            raw = await manager.course_service._call_llm(
+                direct_outline_prompt(request), "只返回符合要求的课程目录 JSON。",
+                use_fast_model=True, json_mode=True, max_tokens=4500, retry_count=1, max_attempts=1,
+                wait_for_capacity=True, reject_truncated=True, require_stop=True, raise_on_failure=True,
+                max_input_tokens=budget.teacher_handout_max_input_tokens,
+                max_input_chars=budget.teacher_handout_max_input_chars,
+            )
+            outlines = validate_direct_outline(raw or "")
+            request = {**request, "generated_sections": outlines}
+            repo.update(owner, material_id, {"request": request})
+            await manager._update_task_status(task_id, "running", total_nodes=len(outlines))
+        if generation_mode == "materials":
+            for outline in outlines:
+                repo.require_origin_access(owner, outline.get("course_origin"))
+        else:
+            plans = []
+        if generation_mode == "materials" and not plans:
             await manager._update_phase(task_id, "study_scope", 3, "正在梳理所选资料与概念关系")
             budget = manager.course_service._generation_budget
             raw = await manager.course_service._call_llm(
@@ -202,7 +278,8 @@ async def run_personal_handout(manager, task_id: str) -> None:
             plans = validate_plans(raw or "", outlines)
             repo.update(owner, material_id, {"plans": plans})
         for index, outline in enumerate(outlines):
-            repo.require_origin_access(owner, outline.get("course_origin"))
+            if generation_mode == "materials":
+                repo.require_origin_access(owner, outline.get("course_origin"))
             section_id = outline["node_id"]
             saved = next((section for section in revision["sections"] if section["id"] == section_id), None)
             if saved and saved["complete"]:
@@ -226,7 +303,8 @@ async def run_personal_handout(manager, task_id: str) -> None:
                 section = {"id": section_id, "title": outline["title"], "blocks": blocks["blocks"],
                            "content": blocks["content"], "draft_text": buffer, "complete": complete,
                            "fragment": blocks["unassigned_fragment"] or parsed.get("unassigned_fragment", ""),
-                           "source": {key: outline[key] for key in ("asset_id", "filename", "source_sha256")}}
+                           "source": ({"kind": "uploaded", **{key: outline[key] for key in ("asset_id", "filename", "source_sha256")}}
+                                      if generation_mode == "materials" else {"kind": "ai_generated"})}
                 revision["sections"] = [section for section in revision["sections"] if section["id"] != section_id] + [section]
                 repo.update(owner, material_id, {"revisions": [revision]})
                 return complete
@@ -250,13 +328,17 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
                     requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
-                                 + "\n" + request.get("requirements", "")
+                                 + ("\n" + request.get("requirements", ""))
+                                 + ("\n按学生的目标与场景直接生成可独立阅读、学习和复习的通用讲义；不得伪造资料来源或把通用内容说成教师课程原文。没有真实考试资料时，不推测特定课程的考试范围、频率、分值或历年题。"
+                                    if generation_mode == "direct" else "\n")
                                  + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}
                                         for section in revision["sections"] if section["complete"]],
                     partial_text=saved.get("draft_text", "") if saved else "",
                     course_context={"course_name": request["title"], "learning_purpose": request["purpose"],
-                                    "audience": request["level"], "source_policy": "以所选来源范围为准，补充内容明确标为补充"},
+                                    "audience": request["level"], "source_policy": (
+                                        "按学生的目标与场景直接生成通用自学讲义；不引用上传资料，不伪造来源或教师课程内容。"
+                                        if generation_mode == "direct" else "以所选来源范围为准，补充内容明确标为补充")},
                     on_content_delta=delta, on_content_reset=reset,
                 )
                 buffer = result["text"]

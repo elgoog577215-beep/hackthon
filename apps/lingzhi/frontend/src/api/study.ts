@@ -4,11 +4,14 @@ import { studyCopy } from '../shared/study-copy'
 import type { NextLearningAction } from '../stores/learningProgress'
 
 export type StudyPurpose = 'systematic' | 'exam_prep'
+export type StudyGenerationMode = 'direct' | 'materials'
+export const STUDY_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
+export const STUDY_UPLOAD_ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff'
 export interface StudyUser { id: string; username: string; role: string; guest?: boolean }
 export interface StudySource { id: string; filename: string; sha256: string; status: string; warnings: string[]; error: string; sections: { id: string; title: string; characters: number }[] }
 export interface StudyBlock { block_id: string; content_type: string; type_label: string; title: string; content: string; knowledge_names: string[]; answer_to: string }
-export interface StudySection { id: string; title: string; blocks: StudyBlock[]; complete: boolean; fragment: string; source: { filename: string; asset_id: string; source_sha256: string } }
-export interface StudySummary { id: string; title: string; purpose: StudyPurpose; status: string; task_id: string; updated_at: string; source_course_ids?: string[] }
+export interface StudySection { id: string; title: string; blocks: StudyBlock[]; complete: boolean; fragment: string; source?: { kind?: 'uploaded' | 'ai_generated'; filename?: string; asset_id?: string; source_sha256?: string } }
+export interface StudySummary { id: string; title: string; purpose: StudyPurpose; generation_mode?: StudyGenerationMode; status: string; task_id: string; updated_at: string; source_course_ids?: string[] }
 export interface StudyMaterial extends StudySummary {
   sources: { node_id: string; title: string; filename: string; asset_id: string; source_sha256: string; characters: number }[]
   plans: unknown[]
@@ -17,7 +20,7 @@ export interface StudyMaterial extends StudySummary {
   task?: { id: string; status: string; progress: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
 }
 export interface StudyGenerationRequest {
-  request_id: string; title: string; purpose: StudyPurpose
+  request_id: string; title: string; purpose: StudyPurpose; generation_mode: StudyGenerationMode
   selections: { asset_id: string; section_id: string }[]
   level: string; time_minutes: number; requirements: string; language: 'zh' | 'en'
 }
