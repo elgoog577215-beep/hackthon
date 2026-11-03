@@ -32,6 +32,16 @@
         </button>
         </template>
       </nav>
+      <div class="mobile-workbench-tools">
+        <select :value="mobileTool" :aria-label="t('courseWorkspaceFlow.tools', '课程工具')" :disabled="stageSwitching || aiCandidatePending" @change="handleMobileToolChange">
+          <option value="">{{ t('courseWorkspaceFlow.tools', '课程工具') }}</option>
+          <option value="knowledge">{{ t('knowledgeFirst.tree', '知识树') }}</option>
+          <option value="question-bank">{{ t('courseWorkbench.stages.questionBank', '题库') }}</option>
+          <option value="grading-rubric">{{ t('courseWorkbench.supporting.gradingRubric', '评分细则') }}</option>
+          <option value="material-checklist">{{ t('courseWorkbench.supporting.materialChecklist', '考试课程材料自查清单') }}</option>
+        </select>
+        <button class="mobile-course-settings" type="button" :disabled="stageSwitching || aiCandidatePending" @click="emit('open-course-information')"><Settings2 :size="17" /><span>{{ t('courseWorkspaceFlow.settings') }}</span></button>
+      </div>
       <p v-if="!knowledgeOpen && activeStage === 'foundation' && !outlineAvailableForLessons" class="stage-prerequisite-reason" role="status">{{ outlinePrerequisiteReason }}</p>
       <section class="companion-entry">
         <small>{{ t('courseWorkspaceFlow.supporting') }}</small>
@@ -1549,6 +1559,20 @@ const stages = computed(() => [
   { id: 'script' as const, step: '03', label: t('courseWorkbench.stages.script', '讲义'), icon: markRaw(BookOpenText) },
   { id: 'ppt' as const, step: '04', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
 ])
+const mobileTool = computed(() => {
+  if (knowledgeOpen.value) return 'knowledge'
+  if (activeStage.value === 'question-bank') return 'question-bank'
+  if (activeStage.value === 'companion') return activeCompanionTemplateId.value === MATERIAL_CHECKLIST_TEMPLATE_ID ? 'material-checklist' : 'grading-rubric'
+  return ''
+})
+function handleMobileToolChange(event: Event) {
+  const value = (event.currentTarget as HTMLSelectElement).value
+  if (!value) return
+  if (value === 'knowledge') { void openKnowledge(); return }
+  if (value === 'question-bank') { void requestStageChange('question-bank'); return }
+  if (value === 'grading-rubric') { void openCompanionTemplate(GRADING_RUBRIC_TEMPLATE_ID); return }
+  if (value === 'material-checklist') { void openCompanionTemplate(MATERIAL_CHECKLIST_TEMPLATE_ID); return }
+}
 const activeStageDefinition = computed(() => stages.value.find(item => item.id === activeStage.value) || {
   id: activeStage.value === 'question-bank' ? 'question-bank' as const : 'companion' as const,
   step: '',
@@ -5262,20 +5286,23 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .context-pane-backdrop { display:none; }
+.mobile-workbench-tools { display:none; }
 @media (max-width:760px) {
   .teacher-workbench { height:100%; min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); overflow:hidden; }
   .teacher-workbench.is-context-collapsed { grid-template-columns:minmax(0,1fr); }
-  .stage-rail { display:grid; gap:7px; padding:8px 9px; border-right:0; border-bottom:1px solid #e4e9f1; }
-  .stage-rail>header,.stage-rail>footer,.rail-group-label { display:none; }
+  .stage-rail { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; padding:7px 10px; border-right:0; border-bottom:1px solid #e4e9f1; }
+  .stage-rail>header,.stage-rail>footer,.stage-rail>.course-settings-entry,.stage-rail>.rail-group-label,.stage-rail>.companion-entry { display:none; }
+  .stage-rail>nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; order:1; overflow:visible; padding:0; }
+  .stage-rail>nav button { min-width:0; min-height:44px; display:flex; align-items:center; justify-content:center; gap:4px; padding:5px 2px; }
+  .stage-rail>nav button>span:first-child { font-size:12px; }
+  .stage-rail>nav button>svg { display:none; }
+  .stage-rail>nav button>strong { font-size:14px; }
+  .mobile-workbench-tools { min-width:0; display:flex; align-items:center; gap:8px; order:2; }
+  .mobile-workbench-tools select { width:100%; min-width:0; height:44px; flex:1; padding:0 34px 0 12px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-strong); background:#fff; font-family:inherit; font-size:15px; font-weight:600; line-height:1.3; }
+  .mobile-course-settings { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-family:inherit; font-size:14px; font-weight:600; line-height:1.2; white-space:nowrap; }
+  .mobile-course-settings:disabled { opacity:.5; }
+  .stage-prerequisite-reason { order:3; margin:0 4px; font-size:13px; line-height:1.45; }
   .course-settings-entry { width:100%; min-height:44px; margin:0; padding:7px 9px; }
-  .stage-rail nav { display:flex; gap:6px; overflow-x:auto; padding:0; overscroll-behavior-x:contain; scrollbar-width:none; }
-  .stage-rail nav::-webkit-scrollbar,.companion-entry::-webkit-scrollbar { display:none; }
-  .stage-rail nav button { display:flex; flex:0 0 auto; gap:6px; min-width:max-content; min-height:44px; padding:6px 10px; }
-  .stage-rail nav button>span:first-child { font-size:12px; }
-  .stage-rail nav button>strong { font-size:15px; }
-  .companion-entry { display:flex; align-items:center; gap:6px; overflow-x:auto; padding-top:6px; border-top:1px solid #eef0f4; scrollbar-width:none; }
-  .companion-entry>small { flex:none; margin-right:2px; white-space:nowrap; }
-  .companion-entry>button { flex:none; min-height:42px; padding:6px 9px; }
   .workbench-center { min-height:0; overflow:auto; padding:15px 12px calc(24px + env(safe-area-inset-bottom)); overscroll-behavior:contain; }
   .workbench-center.is-knowledge-workspace { padding:14px 8px calc(24px + env(safe-area-inset-bottom)); }
   .workspace-document-scope { gap:5px; margin-bottom:12px; font-size:14px; }

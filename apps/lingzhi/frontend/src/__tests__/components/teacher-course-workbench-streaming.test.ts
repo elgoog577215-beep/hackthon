@@ -124,6 +124,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
       },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
+      TeacherKnowledgeManager: { template: '<section data-testid="knowledge-manager-stub" />' },
       TeacherScriptDocument: {
         name: 'TeacherScriptDocument',
         props: ['generationJob'],
@@ -160,6 +161,32 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => {
 }
 
 describe('teacher course workbench outline streaming', () => {
+  it('keeps the four teaching stages one tap away and reflects the selected course tool', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.loadedCourseId = 'course-1'
+    const courseStore = useCourseStore()
+    courseStore.setTeacherProductionState('course-1', strictProductionSnapshot({}) as any)
+
+    const wrapper = mountWorkbench()
+    const stageButtons = wrapper.findAll('.stage-rail > nav button')
+    expect(stageButtons).toHaveLength(4)
+    expect(stageButtons[0]?.attributes('aria-pressed')).toBe('true')
+
+    await stageButtons[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.stage-rail > nav button')[1]?.attributes('aria-pressed')).toBe('true')
+
+    const tools = wrapper.get('.mobile-workbench-tools select')
+    expect(tools.findAll('option').map(option => option.element.value)).toEqual([
+      '', 'knowledge', 'question-bank', 'grading-rubric', 'material-checklist',
+    ])
+    await tools.setValue('knowledge')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="knowledge-manager-stub"]').exists()).toBe(true)
+    expect((wrapper.get('.mobile-workbench-tools select').element as HTMLSelectElement).value).toBe('knowledge')
+    wrapper.unmount()
+  })
+
   it('shows resumed lesson work instead of a stale batch start failure', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [{ lesson_unit_id: 'L1-1', number: 1, title: '第一讲', source_outline_revision_id: 'outline-1',
