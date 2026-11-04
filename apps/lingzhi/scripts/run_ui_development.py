@@ -79,6 +79,7 @@ def main() -> None:
     # Check before starting anything; never terminate an existing service.
     for port in ports:
         with socket.socket() as handle:
+            handle.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 handle.bind(("127.0.0.1", port))
             except OSError:
