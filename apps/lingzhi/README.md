@@ -43,6 +43,19 @@ backend/.venv/bin/python scripts/run_ui_development.py --state-dir "$HOME/.lingz
 
 师生首页及课程页共用页头中的“教师端 / 学生端”切换，同实例分别进入 `/courses` 与 `/study`。师生前后端独立运行时，为教师前端设置 `VITE_STUDY_APP_URL` 指向学生前端的公开 `/study` 入口，为学生前端设置 `VITE_TEACHER_APP_URL` 指向教师前端的公开 `/courses` 入口，不能填写后端 API 地址；本地双端开发脚本自动配置这两个地址。独立学生构建未配置教师入口时不展示无法到达的切换。切换只决定导航，不改变账号、授权或数据目录，也不会取消后台生成任务。新建课程按目标、安排和资料起点三步保存，工作台共用课程设置与讲次；页面地址保留当前阶段及讲次，发布、授权与反馈由同一交付面板组织。
 
+### 学生端原生 App
+
+Android 与 iOS 使用 Capacitor 打包现有学生端 `/study` 页面；手机 App 默认进入学生端，不显示教师工作台入口。原生包仍调用灵知后端，构建前需提供手机可访问的 API 前缀，后端应在该前缀下提供 `/api/health` 和 `/api/study/auth/config` 等接口；不能填写只在开发电脑本机可访问的 `localhost`。
+
+```bash
+cd frontend
+LINGZHI_MOBILE_API_BASE_URL="https://<可访问的服务地址>/<应用前缀>" npm run build:mobile
+cd android
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug
+```
+
+Android 调试 APK 输出在 `android/app/build/outputs/apk/debug/app-debug.apk`。Android 构建需 JDK 21；macOS 上可使用 Android Studio 自带的 JDK。iOS 工程位于 `ios/App/App.xcodeproj`，使用 Xcode 构建和签名。后端 CORS 只开放 Capacitor 本地来源 `https://localhost` 与 `capacitor://localhost`，并须随灵知后端一同部署。调试 APK 不等于商店发布包；正式发布还需各平台签名、版本和设备验收。
+
 ### 灵知师生服务互通
 
 教师服务与学生服务可以保留各自的数据目录，通过发布版本与反馈回执连接；这是两个灵知实例之间的协议，不改动启智应用或混用其数据库。同实例课程授权仍可使用。跨实例运行不复制账号或课程文件，学生服务只缓存不可编辑的公开阅读表示，教师正文仍只有原仓储写入。
