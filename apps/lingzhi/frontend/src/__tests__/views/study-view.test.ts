@@ -31,6 +31,23 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('does not interpret an unavailable auth configuration as disabled login, and reconnects', async () => {
+    api.config.mockRejectedValueOnce(new Error('HTTP 500'))
+    const { wrapper } = await page()
+    expect(wrapper.text()).toContain('请点击重新连接')
+    expect(wrapper.text()).not.toContain('HTTP 500')
+    expect(wrapper.text()).not.toContain('本地学生登录未启用')
+    expect(wrapper.find('.study-login-card').exists()).toBe(false)
+    expect(api.me).not.toHaveBeenCalled()
+    await setLocale('en'); await flushPromises()
+    expect(wrapper.text()).toContain('Unable to open your study space')
+    expect(wrapper.text()).not.toContain('Local student login is disabled')
+    api.config.mockResolvedValueOnce({ local_login_enabled: false, development_identity: true })
+    await wrapper.get('.study-error button').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+    expect(wrapper.find('.study-error').exists()).toBe(false)
+  })
+
   it('enters a guest workspace automatically without a login form or sign-out control', async () => {
     api.config.mockResolvedValue({ local_login_enabled: false, guest_login_enabled: true })
     api.guest.mockResolvedValue({ token: 'guest-session', user: { ...user, guest: true } })
@@ -58,7 +75,18 @@ describe('personal study handouts', () => {
     expect(wrapper.find('.study-error').exists()).toBe(false)
   })
 
-  it('renders the student home without secure-context crypto.randomUUID', async () => {
+  it('keeps development identity connection failures out of the login page', async () => {
+    api.config.mockResolvedValue({ local_login_enabled: false, development_identity: true })
+    api.me.mockRejectedValueOnce(new Error('HTTP 500'))
+    const { wrapper } = await page()
+    expect(wrapper.text()).toContain('请点击重新连接')
+    expect(wrapper.text()).not.toContain('本地学生登录未启用')
+    expect(wrapper.find('.login-story').exists()).toBe(false)
+    await wrapper.get('.study-error button').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)
+  })
+
+  it('renders the student home without secure-context crypto.randomUUID' , async () => {
     vi.stubGlobal('crypto', undefined)
     const { wrapper } = await page()
     expect(wrapper.findComponent({ name: 'StudentLearningHome' }).exists()).toBe(true)

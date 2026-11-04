@@ -7,6 +7,7 @@ Credentials are read from the existing private .env into process environments.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import secrets
@@ -17,12 +18,44 @@ import subprocess
 import sys
 import time
 import urllib.request
+import webbrowser
 
 from dotenv import dotenv_values
 from configure_zju_qwen_provider import REMOVED_TEXT_SETTINGS
 
 APP = Path(__file__).resolve().parents[1]
 REPOSITORY = APP.parents[1]
+
+
+def validate_configuration(environment: dict[str, str]) -> None:
+    # Apply backend policy before starting the UI. Never invent credentials.
+    sys.path.insert(0, str(APP / "backend"))
+    from text_ai_provider_policy import enforce_text_ai_provider_policy
+
+    models = [environment.get(key, "qwen3.8-27b") for key in ("AI_MODEL", "AI_MODEL_FAST")]
+    for key in ("AI_MODEL_CANDIDATES", "AI_MODEL_FAST_CANDIDATES",
+                "AI_ASSESSMENT_GENERATOR_MODELS", "AI_ASSESSMENT_SOLVER_MODELS",
+                "AI_ASSESSMENT_REVIEWER_MODELS", "AI_PPT_STORY_MODELS", "AI_PPT_VISUAL_MODELS"):
+        models.extend(item.strip() for item in environment.get(key, "").split(",") if item.strip())
+    enforce_text_ai_provider_policy(
+        api_base=environment.get("AI_API_BASE") or environment.get("ZJU_QWEN_BASE_URL", ""),
+        models=models, environment=environment,
+    )
+
+
+def check_ready(url: str, expected: dict | None) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            if response.status != 200:
+                return False
+            if expected is None:
+                return "text/html" in response.headers.get("Content-Type", "")
+            if "application/json" not in response.headers.get("Content-Type", ""):
+                return False
+            payload = json.load(response)
+            return isinstance(payload, dict) and all(payload.get(key) == value for key, value in expected.items())
+    except (OSError, ValueError):
+        return False
 
 
 def main() -> None:
@@ -32,6 +65,7 @@ def main() -> None:
     parser.add_argument("--student-port", type=int, default=5174)
     parser.add_argument("--teacher-api-port", type=int, default=8000)
     parser.add_argument("--student-api-port", type=int, default=8001)
+    parser.add_argument("--open-browser", action="store_true", help="Open student page after readiness checks pass")
     args = parser.parse_args()
     state = args.state_dir.expanduser().resolve()
     if state == REPOSITORY or REPOSITORY in state.parents or state in REPOSITORY.parents:
@@ -66,6 +100,10 @@ def main() -> None:
     # Old private env files may still contain retired provider settings. Empty
     # them in the child processes so dotenv cannot reintroduce a text fallback.
     environment.update({key: "" for key in REMOVED_TEXT_SETTINGS})
+    try:
+        validate_configuration(environment)
+    except ValueError as error:
+        parser.error(f"启动前配置检查失败：{error}。请恢复现有私有 Qwen 配置；未启动前端或后端。")
     token = secrets.token_urlsafe(40)
     children: list[subprocess.Popen] = []
     logs = []
@@ -122,20 +160,24 @@ def main() -> None:
                     )
                 )
         deadline = time.monotonic() + 45
-        pending = {f"http://127.0.0.1:{port}/health" for port in (args.teacher_api_port, args.student_api_port)}
+        checks = {
+            f"http://127.0.0.1:{args.teacher_api_port}/health": {},
+            f"http://127.0.0.1:{args.student_api_port}/health": {},
+            f"http://127.0.0.1:{args.teacher_port}/courses": None,
+            f"http://127.0.0.1:{args.student_port}/study": None,
+            f"http://127.0.0.1:{args.student_port}/api/study/auth/config": {"development_identity": True},
+            f"http://127.0.0.1:{args.student_port}/api/study/auth/me": {"id": "local-student:development", "role": "student"},
+        }
+        pending = set(checks)
         while pending and time.monotonic() < deadline:
             if any(process.poll() is not None for process in children):
                 raise RuntimeError("A development process exited; inspect the private state directory logs")
-            for url in list(pending):
-                try:
-                    with urllib.request.urlopen(url, timeout=1) as response:
-                        if response.status == 200:
-                            pending.remove(url)
-                except OSError:
-                    pass
+            pending = {url for url in pending if not check_ready(url, checks[url])}
             time.sleep(0.25)
         if pending:
-            raise RuntimeError("Development API startup timed out; inspect the private state directory logs")
+            raise RuntimeError("Development startup checks failed: " + ", ".join(sorted(pending)))
+        if args.open_browser:
+            webbrowser.open(f"http://127.0.0.1:{args.student_port}/study")
         print(f"教师端：http://127.0.0.1:{args.teacher_port}/courses", flush=True)
         print(f"学生端：http://127.0.0.1:{args.student_port}/study", flush=True)
         print("本机开发模式；无需账号密码；教师与学生数据独立。", flush=True)

@@ -30,10 +30,10 @@
         </div>
       </template>
     </ApplicationHeader>
-    <div v-if="error" class="study-error" role="alert">{{ error }}<button @click="reconnect">{{ c('retry') }}</button></div>
+    <div v-if="error" class="study-error" role="alert">{{ !user && (!authConfigLoaded || guestMode || developmentMode) ? c('connectionFailed') : error }}<button @click="reconnect">{{ c('retry') }}</button></div>
 
-    <main v-if="!user && (connecting || guestMode)" class="study-login-page">
-      <p role="status">{{ error ? c('connectionFailed') : c('openingSpace') }}</p>
+    <main v-if="!user && (connecting || guestMode || developmentMode || !authConfigLoaded)" class="study-login-page">
+      <p v-if="!error" role="status">{{ c('openingSpace') }}</p>
     </main>
     <main v-else-if="!user" class="study-login-page">
       <div class="login-story"><span class="study-eyebrow">PERSONAL LEARNING</span><h1>{{ c('welcome') }}</h1><p>{{ c('intro') }}</p><div class="login-purpose"><BookOpen :size="28" /><div><h3>{{ c('systematic') }}</h3><p>{{ c('understandingHint') }}</p></div></div><div class="login-purpose"><Target :size="28" /><div><h3>{{ c('exam_prep') }}</h3><p>{{ c('examHint') }}</p></div></div></div>
@@ -141,7 +141,7 @@ import { useResizableColumns } from '../composables/useResizableColumns'
 
 const router = useRouter(), route = useRoute()
 const developmentMode = ref(false)
-const guestMode = ref(false), connecting = ref(true)
+const guestMode = ref(false), connecting = ref(true), authConfigLoaded = ref(false)
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
@@ -288,8 +288,10 @@ async function loadLibrary() {
 }
 async function connect() {
   connecting.value = true
+  authConfigLoaded.value = false
   try {
     const config = await studyApi.config()
+    authConfigLoaded.value = true
     localLoginEnabled.value = config.local_login_enabled
     developmentMode.value = config.development_identity === true
     guestMode.value = config.guest_login_enabled === true && !qizhiAuth && !developmentMode.value
