@@ -1,3 +1,5 @@
+import groovy.json.JsonOutput
+
 apply plugin: 'com.android.application'
 
 android {
@@ -7,8 +9,8 @@ android {
         applicationId "com.qizhi.lingzhi"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -58,3 +60,42 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+// Keep deployment addresses in build configuration, outside tracked source.
+def webviewUrl = providers.environmentVariable('LINGZHI_WEBVIEW_URL')
+def webviewGenerated = layout.buildDirectory.dir('generated/lingzhiWebview')
+def generateWebviewConfig = tasks.register('generateWebviewConfig') {
+    inputs.property('entryUrl', webviewUrl.orElse(''))
+    outputs.dir(webviewGenerated)
+    doLast {
+        def raw = webviewUrl.orElse('').get().trim()
+        URI entry
+        try { entry = new URI(raw) } catch (Exception ignored) {
+            throw new GradleException('LINGZHI_WEBVIEW_URL must be an HTTP(S) student page URL')
+        }
+        if (!(entry.scheme in ['http', 'https']) || !entry.host || entry.userInfo || entry.query || entry.fragment) {
+            throw new GradleException('Set LINGZHI_WEBVIEW_URL to an HTTP(S) student page URL without credentials, query or fragment')
+        }
+        def output = webviewGenerated.get().asFile
+        def assets = new File(output, 'assets')
+        def xml = new File(output, 'res/xml')
+        assets.mkdirs()
+        xml.mkdirs()
+        new File(assets, 'capacitor.config.json').text = JsonOutput.prettyPrint(JsonOutput.toJson([
+            appId: 'com.qizhi.lingzhi.webview', appName: '灵知', webDir: 'dist',
+            server: [url: entry.toASCIIString(), androidScheme: 'https']
+        ]))
+        // HTTP IP entries are permitted only for the configured host.
+        new File(xml, 'webview_network_security.xml').text = """<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="${entry.scheme == 'http'}">
+        <domain includeSubdomains="false">${entry.host}</domain>
+    </domain-config>
+</network-security-config>
+"""
+    }
+}
+android.sourceSets.webview.assets.srcDir(webviewGenerated.map { it.dir('assets') })
+android.sourceSets.webview.res.srcDir(webviewGenerated.map { it.dir('res') })
+tasks.matching { it.name == 'preWebviewBuild' }.configureEach { dependsOn(generateWebviewConfig) }

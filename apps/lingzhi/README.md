@@ -56,14 +56,15 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 
 Android 调试 APK 输出在 `android/app/build/outputs/apk/debug/app-debug.apk`。Android 返回键优先回退 WebView 页面；没有页面历史时显示退出确认。Android 构建需 JDK 21；macOS 上可使用 Android Studio 自带的 JDK。iOS 工程位于 `ios/App/App.xcodeproj`，使用 Xcode 构建和签名。后端 CORS 只开放 Capacitor 本地来源 `https://localhost` 与 `capacitor://localhost`，并须随灵知后端一同部署。调试 APK 不等于商店发布包；正式发布还需各平台签名、版本和设备验收。
 
-远程 WebView 测试包使用独立包名和 `webview` 构建类型，加载 `https://tuotuzju.com/lingzhi/study`，不改变本地学生端 APK。从 `apps/lingzhi` 目录执行：
+远程 WebView 测试包使用独立包名和 `webview` 构建类型，通过 `LINGZHI_WEBVIEW_URL` 指定学生端入口（可使用服务器 IP），不改变本地学生端 APK。从 `apps/lingzhi` 目录执行：
 
 ```bash
 cd frontend/android
+LINGZHI_WEBVIEW_URL="https://<可访问的服务地址>/lingzhi/study" \
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleWebview
 ```
 
-输出位于 `frontend/android/app/build/outputs/apk/webview/app-webview.apk`。该包需要联网，站点服务不可用时不会回退到本地页面；它用于验证 WebView 外壳，不是商店发布包。
+输出位于 `frontend/android/app/build/outputs/apk/webview/app-webview.apk`。实际地址只进入本地构建产物，不提交 Git。使用 HTTP 入口时，仅为指定主机开放明文连接；其他主机仍要求 HTTPS。打包前确认学生页面可访问，且 `/api/health` 与 `/api/study/auth/config` 返回 JSON。该包需要联网，站点服务不可用时不会回退到本地页面；它用于验证 WebView 外壳，不是商店发布包。
 
 ### 灵知师生服务互通
 
