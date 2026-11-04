@@ -1,6 +1,16 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  reference: ['公式与定理', 'Reference'],
+  referenceHint: ['汇总讲义中的公式、定义与定理；适用条件和完整推导可回原文查看。', 'Formulas, definitions and theorems from this handout. Return to the text for conditions and full derivations.'],
+  referenceScope: ['查看范围', 'Scope'], referenceKind: ['内容类型', 'Content type'],
+  referenceAllCourse: ['全部讲义', 'Whole handout'], referenceCurrent: ['当前讲', 'Current lecture'],
+  referenceAll: ['全部', 'All'], referenceFormula: ['公式', 'Formulas'],
+  referenceDefinition: ['定义', 'Definitions'], referenceTheorem: ['定理', 'Theorems'],
+  referenceSearch: ['搜索名称或内容', 'Search names or content'], referenceCount: ['条目', 'Entries'],
+  referenceJump: ['回到原文', 'Go to passage'],
+  referenceNoMatches: ['没有匹配的内容，试试其他关键词或范围。', 'No matches. Try another search or scope.'],
+  referenceEmpty: ['当前范围暂无这类内容。这里展示已生成讲义中的公式、定义与定理，不包含折叠解答。', 'No entries of this type in this scope. This view uses the generated handout and excludes folded answers.'],
   guestSpace: ['我的学习空间', 'My study space'],
   guestHint: ['资料保存在当前浏览器的学习身份下；清除站点数据或更换浏览器后会进入新的空间。', 'Your study identity belongs to this browser. Clearing site data or switching browsers opens a new space.'],
   openingSpace: ['正在进入学习空间…', 'Opening your study space…'],

@@ -101,6 +101,7 @@
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
               <div v-else-if="toolTab === 'note'" class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
               <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
+              <HandoutReferencePanel v-else-if="toolTab === 'reference'" :key="`${material.id}:${currentRevision?.id}`" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
               <div v-else>
                 <div v-if="!conceptsReady" class="study-note" role="status">
                   <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
@@ -126,10 +127,11 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma } from 'lucide-vue-next'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
+import HandoutReferencePanel from '../components/HandoutReferencePanel.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
@@ -168,10 +170,10 @@ const generationIssue = computed<StudyCopyKey | ''>(() => {
 })
 const canGenerate = computed(() => !generationIssue.value)
 function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRanges.value.filter(range => availableRanges.value.has(range)))] }
-const toolTabs = ['note', 'assistant', 'concepts', 'sources'] as const
+const toolTabs = ['note', 'assistant', 'reference', 'concepts', 'sources'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
-const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText }
+const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText, reference: Sigma }
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
   try { sessionStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
@@ -213,6 +215,17 @@ function navigateChapter(id: string) {
 }
 function isNarrowStudyViewport() {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches
+}
+async function jumpToReference(blockId: string) {
+  if (isNarrowStudyViewport()) closeTool()
+  await nextTick()
+  const root = readingTarget.value
+  const target = Array.from(root?.querySelectorAll<HTMLElement>('[data-block-id]') || []).find(node => node.dataset.blockId === blockId)
+  if (!root || !target) return
+  root.scrollTo({ top: root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 24, behavior: 'instant' })
+  target.tabIndex = -1
+  target.focus({ preventScroll: true })
+  followChapter()
 }
 function selectChapter(id: string) {
   navigateChapter(id)
@@ -653,7 +666,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-note-footer button { align-self: stretch; min-height: 44px; }
   .study-source-list { overflow: auto; padding: 14px; }
   .study-reading-workspace .learning-dock { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
-  .study-reading-workspace :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
+  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
   .study-reading-workspace .learning-dock :deep(button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size: 11px; line-height: 1.2; white-space: normal; }
   .study-reading-workspace .learning-dock :deep(button > svg) { flex: none; width: 19px; height: 19px; }
   .study-login-page { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 18px 14px 28px; }
