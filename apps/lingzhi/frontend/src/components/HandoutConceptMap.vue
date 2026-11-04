@@ -66,7 +66,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { conceptLayers, type HandoutConcept, type HandoutConceptSection, type HandoutRelation } from '../utils/handout-concepts'
-const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string }>()
+const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void }>()
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)
@@ -99,6 +99,7 @@ function element(id: string): HTMLElement | undefined {
   return Array.from(props.target?.querySelectorAll<HTMLElement>('[id]') || []).find(node => node.id === id)
 }
 function jump(anchor: string) {
+  if (props.navigate) { props.navigate(anchor); return }
   const node = element(anchor)
   if (!node) return
   node.querySelectorAll('details').forEach(details => { details.open = true })
@@ -108,8 +109,8 @@ function jump(anchor: string) {
   void node.offsetWidth
   if (!reduced) node.classList.add('handout-concept-flash')
 }
-function chooseSection(id: string) { currentId.value = id; jump(current.value?.anchor || '') }
-function selectConcept(node: HandoutConcept) { selected.value = node.id; if (node.anchor) jump(node.anchor) }
+function chooseSection(id: string) { currentId.value = id; if (!props.navigate) jump(current.value?.anchor || '') }
+function selectConcept(node: HandoutConcept) { selected.value = node.id; if (node.anchor && !props.navigate) jump(node.anchor) }
 // A reading aside lives inside a scrolling workbench, not necessarily the viewport.
 function fitReadingAside() {
   if (!panel.value?.classList.contains('handout-reading-aside')) return

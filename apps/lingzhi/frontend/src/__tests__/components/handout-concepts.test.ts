@@ -158,3 +158,15 @@ it('navigates through exact handout evidence when concept labels differ from pro
   plan.knowledge_relations[0]!.source_refs[0]!.revision_id = 'old'
   expect(buildHandoutConceptSections([plan], reading)[0]?.nodes.every(node => !node.anchor)).toBe(true)
 })
+
+
+it('lets the student inspect concepts before explicitly returning to the handout', async () => {
+  const navigate = vi.fn()
+  const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading), navigate } })
+  await wrapper.get('[data-concept-id="id-a"]').trigger('click')
+  expect(wrapper.get('.concept-detail').text()).toContain('A 的说明')
+  expect(navigate).not.toHaveBeenCalled()
+  await wrapper.get('.concept-jump').trigger('click')
+  expect(navigate).toHaveBeenCalledWith('b2')
+  wrapper.unmount()
+})

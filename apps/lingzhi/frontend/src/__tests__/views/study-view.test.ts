@@ -24,6 +24,9 @@ async function page(path = '/study') {
   return { wrapper, router }
 }
 beforeEach(async () => {
+  vi.stubGlobal('innerWidth', 1440)
+  HTMLElement.prototype.scrollTo = vi.fn(function (this: HTMLElement, options?: ScrollToOptions | number) { if (typeof options === 'object') this.scrollTop = options.top || 0 })
+  localStorage.clear()
   vi.clearAllMocks(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/en/') ? en : zh }))); await setLocale('zh')
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
   api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
@@ -203,6 +206,9 @@ describe('personal study handouts', () => {
     const scroller = wrapper.get('.study-document-scroll').element as HTMLElement
     const section = wrapper.get('[data-section-id="s1"]').element as HTMLElement
     const outer = wrapper.get('.study-workspace').element as HTMLElement
+    const answer = document.createElement('details')
+    answer.className = 'handout-block--answer'
+    section.append(answer)
     scroller.scrollTop = 100
     const scrollTo = vi.fn()
     scroller.scrollTo = scrollTo
@@ -211,7 +217,8 @@ describe('personal study handouts', () => {
     await wrapper.get('.study-chapter-list button').trigger('click')
     expect(scrollTo).toHaveBeenCalledWith({ top: 376, behavior: 'instant' })
     expect(outer.scrollTop).toBe(0)
-    expect(sessionStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')).toBe('s1')
+    expect(answer.open).toBe(false)
+    expect(JSON.parse(sessionStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')!)).toMatchObject({ sectionId: 's1' })
   })
 
   it('filters the directory without changing the handout and keeps notes when the directory is hidden', async () => {
@@ -585,4 +592,57 @@ it('ignores a late note-save receipt after returning to a newer revision', async
   complete({}); await flushPromises()
   expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新版已保存笔记')
   expect(wrapper.text()).not.toContain('笔记尚未保存')
+})
+
+
+it('coordinates mobile drawers and restores the desktop directory after resizing', async () => {
+  vi.stubGlobal('innerWidth', 390)
+  const { wrapper } = await page('/study/material-a')
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
+  expect(wrapper.find('.study-navigation').exists()).toBe(true)
+  await wrapper.get('[data-tool="note"]').trigger('click')
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+  await wrapper.get('.study-tool-heading button').trigger('click')
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+  await wrapper.get('[data-tool="assistant"]').trigger('click')
+  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
+  expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+  expect(wrapper.find('.column-resize-handle').exists()).toBe(false)
+  vi.stubGlobal('innerWidth', 1440); window.dispatchEvent(new Event('resize')); await flushPromises()
+  expect(wrapper.find('.study-navigation').exists()).toBe(true)
+  await wrapper.get('.study-directory-heading button').trigger('click')
+  vi.stubGlobal('innerWidth', 390); window.dispatchEvent(new Event('resize')); await flushPromises()
+  vi.stubGlobal('innerWidth', 1440); window.dispatchEvent(new Event('resize')); await flushPromises()
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+})
+
+it('protects the reading width on medium screens without losing the preferred directory', async () => {
+  vi.stubGlobal('innerWidth', 900)
+  const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="note"]').trigger('click')
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+  await wrapper.get('.study-tool-heading button').trigger('click')
+  expect(wrapper.find('.study-navigation').exists()).toBe(true)
+})
+
+it('returns from mobile directory navigation to the passage without reopening a tool', async () => {
+  vi.stubGlobal('innerWidth', 390)
+  const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="concepts"]').trigger('click')
+  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
+  await wrapper.get('.study-chapter-list button').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+  expect(wrapper.find('.study-navigation').exists()).toBe(false)
+  expect(wrapper.find('.study-jump-target').exists()).toBe(true)
+})
+
+it('restores reading preferences for the current student', async () => {
+  localStorage.setItem('lingzhi-study-reading:student-a', JSON.stringify({ size: 21, font: 'sans' }))
+  const { wrapper } = await page('/study/material-a')
+  expect(wrapper.get('.study-handout').attributes('style')).toContain('21px')
+  expect(wrapper.get('.study-handout').attributes('style')).toContain('var(--handout-sans)')
+  await wrapper.get('input[type="range"]').setValue(20)
+  expect(JSON.parse(localStorage.getItem('lingzhi-study-reading:student-a')!)).toEqual({ size: 20, font: 'sans' })
 })

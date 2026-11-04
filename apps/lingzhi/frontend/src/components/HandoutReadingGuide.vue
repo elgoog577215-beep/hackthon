@@ -1,13 +1,18 @@
 <template>
-  <div class="handout-reading-guide" data-handout-print-exclude>
-    <div class="handout-reading-guide__legend" :aria-label="tr('colorGuide')">
-      <button v-for="group in handoutContentGroups" :key="group.id" type="button" :class="group.id" :title="group.purpose[activeLocale]" :aria-expanded="openGroup === group.id" :aria-controls="guideId" @click="toggleTypeGuide(group.id as HandoutContentGroup)">{{ group.label[activeLocale] }}<ChevronDown :size="13" aria-hidden="true" /></button>
-    </div>
-    <div class="handout-reading-guide__actions">
-      <button v-if="hasAnswers" type="button" @click="toggleAnswers">{{ tr(allExpanded ? 'collapseAnswers' : 'expandAnswers') }}</button>
-      <button type="button" :disabled="!target || printing" @click="printHandout">{{ tr('printHandout') }}</button>
-    </div>
-    <HandoutTypeReference v-if="openGroup" :id="guideId" :group="openGroup" @close="openGroup = null" />
+  <div class="handout-reading-guide" :class="{ 'is-compact': compact }" data-handout-print-exclude>
+    <component :is="compact ? 'details' : 'div'" :class="compact ? 'handout-reading-guide__disclosure' : 'handout-reading-guide__inline'">
+      <summary v-if="compact">{{ activeLocale === 'zh' ? '教学块说明与阅读工具' : 'Block guide & reading tools' }}</summary>
+      <div :class="compact ? 'handout-reading-guide__compact-body' : 'handout-reading-guide__inline'">
+        <div class="handout-reading-guide__legend" :aria-label="tr('colorGuide')">
+          <button v-for="group in handoutContentGroups" :key="group.id" type="button" :class="group.id" :title="group.purpose[activeLocale]" :aria-expanded="openGroup === group.id" :aria-controls="guideId" @click="toggleTypeGuide(group.id as HandoutContentGroup)">{{ group.label[activeLocale] }}<ChevronDown :size="13" aria-hidden="true" /></button>
+        </div>
+        <div class="handout-reading-guide__actions">
+          <button v-if="hasAnswers" type="button" @click="toggleAnswers">{{ tr(allExpanded ? 'collapseAnswers' : 'expandAnswers') }}</button>
+          <button type="button" :disabled="!target || printing" @click="printHandout">{{ tr('printHandout') }}</button>
+        </div>
+        <HandoutTypeReference v-if="openGroup" :id="guideId" :group="openGroup" @close="openGroup = null" />
+      </div>
+    </component>
   </div>
 </template>
 
@@ -19,7 +24,7 @@ import { printHandoutDocument } from '../utils/handout-print'
 import HandoutTypeReference from './HandoutTypeReference.vue'
 import { handoutContentGroups, type HandoutContentGroup } from '../utils/handout-content'
 
-const props = defineProps<{ target: HTMLElement | null; title?: string }>()
+const props = defineProps<{ target: HTMLElement | null; title?: string; compact?: boolean }>()
 const allExpanded = ref(false)
 const hasAnswers = ref(false)
 const printing = ref(false)
@@ -68,5 +73,13 @@ async function printHandout() {
 .explanation{--tone:#315e91}.practice{--tone:#17815a}.question{--tone:#6e4a9c}
 .handout-reading-guide button{border:0;padding:4px 0;background:transparent;color:#526071;font:inherit;cursor:pointer}
 .handout-reading-guide button:hover{color:#6e4a9c}.handout-reading-guide button:disabled{opacity:.5;cursor:default}.handout-reading-guide button:focus-visible{outline:3px solid #328dcc;outline-offset:4px}
+.handout-reading-guide__inline { display: contents; }
+.handout-reading-guide.is-compact { margin: 0 0 20px; padding: 0 0 8px; border-top: 0; }
+.handout-reading-guide__disclosure { width: 100%; }
+.handout-reading-guide__disclosure > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.handout-reading-guide__disclosure > summary::before { content: '+'; font-size: 20px; }
+.handout-reading-guide__disclosure[open] > summary::before { content: '−'; }
+.handout-reading-guide__disclosure > summary::-webkit-details-marker { display: none; }
+.handout-reading-guide__compact-body { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 8px 0 12px; }
 @media print{.handout-reading-guide{display:none}}
 </style>

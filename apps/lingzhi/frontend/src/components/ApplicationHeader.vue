@@ -7,18 +7,27 @@
     </div>
     <div v-if="!learning && centered" :id="centerId" class="app-header-center"><slot name="center" /></div>
     <div class="app-header-tools">
-      <div :id="learning ? undefined : actionsId" :class="learning ? 'header-actions' : 'route-header-actions'"><slot name="actions" /></div>
-      <WorkspaceSwitcher :surface="surface" />
+      <component :is="compactActions ? 'details' : 'div'" ref="actionsMenu" :class="compactActions ? 'app-header-menu' : 'app-header-inline-actions'" @keydown.esc="closeMenu(true)">
+        <summary v-if="compactActions" :aria-label="activeLocale === 'zh' ? '更多阅读选项' : 'More reading options'"><MoreHorizontal :size="22" /></summary>
+        <div class="app-header-menu-content">
+          <div :id="learning ? undefined : actionsId" :class="learning ? 'header-actions' : 'route-header-actions'"><slot name="actions" /></div>
+          <WorkspaceSwitcher :surface="surface" />
+        </div>
+      </component>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { MoreHorizontal } from 'lucide-vue-next'
+import { activeLocale } from '../shared/i18n'
 import ProductBrand from './ProductBrand.vue'
 import WorkspaceSwitcher from './WorkspaceSwitcher.vue'
 import type { ProductSurface } from '../shared/product-brand'
 withDefaults(defineProps<{
   surface: ProductSurface
+  compactActions?: boolean
   contextual?: boolean
   library?: boolean
   learning?: boolean
@@ -28,9 +37,28 @@ withDefaults(defineProps<{
   centerId?: string
   actionsId?: string
 }>(), { contextual: false, library: false, learning: false, showBrand: true, centered: true })
+const actionsMenu = ref<HTMLElement | null>(null)
+function closeMenu(focus = false) {
+  if (actionsMenu.value?.tagName !== 'DETAILS') return
+  const menu = actionsMenu.value as HTMLDetailsElement
+  menu.open = false
+  if (focus) actionsMenu.value.querySelector('summary')?.focus()
+}
+function dismissMenu(event: PointerEvent) {
+  if (!actionsMenu.value?.contains(event.target as Node)) closeMenu()
+}
+onMounted(() => document.addEventListener('pointerdown', dismissMenu))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', dismissMenu))
 </script>
 
 <style>
+.app-header-inline-actions, .app-header-inline-actions > .app-header-menu-content { display: contents; }
+.app-header-menu > summary { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; cursor: pointer; list-style: none; border-radius: 9px; }
+.app-header-menu > summary::-webkit-details-marker { display: none; }
+.app-header-menu[open] > summary { background: var(--lz-brand-soft); }
+.app-header-menu > .app-header-menu-content { position: absolute; top: calc(100% + 6px); right: 0; width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 90px); overflow: auto; display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; box-sizing: border-box; border: 1px solid var(--lz-border); border-radius: 12px; background: #fff; box-shadow: 0 12px 32px #26335026; }
+.app-header-menu .route-header-actions { justify-self: stretch; }
+.app-header-menu .workspace-switcher { align-self: flex-end; }
 /* One header implementation for teacher and student workspaces. */
 .app-header {
   position: relative;
