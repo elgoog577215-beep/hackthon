@@ -13,10 +13,11 @@ export interface StudySection { id: string; title: string; blocks: StudyBlock[];
 export interface StudySummary { id: string; title: string; purpose: StudyPurpose; generation_mode?: StudyGenerationMode; status: string; task_id: string; updated_at: string; source_course_ids?: string[] }
 export interface StudyMaterial extends StudySummary {
   sources: { node_id: string; title: string; filename: string; asset_id: string; source_sha256: string; characters: number }[]
+  concepts_complete?: boolean
   plans: unknown[]
   revisions: { id: string; status: string; sections: StudySection[] }[]
   notes: Record<string, { content: string; updated_at: string }>
-  task?: { id: string; status: string; progress: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
+  task?: { id: string; status: string; progress: number; phase_progress?: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
 }
 export interface StudyGenerationRequest {
   request_id: string; title: string; purpose: StudyPurpose

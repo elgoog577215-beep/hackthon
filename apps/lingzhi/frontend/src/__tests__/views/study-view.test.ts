@@ -477,3 +477,31 @@ describe('personal study handouts', () => {
   })
 
 })
+
+
+it.each(['direct', 'materials'])('offers the same concept recovery for %s handouts', async generation_mode => {
+  api.get.mockResolvedValue({ ...structuredClone(saved), generation_mode, concepts_complete: false })
+  const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('概念关系尚未完整生成')
+  expect(wrapper.text()).not.toContain('当前没有资料来源关系图')
+  const resume = wrapper.findAll('button').find(button => button.text() === '继续生成缺失内容')!
+  await resume.trigger('click'); await flushPromises()
+  expect(api.resume).toHaveBeenCalledWith('material-a')
+  expect(wrapper.text()).toContain('真实讲义正文')
+  await setLocale('en'); await flushPromises()
+  expect(wrapper.text()).toContain('Concept connections are not complete yet')
+  expect(wrapper.text()).toContain('Continue missing content')
+})
+
+it('keeps a partial concept map visible during generation without offering a duplicate run', async () => {
+  const partial = { ...structuredClone(saved), concepts_complete: false,
+    plans: [{ node_id: 's1', knowledge_structure: [{ knowledge_points: [{ name: '向量' }] }] }],
+    task: { ...saved.task, status: 'running' } }
+  api.get.mockResolvedValue(partial)
+  const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('正在生成学习内容与概念关系')
+  expect(wrapper.find('handout-concept-map-stub').exists()).toBe(true)
+  expect(wrapper.findAll('button').some(button => button.text() === '继续生成缺失内容')).toBe(false)
+})

@@ -12,7 +12,7 @@ from material_storage import MaterialStorageError
 from storage import storage
 from study.auth import GUEST_COOKIE, GUEST_SESSION_SECONDS, LocalStudyAuth, study_identity
 from study.repository import StudyConflict, StudyRepository
-from study.service import create_material, source_sections
+from study.service import create_material, source_sections, concepts_complete
 
 router = APIRouter(prefix="/study", tags=["personal-study"])
 
@@ -91,6 +91,7 @@ def public_material(material: dict) -> dict:
     result["sources"] = [{key: section[key] for key in ("node_id", "title", "filename", "asset_id", "source_sha256", "characters")}
                          for section in material["request"]["source_sections"]]
     result["source_course_ids"] = material_summary(material)["source_course_ids"]
+    result["concepts_complete"] = concepts_complete(material)
     return result
 
 
@@ -227,19 +228,30 @@ def material(material_id: str, user=Depends(study_identity), repo=Depends(reposi
     result = public_material(material_or_404(repo, user["id"], material_id))
     task = manager.tasks.get(result["task_id"])
     # Never return global task snapshots or server/provider details to this UI.
-    result["task"] = {key: task.get(key) for key in ("id", "status", "progress", "completed_nodes", "total_nodes", "phase", "message", "error_code")} if task else None
+    result["task"] = {key: task.get(key) for key in ("id", "status", "progress", "completed_nodes", "total_nodes", "phase", "phase_progress", "message", "error_code")} if task else None
     return result
 
 
 @router.post("/materials/{material_id}/continue")
 async def continue_material(material_id: str, user=Depends(study_identity), repo=Depends(repository),
                             manager=Depends(require_task_manager)):
-    saved = material_or_404(repo, user["id"], material_id)
-    task = manager.tasks.get(saved["task_id"])
-    if not task or task.get("owner_id") != user["id"] or task.get("type") != "personal_handout_generation":
-        raise HTTPException(409, "生成任务已不可用；讲义和资料仍保留，请重新选择范围生成")
-    await manager.resume_task(task["id"])
-    return {"task_id": task["id"]}
+    async with manager._creation_lock:
+        saved = material_or_404(repo, user["id"], material_id)
+        task = manager.tasks.get(saved["task_id"])
+        if task and (task.get("owner_id") != user["id"] or task.get("type") != "personal_handout_generation"):
+            raise HTTPException(409, "生成任务与材料不匹配；已有内容仍保留")
+        if not task:
+            if saved["status"] == "completed" and concepts_complete(saved):
+                return {"task_id": saved["task_id"]}
+            if saved["status"] not in {"completed", "failed", "paused"}:
+                raise HTTPException(409, "任务状态尚未确认，请稍后重试；已有内容仍保留")
+            await manager.create_task(
+                "", "personal_handout_generation", task_id=saved["task_id"], course_name=saved["title"],
+                request_snapshot={"_retrieval_actor_id": user["id"], "material_id": material_id, "purpose": saved["purpose"]},
+            )
+        else:
+            await manager.resume_task(task["id"])
+    return {"task_id": saved["task_id"]}
 
 
 @router.put("/materials/{material_id}/note")

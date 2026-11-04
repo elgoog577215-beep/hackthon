@@ -47,6 +47,8 @@ export function buildHandoutConceptSections(rawPlans: unknown, reading: HandoutR
       const key = text(value)
       if (points.has(key)) return key
       const matches = aliases.get(key)
+      const local = [...(matches || [])].filter(id => owned.has(id))
+      if (local.length === 1) return local[0]!
       return matches?.size === 1 ? [...matches][0]! : ''
     }
     function endpoint(value: Record<string, any>, side: 'source' | 'target'): string {
@@ -61,6 +63,18 @@ export function buildHandoutConceptSections(rawPlans: unknown, reading: HandoutR
         ? block.sourceRevision === revision && block.knowledgeRefs?.some(ref => ref.knowledge_id === id && Boolean(ref.revision_id) && ref.revision_id === point.revision_id)
         : block.knowledge.some(key => resolve(key) === id))
       if (bound) return bound.anchor
+      // Generated concept labels may differ from prose (e.g. “整型 (int)”).
+      // Use saved evidence block identities before attempting literal matching.
+      const ownerPlan = plans.find(p => planPoints(p).some(point => identity(point, text(p.node_id)) === id))
+      const ownRelations = list(ownerPlan?.knowledge_relations).map(record).filter(edge =>
+        endpoint(edge, 'source') === id || endpoint(edge, 'target') === id)
+      const evidence = [...list(point.source_refs), ...ownRelations.flatMap(edge => list(edge.source_refs))].map(record)
+      for (const ref of evidence) {
+        if (ref.kind !== 'handout' || !ref.revision_id || ref.revision_id !== ownerPlan?.handout_revision_id) continue
+        const sourceSection = reading.find(item => item.id === ref.node_id)
+        const sourceBlock = sourceSection?.blocks.find(block => block.id === ref.block_id)
+        if (sourceBlock) return sourceBlock.anchor
+      }
       // Literal fallback is only navigation for unversioned legacy prose, and
       // only for unambiguous names. It is never coverage or relation evidence.
       if (revision) return ''

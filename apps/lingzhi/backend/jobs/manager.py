@@ -5179,7 +5179,13 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
         if task.get("type") in {"personal_handout_generation", "personal_study_assistant"}:
-            if task.get("status") in {"paused", "failed"}:
+            missing_concepts = False
+            if task.get("type") == "personal_handout_generation" and task.get("status") == "completed":
+                from study.repository import StudyRepository
+                from study.service import concepts_complete
+                material = StudyRepository(self.storage).for_task(task["owner_id"], task_id)
+                missing_concepts = not concepts_complete(material)
+            if task.get("status") in {"paused", "failed"} or missing_concepts:
                 if await self._update_task_status(task_id, "pending", message="继续生成缺失内容", allow_reactivation=True):
                     await self._task_queue.put(task_id)
             return {"status": "resumed", "task": self._task_view(self.tasks[task_id])}

@@ -134,3 +134,27 @@ describe('Handout concept relationships', () => {
     wrapper.unmount()
   })
 })
+
+
+it('keeps each lecture’s relations when concept names repeat across lectures', () => {
+  const repeated = ['s1', 's2'].map(node_id => ({ node_id,
+    knowledge_structure: [{ knowledge_points: [{ name: '变量' }, { name: '类型' }] }],
+    knowledge_relations: [{ source_name: '变量', target_name: '类型', relation_type: 'applies_to', reason: '变量具有类型' }] }))
+  const sections = buildHandoutConceptSections(repeated, ['s1', 's2'].map(id => ({ id, title: id, anchor: id,
+    blocks: [{ id: id + '-b', anchor: id + '-b', content: '变量具有类型', knowledge: ['变量', '类型'] }] })))
+  expect(sections.map(section => section.relations.length)).toEqual([1, 1])
+  expect(sections[1]?.nodes.every(node => node.anchor === 's2-b')).toBe(true)
+  expect(sections[1]?.relations[0]?.source).toBe('legacy:s2:变量')
+})
+
+
+it('navigates through exact handout evidence when concept labels differ from prose', () => {
+  const reading = [{ id: 's', title: '类型', anchor: 's', blocks: [{ id: 'b', anchor: 'block-b', content: 'int 用于表示整数。', knowledge: [] }] }]
+  const plan = { node_id: 's', handout_revision_id: 'r',
+    knowledge_structure: [{ knowledge_points: [{ name: '整型 (int)' }, { name: '数据类型' }] }],
+    knowledge_relations: [{ source_name: '整型 (int)', target_name: '数据类型', relation_type: 'generalizes', reason: '属于基本类型',
+      source_refs: [{ kind: 'handout', revision_id: 'r', node_id: 's', block_id: 'b' }] }] }
+  expect(buildHandoutConceptSections([plan], reading)[0]?.nodes.map(node => node.anchor)).toEqual(['block-b', 'block-b'])
+  plan.knowledge_relations[0]!.source_refs[0]!.revision_id = 'old'
+  expect(buildHandoutConceptSections([plan], reading)[0]?.nodes.every(node => !node.anchor)).toBe(true)
+})

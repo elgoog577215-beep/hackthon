@@ -38,7 +38,7 @@ class SharedWriter:
         return json.dumps({'sections': [{'node_id': section['node_id'],
                          'knowledge_structure': [{'knowledge_points': [{'name': '向量', 'statement': '有序分量'}, {'name': '组合', 'statement': '分量的运算'}]}],
                          'knowledge_relations': [{'source_name': '向量', 'target_name': '组合', 'relation_type': 'applies_to', 'reason': '向量是组合的对象',
-                                                 'source_refs': [{'evidence_id': section['blocks'][0]['evidence_id']}]}]}
+                                                 'source_refs': [{'evidence_id': section['blocks'][0]['evidence_id'], 'quote': section['blocks'][0]['text']}]}]}
                         for section in request['source_sections']]})
 
     async def generate_teacher_handout(self, **kwargs):
@@ -361,7 +361,8 @@ async def test_shared_writer_purposes_completed_sections_save_notes_and_reopen(s
         assert len(saved['revisions'][0]['sections']) == 2
         assert all(section['complete'] for section in saved['revisions'][0]['sections'])
         assert all(section['blocks'][-1]['answer_to'] == section['blocks'][1]['block_id'] for section in saved['revisions'][0]['sections'])
-        assert '应试讲义' in writer.calls[-1][1]['requirements'] if purpose == 'exam_prep' else '整体理解讲义' in writer.calls[-1][1]['requirements']
+        last_handout = next(call[1] for call in reversed(writer.calls) if call[0].startswith('study-section-'))
+        assert ('应试讲义' if purpose == 'exam_prep' else '整体理解讲义') in last_handout['requirements']
         repo.save_note(owner, material['id'], material['task_id'], '理解记录')
         repo.save_note(owner, material['id'], material['task_id'], '理解记录')
         assert StudyRepository(Storage(repo.storage._data_dir)).get(owner, material['id'])['notes'][material['task_id']]['content'] == '理解记录'
@@ -410,7 +411,7 @@ async def test_interruption_manual_resume_preserves_completed_chapter_without_re
     first = deepcopy(interrupted['revisions'][0]['sections'][0])
     assert first['complete']
     assert not interrupted['revisions'][0]['sections'][1]['complete']
-    assert len(writer.calls) == 3  # one scope, each chapter exactly once
+    assert len(writer.calls) == 2  # each chapter once; concepts wait for saved handout
     assert manager.tasks[material['task_id']]['status'] == 'failed'
     await manager._reconcile_task_after_restart(material['task_id'])
     assert manager.tasks[material['task_id']]['status'] == 'failed'
@@ -421,7 +422,7 @@ async def test_interruption_manual_resume_preserves_completed_chapter_without_re
     await reloaded.resume_task(material['task_id'])
     await reloaded._process_task(material['task_id'])
     assert repo.get(owner, material['id'])['revisions'][0]['sections'][0] == first
-    assert len(writer.calls) == 4  # explicit continuation writes only the missing chapter
+    assert len(writer.calls) == 5  # only the missing chapter, then two concept sections
     assert repo.get(owner, material['id'])['status'] == 'completed'
 
 
@@ -547,3 +548,101 @@ def test_material_summary_preserves_explicit_course_links_without_exposing_sourc
     assert "private" not in json.dumps(result)
     material.pop("request")
     assert study.material_summary(material)["source_course_ids"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_sources", [False, True])
+async def test_both_source_paths_save_concepts_bound_to_handout_and_allow_legacy_repair(setup_study, with_sources):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    request = request_for(add_source(client, headers))
+    if not with_sources:
+        request["selections"] = []
+    material = await create_material(manager, repo, owner, request)
+    await manager._process_task(material["task_id"])
+    saved = repo.get(owner, material["id"])
+    assert saved["status"] == "completed"
+    assert len(saved["plans"]) == len(saved["revisions"][0]["sections"]) == 2
+    for plan, section in zip(saved["plans"], saved["revisions"][0]["sections"]):
+        ref = plan["knowledge_relations"][0]["source_refs"][0]
+        assert ref["kind"] == "handout" and ref["revision_id"] == saved["revisions"][0]["id"]
+        assert ref["block_id"] == section["blocks"][0]["block_id"]
+        assert "asset_id" not in ref and "filename" not in ref
+    assert client.get(f"/api/study/materials/{material['id']}", headers=headers).json()["concepts_complete"]
+    repo.save_note(owner, material["id"], material["task_id"], "不能丢失的笔记")
+    repo.update(owner, material["id"], {"plans": []})  # pre-fix completed handout
+    before = repo.get(owner, material["id"])
+    calls = len(writer.calls)
+    for _ in range(2):
+        response = client.post(f"/api/study/materials/{material['id']}/continue", headers=headers)
+        assert response.status_code == 200 and response.json()["task_id"] == material["task_id"]
+    await manager._process_task(material["task_id"])
+    after = repo.get(owner, material["id"])
+    assert after["revisions"] == before["revisions"]
+    assert after["notes"] == before["notes"]
+    assert [call[0] for call in writer.calls[calls:]] == ["scope", "scope"]
+    assert client.get(f"/api/study/materials/{material['id']}", headers=headers).json()["concepts_complete"]
+    await manager.resume_task(material["task_id"])
+    assert manager.tasks[material["task_id"]]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_concept_failure_preserves_text_and_partial_maps_then_continues_only_missing(setup_study):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    material = await create_material(manager, repo, owner, request_for(add_source(client, headers)))
+    original_call = writer._call_llm
+    async def fail_second(prompt, *args, **kwargs):
+        result = await original_call(prompt, *args, **kwargs)
+        if json.loads(result)["sections"][0]["node_id"] == "study-section-2":
+            raise RuntimeError("interrupted concepts")
+        return result
+    writer._call_llm = fail_second
+    await manager._run_job(material["task_id"])
+    before = repo.get(owner, material["id"])
+    assert before["status"] == "failed"
+    assert all(section["complete"] for section in before["revisions"][0]["sections"])
+    assert len(before["plans"]) == 1
+    writer._call_llm = original_call
+    calls = len(writer.calls)
+    await manager.resume_task(material["task_id"])
+    await manager._process_task(material["task_id"])
+    after = repo.get(owner, material["id"])
+    assert after["status"] == "completed" and len(after["plans"]) == 2
+    assert after["revisions"][0]["sections"] == before["revisions"][0]["sections"]
+    assert after["plans"][0] == before["plans"][0]
+    assert [call[0] for call in writer.calls[calls:]] == ["scope"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_concept_repair_recreates_missing_task_without_replacing_revision(setup_study):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    material = await create_material(manager, repo, owner, request_for(add_source(client, headers)))
+    await manager._process_task(material["task_id"])
+    saved = repo.get(owner, material["id"])
+    repo.update(owner, material["id"], {"plans": []})
+    manager.tasks.pop(material["task_id"])
+    assert client.post(f"/api/study/materials/{material['id']}/continue", headers=headers).status_code == 200
+    await manager._process_task(material["task_id"])
+    assert repo.get(owner, material["id"])["revisions"] == saved["revisions"]
+
+
+def test_concept_evidence_uses_server_owned_block_refs_and_rejects_unknown_endpoints():
+    from study.service import concept_source
+    section = {"id": "s", "title": "概念", "blocks": [{"block_id": "b", "content": "A是B的前置条件。"}]}
+    source = concept_source({"id": "r"}, section)
+    plan = {"sections": [{"node_id": "s", "knowledge_structure": [{"knowledge_points": [{"name": "A"}, {"name": "B"}]}],
+              "knowledge_relations": [{"source_name": "A", "target_name": "B", "relation_type": "prerequisite", "reason": "前置条件",
+                  "source_refs": [{"evidence_id": "b", "quote": "模型虚构的原文"}]}]}]}
+    validated = validate_plans(json.dumps(plan), [source])
+    ref = validated[0]["knowledge_relations"][0]["source_refs"][0]
+    assert ref["block_id"] == "b" and ref["revision_id"] == "r"
+    assert "quote" not in ref
+    invalid = deepcopy(plan)
+    invalid["sections"][0]["knowledge_relations"][0]["source_refs"][0]["evidence_id"] = "invented"
+    with pytest.raises(ValueError, match="来源"):
+        validate_plans(json.dumps(invalid), [source])
+    plan["sections"][0]["knowledge_relations"][0]["target_name"] = "不存在"
+    with pytest.raises(ValueError, match="概念"):
+        validate_plans(json.dumps(plan), [source])
