@@ -15,7 +15,7 @@
       <template #actions>
         <div class="study-header-actions">
           <template v-if="materialId">
-            <CourseWorkspaceHeaderAction v-if="material?.revisions[0]?.sections.length" :label="c('export')" @click="exportHandout"><Download :size="17" /></CourseWorkspaceHeaderAction>
+            <CourseWorkspaceHeaderAction v-if="currentRevision?.sections.length" :label="c('export')" @click="exportHandout"><Download :size="17" /></CourseWorkspaceHeaderAction>
             <details class="study-reading-settings" @keydown.esc="closeReadingSettings">
               <summary><Settings2 :size="17" />{{ c('readingSettings') }}</summary>
               <div class="study-reading-settings-panel">
@@ -31,6 +31,8 @@
       </template>
     </ApplicationHeader>
     <div v-if="error" class="study-error" role="alert">{{ !user && (!authConfigLoaded || guestMode || developmentMode) ? c('connectionFailed') : error }}<button @click="reconnect">{{ c('retry') }}</button></div>
+
+    <div v-if="!draftStorageAvailable" class="study-error" role="status">{{ c('draftStorageUnavailable') }}</div>
 
     <main v-if="!user && (connecting || guestMode || developmentMode || !authConfigLoaded)" class="study-login-page">
       <p v-if="!error" role="status">{{ c('openingSpace') }}</p>
@@ -85,9 +87,9 @@
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
-                  <HandoutReadingGuide v-if="material.revisions[0]?.sections.length" :target="readingTarget" :title="material.title" />
+                  <HandoutReadingGuide v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
-                  <section v-for="section in material.revisions[0]?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
+                  <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
 
                 </article>
               </div>
@@ -96,7 +98,7 @@
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
             <aside v-if="material" v-show="toolsOpen" class="study-reading-tools">
               <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></ElButton></header>
-              <PersonalHandoutAssistant v-if="toolTab === 'assistant' && material.revisions[0]" :key="`${user.id}:${material.id}:${material.revisions[0].id}`" :owner-id="user.id" :material-id="material.id" :revision-id="material.revisions[0].id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
+              <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
               <div v-else-if="toolTab === 'note'" class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
               <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
               <div v-else>
@@ -150,6 +152,8 @@ const guestMode = ref(false), connecting = ref(true), authConfigLoaded = ref(fal
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
+const currentRevision = computed(() => material.value?.revisions.at(-1))
+const draftStorageAvailable = ref(true)
 const creating = ref(false), pasting = ref(false), sourceTitle = ref(''), sourceText = ref(''), selectedRanges = ref<string[]>([])
 const form = reactive({ title: '', purpose: 'systematic' as StudyPurpose, level: 'beginner', time_minutes: 60, requirements: '' })
 const purposes: StudyPurpose[] = ['systematic', 'exam_prep'], levels = ['beginner', 'intermediate', 'advanced'] as const
@@ -185,7 +189,7 @@ function restoreTool() {
 const activeChapter = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
 const assistantContext = computed(() => {
   if (selectedPassage.value) return selectedPassage.value
-  const section = material.value?.revisions[0]?.sections.find(s => s.id === activeChapter.value) || material.value?.revisions[0]?.sections[0]
+  const section = currentRevision.value?.sections.find(s => s.id === activeChapter.value) || currentRevision.value?.sections[0]
   return { section_id: section?.id || '', section_title: section?.title || '', block_id: '', block_title: '', quote: '' }
 })
 function followChapter() {
@@ -198,7 +202,7 @@ function followChapter() {
     try { sessionStorage.setItem(readingPositionKey(), activeChapter.value) } catch { /* Reading remains available without browser storage. */ }
   }
 }
-function readingPositionKey() { return `lingzhi-study-position:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}` }
+function readingPositionKey() { return `lingzhi-study-position:${user.value?.id}:${materialId.value}:${currentRevision.value?.id}` }
 function navigateChapter(id: string) {
   const target = document.getElementById(sectionAnchor(id))
   if (!target || !readingTarget.value?.contains(target)) return
@@ -223,7 +227,7 @@ function selectPassage() {
   const end = range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement
   const sid = start?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId
   if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) return
-  const section = material.value?.revisions[0]?.sections.find(s => s.id === sid)
+  const section = currentRevision.value?.sections.find(s => s.id === sid)
   const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
   const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
   const quote = selection.toString().trim()
@@ -256,7 +260,7 @@ const materialStatus = computed(() => material.value?.task?.status || material.v
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
 const blockAnchor = (id: string) => `study-${materialId.value}-${id}`
-const readingSections = computed(() => (material.value?.revisions[0]?.sections || []).map(section => ({ id: section.id, title: section.title, anchor: sectionAnchor(section.id), blocks: section.blocks.map(block => ({ id: block.block_id, title: block.title, anchor: blockAnchor(block.block_id), content: block.content, knowledge: block.knowledge_names })) })))
+const readingSections = computed(() => (currentRevision.value?.sections || []).map(section => ({ id: section.id, title: section.title, anchor: sectionAnchor(section.id), blocks: section.blocks.map(block => ({ id: block.block_id, title: block.title, anchor: blockAnchor(block.block_id), content: block.content, knowledge: block.knowledge_names })) })))
 const filteredReadingSections = computed(() => {
   const query = chapterQuery.value.trim().toLocaleLowerCase()
   return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
@@ -267,7 +271,7 @@ const conceptsReady = computed(() => material.value?.concepts_complete ?? (conce
 const selectedSourceScopes = computed(() => material.value?.sources || [])
 let timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
-const noteKey = () => `lingzhi-study-note:${user.value?.id}:${materialId.value}:${material.value?.revisions[0]?.id}`
+const noteKey = () => `lingzhi-study-note:${user.value?.id}:${material.value?.id}:${currentRevision.value?.id}`
 
 function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
@@ -276,10 +280,18 @@ function showError(cause: unknown) {
 function clearPrivateUi() { librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
-function persistDraft() { if (user.value) sessionStorage.setItem(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
-function restoreDraft() { try { const draft = JSON.parse(sessionStorage.getItem(draftKey()) || '{}'); const savedForm = { ...(draft.form || {}) }; delete savedForm.generation_mode; Object.assign(form, savedForm); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || createUuid(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
+function saveBrowserDraft(key: string, value: string) {
+  try { sessionStorage.setItem(key, value); draftStorageAvailable.value = true }
+  catch { draftStorageAvailable.value = false }
+}
+function readBrowserDraft(key: string) {
+  try { return sessionStorage.getItem(key) }
+  catch { draftStorageAvailable.value = false; return null }
+}
+function persistDraft() { if (user.value) saveBrowserDraft(draftKey(), JSON.stringify({ form, selectedRanges: selectedRanges.value, sourceTitle: sourceTitle.value, sourceText: sourceText.value, requestId, submittedFingerprint })) }
+function restoreDraft() { try { const draft = JSON.parse(readBrowserDraft(draftKey()) || '{}'); const savedForm = { ...(draft.form || {}) }; delete savedForm.generation_mode; Object.assign(form, savedForm); selectedRanges.value = draft.selectedRanges || []; sourceTitle.value = draft.sourceTitle || ''; sourceText.value = draft.sourceText || ''; requestId = draft.requestId || createUuid(); submittedFingerprint = draft.submittedFingerprint || '' } catch { /* An invalid UI draft does not affect saved materials. */ } }
 watch([form, selectedRanges, sourceTitle, sourceText], persistDraft, { deep: true })
-watch(noteText, () => { if (material.value && user.value) sessionStorage.setItem(noteKey(), noteText.value) })
+watch(noteText, () => { if (material.value && user.value) saveBrowserDraft(noteKey(), noteText.value) }, { flush: 'sync' })
 
 async function loadLibrary() {
   const owner = user.value?.id, sequence = ++librarySequence
@@ -333,7 +345,22 @@ async function uploadFiles(event: Event) {
   if (sourceBusy.value || busy.value || !user.value || !files.length) return
   const owner = user.value?.id
   sourceBusy.value = true; error.value = ''
-  try { for (const file of files) { const source = await studyApi.upload(file); if (!sameOwner(owner)) return; rememberSource(source) } } catch (cause) { if (sameOwner(owner)) showError(cause) } finally { if (sameOwner(owner)) sourceBusy.value = false; input.value = '' }
+  const failures: string[] = []
+  try {
+    for (const file of files) {
+      try {
+        const source = await studyApi.upload(file)
+        if (!sameOwner(owner)) return
+        rememberSource(source)
+        if (!source.sections.length) failures.push(`${file.name}：${source.error || c('sourceFailed')}`)
+      } catch (cause) {
+        if (!sameOwner(owner)) return
+        if (cause instanceof StudyApiError && cause.status === 401) { showError(cause); return }
+        failures.push(`${file.name}：${cause instanceof Error ? cause.message : c('requestFailure')}`)
+      }
+    }
+    if (sameOwner(owner) && failures.length) error.value = failures.join('；')
+  } finally { if (sameOwner(owner)) sourceBusy.value = false; input.value = '' }
 }
 async function generate() {
   if (busy.value || sourceBusy.value) return
@@ -351,7 +378,7 @@ async function generate() {
 }
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
-  const retainedRevision = material.value?.id === id ? material.value.revisions[0]?.id : undefined
+  const retainedRevision = material.value?.id === id ? currentRevision.value?.id : undefined
   if (!retainedRevision) {
     material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
     activeChapter.value = ''; selectedPassage.value = null; restoreTool()
@@ -361,6 +388,7 @@ async function openMaterial() {
     try {
       const result = await studyApi.get(id)
       if (disposed || current !== epoch || materialId.value !== id || !user.value) return
+      const previousRevision = currentRevision.value?.id
       material.value = result
       if (first && !retainedRevision) {
         await nextTick()
@@ -370,7 +398,14 @@ async function openMaterial() {
         if (saved && readingSections.value.some(section => section.id === saved)) navigateChapter(saved)
         else activeChapter.value = readingSections.value[0]?.id || ''
       }
-      if (first && retainedRevision !== result.revisions[0]?.id) { savedNote.value = result.notes[result.revisions[0]!.id]?.content || ''; noteText.value = sessionStorage.getItem(noteKey()) ?? savedNote.value }
+      if (previousRevision !== currentRevision.value?.id && currentRevision.value) {
+        selectedPassage.value = null
+        if (!readingSections.value.some(section => section.id === activeChapter.value)) activeChapter.value = readingSections.value[0]?.id || ''
+        const draft = readBrowserDraft(noteKey())
+        savedNote.value = result.notes[currentRevision.value.id]?.content || ''
+        noteText.value = draft ?? savedNote.value
+        noteSaved.value = false
+      }
       const summary = library.value.find(item => item.id === id)
       if (summary) summary.status = materialStatus.value
       if (isGenerating.value) timer = setTimeout(() => { void refresh() }, 1500)
@@ -381,7 +416,7 @@ async function openMaterial() {
 watch(materialId, () => { creating.value = route.query.create === '1' && !materialId.value; void openMaterial() })
 watch(() => route.query.create, value => { creating.value = value === '1' && !materialId.value && Boolean(user.value) })
 async function resume() { await action(async () => { const owner = user.value?.id, id = materialId.value; await studyApi.resume(id); if (sameOwner(owner) && materialId.value === id) await openMaterial() }) }
-async function saveNote() { await action(async () => { const owner = user.value?.id, id = materialId.value, revision = material.value!.revisions[0]!.id, content = noteText.value; await studyApi.note(id, revision, content); if (sameOwner(owner) && id === materialId.value) { savedNote.value = content; noteSaved.value = true } }) }
+async function saveNote() { await action(async () => { const owner = user.value?.id, id = materialId.value, revision = currentRevision.value!.id, content = noteText.value; await studyApi.note(id, revision, content); if (sameOwner(owner) && id === materialId.value && currentRevision.value?.id === revision) { savedNote.value = content; noteSaved.value = true } }) }
 function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
 async function exportHandout() { await action(async () => { const owner = user.value?.id, title = material.value!.title, blob = await studyApi.export(materialId.value); if (sameOwner(owner)) download(blob, `${title}.md`) }) }
 async function downloadSource(id: string, filename: string) { await action(async () => { const owner = user.value?.id, blob = await studyApi.downloadSource(id); if (sameOwner(owner)) download(blob, filename) }) }
@@ -399,6 +434,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   font: 15px/1.6 var(--study-ui-font);
 }
 .study-space button, .study-space input, .study-space textarea, .study-space select { font: inherit; }
+.study-space button.study-mobile-backdrop { display: none; }
 .study-space button, .study-space a { transition: background .15s, color .15s; }
 .study-space button:where(:not(.el-button, .workspace-header-action)) {
   cursor: pointer; min-height: 36px; border: 1px solid var(--lz-action-border);
@@ -589,7 +625,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-reading-settings-panel { position: fixed; top: 66px; right: 10px; z-index: 95; width: min(260px, calc(100vw - 24px)); }
   .study-workspace { border-radius: 12px; }
   .study-workspace.is-reading { position: relative; overflow: hidden; }
-  .study-mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 89; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: rgb(20 28 48 / 42%); cursor: default; }
+  .study-space button.study-mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 89; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: rgb(20 28 48 / 42%); cursor: default; }
   .study-space button.study-mobile-backdrop:hover { background: rgb(20 28 48 / 42%); }
   .study-navigation { position: fixed; z-index: 90; inset: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)); width: auto; max-height: none; padding: 16px 14px; border: 1px solid #e3e8f2; border-radius: 16px; box-shadow: 0 18px 56px rgb(21 31 55 / 22%); }
   .study-directory-heading { flex: none; min-height: 48px; padding: 0 4px 10px; }
@@ -608,7 +644,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; clearTimeout(timer); persistDr
   .study-selection-actions { gap: 6px; padding: 8px 10px; }
   .study-selection-actions span { flex-basis: 100%; }
   .study-selection-actions button { min-height: 42px; }
-  .study-tools-backdrop { z-index: 91; }
+  .study-space button.study-tools-backdrop { z-index: 91; }
   .study-reading-tools { position: fixed; z-index: 92; inset: auto 8px calc(58px + env(safe-area-inset-bottom)); width: auto; height: min(70dvh, 720px); max-height: calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 1px solid #e3e8f2; border-radius: 16px 16px 12px 12px; box-shadow: 0 18px 56px rgb(21 31 55 / 22%); }
   .study-tool-heading { min-height: 52px; padding: 7px 12px; }
   .study-tool-heading :deep(.el-button) { width: 42px; height: 42px; }

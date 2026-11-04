@@ -1,5 +1,5 @@
 import { getQizhiAccessToken, INTERACTIVE_READ_TIMEOUT_MS, withApiBase } from '../utils/http'
-import { STUDY_SESSION_KEY, setStudyIdentity } from '../utils/study-identity'
+import { getStudyToken, setStudyToken, setStudyIdentity } from '../utils/study-identity'
 import { studyCopy } from '../shared/study-copy'
 import type { NextLearningAction } from '../stores/learningProgress'
 
@@ -27,11 +27,10 @@ export interface StudyGenerationRequest {
 export interface AssistantContext { section_id: string; section_title: string; block_id: string; block_title: string; quote: string }
 export interface AssistantMessage { message_id: string; role: 'user' | 'assistant'; content: string; status: string; context_ref: AssistantContext; task_ref?: { task_id: string } }
 export interface AssistantConversation { conversation_id: string; messages: AssistantMessage[] }
-const SESSION_KEY = STUDY_SESSION_KEY
 export const studySession = {
-  get: () => sessionStorage.getItem(SESSION_KEY) || '',
-  set: (token: string) => sessionStorage.setItem(SESSION_KEY, token),
-  clear: () => { sessionStorage.removeItem(SESSION_KEY); setStudyIdentity(null) },
+  get: getStudyToken,
+  set: setStudyToken,
+  clear: () => { setStudyToken(null); setStudyIdentity(null) },
 }
 export class StudyApiError extends Error {
   constructor(public status: number, message: string) { super(message) }

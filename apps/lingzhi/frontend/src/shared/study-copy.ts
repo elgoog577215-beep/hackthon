@@ -45,6 +45,7 @@ const messages = {
   timeInvalid: ['阅读时间请填写 10–600 分钟的整数。', 'Enter a whole number between 10 and 600 minutes.'],
   sourceRanges: ['可选范围', 'Available ranges'],
   aiGeneratedSourceHint: ['这份讲义由 AI 根据你的课程主题、学习目标与应用场景生成，没有使用上传资料。', 'This handout was generated from your topic, goals and use case without uploaded sources.'],
+  draftStorageUnavailable: ['浏览器暂时无法保存草稿。生成和服务器保存仍可使用；离开前请保存笔记，并自行保留未提交的输入。', 'Browser draft storage is unavailable. Generation and server saves still work. Save your notes and keep a copy of unsent input before leaving.'],
   personalCourseHint: ['仅保存在你的个人空间。生成后可以阅读、记笔记、查看概念关系和向 AI 提问。', 'Saved in your private space. Read, take notes, explore concept connections and ask the AI after generating.'],
   sourceFailed: ['这份资料没有可读正文，请检查文件或换一份资料。', 'This source has no readable text. Check the file or choose another source.'],
   connected: ['已连接个人学习空间', 'Connected to your study space'], requestFailure: ['操作未完成，请重试。', 'The operation did not complete. Please retry.'],

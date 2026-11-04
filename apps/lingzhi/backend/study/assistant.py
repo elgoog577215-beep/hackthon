@@ -108,7 +108,11 @@ async def run_assistant(manager, task_id: str):
     def save(status):
         def update(conv):
             response = next(m for m in conv['messages'] if m['message_id'] == ref['message_id'])
-            response.update(content=buffer, status=status, updated_at=now())
+            response.update(status=status, updated_at=now())
+            # Starting a retry is not new content. Keep the last real fragment
+            # until this attempt actually produces a nonempty replacement.
+            if buffer.strip():
+                response['content'] = buffer
         ai_teacher_repository.material_conversation(owner, ref['id'], ref['revision_id'], update)
     async def delta(value):
         nonlocal buffer, last

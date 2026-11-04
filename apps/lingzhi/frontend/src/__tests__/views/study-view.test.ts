@@ -505,3 +505,84 @@ it('keeps a partial concept map visible during generation without offering a dup
   expect(wrapper.find('handout-concept-map-stub').exists()).toBe(true)
   expect(wrapper.findAll('button').some(button => button.text() === '继续生成缺失内容')).toBe(false)
 })
+
+
+it('continues the upload batch after a rejected file and identifies the failed file', async () => {
+  const { wrapper } = await page('/study?create=1')
+  const failed = new File(['bad'], '损坏.pdf', { type: 'application/pdf' })
+  const valid = new File(['# 正文'], '可用.md', { type: 'text/markdown' })
+  api.upload.mockRejectedValueOnce(new Error('无法解析文件')).mockResolvedValueOnce({ ...source, id: 'mat-new', filename: valid.name })
+  const input = wrapper.get('.study-upload-input')
+  Object.defineProperty(input.element, 'files', { value: [failed, valid], configurable: true })
+  await input.trigger('change'); await flushPromises()
+  expect(api.upload).toHaveBeenNthCalledWith(2, valid)
+  expect(wrapper.text()).toContain('可用.md')
+  expect(wrapper.get('.study-error').text()).toContain('损坏.pdf')
+  expect(wrapper.get('.study-error').text()).toContain('无法解析文件')
+})
+
+it('does not let unavailable browser draft storage block generation or note saving', async () => {
+  const { wrapper } = await page('/study?create=1')
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError') })
+  try {
+    await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('C语言')
+    api.generate.mockResolvedValueOnce(saved)
+    await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
+    expect(api.generate).toHaveBeenCalledTimes(1)
+    await wrapper.get('[data-tool="note"]').trigger('click')
+    await wrapper.get('.study-note textarea').setValue('服务器仍可保存')
+    api.note.mockResolvedValueOnce({})
+    await wrapper.get('.study-note button').trigger('click'); await flushPromises()
+    expect(api.note).toHaveBeenCalledWith('material-a', 'revision-a', '服务器仍可保存')
+  } finally { storage.mockRestore() }
+})
+
+it('reads the latest revision and binds notes and the assistant to that same revision', async () => {
+  const latest = structuredClone(saved)
+  latest.revisions.push({ ...structuredClone(saved.revisions[0]!), id: 'revision-new',
+    sections: [{ ...structuredClone(saved.revisions[0]!.sections[0]!), title: '新版章节',
+      blocks: [{ ...saved.revisions[0]!.sections[0]!.blocks[0]!, content: '新版正文' }] }] })
+  api.get.mockResolvedValue(latest)
+  const { wrapper } = await page('/study/material-a')
+  expect(wrapper.text()).toContain('新版正文')
+  expect(wrapper.text()).not.toContain('真实讲义正文')
+  await wrapper.get('[data-tool="assistant"]').trigger('click')
+  expect(wrapper.getComponent({ name: 'PersonalHandoutAssistant' }).props('revisionId')).toBe('revision-new')
+  await wrapper.get('[data-tool="note"]').trigger('click')
+  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '')
+  await wrapper.get('.study-note textarea').setValue('新版笔记')
+  api.note.mockResolvedValueOnce({})
+  await wrapper.get('.study-note button').trigger('click'); await flushPromises()
+  expect(api.note).toHaveBeenCalledWith('material-a', 'revision-new', '新版笔记')
+})
+
+
+it('stops a batch immediately when the student session expires', async () => {
+  const { StudyApiError } = await import('@/api/study')
+  const { wrapper } = await page('/study?create=1')
+  api.upload.mockRejectedValueOnce(new StudyApiError(401, '登录已失效'))
+  const input = wrapper.get('.study-upload-input')
+  Object.defineProperty(input.element, 'files', { value: [new File(['a'], 'a.md'), new File(['b'], 'b.md')], configurable: true })
+  await input.trigger('change'); await flushPromises()
+  expect(api.upload).toHaveBeenCalledTimes(1)
+  expect(wrapper.find('form.study-create').exists()).toBe(false)
+})
+
+it('ignores a late note-save receipt after returning to a newer revision', async () => {
+  const { wrapper, router } = await page('/study/material-a')
+  await wrapper.get('[data-tool="note"]').trigger('click')
+  await wrapper.get('.study-note textarea').setValue('旧版提交')
+  let complete!: (result: unknown) => void
+  api.note.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+  await wrapper.get('.study-note button').trigger('click')
+  await router.push('/study'); await flushPromises()
+  const latest = { ...structuredClone(saved), notes: { 'revision-new': { content: '新版已保存笔记', updated_at: '' } },
+    revisions: [{ ...structuredClone(saved.revisions[0]!), id: 'revision-new' }] }
+  api.get.mockResolvedValue(latest)
+  await router.push('/study/material-a'); await flushPromises()
+  if (!wrapper.get('.study-reading-tools').isVisible()) await wrapper.get('[data-tool="note"]').trigger('click')
+  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新版已保存笔记')
+  complete({}); await flushPromises()
+  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新版已保存笔记')
+  expect(wrapper.text()).not.toContain('笔记尚未保存')
+})

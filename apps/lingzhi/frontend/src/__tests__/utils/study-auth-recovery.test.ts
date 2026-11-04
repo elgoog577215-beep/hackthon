@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { studyApi, studySession } from '@/api/study'
+import { getStudyIdentity, setStudyIdentity } from '@/utils/study-identity'
 
 const qizhi = vi.hoisted(() => ({ token: '' }))
 vi.mock('@/utils/http', () => ({
@@ -48,4 +49,27 @@ describe('student login recovery', () => {
     expect(new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get('Authorization'))
       .toBe('Bearer expired-local-session')
   })
+})
+
+
+it('keeps a verified session usable without browser storage and masks it after logout', async () => {
+  const user = { id: 'student-new', username: 'student', role: 'student' }
+  const writes = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError') })
+  const removals = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new DOMException('Denied', 'SecurityError') })
+  try {
+    studySession.set('new-session')
+    setStudyIdentity(user)
+    expect(studySession.get()).toBe('new-session')
+    expect(getStudyIdentity()).toEqual(user)
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => user } as Response)
+    await studyApi.me()
+    expect(new Headers(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer new-session')
+    studySession.clear()
+    expect(studySession.get()).toBe('')
+    expect(getStudyIdentity()).toBeNull()
+  } finally { writes.mockRestore(); removals.mockRestore() }
+  // Storage still contains the old token, but a failed clear must not revive it.
+  expect(studySession.get()).toBe('')
+  expect(getStudyIdentity()).toBeNull()
+  studySession.clear()
 })

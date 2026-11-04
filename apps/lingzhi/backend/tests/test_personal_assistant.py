@@ -84,3 +84,24 @@ async def test_failed_answer_keeps_fragment_and_explicit_same_task_resume_after_
     response = assistant.ai_teacher_repository.material_conversation(owner, material['id'], payload['revision_id'])['messages'][-1]
     assert response['content'] == '完整回复。' and response['status'] == 'complete'
     assert len(assistant.ai_teacher_repository.material_conversation(owner, material['id'], payload['revision_id'])['messages']) == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_without_new_tokens_preserves_previous_answer_fragment(setup_study, monkeypatch):
+    client, manager, repo, writer, owner, headers, material, payload = await ready(setup_study)
+    path = '/api/study/materials/' + material['id'] + '/assistant'
+    task_id = client.post(path, headers=headers, json=payload).json()['messages'][-1]['task_ref']['task_id']
+    async def partial(prompt, system, **kwargs):
+        await kwargs['on_content_delta']('已经生成的解释。')
+        raise RuntimeError('interrupted')
+    monkeypatch.setattr(writer, '_call_llm', partial)
+    await manager._run_job(task_id)
+    async def no_output(prompt, system, **kwargs):
+        assert client.get(path, headers=headers).json()['messages'][-1]['content'] == '已经生成的解释。'
+        raise RuntimeError('connection failed before first token')
+    monkeypatch.setattr(writer, '_call_llm', no_output)
+    await manager.resume_task(task_id)
+    await manager._run_job(task_id)
+    reply = client.get(path, headers=headers).json()['messages'][-1]
+    assert reply['content'] == '已经生成的解释。'
+    assert reply['status'] == 'failed'
