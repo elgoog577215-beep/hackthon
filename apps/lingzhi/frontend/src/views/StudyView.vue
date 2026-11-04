@@ -608,7 +608,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
 .study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
 .study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #e3e8f2; }
-.study-reading-tools:has(.personal-assistant) { overflow: hidden; }
+.study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference) { overflow: hidden; }
 .study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; box-sizing: border-box; padding: 10px 18px; border-bottom: 1px solid #e9ebf1; background: #fafbfe; flex: none; font-size: 15px; }
 .study-note { padding: 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 16px; }
 .study-note > p { color: var(--lz-text-muted); font-size: 15px; margin: 0; }
