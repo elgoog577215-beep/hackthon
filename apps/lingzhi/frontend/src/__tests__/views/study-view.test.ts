@@ -221,6 +221,26 @@ describe('personal study handouts', () => {
     expect(JSON.parse(sessionStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')!)).toMatchObject({ sectionId: 's1' })
   })
 
+  it('expands and collapses directory details without moving the reading position', async () => {
+    const { wrapper } = await page('/study/material-a')
+    const scroller = wrapper.get('.study-document-scroll').element as HTMLElement
+    scroller.scrollTop = 200
+    const scrollTo = vi.fn()
+    scroller.scrollTo = scrollTo
+    const toggle = wrapper.get('.study-chapter-toggle')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+    expect(wrapper.find('.study-block-list').exists()).toBe(false)
+    expect(scrollTo).not.toHaveBeenCalled()
+    expect(scroller.scrollTop).toBe(200)
+    await toggle.trigger('click')
+    expect(wrapper.get('.study-block-list').text()).toContain('向量')
+    await wrapper.get('.study-chapter-search input').setValue('第一章')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
   it('filters the directory without changing the handout and keeps notes when the directory is hidden', async () => {
     const material = structuredClone(saved)
     material.revisions[0]!.sections.push({ ...material.revisions[0]!.sections[0]!, id: 's2', title: '第二章', blocks: [] })

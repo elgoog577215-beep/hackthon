@@ -18,8 +18,10 @@
       <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><p>{{ context.quote }}</p></div>
       <p v-if="error" role="alert">{{ error }}<ElButton native-type="button" @click="load">{{ c('retry') }}</ElButton></p>
       <div class="assistant-prompts"><ElButton v-for="key in prompts" :key="key" native-type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</ElButton></div>
+      <div class="assistant-input-shell">
       <ElInput v-model="input" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" resize="none" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><span>{{ active ? c('running') : historyReady && conversation?.messages.length ? c('aiSaved') : '' }}</span><ElButton type="primary" native-type="submit" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id">{{ busy ? c('busy') : c('aiSend') }}</ElButton></footer>
+      </div>
     </form>
   </section>
 </template>
@@ -76,23 +78,31 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 
 <style scoped>
 .personal-assistant { display:flex; flex-direction:column; flex:1; min-height:0; font:15px/1.7 var(--study-ui-font, var(--handout-sans)); color:var(--lz-text); }
-.personal-assistant header { margin:18px 20px 0; padding:12px 14px; background:#f8fafc; border-radius:8px; }
-.personal-assistant header strong { display:block; font-size:15px; font-weight:500; color:var(--lz-text-muted); }
-.personal-assistant header span { display:block; color:var(--lz-text-secondary); margin-top:4px; }
+.personal-assistant header { margin:0; padding:14px 20px; background:transparent; border-bottom:1px solid #f0f1f5; display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px; }
+.personal-assistant header strong { display:block; font-size:13px; font-weight:500; color:var(--lz-text-muted); }
+.personal-assistant header span { display:block; color:var(--lz-text-secondary); margin-top:0; font-size:14px; }
 .assistant-thread { flex:1; min-height:100px; overflow:auto; padding:20px; }
 .assistant-thread:focus-visible { outline:2px solid #8b6cc3; outline-offset:-2px; }
 .assistant-empty { color:#8b95a4; }
 .assistant-message { margin:0 0 24px; overflow-wrap:anywhere; }
 .assistant-message.user { background:#eef2ff; padding:12px 14px; border-radius:10px; }
-.assistant-message small { display:block; font-size:15px; color:#9298a8; margin-bottom:7px; }
+.assistant-message small { display:block; font-size:13px; color:#9298a8; margin-bottom:7px; }
 .assistant-message blockquote { margin:0 0 12px; padding-left:10px; border-left:3px solid #b8a8dc; color:#788197; }
-.assistant-compose { padding:16px 18px; border-top:1px solid #ededf2; background:white; }
+.assistant-compose { padding:14px 16px; border-top:1px solid #ededf2; background:white; }
 .assistant-prompts :deep(.el-button + .el-button) { margin-left: 0; }
-.assistant-prompts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.assistant-prompts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-bottom:12px; }
+.assistant-prompts :deep(.el-button) { height:auto; min-height:42px; padding:7px 5px; border-color:#e7e8f0; background:#fafbfe; font-size:13px; white-space:normal; line-height:1.45; }
+.assistant-prompts :deep(.el-button span) { white-space:normal; }
 .assistant-compose footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:9px; }
 .assistant-compose footer span { color:#8595a0; }
 .assistant-quote { margin-bottom:12px; background:#eef2ff; padding:12px; border-radius:9px; }
 .assistant-quote p { margin:4px 0 0; max-height:52px; overflow:auto; color:#7a8396; }
 .assistant-quote-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .assistant-compose [role=alert] { color:#ab4b60; }
+.assistant-input-shell { padding:10px; border:1px solid #dfe3ed; border-radius:12px; background:#fff; box-shadow:0 3px 12px #30405d05; }
+.assistant-input-shell:focus-within { border-color:#aaa0d2; box-shadow:0 0 0 3px #8c7bc30d; }
+.assistant-input-shell :deep(.el-textarea__inner) { padding:3px 4px; box-shadow:none; background:transparent; font-size:15px; line-height:1.65; }
+.assistant-compose footer { margin-top:8px; }
+.assistant-compose footer span { font-size:12px; }
+@media(max-width:760px) { .assistant-prompts :deep(.el-button) { min-height:44px; } .assistant-compose { padding:12px; } }
 </style>
