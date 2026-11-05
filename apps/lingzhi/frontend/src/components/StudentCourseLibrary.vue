@@ -21,8 +21,8 @@
         @update:model-value="selectFilter"
       />
       <div class="library-heading-actions">
-        <ElButton native-type="button" :disabled="loading" @click="load">
-          {{ copy("刷新", "Refresh") }}</ElButton
+        <ElButton class="library-refresh" native-type="button" :disabled="loading" :aria-label="copy('刷新', 'Refresh')" :title="copy('刷新', 'Refresh')" @click="load">
+          <RefreshCw :size="16" aria-hidden="true" /><span class="library-refresh-label">{{ copy("刷新", "Refresh") }}</span></ElButton
         ><ElButton
           v-if="unified"
           native-type="button"
@@ -240,7 +240,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElButton, ElInput } from "element-plus";
 import UiSelectMenu from "./UiSelectMenu.vue";
-import { ArrowRight, Plus, Search } from "lucide-vue-next";
+import { ArrowRight, Plus, RefreshCw, Search } from "lucide-vue-next";
 import {
   studyApi,
   type StudyCourse,
@@ -498,6 +498,12 @@ p {
   line-height: 1.7;
 }
 .library-heading-actions { margin-left: auto; }
+.student-courses .library-heading-actions :deep(.el-button) {
+  height: 40px;
+  min-height: 40px;
+  font-size: 15px;
+}
+.library-heading-actions :deep(.el-button > span) { gap: 6px; }
 .library-filters {
   margin: 0 0 18px;
   flex-wrap: wrap;
@@ -633,13 +639,32 @@ summary:focus-visible {
   }
 }
 .library-search { flex: 1 1 360px; min-width: 240px; }
-.library-search :deep(.el-input__wrapper) { min-height: 48px; box-sizing: border-box; background: var(--lz-surface); border-radius: 9px; box-shadow: 0 0 0 1px var(--lz-border) inset; }
+.library-search :deep(.el-input__wrapper) { min-height: 40px; box-sizing: border-box; background: var(--lz-surface); border-radius: 9px; box-shadow: 0 0 0 1px var(--lz-border) inset; }
 .library-search :deep(.el-input__wrapper.is-focus) { box-shadow: 0 0 0 1px var(--lz-brand) inset, 0 0 0 3px color-mix(in srgb, var(--lz-brand) 12%, transparent); }
 .library-filter-tabs { width: 200px; flex: 0 0 200px; }
+.library-filter-tabs :deep(.ui-select-menu__trigger) {
+  min-height: 40px;
+  height: 40px;
+  grid-template-columns: minmax(0, 1fr) 15px;
+  border-radius: 9px;
+}
+.library-filter-tabs :deep(.ui-select-menu__copy small) { display: none; }
+.library-filter-tabs :deep(.ui-select-menu__copy strong) { font-weight: 600; }
 @media (max-width: 760px) {
-  .library-search { flex-basis: 100%; }
-  .library-filter-tabs { flex: 1; min-width: 140px; }
+  .library-search { flex-basis: 100%; min-width: 0; }
+  .library-search :deep(.el-input__wrapper),
+  .library-filter-tabs :deep(.ui-select-menu__trigger),
+  .student-courses .library-heading-actions :deep(.el-button) { height: 44px; min-height: 44px; }
+  .library-filter-tabs { flex: 1; min-width: 100px; }
   .library-heading-actions { gap: 8px; }
+  .library-heading-actions .library-refresh { width: 44px; padding-inline: 0; }
+  .library-refresh-label { display: none; }
+}
+@media (max-width: 480px) {
+  .course-grid :deep(.course-library-card__heading),
+  .course-grid :deep(.course-library-card__summary),
+  .course-grid :deep(.course-library-card__actions) { grid-column: 1 / -1; }
+  .course-grid :deep(.course-library-card__actions) { grid-row: auto; }
 }
 .student-courses :deep(.el-button + .el-button) { margin-left: 0; }
 </style>
