@@ -2,6 +2,7 @@
 """Install/check the explicitly locked Ubuntu PPT tools; never starts a service."""
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -9,9 +10,30 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def download_package(url, path, *, attempts=5):
+    """Retry temporary archive failures without changing the pinned source."""
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as source, path.open('wb') as target:
+                shutil.copyfileobj(source, target)
+            return
+        except urllib.error.HTTPError as error:
+            if error.code not in {408, 429, 500, 502, 503, 504}:
+                raise
+            if attempt == attempts - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead):
+            if attempt == attempts - 1:
+                raise
+        path.unlink(missing_ok=True)
+        time.sleep(2 ** (attempt + 1))
 
 
 def check_platform(lock):
@@ -46,8 +68,7 @@ def provision(lock, *, install=False):
             packages = []
             for package, record in lock['packages'].items():
                 path = Path(directory) / f'{package}.deb'
-                with urllib.request.urlopen(lock['source'] + record['Filename'], timeout=120) as source, path.open('wb') as target:
-                    shutil.copyfileobj(source, target)
+                download_package(lock['source'] + record['Filename'], path)
                 if hashlib.sha256(path.read_bytes()).hexdigest() != record['SHA256']:
                     raise ValueError(f'ppt_runtime_package_digest_mismatch:{package}')
                 packages.append(str(path))

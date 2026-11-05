@@ -54,3 +54,34 @@ def test_mismatched_snapshot_source_is_rejected_before_install(monkeypatch):
     monkeypatch.setattr(provisioner, 'check_platform', lambda _: pytest.fail('must validate snapshot first'))
     with pytest.raises(ValueError, match='snapshot_mismatch'):
         provisioner.provision({'snapshot': '20260918T000000Z', 'source': 'https://archive.ubuntu.com/ubuntu/'})
+
+
+@pytest.mark.parametrize('status', [502, 503])
+def test_download_recovers_from_temporary_archive_failure(tmp_path, monkeypatch, status):
+    calls, sleeps = [], []
+    url = 'https://snapshot.ubuntu.com/pinned.deb'
+    def download(actual_url, **kwargs):
+        calls.append(actual_url)
+        if len(calls) == 1:
+            raise provisioner.urllib.error.HTTPError(url, status, 'temporary', {}, None)
+        return io.BytesIO(b'complete')
+    monkeypatch.setattr(provisioner.urllib.request, 'urlopen', download)
+    monkeypatch.setattr(provisioner.time, 'sleep', sleeps.append)
+    path = tmp_path / 'package.deb'
+    provisioner.download_package(url, path)
+    assert calls == [url, url]
+    assert sleeps == [2]
+    assert path.read_bytes() == b'complete'
+
+
+@pytest.mark.parametrize('status,expected_attempts', [(404, 1), (503, 5)])
+def test_download_stops_on_permanent_error_or_retry_limit(tmp_path, monkeypatch, status, expected_attempts):
+    calls = []
+    def download(url, **kwargs):
+        calls.append(url)
+        raise provisioner.urllib.error.HTTPError(url, status, 'failed', {}, None)
+    monkeypatch.setattr(provisioner.urllib.request, 'urlopen', download)
+    monkeypatch.setattr(provisioner.time, 'sleep', lambda _: None)
+    with pytest.raises(provisioner.urllib.error.HTTPError):
+        provisioner.download_package('https://snapshot.ubuntu.com/pinned.deb', tmp_path / 'package.deb')
+    assert len(calls) == expected_attempts
