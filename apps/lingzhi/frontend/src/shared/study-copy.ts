@@ -64,7 +64,7 @@ const messages = {
   completeConcepts: ['继续生成缺失内容', 'Continue missing content'],
   conceptOrigin: ['当前学习内容的概念关系 · 可查看依据并跳转正文', 'Concept connections in this learning material · View evidence and jump to the text'],
   assistant: ['AI 助手', 'AI assistant'], aiIntro: ['围绕当前章节提问，或选中正文让 AI 解释。对话自动保存在这份讲义下。', 'Ask about this chapter or select text for an explanation. Conversations are saved with this handout.'],
-  aiInput: ['向 AI 提问', 'Ask the AI'], aiPlaceholder: ['哪里不明白？也可以让 AI 举例或画图解释…', 'Ask a question, request an example or a diagram…'],
+  aiInput: ['向 AI 提问', 'Ask the AI'], aiPlaceholder: ['输入你的问题…', 'Ask a question…'],
   aiSend: ['发送', 'Send'], aiExplain: ['解释这一章', 'Explain this chapter'], aiExample: ['举一个例子', 'Give an example'], aiDiagram: ['用图解说明', 'Explain with a diagram'],
   aiLoading: ['正在恢复这份讲义的对话…', 'Restoring this handout’s conversation…'],
   aiExplainQuote: ['解释选中内容', 'Explain selected text'],
