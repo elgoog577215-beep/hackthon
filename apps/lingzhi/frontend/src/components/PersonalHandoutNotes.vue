@@ -1,7 +1,7 @@
 <template>
   <section class="personal-notes" :aria-label="c('note')">
     <div class="reading-aid-controls">
-      <div class="notes-heading"><strong>{{ c('notesNotebook') }}</strong><ElButton text @click="create({})"><Plus :size="15" />{{ c('notesNew') }}</ElButton></div>
+      <div class="notes-heading"><strong>{{ c('notesNotebook') }}</strong><ElButton plain @click="create({})"><Plus :size="15" />{{ c('notesNew') }}</ElButton></div>
       <template v-if="!editor">
       <div class="reading-aid-scope" role="group" :aria-label="c('referenceScope')"><button v-for="s in ['current', 'all'] as const" :key="s" :aria-pressed="scope === s" @click="scope = s">{{ c(s === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</button></div>
       <input v-model="query" type="search" :placeholder="c('notesSearch')" :aria-label="c('notesSearch')" />
@@ -11,18 +11,18 @@
     <div ref="results" class="reading-aid-results">
       <p v-if="!draftStorageAvailable" role="alert">{{ c('notesDraftUnavailable') }}</p>
       <div v-if="editor" ref="editorRoot" class="note-editor">
-        <header><strong>{{ editor.id ? c('notesEdit') : c('notesNew') }}</strong><ElButton text :disabled="saving" @click="closeEditor">{{ c('notesBack') }}</ElButton></header>
+        <header><strong>{{ editor.id ? c('notesEdit') : c('notesNew') }}</strong><ElButton plain :disabled="saving" @click="closeEditor"><ChevronUp :size="16" aria-hidden="true" />{{ c('notesBack') }}</ElButton></header>
         <p class="note-location">{{ editor.section_title || c('notesCourseWide') }}<template v-if="editor.block_title"> · {{ editor.block_title }}</template></p>
         <blockquote v-if="editor.quote"><small>{{ c('notesSource') }}</small><MathText :content="editor.quote" /></blockquote>
         <p v-if="editor.location_status !== 'current'" class="notes-status">{{ locationLabel(editor.location_status) }}</p>
         <label class="note-input-label">{{ c('notesMyText') }}<ElInput v-model="editor.content" type="textarea" :rows="5" :maxlength="20000" resize="vertical" :aria-label="c('notesMyText')" :placeholder="c('notesTextPlaceholder')" /></label>
         <div class="notes-options"><label><input v-model="editor.important" type="checkbox" />{{ c('notesImportant') }}</label><select v-model="editor.question_state" :aria-label="c('notesQuestionState')"><option value="none">{{ c('notesNoQuestion') }}</option><option value="open">{{ c('notesOpen') }}</option><option value="answered">{{ c('notesAnswered') }}</option></select></div>
-        <div v-if="suggestions[editor.id]" class="notes-suggestion"><p>{{ c(suggestions[editor.id]!.noteVersion === editor.version ? 'notesSuggestionHint' : 'notesSuggestionOutdated') }}</p><details><summary>{{ c('notesViewSuggestion') }}</summary><MarkdownRenderer :content="suggestions[editor.id]!.content" :enable-code-run="false" /></details><ElButton text :disabled="suggestions[editor.id]!.noteVersion !== editor.version" @click="applySuggestion(true)">{{ c('notesUseSuggestion') }}</ElButton></div>
-        <div v-if="conflict" class="notes-conflict" role="alert"><p>{{ c('notesConflict') }}</p><details><summary>{{ c('notesSavedVersion') }}</summary><MarkdownRenderer :content="conflict.content" :enable-code-run="false" /></details><ElButton text @click="adoptServerVersion">{{ c('notesUseSaved') }}</ElButton><ElButton text @click="keepMyDraft">{{ c('notesKeepMine') }}</ElButton></div>
+        <div v-if="suggestions[editor.id]" class="notes-suggestion"><p>{{ c(suggestions[editor.id]!.noteVersion === editor.version ? 'notesSuggestionHint' : 'notesSuggestionOutdated') }}</p><details><summary>{{ c('notesViewSuggestion') }}</summary><MarkdownRenderer :content="suggestions[editor.id]!.content" :enable-code-run="false" /></details><ElButton plain :disabled="suggestions[editor.id]!.noteVersion !== editor.version" @click="applySuggestion(true)">{{ c('notesUseSuggestion') }}</ElButton></div>
+        <div v-if="conflict" class="notes-conflict" role="alert"><p>{{ c('notesConflict') }}</p><details><summary>{{ c('notesSavedVersion') }}</summary><MarkdownRenderer :content="conflict.content" :enable-code-run="false" /></details><ElButton plain @click="adoptServerVersion">{{ c('notesUseSaved') }}</ElButton><ElButton plain @click="keepMyDraft">{{ c('notesKeepMine') }}</ElButton></div>
         <p v-if="error" role="alert">{{ error }}<ElButton v-if="editor.id" text @click="compareLatest">{{ c('notesCompare') }}</ElButton></p>
         <p v-if="saved" class="notes-status" role="status">{{ c('noteSaved') }}</p>
         <p v-else class="notes-status">{{ c('notesDraftHint') }}</p>
-        <footer><ElButton type="primary" :disabled="saving || !canSave || !!conflict" @click="save()">{{ saving ? c('busy') : c('saveNote') }}</ElButton><ElButton :disabled="saving || !canSave || !!conflict || !editor.section_id || editor.location_status !== 'current'" @click="discuss">{{ c('notesDiscuss') }}</ElButton></footer>
+        <footer><ElButton type="primary" :disabled="saving || !canSave || !!conflict" @click="save()"><Save :size="16" aria-hidden="true" />{{ saving ? c('busy') : c('saveNote') }}</ElButton><ElButton :disabled="saving || !canSave || !!conflict || !editor.section_id || editor.location_status !== 'current'" @click="discuss"><MessageCircle :size="16" aria-hidden="true" />{{ c('notesDiscuss') }}</ElButton></footer>
       </div>
       <p v-if="error && !editor" role="alert">{{ error }}</p>
       <p v-if="!visible.length && !editor" class="notes-empty">{{ c(query || filter !== 'all' || sourceType ? 'referenceNoMatches' : 'notesEmpty') }}</p>
@@ -30,8 +30,8 @@
         <header><small>{{ note.section_title || c('notesCourseWide') }}<template v-if="note.content_type"> · {{ typeLabel(note.content_type) }}</template></small><button :aria-label="c(note.important ? 'notesUnmark' : 'notesImportant')" :aria-pressed="note.important" :disabled="saving" @click="toggleImportant(note)"><Star :size="16" :fill="note.important ? 'currentColor' : 'none'" /></button></header>
         <button class="note-card-open" @click="open(note)"><blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote><MathText v-if="note.content" tag="p" :content="note.content" /><span v-else>{{ c('notesMarked') }}</span></button>
         <p v-if="note.location_status !== 'current'" class="notes-status">{{ locationLabel(note.location_status) }}</p>
-        <footer><span :class="{ 'is-question': note.question_state === 'open' }">{{ c(note.question_state === 'open' ? 'notesOpen' : note.question_state === 'answered' ? 'notesAnswered' : note.source_type === 'ai' ? 'notesAIOrigin' : 'notesMyRecord') }}</span><button v-if="note.location_status === 'current' && (note.block_id || note.section_id)" @click="emit('locate', note)">{{ c('referenceJump') }} ↗</button><button @click="open(note)">{{ c('notesEdit') }}</button></footer>
-        <div v-if="deleting === note.id" class="note-delete-confirm"><span>{{ c('notesDeleteConfirm') }}</span><ElButton text :disabled="saving" @click="remove(note)">{{ c('notesDelete') }}</ElButton><ElButton text @click="deleting = ''">{{ c('notesCancel') }}</ElButton></div>
+        <footer><span :class="{ 'is-question': note.question_state === 'open' }">{{ c(note.question_state === 'open' ? 'notesOpen' : note.question_state === 'answered' ? 'notesAnswered' : note.source_type === 'ai' ? 'notesAIOrigin' : 'notesMyRecord') }}</span><button v-if="note.location_status === 'current' && (note.block_id || note.section_id)" @click="emit('locate', note)"><ArrowUpRight :size="14" aria-hidden="true" />{{ c('referenceJump') }}</button><button @click="open(note)"><Pencil :size="14" aria-hidden="true" />{{ c('notesEdit') }}</button></footer>
+        <div v-if="deleting === note.id" class="note-delete-confirm"><span>{{ c('notesDeleteConfirm') }}</span><ElButton plain :disabled="saving" @click="remove(note)">{{ c('notesDelete') }}</ElButton><ElButton plain @click="deleting = ''">{{ c('notesCancel') }}</ElButton></div>
         <button v-else class="note-delete" :aria-label="c('notesDelete')" @click="deleting = note.id"><Trash2 :size="13" /></button>
       </article>
       <details class="notes-legacy"><summary>{{ c('notesCourseWide') }}</summary><slot name="legacy" /></details>
@@ -42,7 +42,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
-import { Plus, Star, Trash2 } from 'lucide-vue-next'
+import { Plus, Star, Trash2, Save, MessageCircle, ChevronUp, Pencil, ArrowUpRight } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { studyApi, StudyApiError, type StudyNote, type StudyNoteInput, type StudySection, type NoteDraftSuggestion } from '../api/study'
@@ -205,4 +205,7 @@ defineExpose({ create, open, receiveSuggestion, save, currentDraft })
   .note-editor blockquote { max-height:160px; overflow:auto; }
   .note-location,.notes-status,.note-delete-confirm { overflow-wrap:anywhere; }
 }
+.personal-notes :deep(.el-button > span) { gap:6px; }
+.personal-notes :deep(.el-button svg) { flex:none; }
+.personal-note-card footer button { display:inline-flex; align-items:center; gap:4px; padding:6px 8px; border:1px solid #e2ddec; border-radius:7px; background:#faf9fd; }
 </style>

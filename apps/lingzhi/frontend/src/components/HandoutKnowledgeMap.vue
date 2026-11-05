@@ -5,7 +5,6 @@
         <button v-for="s in ['current', 'all'] as const" :key="s" :aria-pressed="scope === s" @click="scope = s; focused = ''">{{ c(s === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</button>
       </div>
       <input v-model="query" type="search" :placeholder="c('mapSearch')" :aria-label="c('mapSearch')" />
-      <p>{{ c(scope === 'all' ? 'mapAllHint' : 'mapHint') }}</p>
     </div>
     <div class="reading-aid-results">
       <template v-if="scope === 'all'">

@@ -1,7 +1,7 @@
 <template>
   <section class="personal-assistant" :aria-label="c('assistant')">
     <header class="assistant-context"><strong>{{ c('discussing') }}</strong><span :title="context.section_title">{{ context.section_title }}</span></header>
-    <div v-if="note" class="assistant-note-context"><span>{{ c('notesDiscuss') }}</span><ElButton text @click="emit('returnNote')">{{ c('notesReturn') }}</ElButton><ElButton text @click="emit('clearNote')">{{ c('notesStopDiscussing') }}</ElButton></div>
+    <div v-if="note" class="assistant-note-context"><span>{{ c('notesDiscuss') }}</span><ElButton plain class="assistant-action" @click="emit('returnNote')"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesReturn') }}</ElButton><ElButton plain class="assistant-action" @click="emit('clearNote')"><MessageCircle :size="16" aria-hidden="true" />{{ c('notesStopDiscussing') }}</ElButton></div>
     <div class="assistant-conversation">
     <div ref="thread" class="assistant-thread" tabindex="0" :aria-label="c('assistant')" @scroll="handleMessageScroll">
       <div ref="threadContent">
@@ -10,7 +10,7 @@
         <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
         <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
         <MarkdownRenderer :content="message.content" :smooth-stream="message.role === 'assistant'" :animate-initial="newMessageIds.has(message.message_id)" :enable-code-run="false" />
-        <div v-if="message.role === 'assistant' && message.status === 'complete' && message.content" class="assistant-note-actions"><ElButton v-if="!note" text @click="emit('saveReply', message)">{{ c('notesSaveReply') }}</ElButton><template v-else-if="message.note_draft !== undefined"><span>{{ c('notesDraftUpdated') }}</span><ElButton text @click="emit('returnNote')">{{ c('notesReturn') }}</ElButton></template></div>
+        <div v-if="message.role === 'assistant' && message.status === 'complete' && message.content" class="assistant-note-actions"><ElButton v-if="!note" plain class="assistant-action" @click="emit('saveReply', message)"><NotebookPen :size="16" aria-hidden="true" />{{ c('notesSaveReply') }}</ElButton><template v-else-if="message.note_draft !== undefined"><span>{{ c('notesDraftUpdated') }}</span><ElButton plain class="assistant-action" @click="emit('returnNote')"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesReturn') }}</ElButton></template></div>
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
         <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><ElButton :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</ElButton></template>
       </article>
@@ -21,7 +21,7 @@
     <form class="assistant-compose" @submit.prevent="send()">
       <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><p>{{ context.quote }}</p></div>
       <p v-if="error" role="alert">{{ error }}<ElButton native-type="button" @click="load">{{ c('retry') }}</ElButton></p>
-      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))">{{ promptText(key) }}</button></div>
+      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))"><component :is="promptIcons[key]" :size="16" aria-hidden="true" /><span>{{ promptText(key) }}</span></button></div>
       <div class="assistant-input-shell">
       <ElInput v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }" resize="none" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><button class="assistant-send" type="submit" :aria-label="busy ? c('busy') : c('aiSend')" :title="c('aiSend')" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id"><ArrowUp :size="19" aria-hidden="true" /></button></footer>
@@ -34,7 +34,7 @@
 <script setup lang="ts">
 import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
-import { ArrowDown, ArrowUp } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, BookOpen, Lightbulb, Network, NotebookPen, ArrowLeft, MessageCircle } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { studyApi, StudyApiError, type AssistantContext, type AssistantConversation, type AssistantMessage, type StudyNote, type NoteDraftSuggestion } from '../api/study'
@@ -43,6 +43,7 @@ import { studyCopy as c } from '../shared/study-copy'
 import { useFollowingScroll } from '../composables/useFollowingScroll'
 const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext; note?: StudyNote; noteDraft?: string }>()
 const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError]; saveReply: [message: AssistantMessage]; noteDraft: [value: NoteDraftSuggestion]; returnNote: []; clearNote: [] }>()
+const promptIcons = { aiExplain: BookOpen, aiExample: Lightbulb, aiDiagram: Network }
 const prompts = ['aiExplain','aiExample','aiDiagram'] as const
 const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' ? props.note ? 'aiExplainNote' : props.context.quote ? 'aiExplainQuote' : key : key)
 const conversation = ref<AssistantConversation | null>(null), input = ref(''), error = ref(''), busy = ref(false), thread = ref<HTMLElement | null>(null)
@@ -139,10 +140,10 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .assistant-message :deep(pre) { margin:0; padding:8px 12px 12px; border-radius:0; font-size:13px; line-height:1.65; }
 .personal-assistant .latest-reply { position:absolute; right:18px; bottom:10px; display:flex; align-items:center; gap:5px; min-height:30px; padding:4px 10px; border:1px solid #e6e3ef; border-radius:20px; background:#fff; color:#71658c; box-shadow:0 2px 8px #28354b0b; font:inherit; font-size:12px; font-weight:400; cursor:pointer; }
 .assistant-compose { flex:none; padding:8px 16px 10px; background:#fff; border-top:1px solid #f1f2f6; }
-.assistant-prompts { display:flex; flex-wrap:wrap; gap:0 12px; margin:0 0 7px; }
-.personal-assistant .assistant-prompts button { flex:none; min-height:30px; padding:3px 0; border:0; border-radius:4px; background:transparent; color:#716780; font:inherit; font-size:14px; font-weight:400; line-height:1.5; cursor:pointer; }
-.personal-assistant .assistant-prompts button:hover:not(:disabled) { color:#66528e; text-decoration:underline; text-underline-offset:4px; }
-.personal-assistant .assistant-prompts button:disabled { color:#adb0bd; cursor:default; }
+.assistant-prompts { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 12px; }
+.personal-assistant .assistant-prompts button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #ded9ed; border-radius:9px; background:#f8f6fd; color:#655184; font:inherit; font-size:14px; font-weight:400; line-height:1.5; cursor:pointer; }
+.personal-assistant .assistant-prompts button:hover:not(:disabled) { color:#59437e; border-color:#b9a9d5; background:#efebf8; }
+.personal-assistant .assistant-prompts button:disabled { color:#9095a5; border-color:#e4e6ed; background:#f5f6f9; cursor:not-allowed; }
 .assistant-input-shell { display:grid; grid-template-columns:minmax(0,1fr) 34px; align-items:end; gap:8px; padding:8px 8px 8px 12px; border:1px solid #e3e4ec; border-radius:12px; background:#fafafd; transition:border-color .15s; }
 .assistant-input-shell:focus-within { border-color:#a99bc5; background:#fff; box-shadow:0 0 0 2px #8c7bc30a; }
 .assistant-input-shell :deep(.el-textarea__inner) { padding:5px 0; box-shadow:none; background:transparent; font-size:15px; line-height:1.6; color:#414a5d; }
@@ -169,4 +170,10 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
   .assistant-note-context :deep(.el-button>span),.assistant-note-actions :deep(.el-button>span) { white-space:normal; line-height:1.45; }
   .assistant-quote-header { align-items:flex-start; }
 }
+.assistant-prompts svg { flex:none; }
+.assistant-prompts button:active:not(:disabled) { background:#e7e0f3; }
+.assistant-action { border-color:#dcd6e9; background:#fff; color:#665184; border-radius:8px; padding:8px 11px; }
+.assistant-action :deep(span) { gap:6px; }
+.assistant-action :deep(svg) { flex:none; }
+@media(max-width:760px) { .assistant-prompts { gap:7px; } .personal-assistant .assistant-prompts button { flex:1 1 90px; padding:8px; font-size:13px; } }
 </style>

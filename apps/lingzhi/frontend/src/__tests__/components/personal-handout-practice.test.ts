@@ -62,7 +62,7 @@ describe('personal handout practice', () => {
     vi.mocked(api.submit).mockResolvedValue({ ...graded(), revision: 4, solution_revealed: true })
     await button(wrapper, '提交作答').trigger('click'); await flushPromises()
     expect(api.submit).toHaveBeenCalledWith('m1', 'a1', expect.objectContaining({ expected_revision: 3, answer: '我自己的回答', request_id: expect.any(String) }))
-    expect(wrapper.text()).toContain('订正完成不代表已经掌握'); expect(wrapper.find('.answer-editor').exists()).toBe(false)
+    expect(wrapper.get('.practice-feedback').text()).toContain('请检查条件。'); expect(wrapper.find('.answer-editor').exists()).toBe(false)
     wrapper.unmount()
   })
   it('creates a correction with an immutable original and a separate retry, resuming an existing retry', async () => {

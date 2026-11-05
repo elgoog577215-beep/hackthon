@@ -2,7 +2,7 @@
   <section class="personal-practice" :aria-label="c('practice')">
     <div class="practice-controls">
       <nav class="practice-tabs" :aria-label="c('practice')">
-        <button v-for="tab in tabs" :key="tab" type="button" :aria-current="view === tab ? 'page' : undefined" @click="setView(tab)">{{ c(tab) }}</button>
+        <button v-for="tab in tabs" :key="tab" type="button" :aria-current="view === tab ? 'page' : undefined" @click="setView(tab)"><component :is="tabIcons[tab]" :size="16" aria-hidden="true" /><span>{{ c(tab) }}</span></button>
       </nav>
       <div class="practice-scope" role="group" :aria-label="c('scope')">
         <button v-for="item in scopes" :key="item" type="button" :aria-pressed="scope === item" @click="scope = item">{{ c(item) }}</button>
@@ -21,7 +21,7 @@
 
     <div class="practice-results">
       <p v-if="loading" class="practice-notice" role="status">{{ c('loading') }}</p>
-      <div v-if="error" class="practice-error" role="alert"><p>{{ error }}</p><ElButton text :disabled="!!busy || loading" @click="load()">{{ c('retryLoad') }}</ElButton></div>
+      <div v-if="error" class="practice-error" role="alert"><p>{{ error }}</p><ElButton plain :disabled="!!busy || loading" @click="load()">{{ c('retryLoad') }}</ElButton></div>
       <p v-if="!storageAvailable" class="practice-notice" role="alert">{{ c('unavailableDraft') }}</p>
       <p v-if="!loading && view === 'practice' && !visibleQuestions.length" class="practice-empty">{{ c('empty') }}</p>
       <template v-if="view !== 'practice' && !selectedAttempt">
@@ -37,7 +37,7 @@
       </template>
 
       <article v-if="displayQuestion && (view === 'practice' || selectedAttempt)" class="practice-question" :data-attempt-id="selectedAttemptId || undefined">
-        <button v-if="view !== 'practice'" type="button" class="practice-back" @click="selectedAttemptId = ''">‹ {{ c('backToRecords') }}</button>
+        <button v-if="view !== 'practice'" type="button" class="practice-back" @click="selectedAttemptId = ''"><ArrowLeft :size="15" aria-hidden="true" />{{ c('backToRecords') }}</button>
         <header class="question-heading">
           <div><p>{{ displayQuestion.sectionTitle }}</p><h3><span>{{ c('question') }}<template v-if="questionNumber > 0"> {{ String(questionNumber).padStart(2, '0') }}</template></span><MathText :content="displayQuestion.title" /></h3></div>
           <button v-if="!historical" type="button" class="practice-jump" :aria-label="c('jump')" :title="c('jump')" @click="emit('jump', displayQuestion.blockId)"><ArrowUpRight :size="19" aria-hidden="true" /></button>
@@ -69,8 +69,8 @@
           <div class="practice-help">
             <p class="disclosure-status">{{ c(selectedAttempt.solution_revealed ? selectedAttempt.solution_exposure_origin_attempt_id ? 'previouslyRevealed' : 'revealed' : selectedAttempt.revealed_hints?.length ? 'hinted' : 'independent') }}</p>
             <div v-if="hasAnswer || !historical && currentQuestion?.has_hint" class="help-actions">
-              <ElButton v-if="!historical && currentQuestion?.has_hint" text :disabled="!!busy || loading || staleRecord" @click="reveal('hint')">{{ c('hint') }}</ElButton>
-              <ElButton v-if="hasAnswer" text :disabled="!!busy || loading || staleRecord" @click="reveal('solution')">{{ c(selectedAttempt.solution_revealed ? 'answerAgain' : 'answer') }}</ElButton>
+              <ElButton v-if="!historical && currentQuestion?.has_hint" plain :disabled="!!busy || loading || staleRecord" @click="reveal('hint')"><Lightbulb :size="16" aria-hidden="true" />{{ c('hint') }}</ElButton>
+              <ElButton v-if="hasAnswer" plain :disabled="!!busy || loading || staleRecord" @click="reveal('solution')"><BookOpen :size="16" aria-hidden="true" />{{ c(selectedAttempt.solution_revealed ? 'answerAgain' : 'answer') }}</ElButton>
             </div>
             <p v-if="canEdit && (currentQuestion?.has_hint || currentQuestion?.has_answer)" class="practice-note">{{ c('disclosure') }}</p>
             <details v-if="selectedAttempt.revealed_hints?.length" class="help-content" :open="lastDisclosure === 'hint'"><summary>{{ c('hints') }}</summary><MarkdownRenderer v-for="hint in selectedAttempt.revealed_hints" :key="hint.level" :content="hint.content" :enable-code-run="false" /></details>
@@ -83,13 +83,12 @@
             <p v-if="selectedAttempt.grading_state === 'running'" class="practice-notice">{{ c('gradingRunning') }}</p>
             <p v-else-if="selectedAttempt.grading_state === 'interrupted'" class="practice-notice">{{ c('gradingInterrupted') }}</p>
             <p v-else-if="!selectedAttempt.result || selectedAttempt.result.passed === null" class="practice-notice">{{ c('pendingHint') }}</p>
-            <p class="practice-note">{{ c('gradingNote') }}</p>
             <div v-if="!historical && currentQuestion" class="feedback-actions">
-              <ElButton v-if="['grading', 'submitted'].includes(selectedAttempt.status)" text :disabled="!!busy || loading" @click="load()">{{ c('refreshGrading') }}</ElButton>
-              <ElButton v-if="selectedAttempt.can_request_grade" text :disabled="!!busy || loading || staleRecord" @click="grade">{{ c(selectedAttempt.grading_state === 'interrupted' ? 'continueGrading' : 'regrade') }}</ElButton>
+              <ElButton v-if="['grading', 'submitted'].includes(selectedAttempt.status)" plain :disabled="!!busy || loading" @click="load()">{{ c('refreshGrading') }}</ElButton>
+              <ElButton v-if="selectedAttempt.can_request_grade" plain :disabled="!!busy || loading || staleRecord" @click="grade">{{ c(selectedAttempt.grading_state === 'interrupted' ? 'continueGrading' : 'regrade') }}</ElButton>
               <ElButton :disabled="!!busy || loading || staleRecord" @click="start('correction')">{{ c('correction') }}</ElButton><ElButton :disabled="!!busy || loading || staleRecord" @click="start('retry')">{{ c('retry') }}</ElButton>
             </div>
-            <button v-if="!reviewExpanded" class="review-open" type="button" @click="openReview">{{ c('recordReason') }}</button>
+            <button v-if="!reviewExpanded" class="review-open" type="button" @click="openReview"><NotebookPen :size="16" aria-hidden="true" />{{ c('recordReason') }}</button>
           </section>
 
           <section v-if="reviewExpanded && reviewEditor && selectedAttempt.status !== 'in_progress'" class="practice-review">
@@ -107,7 +106,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
-import { ArrowUpRight } from 'lucide-vue-next'
+import { ArrowUpRight, PencilLine, History, BookOpenCheck, Lightbulb, BookOpen, ArrowLeft, NotebookPen } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
 import { personalPracticeApi as api, PersonalPracticeApiError, type PersonalPracticeAttempt as Attempt, type PersonalPracticeQuestion as Question, type PracticeIntent, type PracticeReview, type PracticeReviewState } from '../api/personal-practice'
@@ -118,6 +117,7 @@ import { createUuid } from '../utils/client-id'
 
 const props = defineProps<{ materialId: string; revisionId: string; currentSection: string; initialView?: 'practice' | 'mistakes' }>()
 const emit = defineEmits<{ jump: [blockId: string] }>()
+const tabIcons = { practice: PencilLine, history: History, mistakes: BookOpenCheck }
 const tabs = ['practice', 'history', 'mistakes'] as const, scopes = ['current', 'all'] as const
 const errorTypes = ['unknown', 'concept', 'condition', 'method', 'execution', 'expression'] as const
 const reviewStates = ['needs_review', 'corrected', 'revisit'] as const
@@ -314,8 +314,16 @@ onBeforeUnmount(() => { epoch++; controller?.abort(); window.removeEventListener
 .draft-status,.practice-note { font-size:13px; line-height:1.7; color:#697386; margin:8px 0 12px; overflow-wrap:anywhere; }.answer-actions,.feedback-actions { display:flex; flex-wrap:wrap; gap:8px; }.answer-actions :deep(.el-button),.feedback-actions :deep(.el-button) { flex:1; }.personal-practice :deep(.el-button) { min-height:44px; height:auto; max-width:100%; margin-left:0; padding:9px 12px; font-size:15px; line-height:1.5; border-radius:8px; white-space:normal; }.personal-practice :deep(.el-button>span) { white-space:normal; overflow-wrap:anywhere; }.personal-practice :deep(.el-button--primary) { --el-button-bg-color:#74609f; --el-button-border-color:#74609f; --el-button-hover-bg-color:#66518f; --el-button-hover-border-color:#66518f; --el-button-active-bg-color:#5e4a87; --el-button-active-border-color:#5e4a87; }
 .answer-record { padding:10px 0; }.answer-record summary,.help-content summary { cursor:pointer; min-height:44px; padding:8px 0; box-sizing:border-box; color:#65547f; }.original-answer { margin-bottom:10px; border-bottom:1px solid #e8ebf2; }.submitted-answer { margin-bottom:8px; }.personal-practice h4 { font-size:15px; line-height:1.7; margin:0 0 8px; font-weight:600; }
 .unsubmitted-draft { margin:16px 0; padding:14px 0; border-top:1px solid #e5e8ef; }.unsubmitted-draft :deep(.el-textarea__inner) { font:15px/1.7 var(--study-ui-font); padding:12px; color:#343c50; background:#f8f9fc; border-radius:8px; }
-.practice-help { margin:16px 0; }.disclosure-status { margin:0; font-size:13px; color:#667086; }.help-actions { display:flex; flex-wrap:wrap; gap:0 8px; margin-left:-12px; }.help-content { margin-top:10px; padding:10px 12px; border-radius:8px; background:#f7f8fb; }.help-content summary { padding:0; min-height:44px; }.practice-feedback { padding-top:20px; margin-top:20px; border-top:1px solid #e5e8ef; }.feedback-actions { margin-top:14px; }.review-open { min-height:44px; padding:8px 0; border:0; background:none; color:#675387; text-align:start; }
+.practice-help { margin:16px 0; }.disclosure-status { margin:0; font-size:13px; color:#667086; }.help-actions { display:flex; flex-wrap:wrap; gap:0 8px; margin-left:0; margin-top:8px; }.help-content { margin-top:10px; padding:10px 12px; border-radius:8px; background:#f7f8fb; }.help-content summary { padding:0; min-height:44px; }.practice-feedback { padding-top:20px; margin-top:20px; border-top:1px solid #e5e8ef; }.feedback-actions { margin-top:14px; }.review-open { min-height:44px; padding:8px 0; border:0; background:none; color:#675387; text-align:start; }
 .practice-review { margin-top:24px; padding-top:20px; border-top:1px solid #e5e8ef; }.review-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }.review-fields label { min-width:0; color:#5d687c; font-size:14px; }.review-fields select { margin-top:5px; font-size:15px; }.review-save { margin-top:12px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; }.review-save span { color:#5b7565; font-size:13px; }
 .personal-practice :deep(.markdown-renderer) { min-width:0; font-size:15px; line-height:1.8; overflow-wrap:anywhere; }.personal-practice :deep(.markdown-renderer>:first-child) { margin-top:0; }.personal-practice :deep(.markdown-renderer>:last-child) { margin-bottom:0; }.personal-practice :deep(.katex-display),.personal-practice :deep(pre),.personal-practice :deep(.markdown-table-wrapper) { max-width:100%; overflow-x:auto; overflow-y:hidden; }.personal-practice :deep(.katex-display) { padding:4px 0; }.personal-practice :deep(.katex:not(.katex-display .katex)) { display:inline-block; max-width:100%; overflow-x:auto; overflow-y:hidden; vertical-align:middle; }.personal-practice :deep(.code-block-wrapper) { min-width:0; max-width:100%; margin:12px 0; box-shadow:none; }
 @media(max-width:480px) { .practice-controls { padding:0 14px 12px; }.practice-results { padding:0 16px 28px; }.review-fields { grid-template-columns:1fr; }.answer-actions,.feedback-actions { gap:8px; }.answer-actions :deep(.el-button),.feedback-actions :deep(.el-button) { flex:1 1 120px; }.attempt-list-title { align-items:flex-start; }.attempt-list-title>span:last-child { flex:0 0 auto; max-width:40%; text-align:end; line-height:1.6; } }
+.practice-tabs { gap:4px; padding:4px; border:1px solid #e3dfed; border-radius:11px; background:#f1eff7; }
+.practice-tabs button { display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid transparent; border-radius:8px; font-size:14px; }
+.practice-tabs button svg { flex:none; }
+.practice-tabs button[aria-current] { background:white; border-color:#d9d0e9; box-shadow:0 1px 3px #4234590c; }
+.practice-back,.review-open { display:inline-flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid #ded9e9; border-radius:8px; background:#faf9fd; }
+.personal-practice :deep(.el-button > span) { gap:6px; }
+.personal-practice :deep(.el-button svg) { flex:none; }
+@media(max-width:760px) { .practice-tabs button { flex-direction:column; gap:3px; } }
 </style>

@@ -5,7 +5,6 @@
         <button v-for="s in ['current', 'all'] as const" :key="s" :aria-pressed="scope === s" @click="scope = s">{{ c(s === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</button>
       </div>
       <input v-model="query" type="search" :placeholder="c('pathSearch')" :aria-label="c('pathSearch')" />
-      <p>{{ c('pathsHint') }}</p>
     </div>
     <div class="reading-aid-results">
       <section v-for="section in visible" :key="section.id" class="path-section">
