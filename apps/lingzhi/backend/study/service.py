@@ -249,11 +249,12 @@ def plan_prompt(request: dict) -> str:
         '[{"name":"核心概念名","statement":"一句话说明含义及必要条件","source_refs":[{"evidence_id":"正文块ID"}]}]}],'
         '"knowledge_relations":[{"source_name":"本讲概念名","target_name":"本讲概念名",'
         '"relation_type":"prerequisite|derives|applies_to|contrasts_with|equivalent_to|generalizes",'
-        '"reason":"正文支持的关系依据","conditions":[],"source_refs":[{"evidence_id":"正文块ID"}]}],'
+        '"reason":"正文支持的关系依据","conditions":[],"derivation_steps":[],"source_refs":[{"evidence_id":"正文块ID"}]}],'
         '"learning_paths":[{"title":"如何推导或选方法","kind":"derivation|method|example","steps":['
         '{"id":"s1","parent_id":"","stage":"start","text":"问题与起点","reason":"","condition":"","source_refs":[{"evidence_id":"正文块ID"}]},'
         '{"id":"s2","parent_id":"s1","stage":"step","text":"接下来做什么","reason":"正文中的依据","condition":"","source_refs":[{"evidence_id":"正文块ID"}]}]}]}]}。'
         "知识地图优先每讲1–4个最核心概念，最多6个；没有可提取的核心概念时返回空数组，不编造概念。不把定理细节、例题数据都变成节点。"
+        "每条关系的derivation_steps保留正文已有的完整推导步骤、公式和关键条件；不能压成一句摘要。没有推导过程则返回空数组，不补造步骤。"
         "箭头从依据/前置指向使用它的概念。只保留正文支持的连线，不为凑图连线。"
         "prior_concepts是前面讲次的概念，只在正文明确用到时引用其精确knowledge_id为source_knowledge_id；"
         "跨讲不得按同名猜测身份，target始终为本讲概念。本讲关系的source_knowledge_id填空字符串，source_name填本讲概念名。"

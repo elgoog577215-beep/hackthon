@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildHandoutConceptSections, conceptLayers, type HandoutConceptSection } from '@/utils/handout-concepts'
 import HandoutConceptMap from '@/components/HandoutConceptMap.vue'
+import HandoutKnowledgeMap from '@/components/HandoutKnowledgeMap.vue'
 import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
@@ -194,5 +195,34 @@ it('lets the student inspect concepts before explicitly returning to the handout
   expect(navigate).not.toHaveBeenCalled()
   await wrapper.get('.concept-jump').trigger('click')
   expect(navigate).toHaveBeenCalledWith('b2')
+  wrapper.unmount()
+})
+
+it('restores directly readable relation steps and follows the reading section without new path records', async () => {
+  const sections = buildHandoutConceptSections(plans, reading)
+  const navigate = vi.fn()
+  const wrapper = mount(HandoutConceptMap, { props: { sections, explanatory: true, title: '思维链', currentSection: 's1', navigate } })
+  expect(wrapper.find('article.concept-relation').exists()).toBe(true)
+  expect(wrapper.find('details.concept-relation').exists()).toBe(false)
+  expect(wrapper.text()).toContain('建立差商')
+  expect(wrapper.text()).toContain('求极限')
+  expect(wrapper.text()).toContain('极限存在')
+  await wrapper.get('[data-concept-id="id-a"]').trigger('click')
+  expect(navigate).toHaveBeenCalledWith('b2')
+  wrapper.unmount()
+})
+
+it('keeps the knowledge map compact and navigates from reference-style concept nodes', async () => {
+  const navigate = vi.fn()
+  const wrapper = mount(HandoutKnowledgeMap, { props: { sections: buildHandoutConceptSections(plans, reading), currentSection: 's1', navigate } })
+  expect(wrapper.find('.is-embedded').exists()).toBe(true)
+  expect(wrapper.get('.concept-relations').attributes('open')).toBeUndefined()
+  await wrapper.get('[data-concept-id="id-a"]').trigger('click')
+  expect(navigate).toHaveBeenCalledWith('b2')
+  expect(wrapper.get('.concept-relations').attributes('open')).toBeDefined()
+  await wrapper.get('.aid-scope-toggle').trigger('click')
+  expect(wrapper.get('.map-lecture').classes()).toContain('is-current')
+  await wrapper.get('.map-lecture button').trigger('click')
+  expect(wrapper.find('.map-reset').exists()).toBe(true)
   wrapper.unmount()
 })

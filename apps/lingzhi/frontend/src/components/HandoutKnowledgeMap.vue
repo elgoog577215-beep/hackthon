@@ -5,13 +5,13 @@
       <template v-if="scope === 'all'">
         <button v-if="focused" class="map-reset" @click="focused = ''">← {{ c('mapOverview') }}</button>
         <div v-else class="map-overview">
-          <section v-for="section in matches" :key="section.id" class="map-lecture">
+          <section v-for="section in matches" :key="section.id" class="map-lecture" :class="{ 'is-current': section.id === currentSection }">
             <h3><MathText :content="section.title" /></h3>
             <button v-for="node in section.nodes" :key="node.id" @click="focused = node.id"><MathText :content="node.name" /><span aria-hidden="true"> ↗</span></button>
           </section>
         </div>
       </template>
-      <HandoutConceptMap v-if="graph?.nodes.length" :key="`${scope}:${graph.id}`" :sections="[graph]" :navigate="navigate" :origin-label="c('conceptOrigin')" embedded />
+      <HandoutConceptMap v-if="graph?.nodes.length" :key="`${scope}:${graph.id}`" :sections="[graph]" :navigate="navigate" jump-on-select :origin-label="c('conceptOrigin')" embedded />
       <p v-else-if="scope === 'current' || !matches.length" class="map-empty">{{ c(query.trim() ? 'referenceNoMatches' : 'mapEmpty') }}</p>
     </div>
   </section>
@@ -43,4 +43,5 @@ watch([query, scope], () => { focused.value = '' })
 .map-overview { padding:4px 16px; }.map-lecture { padding:12px 0 16px; border-bottom:1px solid #e6e1ec; }.map-lecture h3 { margin:0 0 10px; font-size:15px; font-weight:650; }.map-lecture button { display:inline-block; max-width:100%; padding:7px 10px; margin:0 6px 7px 0; border:1px solid #ded4ea; border-radius:6px; color:#644884; background:#fff; cursor:pointer; font:inherit; font-size:14px; text-align:left; overflow-wrap:anywhere; }.map-reset { border:0; padding:12px 16px; color:#72558e; background:transparent; cursor:pointer; font:inherit; font-size:14px; }.map-empty { margin:16px; }
 .handout-knowledge :deep(.handout-concept-map) { border:0; background:transparent; }
 @media(max-width:760px) { .map-lecture button,.map-reset { min-height:44px; } }
+.map-lecture.is-current h3 { padding:3px 6px; border-radius:7px; color:#fff; background:#6e4a9c; }
 </style>

@@ -1,6 +1,6 @@
 <template>
-  <aside ref="panel" class="handout-concept-map" :class="{ 'is-embedded': embedded }" :aria-label="tr('title')" :style="availableHeight == null ? undefined : { '--handout-aside-available-height': `${availableHeight}px` }" tabindex="0" data-handout-print-exclude>
-    <header v-if="!embedded"><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
+  <aside ref="panel" class="handout-concept-map" :class="{ 'is-embedded': embedded, 'is-explanatory': explanatory }" :aria-label="title || tr('title')" :style="availableHeight == null ? undefined : { '--handout-aside-available-height': `${availableHeight}px` }" tabindex="0" data-handout-print-exclude>
+    <header v-if="!embedded"><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ title || tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
     <nav v-if="sections.length > 1" class="concept-sections" :aria-label="tr('sections')">
       <button v-for="section in sections" :key="section.id" :aria-pressed="current?.id === section.id" @click="chooseSection(section.id)"><MathText :content="section.title" /></button>
     </nav>
@@ -28,12 +28,12 @@
       <component :is="embedded ? 'details' : 'div'" class="concept-relations" :open="embedded && selected ? true : undefined">
         <summary v-if="embedded" class="concept-relations-heading"><ChevronRight :size="14" aria-hidden="true" />{{ tr('relations') }}<span>{{ visibleRelations.length }}</span></summary>
         <div v-else class="concept-relations-heading"><h4>{{ tr('relations') }}</h4><button v-if="selected" @click="selected = ''">{{ tr('showAll') }}</button></div>
-        <details v-for="(edge, index) in visibleRelations" :key="edge.id" class="concept-relation" :class="`is-${edge.type}`">
-          <summary class="concept-relation-summary">
+        <component :is="explanatory ? 'article' : 'details'" v-for="(edge, index) in visibleRelations" :key="edge.id" class="concept-relation" :class="`is-${edge.type}`">
+          <component :is="explanatory ? 'div' : 'summary'" class="concept-relation-summary">
             <span class="concept-relation-number">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="concept-relation-title"><span class="concept-relation-type">{{ relationLabel(edge.type) }}</span><span class="concept-pair"><MathText :content="conceptName(edge.source)" /><span>{{ symmetric(edge) ? '↔' : '→' }}</span><MathText :content="conceptName(edge.target)" /></span></span>
-            <ChevronRight :size="16" aria-hidden="true" />
-          </summary>
+            <ChevronRight v-if="!explanatory" :size="16" aria-hidden="true" />
+          </component>
           <div class="concept-relation-body"><MathText tag="p" :content="edge.reason" />
           <p v-if="edge.conditions.length"><b>{{ tr('conditions') }}</b><MathText :content="edge.conditions.join('；')" /></p>
           <p v-if="edge.groupId && ['AND', 'OR'].includes(edge.groupOperator)"><b>{{ tr(edge.groupOperator === 'OR' ? 'anyOf' : 'allOf') }}</b><MathText :content="groupNames(edge).join('、')" /></p>
@@ -42,7 +42,7 @@
           <ol v-if="edge.steps.length"><li v-for="step in edge.steps" :key="step"><MathText :content="step" /></li></ol>
           <p v-for="(source, index) in edge.sourceRefs" :key="index" class="concept-source"><MathText :content="sourceLabel(source)" /></p>
           </div>
-        </details>
+        </component>
         <p v-if="!visibleRelations.length" class="concept-empty">{{ tr('noRelations') }}</p>
       </component>
     </template>
@@ -73,7 +73,7 @@ import MathText from './MathText.vue'
 import { ChevronRight } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { conceptLayers, type HandoutConcept, type HandoutConceptSection, type HandoutRelation } from '../utils/handout-concepts'
-const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void; embedded?: boolean }>()
+const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void; embedded?: boolean; explanatory?: boolean; jumpOnSelect?: boolean; title?: string; currentSection?: string }>()
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)
@@ -116,8 +116,8 @@ function jump(anchor: string) {
   void node.offsetWidth
   if (!reduced) node.classList.add('handout-concept-flash')
 }
-function chooseSection(id: string) { currentId.value = id; if (!props.navigate) jump(current.value?.anchor || '') }
-function selectConcept(node: HandoutConcept) { selected.value = props.embedded && selected.value === node.id ? '' : node.id; if (node.anchor && !props.navigate) jump(node.anchor) }
+function chooseSection(id: string) { currentId.value = id; if (props.explanatory || !props.navigate) jump(current.value?.anchor || '') }
+function selectConcept(node: HandoutConcept) { selected.value = props.embedded && selected.value === node.id ? '' : node.id; if (node.anchor && (props.explanatory || props.jumpOnSelect || !props.navigate)) jump(node.anchor) }
 // A reading aside lives inside a scrolling workbench, not necessarily the viewport.
 function fitReadingAside() {
   if (!panel.value?.classList.contains('handout-reading-aside')) return
@@ -159,6 +159,7 @@ function draw() {
 }
 let frame = 0, observer: ResizeObserver | undefined, panelObserver: ResizeObserver | undefined
 function followReading() {
+  if (props.currentSection) { currentId.value = props.currentSection; return }
   if (!props.target) return
   const pane = props.target.closest('.pane-body, .script-document')
   const boundary = Math.max(Math.min(160, window.innerHeight * .2), (pane?.getBoundingClientRect().top || 0) + 36)
@@ -170,6 +171,7 @@ function followReading() {
   currentId.value = id
 }
 function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { fitReadingAside(); followReading(); draw() }) }
+watch(() => props.currentSection, id => { if (id) currentId.value = id }, { immediate: true })
 watch(() => props.sections, async () => { await nextTick(); followReading(); draw() }, { deep: true, immediate: true })
 watch(current, async (value, previous) => { if (value?.id !== previous?.id) selected.value = ''; await nextTick(); draw() })
 watch(graph, node => { observer?.disconnect(); if (node) observer?.observe(node) })
@@ -184,6 +186,12 @@ onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); win
 </script>
 
 <style scoped>
+.is-explanatory .concept-relation { border:0; border-radius:0; border-bottom:1px solid #e3deeb; background:transparent; }
+.is-explanatory .concept-relation-summary { display:block; padding:12px 0 4px; cursor:default; }
+.is-explanatory .concept-relation-number { display:none; }
+.is-explanatory .concept-relation-body { margin:0; padding:4px 0 12px; border:0; }
+.is-explanatory .concept-relation-body p,.is-explanatory .concept-relation-body li { font-size:15px; line-height:1.75; }
+
 .handout-concept-map{color:#354052;font:15px/1.65 var(--handout-sans);border:1px solid #e1ddec;background:#fbfafc;min-width:0;overflow:auto;overflow-wrap:anywhere}
 .handout-concept-map header{padding:20px 20px 14px;border-bottom:1px solid #e7e2ee}.concept-eyebrow{color:#806298;font-size:12px;letter-spacing:1.5px;font-weight:700}.handout-concept-map h3{font:700 21px/1.5 var(--handout-sans);margin:4px 0 8px;color:#403254}.handout-concept-map header p{margin:0;color:#687182;font-size:15px}.concept-section-title{padding:16px 20px 0;display:flex;justify-content:space-between;gap:10px;font-weight:700}.concept-section-title>span:last-child{font-weight:400;color:#806298;white-space:nowrap;font-size:13px}.concept-sections{padding:12px;display:flex;flex-wrap:wrap;gap:6px}.concept-sections button{background:#fff;border:1px solid #e0d8ea;padding:5px 9px;font:15px/1.5 var(--handout-sans);color:inherit;cursor:pointer}.concept-sections button[aria-pressed=true]{background:var(--lz-action-bg);color:var(--lz-action-text);border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);box-shadow:var(--lz-action-shadow)}
 .concept-graph{position:relative;padding:40px 18px 16px}.concept-edges{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}.concept-edges marker path{fill:#9575b5}.concept-edge>path{fill:none;stroke:#9575b5;stroke-width:1.6}.concept-edge.is-contrasts_with>path{stroke:#a96172;stroke-dasharray:4 3}.concept-edge.is-equivalent_to>path{stroke:#488889}.concept-edge text{font:13px var(--handout-sans);fill:#6e4a9c;paint-order:stroke;stroke:#fbfafc;stroke-width:5px;text-anchor:middle}.concept-edge.is-muted{opacity:.17}.concept-row{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:46px 48px;margin-bottom:54px}.concept-row:last-child{margin-bottom:0}.concept-row button{position:relative;border:1px solid var(--lz-action-border);border-radius:var(--lz-action-radius);background:var(--lz-action-bg);padding:9px 10px;max-width:100%;font:600 15px/1.5 var(--handout-sans);color:var(--lz-action-text);cursor:pointer;overflow-wrap:anywhere;box-shadow:var(--lz-action-shadow)}.concept-row button:hover,.concept-row button.selected{background:var(--lz-action-bg);color:var(--lz-action-text);border-color:var(--lz-action-border-hover)}.concept-row button.external{border-style:dashed}.concept-row small{display:block;font-size:12px;font-weight:400}
@@ -225,4 +233,13 @@ onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); win
 .concept-relation-body p { font-size:14px; }
 .concept-relation-body .concept-source { padding-top:6px; font-size:12px!important; }
 .concept-relation-summary:focus-visible { outline:2px solid #8875b2; outline-offset:2px; }
+
+/* Reference reader graph geometry; keep shared app typography readable. */
+.is-embedded .concept-graph { padding:10px 2px 4px; }
+.is-embedded .concept-row { gap:12px 20px; margin-bottom:34px; }
+.is-embedded .concept-row:last-child { margin-bottom:4px; }
+.is-embedded .concept-edge > path { stroke:#b9a6da; stroke-width:1.5; }
+.is-embedded .concept-edges marker path { fill:#b9a6da; }
+.is-embedded .concept-edge text { fill:#8a7bb0; stroke:#fbfbfd; stroke-width:4px; }
+.is-embedded .concept-row button { padding:4px 10px; font-weight:700; }
 </style>

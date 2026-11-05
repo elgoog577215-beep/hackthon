@@ -3,6 +3,7 @@ from copy import deepcopy
 import uuid
 
 READING_SCHEMA_VERSION = "study_reading_v1"
+READING_PROMPT_VERSION = "study_reading_relations_v2"
 RELATION_TYPES = {"prerequisite", "derives", "applies_to", "contrasts_with", "equivalent_to", "generalizes"}
 
 
@@ -21,7 +22,8 @@ def reading_response_schema(source: dict, prior: list[dict]) -> dict:
     relation = obj({"source_name": short, "target_name": short,
                     "source_knowledge_id": {"type": "string", "enum": ["", *[p["knowledge_id"] for p in prior]]},
                     "relation_type": {"type": "string", "enum": sorted(RELATION_TYPES)},
-                    "reason": sentence, "conditions": array(short, 3), "source_refs": refs})
+                    "reason": sentence, "conditions": array(short, 3),
+                    "derivation_steps": array({"type": "string", "maxLength": 2000}, 32), "source_refs": refs})
     step = obj({"id": short, "parent_id": short,
                 "stage": {"type": "string", "enum": ["start", "choice", "step", "result", "check"]},
                 "text": sentence, "reason": sentence, "condition": short, "source_refs": refs})
@@ -91,10 +93,14 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
         conditions = edge.get("conditions", [])
         if not isinstance(conditions, list) or len(conditions) > 8:
             raise ValueError("关系条件结构不完整，请主动继续")
+        derivation = edge.get("derivation_steps", [])
+        if not isinstance(derivation, list) or len(derivation) > 32:
+            raise ValueError("推导步骤结构不完整，请主动继续")
         relations.append({"source_knowledge_id": a, "target_knowledge_id": b,
                           "source_name": known[a]["name"], "target_name": known[b]["name"],
                           "relation_type": edge["relation_type"], "reason": required_text(edge.get("reason"), "关系依据"),
                           "conditions": [required_text(c, "关系条件") for c in conditions],
+                          "derivation_steps": [required_text(step, "推导步骤", 2000) for step in derivation],
                           "source_refs": bind_refs(edge.get("source_refs"), source)})
     raw_paths = plan.get("learning_paths")
     if not isinstance(raw_paths, list) or len(raw_paths) > 3:
@@ -140,4 +146,4 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
         paths.append({"id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source['revision_id']}:{source['node_id']}:path:{index}")),
                       "title": required_text(path.get("title"), "思维链标题", 180), "kind": path["kind"], "steps": normalized})
     return {"node_id": source["node_id"], "knowledge_structure": [{"knowledge_points": points}],
-            "knowledge_relations": relations, "learning_paths": paths, "reading_schema_version": READING_SCHEMA_VERSION}
+            "knowledge_relations": relations, "learning_paths": paths, "reading_schema_version": READING_SCHEMA_VERSION, "reading_prompt_version": READING_PROMPT_VERSION}

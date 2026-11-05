@@ -2,7 +2,7 @@
   <section class="handout-reference" :aria-label="c('reference')">
     <ReadingAidToolbar v-model:scope="scope" v-model:query="query" :placeholder="c('referenceSearch')" />
     <div ref="results" class="reference-results" @scroll="rememberPosition" tabindex="0" :aria-label="c('reference')">
-      <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }">
+      <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }" :data-reference-section="section.id">
         <h3><MathText :content="section.title" /></h3>
         <button type="button" v-for="item in section.items" :key="item.id" class="reference-item" :data-reference-kind="item.kind" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId)">
           <span class="reference-item-heading">
@@ -42,6 +42,15 @@ let savedScrollTop = 0, deactivated = false
 function rememberPosition() { if (!deactivated && results.value) savedScrollTop = results.value.scrollTop }
 onDeactivated(() => { deactivated = true })
 onActivated(() => { deactivated = false; void nextTick(() => { if (results.value) results.value.scrollTop = savedScrollTop }) })
+async function revealCurrentSection() {
+  await nextTick()
+  const root = results.value
+  if (!root || deactivated || query.value.trim()) return
+  const section = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-section]')).find(node => node.dataset.referenceSection === props.currentSection)
+  if (section) root.scrollTop += section.getBoundingClientRect().top - root.getBoundingClientRect().top
+}
+watch(() => props.currentSection, () => { if (scope.value === 'all') void revealCurrentSection() })
+watch(scope, () => { if (scope.value === 'all') void revealCurrentSection() })
 watch([scope, query, () => scope.value === 'current' ? props.currentSection : ''], () => {
   savedScrollTop = 0
   if (results.value) results.value.scrollTop = 0

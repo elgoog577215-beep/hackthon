@@ -141,3 +141,21 @@ def test_empty_extraction_is_complete_and_old_unbound_aids_stay_legacy():
     saved.pop("reading_source_sha256")
     assert reading_tool_states(material) == {"s": "legacy"}
     assert not reading_tools_complete(material)
+
+def test_relation_derivation_survives_normalization_and_keeps_legacy_records_readable():
+    _, source, plan = sample()
+    first = validate(plan, source)["knowledge_structure"][0]["knowledge_points"][0]
+    _, source, other = sample("s2")
+    edge = {"source_knowledge_id": first["knowledge_id"], "target_name": "导数",
+            "relation_type": "derives", "reason": "从定义取极限", "conditions": ["极限存在"],
+            "derivation_steps": ["先建立差商", "取极限，保留公式 $f'(x)$"],
+            "source_refs": [{"evidence_id": "method"}]}
+    other["knowledge_relations"] = [edge]
+    result = validate(other, source, [first])
+    assert result["knowledge_relations"][0]["derivation_steps"] == edge["derivation_steps"]
+    assert result["reading_prompt_version"] == "study_reading_relations_v2"
+    edge.pop("derivation_steps")
+    assert validate(other, source, [first])["knowledge_relations"][0]["derivation_steps"] == []
+    edge["derivation_steps"] = "not an array"
+    with pytest.raises(ValueError, match="推导步骤"):
+        validate(other, source, [first])

@@ -34,6 +34,32 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('restores an independent reasoning sidebar without replacing notes and remembers its switch', async () => {
+    const legacy = structuredClone(saved) as any
+    legacy.plans = [{ node_id: 's1', knowledge_structure: [{ knowledge_points: [
+      { knowledge_id: 'a', name: '向量', statement: '有大小与方向' }, { knowledge_id: 'b', name: '组合', statement: '向量的组合' },
+    ] }], knowledge_relations: [{ source_knowledge_id: 'a', target_knowledge_id: 'b', relation_type: 'derives', reason: '逐项相加', conditions: ['维度一致'], derivation_steps: ['先对齐分量', '再逐项相加'] }] }]
+    legacy.reading_tool_states = { s1: 'legacy' }
+    api.get.mockResolvedValue(legacy)
+    const { wrapper, router } = await page('/study/material-a')
+    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(true)
+    await wrapper.get('[data-tool="note"]').trigger('click')
+    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(true)
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
+    await wrapper.get('[data-tool="paths"]').trigger('click')
+    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
+    await router.push('/study'); await flushPromises()
+    await router.push('/study/material-a'); await flushPromises()
+    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
+    await wrapper.get('[data-tool="paths"]').trigger('click')
+    const map = wrapper.get('#study-reasoning-panel').findComponent({ name: 'HandoutConceptMap' })
+    expect(map.attributes('explanatory')).toBeDefined()
+    expect(map.props('sections')[0].relations[0].steps).toEqual(['先对齐分量', '再逐项相加'])
+    await setLocale('en'); await flushPromises()
+    expect(wrapper.get('#study-reasoning-panel').attributes('aria-label')).toBe('Reasoning')
+  })
+
   it('does not interpret an unavailable auth configuration as disabled login, and reconnects', async () => {
     api.config.mockRejectedValueOnce(new Error('HTTP 500'))
     const { wrapper } = await page()
