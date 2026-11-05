@@ -93,7 +93,7 @@
             <div class="study-reading-pane" :inert="mobileViewport && (toolsOpen || directoryOpen)">
               <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
-                <article class="study-handout" :style="readingStyle">
+                <article class="study-handout handout-document" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 

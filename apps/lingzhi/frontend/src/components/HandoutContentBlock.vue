@@ -1,13 +1,13 @@
 <template>
   <component :is="isAnswerDisclosure ? 'details' : 'div'" class="handout-block"
-    :class="[`handout-block--${tone}`, group ? `handout-block--group-${group}` : '', { 'handout-block--answer': isAnswerDisclosure }]"
+    :class="[`handout-block--${tone}`, group ? `handout-block--group-${group}` : '', { 'handout-block--answer': isAnswerDisclosure, 'handout-block--continuous': isContinuous }]"
     :style="presentation.style" :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
-        <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
         <span v-if="displayLabel" class="handout-block__label" :title="definition?.purpose?.[activeLocale]">{{ displayLabel }}</span>
         <span v-if="displayLabel && title" class="handout-block__separator" aria-hidden="true">·</span>
         <h5 v-if="title"><MathText :content="displayTitle" /></h5>
+        <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
       </div>
       <span v-if="isAnswerDisclosure" class="handout-block__disclosure">
         <span class="handout-block__reveal">{{ t('courseWorkbench.scriptDocument.revealAnswer', '展开解答') }}</span>
@@ -45,6 +45,9 @@ const definition = computed(() => handoutTypeDefinition(normalizedType.value))
 const group = computed(() => props.answerTo ? undefined : handoutContentGroup(normalizedType.value))
 const presentation = computed(() => handoutPresentation(normalizedType.value, activeLocale.value, props.label))
 const tone = computed(() => presentation.value.tone)
+// Reasoning remains part of the reading flow; emphasis belongs to the claim,
+// worked example or task, not to every paragraph that explains it.
+const isContinuous = computed(() => tone.value === 'prose' || normalizedType.value === 'derivation')
 const displayLabel = computed(() => {
   const label = definition.value?.label[activeLocale.value] || (normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label)
   return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
@@ -67,31 +70,28 @@ const displayTitle = computed(() => {
 .handout-block__identity{min-width:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 8px}
 .handout-block__label,.handout-block__separator{flex:none;color:var(--handout-accent);font:700 15px/1.7 var(--handout-sans)}
 .handout-block__heading h5{margin:0;color:var(--handout-accent);font:700 15px/1.7 var(--handout-sans);overflow-wrap:anywhere}
-.handout-block--prose>.handout-block__heading{margin:36px 0 18px}
-.handout-block--prose>.handout-block__heading h5{color:#242a35;font:700 21px/1.6 var(--handout-serif)}
+.handout-block--continuous>.handout-block__heading{margin:32px 0 14px}
+.handout-block--continuous>.handout-block__heading h5{color:#242a35;font:700 21px/1.6 var(--handout-serif)}
 .handout-block__body :deep(.markdown-renderer){font:inherit;color:inherit}
 .handout-block__body :deep(.markdown-renderer> :first-child){margin-top:0}
 .handout-block__body :deep(.markdown-renderer> :last-child){margin-bottom:0}
-.handout-block:not(.handout-block--prose):not(.handout-block--answer){padding:17px 23px 19px;border:1px solid var(--handout-edge);border-left:4px solid var(--handout-accent);border-radius:0;background:var(--handout-tint)}
+.handout-block:not(.handout-block--continuous):not(.handout-block--answer){padding:18px 22px 20px;border:0;border-left:3px solid var(--handout-accent);border-radius:0;background:var(--handout-tint)}
 .handout-block--answer{padding:0;border:1px solid #dbe3ed;border-radius:0;background:#fafbfd}
 .handout-block--answer>.handout-block__heading{align-items:center;margin:0;padding:14px 20px;cursor:pointer;list-style:none}
 .handout-block--answer>.handout-block__heading::-webkit-details-marker{display:none}
 .handout-block--answer>.handout-block__heading:focus-visible{outline:3px solid #328dcc;outline-offset:3px}
 .handout-block--answer>.handout-block__body{padding:6px 20px 20px}
 .handout-block--answer>.handout-block__heading h5{color:#315e91;font:650 16px/1.7 var(--handout-sans)}
-.handout-block__group{flex:none;padding:1px 7px;border:1px solid var(--handout-group-edge,var(--handout-edge));border-radius:4px;color:var(--handout-group-accent,var(--handout-accent));background:var(--handout-group-tint,var(--handout-tint));font:700 15px/1.7 var(--handout-sans)}
-.handout-block--group-explanation{--handout-group-accent:#315e91;--handout-group-tint:#f0f5fc;--handout-group-edge:#d1dfef}
-.handout-block--group-practice{--handout-group-accent:#17815a;--handout-group-tint:#edf7f2;--handout-group-edge:#cbe5d8}
-.handout-block--group-question{--handout-group-accent:#6e4a9c;--handout-group-tint:#f2eef9;--handout-group-edge:#d8cce9}
-.handout-block[data-handout-group]:not(.handout-block--answer){padding:16px 22px 18px;border:0;border-left:3px solid var(--handout-accent);background:var(--handout-tint)}
+.handout-block__group{flex:none;margin-left:4px;color:#657080;font:400 15px/1.7 var(--handout-sans)}
 
-.handout-block[data-handout-group]>.handout-block__heading{margin:0 0 12px}
-.handout-block[data-handout-group]>.handout-block__heading h5{color:#242a35;font:700 19px/1.6 var(--handout-serif)}
+.handout-block:not(.handout-block--continuous):not(.handout-block--answer)>.handout-block__heading{margin:0 0 12px}
+.handout-block:not(.handout-block--continuous):not(.handout-block--answer)>.handout-block__heading h5{color:#242a35;font:700 19px/1.6 var(--handout-serif)}
 .handout-block--warning .handout-block__label,.handout-block--warning .handout-block__separator{color:#a64355}
 .handout-block__disclosure{flex:none;display:flex;align-items:center;gap:8px;color:#315e91;font:650 15px/1.7 var(--handout-sans)}
 .handout-block__hide{display:none}
 .handout-block[open] .handout-block__reveal{display:none}
 .handout-block[open] .handout-block__hide{display:inline}
 .handout-block[open] .handout-block__disclosure svg{transform:rotate(180deg)}
-@media print{.handout-block{break-inside:avoid;font-size:11pt;print-color-adjust:exact;-webkit-print-color-adjust:exact}.handout-block__disclosure{display:none}}
+@media(max-width:600px){.handout-block__heading{flex-wrap:wrap;gap:8px}.handout-block:not(.handout-block--continuous):not(.handout-block--answer){padding:14px 16px}.handout-block--answer>.handout-block__heading{padding:12px 16px}.handout-block--answer>.handout-block__body{padding:4px 16px 16px}}
+@media print{.handout-block{font-size:11pt;print-color-adjust:exact;-webkit-print-color-adjust:exact}.handout-block__heading{break-after:avoid}.handout-block__disclosure{display:none}}
 </style>

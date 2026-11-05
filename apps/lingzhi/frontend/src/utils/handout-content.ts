@@ -8,6 +8,7 @@ export type HandoutContentType = {
   purpose?: Record<HandoutContentLocale, string>
   checkpoints?: Record<HandoutContentLocale, string[]>
   example?: Record<HandoutContentLocale, string>
+  body_guide?: Record<HandoutContentLocale, string>
 }
 
 export const handoutContentCatalog = catalog

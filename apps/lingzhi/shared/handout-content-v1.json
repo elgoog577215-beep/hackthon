@@ -1,5 +1,5 @@
 {
-  "version": "handout_content_catalog_v1",
+  "version": "handout_content_catalog_v2",
   "groups": [
     {
       "id": "explanation",
@@ -59,6 +59,10 @@
           "Prior knowledge",
           "Question to resolve"
         ]
+      },
+      "body_guide": {
+        "zh": "先用具体情境提出学习问题，再补足理解问题所需的背景；不堆砌无关史料。",
+        "en": "Start with a concrete learning problem, then supply the context needed to understand it; omit unrelated history."
       }
     },
     {
@@ -84,6 +88,10 @@
           "Connection to the learning goal",
           "Question for further study"
         ]
+      },
+      "body_guide": {
+        "zh": "从一个可理解的问题进入，点明本节学完能解释或完成什么，再连接必要的前置知识。",
+        "en": "Open with an accessible problem and what the learner will be able to explain or do, then connect the prerequisites."
       }
     },
     {
@@ -109,6 +117,10 @@
           "Precise statement and conditions",
           "Scope and boundaries"
         ]
+      },
+      "body_guide": {
+        "zh": "先独立给出含必要条件的准确表述，再解释符号与直观含义，最后用边界或非例划清概念；不要把定义藏在长段讨论中。",
+        "en": "Give the precise statement with its conditions first, then explain notation and intuition, and clarify the boundary with a non-example."
       }
     },
     {
@@ -134,6 +146,10 @@
           "Mechanism or causal basis",
           "Supported conclusion"
         ]
+      },
+      "body_guide": {
+        "zh": "先回应一个明确疑问，再连贯说明机制和依据；短例子放在相应解释旁，不把每段拆成新块。",
+        "en": "Answer a specific question, then explain the mechanism and evidence continuously; place short examples beside the explanation."
       }
     },
     {
@@ -159,6 +175,10 @@
           "Complete statement",
           "Scope and unsupported inferences"
         ]
+      },
+      "body_guide": {
+        "zh": "把前提与完整命题放在一起，随后说明含义和适用边界；较长证明另用推导块，不能先给公式后省略条件。",
+        "en": "Keep assumptions and the complete claim together, then explain meaning and scope; put a long proof in a derivation block."
       }
     },
     {
@@ -184,6 +204,10 @@
           "Each transformation and justification",
           "Result check and conditions"
         ]
+      },
+      "body_guide": {
+        "zh": "从已知条件开始逐步推到结论，每一步交代依据；较长推导分段或编号，最后回到原条件核验。",
+        "en": "Start from the givens, justify each step and finish by checking the conclusion against the original conditions; number long sequences."
       }
     },
     {
@@ -209,6 +233,10 @@
           "Method, reasoning and complete steps",
           "Result check and transferable method"
         ]
+      },
+      "body_guide": {
+        "zh": "按完整题面、选法依据、解题过程、结果核验展开；解法直接可见，结尾指出可迁移的方法。",
+        "en": "Present the full problem, choice of method, solution steps and result check; keep the solution visible and identify the reusable method."
       }
     },
     {
@@ -234,6 +262,10 @@
           "Similarities and key differences",
           "Conditions and basis for choosing"
         ]
+      },
+      "body_guide": {
+        "zh": "先说明为什么容易混淆，再按共同维度逐项比较；并列信息适合用表格，最后说明何时选择哪一种。",
+        "en": "Explain the source of confusion, compare on common dimensions using a table when helpful, then state when to choose each option."
       }
     },
     {
@@ -259,6 +291,10 @@
           "Counterexample meeting the conditions",
           "What it disproves and what it does not"
         ]
+      },
+      "body_guide": {
+        "zh": "先写待检验的命题，再展示满足前提却不满足结论的具体对象，最后准确限定被否定的范围。",
+        "en": "State the claim, show a concrete case that meets its assumptions but contradicts its conclusion, then delimit what is disproved."
       }
     },
     {
@@ -284,6 +320,10 @@
           "Actions and decision points",
           "Output, checks and failure conditions"
         ]
+      },
+      "body_guide": {
+        "zh": "先说明何时使用与需要哪些输入，再列操作步骤和判断分支，最后说明怎样验收结果及何时应换方法。",
+        "en": "State when to use the method and required inputs, list steps and decisions, then explain how to check the result and when to change methods."
       }
     },
     {
@@ -309,6 +349,10 @@
           "Cause and contrary evidence",
           "Correct understanding and correction"
         ]
+      },
+      "body_guide": {
+        "zh": "按具体错误、出错原因、正确判断展开；用反例或条件变化说明差异，不能只写“注意不要混淆”。",
+        "en": "Show a specific mistake, explain its cause and give the correct reasoning; use a counterexample or changed condition to make the distinction concrete."
       }
     },
     {
@@ -334,6 +378,10 @@
           "Conditions and supporting basis",
           "How to use it"
         ]
+      },
+      "body_guide": {
+        "zh": "先用简洁独立的表述收束结论并保留成立条件，再交代用途；不重复整段推导。",
+        "en": "State the result concisely with its conditions, then explain its use without repeating the full derivation."
       }
     },
     {
@@ -359,6 +407,10 @@
           "Methods and conditions",
           "Next application or connection"
         ]
+      },
+      "body_guide": {
+        "zh": "围绕本节核心问题串起概念与方法，保留最关键的条件和易错边界；不简单重复目录或新增未讲解知识。",
+        "en": "Connect concepts and methods around the central question, retaining essential conditions and pitfalls; do not merely repeat the contents or add untaught material."
       }
     },
     {
@@ -384,6 +436,10 @@
           "Consequence of the mistake",
           "Concrete check"
         ]
+      },
+      "body_guide": {
+        "zh": "先点明容易漏掉的条件或错误操作，再说明后果和一个可执行的检查办法。",
+        "en": "Identify the missed condition or faulty action, then explain its consequence and a concrete check."
       }
     },
     {
@@ -413,6 +469,10 @@
       "example": {
         "zh": "改变一个条件后，判断原结论是否仍成立，并写出依据。",
         "en": "Change one assumption, decide whether the result still holds, and justify your answer."
+      },
+      "body_guide": {
+        "zh": "题面自足：保留全部已知条件、必要图表和作答要求；参考解法单独关联到本题，不能在题面提前给出结果。",
+        "en": "Make the problem self-contained with all givens, necessary figures and response requirements; link a separate solution without revealing the result in the task."
       }
     },
     {
@@ -442,6 +502,10 @@
       "example": {
         "zh": "根据已有观察记录设计调研方案，提交问题定义、证据清单与验证步骤。",
         "en": "Use the available observations to propose a study with a problem definition, evidence checklist and validation steps."
+      },
+      "body_guide": {
+        "zh": "按情境、约束、任务和交付标准展开，给学生留下选择与决策空间；参考方案放在独立关联解答中。",
+        "en": "Present context, constraints, task and deliverable criteria, leaving room for decisions; place the reference approach in a separately linked answer."
       }
     },
     {
@@ -471,6 +535,10 @@
       "example": {
         "zh": "这条规则成立需要哪些条件？缺少其中一个会怎样？",
         "en": "What conditions does this rule require? What changes if one is missing?"
+      },
+      "body_guide": {
+        "zh": "针对已经讲过的知识提出具体问题；参考要点单独关联，便于先回忆再核对。",
+        "en": "Ask a concrete question about prior content; link separate reference points so the learner can recall before checking."
       }
     },
     {
@@ -500,6 +568,10 @@
       "example": {
         "zh": "如果约束改变，你会怎样调整方法？还需要什么证据来判断？",
         "en": "If the constraint changed, how would you adapt the method? What evidence would help you decide?"
+      },
+      "body_guide": {
+        "zh": "从当前现象或矛盾提出需要推理的问题；参考思路单独关联，允许多种有证据支持的回答。",
+        "en": "Pose a reasoning question from the current observation or tension; link separate guidance and allow multiple evidence-supported answers."
       }
     },
     {

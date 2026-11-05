@@ -10,6 +10,7 @@
         <h5>{{ item.label[activeLocale] }}</h5>
         <p>{{ item.purpose?.[activeLocale] }}</p>
         <ul><li v-for="point in item.checkpoints?.[activeLocale]" :key="point">{{ point }}</li></ul>
+        <p v-if="item.body_guide" class="handout-type-reference__sequence">{{ item.body_guide[activeLocale] }}</p>
         <p v-if="item.example" class="handout-type-reference__example"><strong>{{ t('courseWorkbench.scriptDocument.typeGuide.example') }}</strong>{{ item.example[activeLocale] }}</p>
       </article>
     </div>
@@ -34,6 +35,7 @@ const types = computed(() => handoutTypesForGroup(props.group))
 .handout-type-reference>header{display:flex;align-items:center;justify-content:space-between;gap:14px;color:var(--type-accent)}
 .handout-type-reference button{display:grid;place-items:center;padding:4px;border:0;background:transparent;color:#657080;cursor:pointer}.handout-type-reference button:focus-visible{outline:2px solid #6366f1;outline-offset:3px}
 .handout-type-reference p{margin:8px 0}.handout-type-reference__list{max-height:380px;overflow:auto;overscroll-behavior:contain;padding-right:8px}
+.handout-type-reference__sequence{color:#526071;line-height:1.8}
 .handout-type-reference article{padding:12px 0;border-top:1px solid #e5e9ef}.handout-type-reference h5{margin:0;color:#263147;font-size:16px}
 .handout-type-reference ul{margin:7px 0;padding-left:20px}.handout-type-reference__example{padding:9px 12px;background:#f7f8fc}.handout-type-reference__example strong{margin-right:8px;font-weight:650}.handout-type-reference footer{padding-top:10px;border-top:1px solid #e5e9ef;color:#637087}
 </style>
