@@ -204,6 +204,8 @@ it('restores directly readable relation steps and follows the reading section wi
   const wrapper = mount(HandoutConceptMap, { props: { sections, explanatory: true, title: '思维链', currentSection: 's1', navigate } })
   expect(wrapper.find('article.concept-relation').exists()).toBe(true)
   expect(wrapper.find('details.concept-relation').exists()).toBe(false)
+  expect(wrapper.find('.concept-relation-number').exists()).toBe(false)
+  expect(wrapper.find('.concept-coverage').exists()).toBe(false)
   expect(wrapper.text()).toContain('建立差商')
   expect(wrapper.text()).toContain('求极限')
   expect(wrapper.text()).toContain('极限存在')

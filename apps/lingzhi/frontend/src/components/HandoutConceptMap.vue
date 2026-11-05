@@ -30,7 +30,7 @@
         <div v-else class="concept-relations-heading"><h4>{{ tr('relations') }}</h4><button v-if="selected" @click="selected = ''">{{ tr('showAll') }}</button></div>
         <component :is="explanatory ? 'article' : 'details'" v-for="(edge, index) in visibleRelations" :key="edge.id" class="concept-relation" :class="`is-${edge.type}`">
           <component :is="explanatory ? 'div' : 'summary'" class="concept-relation-summary">
-            <span class="concept-relation-number">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span v-if="!explanatory" class="concept-relation-number">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="concept-relation-title"><span class="concept-relation-type">{{ relationLabel(edge.type) }}</span><span class="concept-pair"><MathText :content="conceptName(edge.source)" /><span>{{ symmetric(edge) ? '↔' : '→' }}</span><MathText :content="conceptName(edge.target)" /></span></span>
             <ChevronRight v-if="!explanatory" :size="16" aria-hidden="true" />
           </component>
@@ -47,7 +47,7 @@
       </component>
     </template>
     <p v-else class="concept-empty">{{ tr('empty') }}</p>
-    <details v-if="current?.coverage" class="concept-coverage" :open="!embedded">
+    <details v-if="!explanatory && current?.coverage" class="concept-coverage" :open="!embedded">
       <summary>{{ tr('coverage.title') }}</summary>
       <p>{{ tr('coverage.hint') }}</p>
       <p v-if="!current.coverage.scope_known">{{ tr('coverage.partialScope') }}</p>
@@ -249,4 +249,13 @@ onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); win
 .is-explanatory .concept-sections button[aria-pressed=true] { background:#6e4a9c; color:#fff; }
 .is-explanatory .concept-relation-title { display:flex; flex-direction:column-reverse; align-items:flex-start; }
 .is-explanatory .concept-relation-type { padding:0; margin:4px 0; background:transparent; font-size:13px; }
+/* Restore October's open relation articles rather than the later numbered cards. */
+.is-explanatory .concept-relation { margin:0; padding:14px 0; border:0; border-top:1px solid #e6e1ec; border-radius:0; background:transparent; }
+.is-explanatory .concept-relation-summary { display:block; padding:0; cursor:default; }
+.is-explanatory .concept-relation-summary:hover { background:transparent; }
+.is-explanatory .concept-relation .concept-pair { margin:0; font-size:15px; line-height:1.65; gap:8px; }
+.is-explanatory .concept-relation-body { margin:0; padding:0; border:0; }
+.is-explanatory .concept-relation-body p { margin:4px 0; font:15px/1.65 var(--handout-sans); }
+.is-explanatory .concept-relation-body .concept-source { padding-top:0; font-size:13px!important; }
+.is-explanatory .concept-relation .concept-relation-type { color:#6e4a9c; background:transparent; }
 </style>

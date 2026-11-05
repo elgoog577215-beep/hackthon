@@ -90,6 +90,7 @@ def test_unescaped_title_quotes_preserve_exact_text_and_identity(title, expected
 @pytest.mark.parametrize('payload', [
     '{"type":"定义","title":"缺少结束引号}',
     '{"type":"定义","title":"一","title":"二"}',
+    '{"type":"lingzhi-diagram","title":"整数范围","key":"diagram","type":"bar_chart"}',
     '{"type":"定义","title":"引号"内部"","key":"一","key":"二"}',
     '{"type":"定义","title":"引号"内部"","knowledge":[}',
 ])
@@ -247,3 +248,22 @@ def test_first_manual_draft_accepts_flexible_blocks_after_model_format_failure()
     assert validate_teacher_script_section(recovered, contract)['passed']
     assert [b['block_id'] for b in recovered['blocks']] == [b['block_id'] for b in blocks]
     assert recovered['blocks'][-1]['answer_to'] == blocks[-2]['block_id']
+
+
+def test_handout_prompt_separates_teaching_metadata_from_diagram_json():
+    from course_generation.prompts import build_handout_prompt, PROMPT_CONTRACT_VERSION
+    prompt = build_handout_prompt(course_title='C', lesson={}, requirements='', contract='test',
+        sections=[{'node_id': 's'}], plan_sections={}, completed_sections=[], partial_text='')
+    assert PROMPT_CONTRACT_VERSION == 'course_prompt_v45'
+    assert '正文是公式速览的唯一来源' in prompt
+    assert '不为速览捏造公式' in prompt
+    assert '每个 JSON 键只能出现一次' in prompt
+    assert '两个独立 JSON 对象，不合并字段' in prompt
+    assert '不照抄草稿的错误元数据' in prompt
+    text = marker('explanation', '整数范围', '```lingzhi-diagram\n' + json.dumps({
+        'schema_version': 'teaching_diagram_v1', 'type': 'bar_chart', 'title': '整数范围'
+    }) + '\n```', key='diagram')
+    parsed = parse_handout_blocks(text, 's', complete=True)
+    assert not parsed['error']
+    assert parsed['blocks'][0]['content_type'] == 'explanation'
+    assert '"type": "bar_chart"' in parsed['blocks'][0]['content']

@@ -114,35 +114,32 @@
               </div>
               <aside v-if="material && reasoningOpen && !mobileViewport" id="study-reasoning-panel" class="study-reasoning-panel" :aria-label="c('paths')">
                 <header class="study-reasoning-heading"><Route :size="18" /><strong>{{ c('paths') }}</strong><ElButton text circle :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton></header>
-                <p v-if="!conceptSections.some(section => section.nodes.length)" class="study-aid-status" role="status">{{ c(reasoningStale ? 'reasoningStale' : 'reasoningMissing') }}</p>
+                <div v-if="!readingToolsReady" class="study-aid-status" role="status"><p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton></div>
                 <HandoutConceptMap :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :title="c('paths')" :origin-label="c('conceptOrigin')" explanatory />
               </aside>
               </div>
             </div>
             <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport" v-bind="rightColumnHandle" />
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
-            <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note', 'is-practice': ['practice', 'mistakes'].includes(toolTab) }">
+            <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note' }">
               <header class="study-tool-heading"><component :is="toolIcons[toolTab]" :size="18" class="study-tool-icon" aria-hidden="true" /><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="mobileViewport ? c('backToReading') : t('common.close')" @click="closeTool"><ArrowLeft v-if="mobileViewport" :size="20" /><X v-else :size="18" /></ElButton></header>
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}:${noteDiscussion?.note.id || 'handout'}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" :note="noteDiscussion?.note" :note-draft="noteDiscussion?.draft" @clear-quote="selectedPassage = null" @session-expired="showError" @save-reply="saveAssistantReply" @note-draft="receiveNoteDraft" @return-note="noteDiscussion && openPersonalNote(noteDiscussion.note)" @clear-note="noteDiscussion = null" />
               <PersonalHandoutNotes v-if="currentRevision" v-show="toolTab === 'note'" ref="notesPanel" :key="`notes:${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :notes="personalNotes" :sections="currentRevision.sections" :current-section="activeChapter" @saved="acceptPersonalNote" @removed="removePersonalNote" @locate="locatePersonalNote" @discuss="discussPersonalNote" @session-expired="showError">
                 <template #legacy><div class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div></template>
               </PersonalHandoutNotes>
-              <PersonalHandoutPractice v-if="currentRevision && ['practice', 'mistakes'].includes(toolTab)" :key="`practice:${user.id}:${material.id}:${currentRevision.id}`" :material-id="material.id" :revision-id="currentRevision.id" :current-section="activeChapter" :initial-view="toolTab === 'mistakes' ? 'mistakes' : 'practice'" @jump="jumpToReference" />
-              <div v-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
-              <div v-if="['paths', 'concepts'].includes(toolTab) && !readingToolsReady" class="study-aid-status" role="status">
+              <div v-if="toolTab === 'paths' && !readingToolsReady" class="study-aid-status" role="status">
                 <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
                 <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
                 <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
                 <HandoutConceptMap v-else-if="toolTab === 'paths'" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :title="c('paths')" :origin-label="c('conceptOrigin')" explanatory />
-                <HandoutKnowledgeMap v-else-if="toolTab === 'concepts'" :sections="conceptSections" :current-section="activeChapter" :navigate="jumpToAnchor" />
               </KeepAlive>
             </aside>
           </div>
           <LearningDock v-if="material" v-show="!mobileViewport || !toolsOpen" toolbar placement="bottom" :location="assistantContext.section_title || material.title" :more-hint="c('moreToolsHint')" :active-domain="toolsOpen && moreTools.includes(toolTab) ? 'knowledge-library' : 'course'" @more-toggle="open => { if (open) { closeTool(); closeDirectory() } }">
             <template #tools>
-              <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': isToolActive(tab) }" :aria-pressed="isToolActive(tab)" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', practice: 'practice', paths: 'pathsShort', concepts: 'mapShort' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
+              <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': isToolActive(tab) }" :aria-pressed="isToolActive(tab)" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', paths: 'pathsShort' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
             </template>
             <template #mobile-more><button v-for="tab in moreTools" :key="tab" :data-tool="tab" class="learning-dock__more-action" :class="{ 'is-active': isToolActive(tab) }" @click="openTool(tab)"><component :is="toolIcons[tab]" :size="21" /><span>{{ c(tab) }}</span></button></template>
           </LearningDock>
@@ -158,18 +155,16 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, Route, ChevronRight, PencilLine, BookOpenCheck } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, Route, ChevronRight } from 'lucide-vue-next'
 import { handoutPresentation, handoutContentType } from '../utils/handout-content'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
 import HandoutReferencePanel from '../components/HandoutReferencePanel.vue'
-import HandoutKnowledgeMap from '../components/HandoutKnowledgeMap.vue'
 import HandoutConceptMap from '../components/HandoutConceptMap.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import MathText from '../components/MathText.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
-import PersonalHandoutPractice from '../components/PersonalHandoutPractice.vue'
 import PersonalHandoutNotes from '../components/PersonalHandoutNotes.vue'
 import { capturePersonalAnchor, resolvePersonalAnchor, highlightPersonalNotes } from '../utils/personal-note-anchor'
 import { studyApi, studySession, StudyApiError, STUDY_UPLOAD_ACCEPT, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser, type StudyNote, type AssistantMessage, type NoteDraftSuggestion } from '../api/study'
@@ -207,12 +202,12 @@ const generationIssue = computed<StudyCopyKey | ''>(() => {
 })
 const canGenerate = computed(() => !generationIssue.value)
 function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRanges.value.filter(range => availableRanges.value.has(range)))] }
-const toolTabs = ['note', 'assistant', 'reference', 'practice', 'mistakes', 'paths', 'concepts', 'sources'] as const
+const toolTabs = ['note', 'assistant', 'reference', 'paths'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
-const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText, reference: Sigma, paths: Route, practice: PencilLine, mistakes: BookOpenCheck }
-const primaryTools: StudyTool[] = ['reference', 'paths', 'concepts', 'assistant']
-const moreTools: StudyTool[] = ['note', 'practice', 'mistakes', 'sources']
+const toolIcons = { assistant: MessageCircle, note: NotebookPen, reference: Sigma, paths: Route }
+const primaryTools: StudyTool[] = ['reference', 'paths', 'assistant']
+const moreTools: StudyTool[] = ['note']
 const visibleTools = computed(() => mobileViewport.value ? primaryTools : toolTabs)
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
@@ -476,7 +471,6 @@ const filteredReadingSections = computed(() => {
   return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
     .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => (block.title + ' ' + block.presentation.label).toLocaleLowerCase().includes(query)))
 })
-const reasoningStale = computed(() => Object.values(material.value?.reading_tool_states || {}).includes('stale'))
 const readingToolsReady = computed(() => material.value?.reading_tools_complete === true)
 const usablePlans = computed(() => (material.value?.plans || []).filter((raw: any) => {
   const state = material.value?.reading_tool_states?.[raw.node_id]
@@ -486,7 +480,6 @@ const conceptSections = computed(() => {
   const allowed = new Set((currentRevision.value?.sections || []).flatMap(s => s.blocks.filter(b => !b.answer_to && !['answer', 'exercise', 'question', 'review_question', 'guiding_question'].includes(handoutContentType(b.content_type))).map(b => b.block_id)))
   return buildHandoutConceptSections(usablePlans.value, readingSections.value.map(s => ({ ...s, blocks: s.blocks.filter(b => allowed.has(b.id)) })))
 })
-const selectedSourceScopes = computed(() => material.value?.sources || [])
 let timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
 const noteKey = () => `lingzhi-study-note:${user.value?.id}:${material.value?.id}:${currentRevision.value?.id}`
@@ -640,7 +633,6 @@ async function resume() { await action(async () => { const owner = user.value?.i
 async function saveNote() { await action(async () => { const owner = user.value?.id, id = materialId.value, revision = currentRevision.value!.id, content = noteText.value; await studyApi.note(id, revision, content); if (sameOwner(owner) && id === materialId.value && currentRevision.value?.id === revision) { savedNote.value = content; noteSaved.value = true } }) }
 function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
 async function exportHandout() { await action(async () => { const owner = user.value?.id, title = material.value!.title, blob = await studyApi.export(materialId.value); if (sameOwner(owner)) download(blob, `${title}.md`) }) }
-async function downloadSource(id: string, filename: string) { await action(async () => { const owner = user.value?.id, blob = await studyApi.downloadSource(id); if (sameOwner(owner)) download(blob, filename) }) }
 onBeforeRouteUpdate(() => { followChapter() })
 onBeforeRouteLeave(() => { followChapter(); persistDraft() })
 onMounted(() => { window.addEventListener('resize', updateViewport); window.addEventListener('keydown', closePanels); void action(connect) })
@@ -743,7 +735,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
 .study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
 .study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #e3e8f2; }
-.study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference), .study-reading-tools:has(.handout-paths), .study-reading-tools:has(.handout-knowledge), .study-reading-tools.is-notes, .study-reading-tools.is-practice { overflow: hidden; }
+.study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference), .study-reading-tools:has(.handout-paths), .study-reading-tools:has(.handout-knowledge), .study-reading-tools.is-notes { overflow: hidden; }
 .study-inline-notes { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:-2px 0 20px; }
 .study-inline-notes button { border:0; background:transparent; color:#8b799d; font:13px/1.6 var(--study-ui-font); cursor:pointer; padding:3px 6px; }
 .study-inline-notes .study-note-add { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:0 12px; border:1px solid #ded9ed; border-radius:9px; background:#faf9fd; font-size:14px; line-height:20px; font-weight:500; }
@@ -761,10 +753,6 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-note-status { color: var(--lz-text-muted); font-size: 15px; }
 .study-note-footer button { flex: none; }
 .study-space :deep(.el-button + .el-button) { margin-left: 0; }
-.study-source-list { padding: 20px; }
-.study-source-list article { padding: 16px 0; border-bottom: 1px solid #e3e8f2; }
-.study-source-list strong { font-size: 15px; display: block; margin: 8px 0; overflow-wrap: anywhere; }
-.study-source-list p { font-size: 15px; color: #7e899b; margin: 7px 0; }
 .study-reading-tools :deep(.handout-concept-map) { position: static; border: 0; max-height: none; overflow: visible; }
 .study-reading-tools :deep(.concept-eyebrow) { font-size: 15px; }
 .study-reading-workspace .learning-dock { font-family: var(--study-ui-font); }
@@ -897,7 +885,6 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-note { padding: 12px; }
   .study-note-footer { align-items: start; flex-direction: column; }
   .study-note-footer button { align-self: stretch; min-height: 44px; }
-  .study-source-list { overflow: auto; padding: 14px; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size:12px; line-height:1.25; white-space:normal; }

@@ -31,7 +31,7 @@ from teaching_design import (
 from teaching_diagrams import teaching_diagram_prompt
 from handout_content import handout_writing_guide
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v44"
+PROMPT_CONTRACT_VERSION = "course_prompt_v45"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
@@ -138,10 +138,15 @@ def build_handout_prompt(
         "下一块标记、小节标记或响应结束即结束当前块，不另写块结束标记。"
         + handout_writing_guide()
         + "例子、图表、代码和公式服务当前块的教学目的，不把表达形式当作新的教学类型。"
+        "正文是公式速览的唯一来源，不另输出速览、公式清单或重复摘要。定义、定理、结论分别使用 definition、theorem、result 教学块，标题写具体名称，成立条件和完整解释留在同一正文块。"
+        "核心公式用独立行的 $$...$$ 数学格式；适合行内书写的短等式可用 $...$。正文推导中需突出最终结论时可用行间 \\boxed{...}，不为速览捏造公式，不把代码或纯文字定义强改为等式。例题、练习和答案保持各自类型，不混入定义或定理块。"
         "这不是必选清单：按学习起点、目标、学科、资料和要求自由决定块类型、数量、顺序；允许先推导后定义，不凑齐、不为变化而变化。"
         "一个块承担一个连贯的学习作用，可含多个段落、代码、公式或表格；不要每个自然段都拆块。"
         "解答或自定义反馈块用 answer_to 引用本小节需要回应的练习、思想实验或任务块的 key。"
-        "所有元数据只写在块标记的同一个 JSON 对象内。例如：<!-- block:{\"type\":\"answer\",\"title\":\"自测解答\",\"key\":\"a1\",\"answer_to\":\"q1\"} -->。"
+        "块标记中每个 JSON 键只能出现一次；type 表示教学类型（如 explanation、definition、example），不能填 lingzhi-diagram 或图型名称。"
+        "图表数据只放在当前块正文的 lingzhi-diagram 代码围栏内；图表对象的 type 表示图型，与块标记是两个独立 JSON 对象，不合并字段。"
+        "incomplete_draft 仅供衔接参考，其中可能含错误标记；续作须按当前格式重新输出未完成小节，不照抄草稿的错误元数据。"
+        "教学块元数据只写在块标记的同一个 JSON 对象内。例如：<!-- block:{\"type\":\"answer\",\"title\":\"自测解答\",\"key\":\"a1\",\"answer_to\":\"q1\"} -->。"
         "knowledge 如需提供也放在此 JSON 对象内；正文不另写 answer_to:、knowledge: 等元数据行。"
         "三类不是必选清单，也不规定先后顺序；根据教学目标与内容需要选择，不为凑齐类别增加无意义任务。"
         "练习、实战案例和提问块只放题面、任务与作答要求；参考解答另用 answer 块并以 answer_to 关联所回应任务的 key，"

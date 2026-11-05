@@ -34,6 +34,21 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it.each(['practice', 'mistakes', 'sources', 'concepts'])('ignores removed %s tools and keeps exercises in the handout', async (tab) => {
+    sessionStorage.setItem('lingzhi-study-tools:student-a:material-a', JSON.stringify({ tab, open: true }))
+    const material = structuredClone(saved)
+    material.revisions[0]!.sections[0]!.blocks.push({ block_id: 'q1', content_type: 'exercise', type_label: '练习', title: '自测', content: '请在纸上计算结果', knowledge_names: [], answer_to: '' })
+    api.get.mockResolvedValue(material)
+    const { wrapper } = await page('/study/material-a')
+    expect(wrapper.get('.study-handout').text()).toContain('请在纸上计算结果')
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+    expect(wrapper.findComponent({ name: 'PersonalHandoutPractice' }).exists()).toBe(false)
+    for (const locale of ['zh', 'en'] as const) {
+      await setLocale(locale); await flushPromises()
+      expect(wrapper.findAll('[data-tool]').map(item => item.attributes('data-tool'))).toEqual(['note', 'assistant', 'reference', 'paths'])
+    }
+  })
+
   it('restores an independent reasoning sidebar without replacing notes and remembers its switch', async () => {
     const legacy = structuredClone(saved) as any
     legacy.plans = [{ node_id: 's1', knowledge_structure: [{ knowledge_points: [
@@ -553,7 +568,6 @@ describe('personal study handouts', () => {
 it.each(['direct', 'materials'])('offers the same concept recovery for %s handouts', async generation_mode => {
   api.get.mockResolvedValue({ ...structuredClone(saved), generation_mode, concepts_complete: false })
   const { wrapper } = await page('/study/material-a')
-  await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
   expect(wrapper.text()).toContain('部分阅读辅助尚未整理或已过期')
   expect(wrapper.text()).not.toContain('当前没有资料来源关系图')
   const resume = wrapper.findAll('button').find(button => button.text() === '补齐缺失内容与阅读辅助')!
@@ -571,8 +585,7 @@ it('keeps a partial concept map visible during generation without offering a dup
     task: { ...saved.task, status: 'running' } }
   api.get.mockResolvedValue(partial)
   const { wrapper } = await page('/study/material-a')
-  await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
-  expect(wrapper.text()).toContain('正在整理知识地图与思维链')
+  expect(wrapper.text()).toContain('正在整理思维链')
   expect(wrapper.find('handout-concept-map-stub').exists()).toBe(true)
   expect(wrapper.findAll('button').some(button => button.text() === '补齐缺失内容与阅读辅助')).toBe(false)
 })
@@ -697,8 +710,8 @@ it('protects the reading width on medium screens without losing the preferred di
 it('returns from mobile directory navigation to the passage without reopening a tool', async () => {
   vi.stubGlobal('innerWidth', 390)
   const { wrapper } = await page('/study/material-a')
-  expect(wrapper.findAll('.learning-dock__actions [data-tool]').map(b => b.attributes('data-tool'))).toEqual(['reference', 'paths', 'concepts', 'assistant'])
-  await wrapper.get('[data-tool="concepts"]').trigger('click')
+  expect(wrapper.findAll('.learning-dock__actions [data-tool]').map(b => b.attributes('data-tool'))).toEqual(['reference', 'paths', 'assistant'])
+  await wrapper.get('[data-tool="paths"]').trigger('click')
   await wrapper.get('.study-tool-heading button').trigger('click')
   await wrapper.get('button[aria-label="展开目录"]').trigger('click')
   await wrapper.get('.study-chapter-list button').trigger('click')
