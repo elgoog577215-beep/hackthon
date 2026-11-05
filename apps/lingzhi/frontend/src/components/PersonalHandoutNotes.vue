@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import "../styles/study-tool-controls.css"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
 import { Plus, Star, Trash2, Save, MessageCircle, ChevronUp, Pencil, ArrowUpRight } from 'lucide-vue-next'

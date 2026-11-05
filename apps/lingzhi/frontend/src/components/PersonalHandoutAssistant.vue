@@ -26,12 +26,13 @@
       <ElInput v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }" resize="none" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><button class="assistant-send" type="submit" :aria-label="busy ? c('busy') : c('aiSend')" :title="c('aiSend')" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id"><ArrowUp :size="19" aria-hidden="true" /></button></footer>
       </div>
-      <p v-if="active || (historyReady && conversation?.messages.length)" class="assistant-save-state" role="status">{{ active ? c('running') : c('aiSaved') }}</p>
+      <p v-if="active" class="assistant-save-state" role="status">{{ c('running') }}</p>
     </form>
   </section>
 </template>
 
 <script setup lang="ts">
+import "../styles/study-tool-controls.css"
 import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { ArrowDown, ArrowUp, BookOpen, Lightbulb, Network, NotebookPen, ArrowLeft, MessageCircle } from 'lucide-vue-next'
@@ -110,7 +111,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 
 <style scoped>
 .personal-assistant { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; font:15px/1.75 var(--study-ui-font, var(--handout-sans)); color:#414a5d; }
-.assistant-note-context { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; padding:4px 16px 9px; font-size:13px; color:#856c9c; background:#fbf9fe; }.assistant-note-context :deep(.el-button) { margin:0; height:auto; min-height:32px; font-size:13px; }.assistant-note-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; color:#8a7b97; margin-top:7px; }.assistant-note-actions :deep(.el-button) { margin:0; min-height:32px; font-size:13px; }
+.assistant-note-context { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; padding:4px 16px 9px; font-size:13px; color:#856c9c; background:#fbf9fe; }.assistant-note-context :deep(.el-button) { margin:0; }.assistant-note-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; color:#8a7b97; margin-top:7px; }.assistant-note-actions :deep(.el-button) { margin:0; }
 .assistant-context { flex:none; margin:0; padding:9px 18px; display:flex; align-items:baseline; gap:8px; background:#fcfcfe; }
 .assistant-context strong { flex:none; font-size:12px; font-weight:400; color:#929aab; }
 .assistant-context span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#727c90; font-size:13px; }
@@ -141,15 +142,15 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .personal-assistant .latest-reply { position:absolute; right:18px; bottom:10px; display:flex; align-items:center; gap:5px; min-height:30px; padding:4px 10px; border:1px solid #e6e3ef; border-radius:20px; background:#fff; color:#71658c; box-shadow:0 2px 8px #28354b0b; font:inherit; font-size:12px; font-weight:400; cursor:pointer; }
 .assistant-compose { flex:none; padding:8px 16px 10px; background:#fff; border-top:1px solid #f1f2f6; }
 .assistant-prompts { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 12px; }
-.personal-assistant .assistant-prompts button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #ded9ed; border-radius:9px; background:#f8f6fd; color:#655184; font:inherit; font-size:14px; font-weight:400; line-height:1.5; cursor:pointer; }
+.personal-assistant .assistant-prompts button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:var(--study-control-height); padding:0 12px; border:1px solid #ded9ed; border-radius:9px; background:#f8f6fd; color:#655184; font:inherit; font-size:var(--study-control-font); font-weight:500; line-height:20px; cursor:pointer; }
 .personal-assistant .assistant-prompts button:hover:not(:disabled) { color:#59437e; border-color:#b9a9d5; background:#efebf8; }
 .personal-assistant .assistant-prompts button:disabled { color:#9095a5; border-color:#e4e6ed; background:#f5f6f9; cursor:not-allowed; }
-.assistant-input-shell { display:grid; grid-template-columns:minmax(0,1fr) 34px; align-items:end; gap:8px; padding:8px 8px 8px 12px; border:1px solid #e3e4ec; border-radius:12px; background:#fafafd; transition:border-color .15s; }
+.assistant-input-shell { display:grid; grid-template-columns:minmax(0,1fr) 40px; align-items:center; gap:8px; padding:3px 3px 3px 12px; border:1px solid #e3e4ec; border-radius:12px; background:#fafafd; transition:border-color .15s; }
 .assistant-input-shell:focus-within { border-color:#a99bc5; background:#fff; box-shadow:0 0 0 2px #8c7bc30a; }
-.assistant-input-shell :deep(.el-textarea__inner) { padding:5px 0; box-shadow:none; background:transparent; font-size:15px; line-height:1.6; color:#414a5d; }
+.assistant-input-shell :deep(.el-textarea__inner) { padding:0; box-shadow:none; background:transparent; font-size:16px; line-height:24px; color:#414a5d; }
 .assistant-input-shell :deep(.el-textarea__inner::placeholder) { color:#a0a5b2; }
 .assistant-compose footer { display:flex; margin:0; }
-.personal-assistant .assistant-send { display:grid; place-items:center; width:34px; height:34px; min-height:34px; padding:0; border:0; border-radius:9px; color:#fff; background:#7966aa; cursor:pointer; }
+.personal-assistant .assistant-send { display:grid; place-items:center; width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:9px; color:#fff; background:#7966aa; cursor:pointer; }
 .personal-assistant .assistant-send:hover:not(:disabled) { background:#695598; }
 .personal-assistant .assistant-send:disabled { color:#b0adc0; background:#eceaf2; cursor:default; }
 .assistant-save-state { min-height:16px; margin:5px 2px 0; color:#8790a1; font-size:12px; line-height:1.5; }
@@ -161,8 +162,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
   .assistant-context { padding:8px 14px; }
   .assistant-thread { padding:14px 16px 48px; }
   .assistant-compose { padding:4px 12px 8px; }
-  .personal-assistant .assistant-prompts button { min-height:44px; }
-  .assistant-input-shell { grid-template-columns:minmax(0,1fr) 44px; padding:5px 5px 5px 10px; }
+
+  .assistant-input-shell { grid-template-columns:minmax(0,1fr) 44px; padding:2px 2px 2px 12px; }
   .personal-assistant .assistant-send { width:44px; height:44px; }
   .personal-assistant .latest-reply { min-height:44px; bottom:6px; }
   .assistant-input-shell :deep(.el-textarea__inner) { font-size:16px; }
@@ -172,8 +173,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 }
 .assistant-prompts svg { flex:none; }
 .assistant-prompts button:active:not(:disabled) { background:#e7e0f3; }
-.assistant-action { border-color:#dcd6e9; background:#fff; color:#665184; border-radius:8px; padding:8px 11px; }
+.assistant-action { border-color:#dcd6e9; background:#fff; color:#665184; border-radius:9px; padding:0 12px; }
 .assistant-action :deep(span) { gap:6px; }
 .assistant-action :deep(svg) { flex:none; }
-@media(max-width:760px) { .assistant-prompts { gap:7px; } .personal-assistant .assistant-prompts button { flex:1 1 90px; padding:8px; font-size:13px; } }
+@media(max-width:760px) { .assistant-prompts { gap:7px; } .personal-assistant .assistant-prompts button { flex:1 1 90px; padding:0 8px; font-size:var(--study-control-font); } }
 </style>

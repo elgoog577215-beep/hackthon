@@ -132,7 +132,7 @@ describe('personal handout assistant', () => {
     await vi.advanceTimersByTimeAsync(1500); await flushPromises()
     expect(view.text()).toContain('保存的完整解释')
     expect(api.ask).toHaveBeenCalledTimes(1)
-    expect(view.text()).toContain('对话已保存')
+    expect(view.text()).not.toContain('对话已保存')
   })
   it('retains input and request identity after a lost response, restoring only its owner’s draft', async () => {
     const view = page(); await flushPromises()

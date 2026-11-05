@@ -1,0 +1,15 @@
+/* Shared action metrics across personal learning tools. */
+.personal-assistant,.personal-notes,.personal-practice {
+  --study-control-height:40px;
+  --study-control-font:14px;
+}
+.study-space :is(.personal-assistant,.personal-notes,.personal-practice) .el-button:not(.is-text):not(.is-link) {
+  box-sizing:border-box; height:auto; min-height:var(--study-control-height);
+  padding:8px 12px; border-radius:9px; font-size:var(--study-control-font); font-weight:500; line-height:20px;
+}
+.personal-assistant .el-button > span,.personal-notes .el-button > span,.personal-practice .el-button > span {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; line-height:20px;
+}
+@media(max-width:760px) {
+  .personal-assistant,.personal-notes,.personal-practice { --study-control-height:44px; }
+}

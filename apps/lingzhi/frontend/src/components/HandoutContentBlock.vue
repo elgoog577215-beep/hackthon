@@ -4,10 +4,11 @@
     :style="presentation.style" :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
-        <span v-if="displayLabel" class="handout-block__label" :title="definition?.purpose?.[activeLocale]">{{ displayLabel }}</span>
-        <span v-if="displayLabel && title" class="handout-block__separator" aria-hidden="true">·</span>
+        <div v-if="group || displayLabel" class="handout-block__tags">
+          <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
+          <span v-if="displayLabel" class="handout-block__label" :title="definition?.purpose?.[activeLocale]">{{ displayLabel }}</span>
+        </div>
         <h5 v-if="title"><MathText :content="displayTitle" /></h5>
-        <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
       </div>
       <span v-if="isAnswerDisclosure" class="handout-block__disclosure">
         <span class="handout-block__reveal">{{ t('courseWorkbench.scriptDocument.revealAnswer', '展开解答') }}</span>
@@ -67,11 +68,12 @@ const displayTitle = computed(() => {
 <style scoped>
 .handout-block{--handout-accent:#657080;--handout-tint:transparent;--handout-edge:#e1e5ec;min-width:0;margin:26px 0;padding:0;color:#242a35;font:18px/1.95 var(--handout-serif)}
 .handout-block__heading{display:flex;align-items:baseline;justify-content:space-between;gap:20px;margin-bottom:9px}
-.handout-block__identity{min-width:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 8px}
-.handout-block__label,.handout-block__separator{flex:none;color:var(--handout-accent);font:700 15px/1.7 var(--handout-sans)}
+.handout-block__identity{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.handout-block__tags{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.handout-block__label,.handout-block__group{display:inline-flex;align-items:center;min-height:24px;box-sizing:border-box;padding:1px 8px;border:1px solid var(--handout-edge);border-radius:5px;color:var(--handout-accent);background:color-mix(in srgb,var(--handout-accent) 7%,white);font:600 13px/20px var(--handout-sans)}
 .handout-block__heading h5{margin:0;color:var(--handout-accent);font:700 15px/1.7 var(--handout-sans);overflow-wrap:anywhere}
 .handout-block--continuous>.handout-block__heading{margin:32px 0 14px}
-.handout-block--continuous>.handout-block__heading h5{color:#242a35;font:700 21px/1.6 var(--handout-serif)}
+.handout-block--continuous>.handout-block__heading h5{color:#242a35;font:700 20px/1.6 var(--handout-serif)}
 .handout-block__body :deep(.markdown-renderer){font:inherit;color:inherit}
 .handout-block__body :deep(.markdown-renderer> :first-child){margin-top:0}
 .handout-block__body :deep(.markdown-renderer> :last-child){margin-bottom:0}
@@ -82,10 +84,10 @@ const displayTitle = computed(() => {
 .handout-block--answer>.handout-block__heading:focus-visible{outline:3px solid #328dcc;outline-offset:3px}
 .handout-block--answer>.handout-block__body{padding:6px 20px 20px}
 .handout-block--answer>.handout-block__heading h5{color:#315e91;font:650 16px/1.7 var(--handout-sans)}
-.handout-block__group{flex:none;margin-left:4px;color:#657080;font:400 15px/1.7 var(--handout-sans)}
+.handout-block__group{color:#657080;background:#f4f5f8;border-color:#e1e5ec;font-weight:500}
 
 .handout-block:not(.handout-block--continuous):not(.handout-block--answer)>.handout-block__heading{margin:0 0 12px}
-.handout-block:not(.handout-block--continuous):not(.handout-block--answer)>.handout-block__heading h5{color:#242a35;font:700 19px/1.6 var(--handout-serif)}
+.handout-block:not(.handout-block--continuous):not(.handout-block--answer)>.handout-block__heading h5{color:#242a35;font:700 20px/1.6 var(--handout-serif)}
 .handout-block--warning .handout-block__label,.handout-block--warning .handout-block__separator{color:#a64355}
 .handout-block__disclosure{flex:none;display:flex;align-items:center;gap:8px;color:#315e91;font:650 15px/1.7 var(--handout-sans)}
 .handout-block__hide{display:none}

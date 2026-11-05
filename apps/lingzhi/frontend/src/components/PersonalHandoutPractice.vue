@@ -104,6 +104,7 @@
 </template>
 
 <script setup lang="ts">
+import "../styles/study-tool-controls.css"
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
 import { ArrowUpRight, PencilLine, History, BookOpenCheck, Lightbulb, BookOpen, ArrowLeft, NotebookPen } from 'lucide-vue-next'
