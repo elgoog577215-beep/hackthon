@@ -372,6 +372,11 @@ async def test_shared_writer_purposes_completed_sections_save_notes_and_reopen(s
         assert all(section['complete'] for section in saved['revisions'][0]['sections'])
         assert all(section['blocks'][-1]['answer_to'] == section['blocks'][1]['block_id'] for section in saved['revisions'][0]['sections'])
         last_handout = next(call[1] for call in reversed(writer.calls) if call[0].startswith('study-section-'))
+        assert last_handout['completed_sections'] == []
+        prior = last_handout['course_context']['completed_lecture_index']
+        assert len(prior) == 1 and prior[0]['blocks'][0]['title'] == '向量'
+        assert 'content' not in prior[0] and 'content' not in prior[0]['blocks'][0]
+
         assert ('应试讲义' if purpose == 'exam_prep' else '整体理解讲义') in last_handout['requirements']
         repo.save_note(owner, material['id'], material['task_id'], '理解记录')
         repo.save_note(owner, material['id'], material['task_id'], '理解记录')
@@ -715,3 +720,17 @@ async def test_legacy_reading_aids_upgrade_is_explicit_and_failure_retains_old_m
     assert after['revisions'] == before['revisions'] and after['notes'] == before['notes']
     assert [call[0] for call in writer.calls[count:]] == ['scope', 'scope']
     assert client.get('/api/study/materials/' + material['id'], headers=headers).json()['reading_tools_complete']
+
+
+def test_completed_lecture_index_cost_does_not_grow_with_prose_and_preserves_records():
+    from study.service import completed_lecture_index
+    sections = [{'id': 's1', 'title': '第一讲', 'complete': True, 'content': '正文' * 50000,
+                 'draft_text': '完整原始响应' * 10000,
+                 'blocks': [{'block_id': 'b1', 'content_type': 'definition', 'title': '变量', 'content': '长定义' * 10000}]},
+                {'id': 's2', 'title': '第二讲', 'complete': False, 'fragment': '未完成片段'}]
+    original = deepcopy(sections)
+    index = completed_lecture_index(sections)
+    assert index == [{'section_id': 's1', 'title': '第一讲', 'blocks': [{'block_id': 'b1', 'type': 'definition', 'title': '变量'}]}]
+    assert sections == original
+    sections[0]['content'] += '更多正文' * 100000
+    assert completed_lecture_index(sections) == index

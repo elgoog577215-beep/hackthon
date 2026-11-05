@@ -19,7 +19,7 @@ PURPOSES = {
 }
 
 
-STUDY_PROMPT_VERSION = "personal_study_v2"
+STUDY_PROMPT_VERSION = "personal_study_v3"
 
 
 def learning_profile(request: dict) -> dict:
@@ -45,6 +45,14 @@ def handout_learning_context(request: dict, outlines: list[dict], index: int) ->
     }
 
 
+def completed_lecture_index(sections: list[dict]) -> list[dict]:
+    """Project navigation metadata, never replay or modify saved lecture prose."""
+    return [{"section_id": section["id"], "title": section["title"],
+             "blocks": [{"block_id": block["block_id"], "type": block.get("content_type", ""),
+                         "title": block.get("title", "")} for block in section.get("blocks", [])]}
+            for section in sections if section.get("complete")]
+
+
 def self_study_requirements(request: dict, outline: dict, outlines: list[dict], index: int) -> str:
     # Time is a whole-course constraint, not an allowance repeated per chapter.
     return (
@@ -53,6 +61,7 @@ def self_study_requirements(request: dict, outline: dict, outlines: list[dict], 
           f"共 {len(outlines)} 讲，当前第 {index + 1} 讲；这不是每讲的时长。按各讲任务分配篇幅与练习量，不承诺精确用时。"
         + "\n课程全貌见 student_learning.course_map；本讲只完整展开自己负责的目标，"
           "已学内容简短承接，后续内容只作必要引入，不重复写整套定义和例题。"
+          "completed_lecture_index仅是已完成正文的目录索引，不是原文或内容摘要；不得据标题声称前文给出了某个具体公式、例题数据或结论。当前讲需要的依据须在当前来源中找到，或在本讲完整定义并推导。"
           "来源标题不是现成教案：结合目标与学习起点组织本讲，但不遗漏所选范围的关键条件。"
         + "\n教学块按学习任务编排，不机械凑齐类型："
           "讲解先补理解当前问题所必需的基础，定义避免同义反复，推导写明依据，例子展示完整过程；"
@@ -523,12 +532,12 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
                     requirements=self_study_requirements(request, outline, outlines, index),
-                    completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}
-                                        for section in revision["sections"] if section["complete"]],
+                    completed_sections=[],
                     partial_text=saved.get("draft_text", "") if saved else "",
                     course_context={"course_name": request["title"], "learning_purpose": request["purpose"],
                                     "audience": request["level"],
                                     "student_learning": handout_learning_context(request, outlines, index),
+                                    "completed_lecture_index": completed_lecture_index(revision["sections"]),
                                     "source_policy": (
                                         "按学生的目标与场景直接生成通用自学讲义；不引用上传资料，不伪造来源或教师课程内容。"
                                         if not has_sources else "以所选来源范围为准，补充内容明确标为补充")},

@@ -34,6 +34,20 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('personal study handouts', () => {
+  it('explains input budget failure without retrying or replacing completed text', async () => {
+    api.get.mockResolvedValue({ ...structuredClone(saved), status: 'failed', task: { ...saved.task, status: 'failed', error_code: 'generation_budget_exceeded' } })
+    const { wrapper } = await page('/study/material-a')
+    expect(wrapper.get('.study-progress').text()).toContain('请求输入超出限制')
+    expect(wrapper.get('.study-progress').text()).toContain('重新检查输入并继续')
+    expect(wrapper.get('.study-progress').text()).not.toContain('可以主动继续')
+    expect(wrapper.get('.study-handout').text()).toContain('真实讲义正文')
+    expect(api.resume).not.toHaveBeenCalled()
+    expect(api.generate).not.toHaveBeenCalled()
+    await setLocale('en'); await flushPromises()
+    expect(wrapper.get('.study-progress').text()).toContain('exceeded the input limit')
+    expect(wrapper.get('.study-progress').text()).toContain('Check input and continue')
+  })
+
   it.each(['practice', 'mistakes', 'sources', 'concepts'])('ignores removed %s tools and keeps exercises in the handout', async (tab) => {
     sessionStorage.setItem('lingzhi-study-tools:student-a:material-a', JSON.stringify({ tab, open: true }))
     const material = structuredClone(saved)

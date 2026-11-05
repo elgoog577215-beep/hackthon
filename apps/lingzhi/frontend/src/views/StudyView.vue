@@ -95,7 +95,7 @@
               <div class="study-reading-with-reasoning">
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
-                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
+                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ budgetBlocked ? c('generationBudgetExceeded') : ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
                   <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section">
@@ -116,7 +116,7 @@
                 <HandoutConceptMap v-if="hasReasoning" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')">
                   <template #actions><ElButton text circle class="study-reasoning-close" :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton></template>
                 </HandoutConceptMap>
-                <div v-else class="study-aid-status" role="status"><p>{{ reasoningStatus }}</p><ElButton text :aria-label="c('closeReasoning')" @click="toggleReasoning">{{ t('common.close') }}</ElButton><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton></div>
+                <div v-else class="study-aid-status" role="status"><p>{{ reasoningStatus }}</p><ElButton text :aria-label="c('closeReasoning')" @click="toggleReasoning">{{ t('common.close') }}</ElButton><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'completeConcepts') }}</ElButton></div>
               </aside>
               </div>
             </div>
@@ -130,7 +130,7 @@
               </PersonalHandoutNotes>
               <div v-if="toolTab === 'paths' && !hasReasoning" class="study-aid-status" role="status">
                 <p>{{ reasoningStatus }}</p>
-                <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
+                <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'completeConcepts') }}</ElButton>
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
                 <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
@@ -463,6 +463,7 @@ const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandl
   rightVisible: () => Boolean(materialId.value && material.value && toolsOpen.value),
 })
 const materialStatus = computed(() => material.value?.task?.status || material.value?.status || 'pending')
+const budgetBlocked = computed(() => materialStatus.value === 'failed' && material.value?.task?.error_code === 'generation_budget_exceeded')
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
 const blockAnchor = (id: string) => `study-${materialId.value}-${id}`
@@ -473,7 +474,7 @@ const filteredReadingSections = computed(() => {
     .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => (block.title + ' ' + block.presentation.label).toLocaleLowerCase().includes(query)))
 })
 const hasReasoning = computed(() => conceptSections.value.some(section => section.nodes.length))
-const reasoningStatus = computed(() => c(isGenerating.value ? (material.value?.task?.phase === 'study_concepts' ? 'preparingConcepts' : 'reasoningAfterText') : 'missingConcepts'))
+const reasoningStatus = computed(() => budgetBlocked.value ? c('generationBudgetExceeded') : c(isGenerating.value ? (material.value?.task?.phase === 'study_concepts' ? 'preparingConcepts' : 'reasoningAfterText') : 'missingConcepts'))
 const usablePlans = computed(() => (material.value?.plans || []).filter((raw: any) => {
   const state = material.value?.reading_tool_states?.[raw.node_id]
   return state !== 'stale' && state !== 'missing' && (!raw.handout_revision_id || raw.handout_revision_id === currentRevision.value?.id)

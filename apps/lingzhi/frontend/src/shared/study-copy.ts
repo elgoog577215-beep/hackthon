@@ -15,6 +15,8 @@ const messages = {
   referenceContext: ['条件与上下文', 'Conditions and context'],
   referenceResult: ['结论', 'Results'], referenceMethod: ['方法', 'Methods'], referenceWarning: ['易错', 'Pitfalls'],
   paths: ['思维链', 'Reasoning'],
+  generationBudgetExceeded: ['上次生成因请求输入超出限制而停止，已完成正文已保留。直接重复请求不会解决；调整范围或修复请求后，可重新检查输入并继续。', 'The last request exceeded the input limit. Completed text is saved. Repeating the same request will not help; adjust the scope or fix the request before checking and continuing.'],
+  recheckGeneration: ['重新检查输入并继续', 'Check input and continue'],
   reasoningMissing: ['当前讲义尚无可展示的知识关系与推导，已有正文保持不变。', 'No knowledge connections or derivations are available for this handout yet. The text is unchanged.'],
   reasoningStale: ['正文已更新，旧关系与推导暂不展示，以免与当前正文混用。', 'The text has changed. Earlier connections and derivations are hidden to avoid mixing revisions.'],
   closeReasoning: ['收起思维链', 'Close reasoning sidebar'],
