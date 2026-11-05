@@ -716,7 +716,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference), .study-reading-tools:has(.handout-paths), .study-reading-tools:has(.handout-knowledge), .study-reading-tools.is-notes, .study-reading-tools.is-practice { overflow: hidden; }
 .study-inline-notes { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:-2px 0 20px; }
 .study-inline-notes button { border:0; background:transparent; color:#8b799d; font:13px/1.6 var(--study-ui-font); cursor:pointer; padding:3px 6px; }
-.study-inline-notes .study-note-add { display:flex; align-items:center; gap:4px; }
+.study-inline-notes .study-note-add { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:40px; padding:0 12px; border:1px solid #ded9ed; border-radius:9px; background:#faf9fd; font-size:14px; line-height:20px; font-weight:500; }
 .study-inline-notes .study-inline-note { max-width:100%; text-align:left; background:#f3eef9; border-radius:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#715b88; }
 .study-inline-note > span:first-child { margin-right:7px; font-weight:600; }.study-inline-notes .is-question { color:#9d713d; background:#faf4e9; }
 :global(::highlight(lingzhi-personal-notes)) { background:#f5e0a5; color:inherit; }
@@ -858,7 +858,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-reading-tools { position: fixed; z-index: 92; inset: auto 8px calc(66px + env(safe-area-inset-bottom)); width: auto; height: min(70dvh, 720px); max-height: calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 1px solid #e3e8f2; border-radius: 16px 16px 12px 12px; box-shadow: 0 18px 56px rgb(21 31 55 / 22%); }
   .study-tool-heading { min-height: 52px; padding: 7px 12px; }
   .study-tool-heading :deep(.el-button) { width: 44px; height: 44px; }
-  .study-inline-notes button { min-height:44px; }
+  .study-inline-notes button,.study-inline-notes .study-note-add { min-height:44px; }
   .study-inline-notes { user-select:none; }
   .study-note { padding: 12px; }
   .study-note-footer { align-items: start; flex-direction: column; }
