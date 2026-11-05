@@ -11,12 +11,13 @@
         :placeholder="t('workspaceUi.searchCourses')"
         :aria-label="t('workspaceUi.searchCourses')"
       ><template #prefix><Search :size="17" /></template></ElInput>
-      <UiSegmentedControl
+      <UiSelectMenu
         v-if="unified"
         class="library-filter-tabs"
+        :label="copy('来源', 'Source')"
         :model-value="filter"
         :options="filters"
-        :accessibility-label="t('workspaceUi.myCourses')"
+        :accessibility-label="copy('按课程来源筛选', 'Filter by course source')"
         @update:model-value="selectFilter"
       />
       <div class="library-heading-actions">
@@ -54,6 +55,7 @@
             >{{ course.title }}</RouterLink
           ><span v-else>{{ course.title }}</span></template
         >
+        <p class="course-source-label">{{ t("workspaceUi.teacherCourses") }}</p>
         <p v-if="course.update_available" class="update-hint">
           {{ copy("教师发布了新版本", "Your teacher published an update") }}
         </p>
@@ -206,6 +208,7 @@
             item.title
           }}</RouterLink></template
         >
+        <p class="course-source-label">{{ t("workspaceUi.ownedCourses") }} · {{ c(item.purpose) }}</p>
         <p v-if="item.status !== 'completed'" role="status">{{ statusLabel(item.status) }}</p>
         <template #actions
           ><RouterLink
@@ -236,7 +239,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElButton, ElInput } from "element-plus";
-import UiSegmentedControl from "./UiSegmentedControl.vue";
+import UiSelectMenu from "./UiSelectMenu.vue";
 import { ArrowRight, Plus, Search } from "lucide-vue-next";
 import {
   studyApi,
@@ -465,10 +468,10 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .student-courses {
-  max-width: 1320px;
+  max-width: 1408px;
   box-sizing: border-box;
   margin: auto;
-  padding: 36px;
+  padding: 24px clamp(20px, 3.2vw, 44px) 40px;
   color: var(--lz-text);
   font-size: 15px;
 }
@@ -477,7 +480,7 @@ onBeforeUnmount(() => {
 .library-filters {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 .course-library-heading {
   justify-content: space-between;
@@ -496,29 +499,36 @@ p {
 }
 .library-heading-actions { margin-left: auto; }
 .library-filters {
-  margin: 0 0 22px;
+  margin: 0 0 18px;
   flex-wrap: wrap;
 }
 .course-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  align-items: start;
+  overflow: hidden;
+  border: 1px solid var(--lz-border);
+  border-radius: 12px;
+  background: var(--lz-surface);
+  box-shadow: 0 1px 2px rgba(30, 41, 59, .025);
 }
 .course-start {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--lz-brand-border, #c7d2fe);
+  border-radius: 8px;
+  background: var(--lz-surface);
+  white-space: nowrap;
   color: var(--lz-brand-strong);
   font-weight: 600;
   text-decoration: none;
 }
+.course-start:hover { background: var(--lz-brand-soft); border-color: var(--lz-brand); }
 .course-resources {
-  margin-top: 16px;
-  border-top: 1px solid var(--lz-border);
-  padding-top: 14px;
+  margin-top: 12px;
+  padding-top: 8px;
 }
+.course-resources[open] { border-top: 1px solid var(--lz-border); padding-top: 14px; }
 .personal-course-materials a {
   display: block;
   padding: 10px 0;
@@ -563,7 +573,11 @@ p {
   color: var(--lz-brand-strong);
 }
 .course-empty {
-  padding: 32px 0;
+  min-height: 300px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 32px;
 }
 [role="alert"] {
   color: var(--lz-danger);
@@ -573,15 +587,7 @@ summary:focus-visible {
   outline: 2px solid var(--lz-brand);
   outline-offset: 3px;
 }
-@media (max-width: 1150px) {
-  .course-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 @media (max-width: 760px) {
-  .course-grid {
-    grid-template-columns: 1fr;
-  }
   .course-library-heading {
     align-items: start;
     flex-wrap: wrap;
@@ -601,12 +607,6 @@ summary:focus-visible {
   .library-search :deep(.el-input__wrapper) {
     min-height: 44px;
     box-sizing: border-box;
-  }
-  .library-filter-tabs :deep(.ui-segmented-control) {
-    height: 48px;
-  }
-  .library-filter-tabs :deep(.ui-segmented-control button) {
-    height: 40px;
   }
   .library-heading-actions {
     margin-left: auto;
@@ -632,7 +632,14 @@ summary:focus-visible {
     padding-inline: 6px;
   }
 }
-.library-search { flex: 0 1 330px; min-width: 240px; }
-.library-filter-tabs { --ui-segment-font-size: 15px; }
+.library-search { flex: 1 1 360px; min-width: 240px; }
+.library-search :deep(.el-input__wrapper) { min-height: 48px; box-sizing: border-box; background: var(--lz-surface); border-radius: 9px; box-shadow: 0 0 0 1px var(--lz-border) inset; }
+.library-search :deep(.el-input__wrapper.is-focus) { box-shadow: 0 0 0 1px var(--lz-brand) inset, 0 0 0 3px color-mix(in srgb, var(--lz-brand) 12%, transparent); }
+.library-filter-tabs { width: 200px; flex: 0 0 200px; }
+@media (max-width: 760px) {
+  .library-search { flex-basis: 100%; }
+  .library-filter-tabs { flex: 1; min-width: 140px; }
+  .library-heading-actions { gap: 8px; }
+}
 .student-courses :deep(.el-button + .el-button) { margin-left: 0; }
 </style>
