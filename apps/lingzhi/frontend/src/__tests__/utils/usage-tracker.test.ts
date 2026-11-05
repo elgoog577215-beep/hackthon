@@ -115,6 +115,41 @@ describe('usage tracker privacy and delivery', () => {
     expect(headers).toEqual(['learner-one', 'teacher-two'])
   })
 
+  it('retains an unauthorized batch until credentials recover', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+    initialize()
+    trackPageView({ routeName: 'learning' })
+    expect(await flushUsageEvents()).toBe(false)
+    expect(await flushUsageEvents()).toBe(true)
+    expect(requestBody(1)).toEqual(requestBody(0))
+  })
+
+  it('defers other students without blocking teacher delivery or mixing credentials', async () => {
+    let studentToken: string | null = null
+    initializeUsageTracking({
+      endpoint: '/api/usage-events/batch',
+      identityProvider: () => 'teacher-one',
+      authorizationProvider: owner => owner === 'local-student:one' ? studentToken : '',
+      contextProvider: () => ({ surface: 'teacher' }),
+    })
+    trackPageView({ userId: 'local-student:one', surface: 'learner' })
+    trackPageView({ userId: 'teacher-one', surface: 'teacher' })
+    expect(await flushUsageEvents()).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).headers).toEqual({
+      'Content-Type': 'application/json', 'X-User-Id': 'teacher-one',
+    })
+    studentToken = 'restored-session'
+    expect(await flushUsageEvents()).toBe(true)
+    expect((vi.mocked(fetch).mock.calls[1]?.[1] as RequestInit).headers).toEqual({
+      'Content-Type': 'application/json', 'X-User-Id': 'local-student:one',
+      Authorization: 'Bearer restored-session',
+    })
+    expect(JSON.stringify(requestBody(1))).not.toContain('restored-session')
+  })
+
   it('supports a complete client-side off switch and clears queued events', async () => {
     initialize()
     trackPageView({ routeName: 'learning' }, 'initial')

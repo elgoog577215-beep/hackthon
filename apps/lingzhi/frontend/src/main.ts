@@ -25,6 +25,7 @@ import {
   trackPageView,
   type UsageSurface,
 } from './utils/usage-tracker'
+import { getUsageAuthorization } from './utils/usage-authorization'
 import { installElementErrorBridge } from './utils/element-error-bridge'
 
 const usageSurface = (route: typeof router.currentRoute.value): UsageSurface => (
@@ -57,7 +58,7 @@ const bootstrap = async () => {
     initializeUsageTracking({
       endpoint: withApiBase('/api/usage-events/batch'),
       identityProvider: getActiveRequestIdentity,
-      authorizationProvider: getQizhiAccessToken,
+      authorizationProvider: getUsageAuthorization,
       contextProvider: currentUsageContext,
     })
     let initialNavigation = true

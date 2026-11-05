@@ -34,7 +34,7 @@ interface QueuedUsageEvent extends UsageEventInput {
 interface UsageTrackerOptions {
   endpoint: string
   identityProvider: () => string
-  authorizationProvider?: () => string
+  authorizationProvider?: (ownerId: string) => string | null
   contextProvider: () => Omit<UsageContext, 'userId'>
 }
 
@@ -297,12 +297,15 @@ const flushQueuedEvents = async (): Promise<boolean> => {
   for (let pass = 0; pass < 20; pass += 1) {
     const queue = readQueue()
     if (!queue.length) return true
-    const ownerId = queue[0]!.owner_id
+    const deliverable = queue.find(item => options!.authorizationProvider?.(item.owner_id) !== null)
+    if (!deliverable) return false
+    const ownerId = deliverable.owner_id
     const batch = queue.filter(item => item.owner_id === ownerId).slice(0, BATCH_SIZE)
     const ids = new Set(batch.map(item => item.client_event_id))
     let response: Response
     try {
-      const token = options.authorizationProvider?.() || ''
+      const token = options.authorizationProvider?.(ownerId)
+      if (token === null) return false
       response = await fetch(options.endpoint, {
         method: 'POST',
         headers: {
@@ -319,7 +322,7 @@ const flushQueuedEvents = async (): Promise<boolean> => {
       return false
     }
     if (!response.ok) {
-      if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+      if (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 408 && response.status !== 429) {
         writeQueue(queue.filter(item => !ids.has(item.client_event_id)))
       }
       return false
