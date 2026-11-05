@@ -1,20 +1,22 @@
 <template>
   <section class="personal-assistant" :aria-label="c('assistant')">
     <header class="assistant-context"><strong>{{ c('discussing') }}</strong><span :title="context.section_title">{{ context.section_title }}</span></header>
+    <div v-if="note" class="assistant-note-context"><span>{{ c('notesDiscuss') }}</span><ElButton text @click="emit('returnNote')">{{ c('notesReturn') }}</ElButton><ElButton text @click="emit('clearNote')">{{ c('notesStopDiscussing') }}</ElButton></div>
     <div class="assistant-conversation">
-    <div ref="thread" class="assistant-thread" tabindex="0" aria-live="polite" @scroll="handleMessageScroll">
+    <div ref="thread" class="assistant-thread" tabindex="0" :aria-label="c('assistant')" @scroll="handleMessageScroll">
       <div ref="threadContent">
       <p v-if="historyLoading" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
-      <article v-for="message in conversation?.messages || []" :key="message.message_id" :class="['assistant-message', message.role]">
+      <article v-for="message in visibleMessages" :key="message.message_id" :class="['assistant-message', message.role]">
         <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
         <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
         <MarkdownRenderer :content="message.content" :smooth-stream="message.role === 'assistant'" :animate-initial="newMessageIds.has(message.message_id)" :enable-code-run="false" />
+        <div v-if="message.role === 'assistant' && message.status === 'complete' && message.content" class="assistant-note-actions"><ElButton v-if="!note" text @click="emit('saveReply', message)">{{ c('notesSaveReply') }}</ElButton><template v-else-if="message.note_draft !== undefined"><span>{{ c('notesDraftUpdated') }}</span><ElButton text @click="emit('returnNote')">{{ c('notesReturn') }}</ElButton></template></div>
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
         <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><ElButton :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</ElButton></template>
       </article>
       </div>
     </div>
-      <button v-if="!followingLatest && conversation?.messages.length" type="button" class="latest-reply" @click="scrollToBottom"><ArrowDown :size="14" aria-hidden="true" />{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
+      <button v-if="!followingLatest && visibleMessages.length" type="button" class="latest-reply" @click="scrollToBottom"><ArrowDown :size="14" aria-hidden="true" />{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
     </div>
     <form class="assistant-compose" @submit.prevent="send()">
       <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><p>{{ context.quote }}</p></div>
@@ -35,32 +37,49 @@ import { ElButton, ElInput } from 'element-plus'
 import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
-import { studyApi, StudyApiError, type AssistantContext, type AssistantConversation, type AssistantMessage } from '../api/study'
+import { studyApi, StudyApiError, type AssistantContext, type AssistantConversation, type AssistantMessage, type StudyNote, type NoteDraftSuggestion } from '../api/study'
 import { activeLocale, t } from '../shared/i18n'
 import { studyCopy as c } from '../shared/study-copy'
 import { useFollowingScroll } from '../composables/useFollowingScroll'
-const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext }>()
-const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError] }>()
+const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext; note?: StudyNote; noteDraft?: string }>()
+const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError]; saveReply: [message: AssistantMessage]; noteDraft: [value: NoteDraftSuggestion]; returnNote: []; clearNote: [] }>()
 const prompts = ['aiExplain','aiExample','aiDiagram'] as const
-const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' && props.context.quote ? 'aiExplainQuote' : key)
+const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' ? props.note ? 'aiExplainNote' : props.context.quote ? 'aiExplainQuote' : key : key)
 const conversation = ref<AssistantConversation | null>(null), input = ref(''), error = ref(''), busy = ref(false), thread = ref<HTMLElement | null>(null)
 const historyLoading = ref(false), historyReady = ref(false)
 const threadContent = ref<HTMLElement | null>(null)
+const visibleMessages = computed(() => (conversation.value?.messages || []).filter(m => props.note ? m.context_ref.note_id === props.note.id : !m.context_ref.note_id))
 const { followingLatest, handleMessageScroll, scrollToBottom } = useFollowingScroll(thread,
-  () => [conversation.value?.messages.length, conversation.value?.messages.at(-1)?.content], () => true, threadContent)
+  () => [visibleMessages.value.length, visibleMessages.value.at(-1)?.content], () => true, threadContent)
 const newMessageIds = ref(new Set<string>())
 let knownMessages: Set<string> | undefined
+const sentDrafts = new Set<string>()
 function acceptConversation(result: AssistantConversation) {
   for (const message of result.messages) if (knownMessages && !knownMessages.has(message.message_id)) newMessageIds.value.add(message.message_id)
   knownMessages = new Set(result.messages.map(message => message.message_id))
   conversation.value = result
+  const latest = [...result.messages].reverse().find(m => m.role === 'assistant' && m.status === 'complete' && m.context_ref.note_id === props.note?.id && m.note_version === props.note?.version && m.note_draft !== undefined)
+  if (latest && props.note && !sentDrafts.has(latest.message_id)) {
+    sentDrafts.add(latest.message_id)
+    emit('noteDraft', { noteId: props.note.id, noteVersion: latest.note_version!, content: latest.note_draft!, messageId: latest.message_id, basedOnDraft: latest.based_on_note_draft || '' })
+  }
 }
 const active = computed(() => conversation.value?.messages.some(m => ['pending','running'].includes(m.status)) || false)
-const key = `lingzhi-study-ai:${props.ownerId}:${props.materialId}:${props.revisionId}`
-let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), fingerprint = '', observation = 0
-try { const draft = JSON.parse(sessionStorage.getItem(key) || '{}'); input.value = draft.input || ''; requestId = draft.requestId || requestId; fingerprint = draft.fingerprint || '' } catch { /* Saved replies remain server-owned. */ }
-function keepDraft() { try { sessionStorage.setItem(key, JSON.stringify({ input: input.value, requestId, fingerprint })) } catch { /* Browser storage must not prevent asking or editing. */ } }
-watch(input, keepDraft)
+const key = computed(() => `lingzhi-study-ai:${props.ownerId}:${props.materialId}:${props.revisionId}${props.note ? `:note:${props.note.id}` : ''}`)
+let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), fingerprint = '', observation = 0, scopeGeneration = 0
+function restoreDraft() {
+  input.value = ''; requestId = createUuid(); fingerprint = ''
+  try { const draft = JSON.parse(sessionStorage.getItem(key.value) || '{}'); input.value = draft.input || ''; requestId = draft.requestId || requestId; fingerprint = draft.fingerprint || '' } catch { /* Saved replies remain server-owned. */ }
+}
+restoreDraft()
+function keepDraft(cacheKey = key.value) { try { sessionStorage.setItem(cacheKey, JSON.stringify({ input: input.value, requestId, fingerprint })) } catch { /* Browser storage must not prevent asking or editing. */ } }
+watch(input, () => keepDraft())
+watch(key, (_next, previous) => {
+  keepDraft(previous); observation++; scopeGeneration++; clearTimeout(timer)
+  conversation.value = null; knownMessages = undefined; newMessageIds.value = new Set(); sentDrafts.clear()
+  busy.value = false; historyReady.value = false; error.value = ''
+  restoreDraft(); scrollToBottom(); void load()
+})
 watch(() => props.context.quote, quote => { if (quote && !input.value.trim()) input.value = c('aiSelectedPrompt') })
 function fail(cause: unknown) { if (disposed) return; error.value = cause instanceof Error ? cause.message : c('requestFailure'); if (cause instanceof StudyApiError && cause.status === 401) emit('sessionExpired', cause) }
 async function load() {
@@ -75,20 +94,22 @@ async function send(prompt?: string) {
   if (busy.value || active.value || !historyReady.value || !props.context.section_id) return
   const text = (prompt || input.value).trim(); if (!text) return
   if (prompt) input.value = prompt
-  const body = { revision_id: props.revisionId, section_id: props.context.section_id, block_id: props.context.block_id, quote: props.context.quote, text, language: activeLocale.value }
+  const body = { revision_id: props.revisionId, section_id: props.context.section_id, block_id: props.context.block_id, quote: props.context.quote, text, language: activeLocale.value, ...(props.note ? { note_id: props.note.id, note_version: props.note.version, note_draft: props.noteDraft ?? props.note.content } : {}) }
   const next = JSON.stringify(body); if (fingerprint && fingerprint !== next) requestId = createUuid(); fingerprint = next; keepDraft()
+  const submittedKey = key.value, submittedGeneration = scopeGeneration
   busy.value = true; error.value = ''; observation++; clearTimeout(timer); scrollToBottom()
-  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; acceptConversation(result); if (input.value.trim() === text) input.value = ''; requestId = createUuid(); fingerprint = ''; keepDraft(); await load() }
-  catch (cause) { fail(cause) }
-  finally { if (!disposed) busy.value = false }
+  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed || submittedKey !== key.value || submittedGeneration !== scopeGeneration) return; acceptConversation(result); if (input.value.trim() === text) input.value = ''; requestId = createUuid(); fingerprint = ''; keepDraft(); await load() }
+  catch (cause) { if (submittedKey === key.value && submittedGeneration === scopeGeneration) fail(cause) }
+  finally { if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) busy.value = false }
 }
-async function resume(message: AssistantMessage) { if (busy.value || active.value || !message.task_ref) return; busy.value = true; try { await studyApi.continueAnswer(props.materialId, message.task_ref.task_id); if (!disposed) await load() } catch (cause) { fail(cause) } finally { if (!disposed) busy.value = false } }
+async function resume(message: AssistantMessage) { if (busy.value || active.value || !message.task_ref) return; const submittedKey = key.value, submittedGeneration = scopeGeneration; busy.value = true; try { await studyApi.continueAnswer(props.materialId, message.task_ref.task_id); if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) await load() } catch (cause) { if (submittedKey === key.value && submittedGeneration === scopeGeneration) fail(cause) } finally { if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) busy.value = false } }
 onMounted(() => { void load() })
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 </script>
 
 <style scoped>
 .personal-assistant { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; font:15px/1.75 var(--study-ui-font, var(--handout-sans)); color:#414a5d; }
+.assistant-note-context { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; padding:4px 16px 9px; font-size:13px; color:#856c9c; background:#fbf9fe; }.assistant-note-context :deep(.el-button) { margin:0; height:auto; min-height:32px; font-size:13px; }.assistant-note-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; color:#8a7b97; margin-top:7px; }.assistant-note-actions :deep(.el-button) { margin:0; min-height:32px; font-size:13px; }
 .assistant-context { flex:none; margin:0; padding:9px 18px; display:flex; align-items:baseline; gap:8px; background:#fcfcfe; }
 .assistant-context strong { flex:none; font-size:12px; font-weight:400; color:#929aab; }
 .assistant-context span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#727c90; font-size:13px; }
@@ -144,5 +165,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
   .personal-assistant .assistant-send { width:44px; height:44px; }
   .personal-assistant .latest-reply { min-height:44px; bottom:6px; }
   .assistant-input-shell :deep(.el-textarea__inner) { font-size:16px; }
+  .assistant-note-context :deep(.el-button),.assistant-note-actions :deep(.el-button),.assistant-quote-header :deep(.el-button) { min-height:44px; white-space:normal; }
+  .assistant-note-context :deep(.el-button>span),.assistant-note-actions :deep(.el-button>span) { white-space:normal; line-height:1.45; }
+  .assistant-quote-header { align-items:flex-start; }
 }
 </style>

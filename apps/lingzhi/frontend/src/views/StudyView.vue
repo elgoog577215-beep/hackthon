@@ -91,40 +91,53 @@
         <div class="study-reading-workspace">
           <div class="study-reading-body">
             <div class="study-reading-pane" :inert="mobileViewport && (toolsOpen || directoryOpen)">
-              <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
+              <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="markSelection">{{ c('notesMark') }}</button><button @pointerdown.prevent @click="annotateSelection(false)">{{ c('notesAnnotate') }}</button><button @pointerdown.prevent @click="annotateSelection(true)">{{ c('notesQuestion') }}</button><button @pointerdown.prevent @click="noteDiscussion = null; openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
-                  <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" smooth-stream :animate-initial="newBlockIds.has(block.block_id)" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" smooth-stream /></div></section>
+                  <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section">
+                    <div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2>
+                    <div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id">
+                      <div class="study-block-content"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" smooth-stream :animate-initial="newBlockIds.has(block.block_id)" :node-id="block.block_id" /></HandoutContentBlock></div>
+                      <div class="study-inline-notes" data-note-controls>
+                        <button class="study-note-add" @click="noteBlock(section.id, block.block_id)"><NotebookPen :size="14" />{{ c('notesBlockAction') }}</button>
+                        <button v-for="note in notesForBlock(block.block_id)" :key="note.id" class="study-inline-note" :class="{ 'is-question': note.question_state === 'open' }" @click="openPersonalNote(note)"><span>{{ c(note.question_state === 'open' ? 'notesOpen' : note.important ? 'notesImportant' : 'notesMyRecord') }}</span><MathText :content="note.content || note.quote" /></button>
+                      </div>
+                    </div>
+                    <div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" smooth-stream /></div>
+                  </section>
 
                 </article>
               </div>
             </div>
             <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport" v-bind="rightColumnHandle" />
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
-            <aside v-if="material" v-show="toolsOpen" class="study-reading-tools">
+            <aside v-if="material" v-show="toolsOpen" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note', 'is-practice': ['practice', 'mistakes'].includes(toolTab) }">
               <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></ElButton></header>
-              <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
-              <div v-else-if="toolTab === 'note'" class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
-              <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
-              <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="1">
-                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
-              </KeepAlive>
-              <div v-if="toolTab === 'concepts'">
-                <div v-if="!conceptsReady" class="study-note" role="status">
-                  <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
-                  <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
-                </div>
-                <HandoutConceptMap v-if="conceptSections.some(section => section.nodes.length)" :sections="conceptSections" :target="readingTarget" :origin-label="c('conceptOrigin')" :navigate="jumpToAnchor" />
+              <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}:${noteDiscussion?.note.id || 'handout'}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" :note="noteDiscussion?.note" :note-draft="noteDiscussion?.draft" @clear-quote="selectedPassage = null" @session-expired="showError" @save-reply="saveAssistantReply" @note-draft="receiveNoteDraft" @return-note="noteDiscussion && openPersonalNote(noteDiscussion.note)" @clear-note="noteDiscussion = null" />
+              <PersonalHandoutNotes v-if="currentRevision" v-show="toolTab === 'note'" ref="notesPanel" :key="`notes:${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :notes="personalNotes" :sections="currentRevision.sections" :current-section="activeChapter" @saved="acceptPersonalNote" @removed="removePersonalNote" @locate="locatePersonalNote" @discuss="discussPersonalNote" @session-expired="showError">
+                <template #legacy><div class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div></template>
+              </PersonalHandoutNotes>
+              <PersonalHandoutPractice v-if="currentRevision && ['practice', 'mistakes'].includes(toolTab)" :key="`practice:${user.id}:${material.id}:${currentRevision.id}`" :material-id="material.id" :revision-id="currentRevision.id" :current-section="activeChapter" :initial-view="toolTab === 'mistakes' ? 'mistakes' : 'practice'" @jump="jumpToReference" />
+              <div v-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
+              <div v-if="['paths', 'concepts'].includes(toolTab) && !readingToolsReady" class="study-aid-status" role="status">
+                <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
+                <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
               </div>
+              <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
+                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
+                <HandoutLearningPaths v-else-if="toolTab === 'paths'" :sections="pathSections" :current-section="activeChapter" @jump="jumpToReference" />
+                <HandoutKnowledgeMap v-else-if="toolTab === 'concepts'" :sections="conceptSections" :current-section="activeChapter" :navigate="jumpToAnchor" />
+              </KeepAlive>
             </aside>
           </div>
-          <LearningDock v-if="material" toolbar placement="bottom" :location="assistantContext.section_title || material.title">
+          <LearningDock v-if="material" toolbar placement="bottom" :location="assistantContext.section_title || material.title" :more-hint="c('moreToolsHint')" :active-domain="toolsOpen && moreTools.includes(toolTab) ? 'knowledge-library' : 'course'" @more-toggle="open => { if (open) { closeTool(); closeDirectory() } }">
             <template #tools>
-              <button v-for="tab in toolTabs" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ c(tab) }}</button>
+              <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', practice: 'practice' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
             </template>
+            <template #mobile-more><button v-for="tab in moreTools" :key="tab" :data-tool="tab" class="learning-dock__more-action" :class="{ 'is-active': toolsOpen && toolTab === tab }" @click="openTool(tab)"><component :is="toolIcons[tab]" :size="21" /><span>{{ c(tab) }}</span></button></template>
           </LearningDock>
         </div>
       </template>
@@ -138,16 +151,22 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, ChevronRight } from 'lucide-vue-next'
-import { handoutPresentation } from '../utils/handout-content'
+import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, Route, ChevronRight, PencilLine, BookOpenCheck } from 'lucide-vue-next'
+import { handoutPresentation, handoutContentType } from '../utils/handout-content'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
 import HandoutReferencePanel from '../components/HandoutReferencePanel.vue'
-import HandoutConceptMap from '../components/HandoutConceptMap.vue'
+import HandoutKnowledgeMap from '../components/HandoutKnowledgeMap.vue'
+import HandoutLearningPaths from '../components/HandoutLearningPaths.vue'
+import { buildHandoutPaths } from '../utils/handout-paths'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
+import MathText from '../components/MathText.vue'
 import PersonalHandoutAssistant from '../components/PersonalHandoutAssistant.vue'
-import { studyApi, studySession, StudyApiError, STUDY_UPLOAD_ACCEPT, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser } from '../api/study'
+import PersonalHandoutPractice from '../components/PersonalHandoutPractice.vue'
+import PersonalHandoutNotes from '../components/PersonalHandoutNotes.vue'
+import { capturePersonalAnchor, resolvePersonalAnchor, highlightPersonalNotes } from '../utils/personal-note-anchor'
+import { studyApi, studySession, StudyApiError, STUDY_UPLOAD_ACCEPT, type StudyMaterial, type StudyPurpose, type StudySource, type StudySummary, type StudyUser, type StudyNote, type AssistantMessage, type NoteDraftSuggestion } from '../api/study'
 import { activeLocale, setLocale, t } from '../shared/i18n'
 import ApplicationHeader from '../components/ApplicationHeader.vue'
 import CourseWorkspaceHeaderAction from '../components/CourseWorkspaceHeaderAction.vue'
@@ -182,10 +201,13 @@ const generationIssue = computed<StudyCopyKey | ''>(() => {
 })
 const canGenerate = computed(() => !generationIssue.value)
 function removeInvalidRanges() { selectedRanges.value = [...new Set(selectedRanges.value.filter(range => availableRanges.value.has(range)))] }
-const toolTabs = ['note', 'assistant', 'reference', 'concepts', 'sources'] as const
+const toolTabs = ['note', 'assistant', 'reference', 'practice', 'mistakes', 'paths', 'concepts', 'sources'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
-const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText, reference: Sigma }
+const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText, reference: Sigma, paths: Route, practice: PencilLine, mistakes: BookOpenCheck }
+const primaryTools: StudyTool[] = ['note', 'assistant', 'reference', 'practice']
+const moreTools: StudyTool[] = ['mistakes', 'paths', 'concepts', 'sources']
+const visibleTools = computed(() => mobileViewport.value ? primaryTools : toolTabs)
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
   try { sessionStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
@@ -204,8 +226,9 @@ function restoreTool() {
     if (stored && toolTabs.includes(stored.tab)) { toolTab.value = stored.tab; toolsOpen.value = stored.open === true && !mobileViewport.value }
   } catch { /* A damaged preference never blocks reading. */ }
 }
-const activeChapter = ref(''), activeBlock = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string } | null>(null)
+const activeChapter = ref(''), activeBlock = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string; anchor_prefix?: string; anchor_suffix?: string } | null>(null)
 const assistantContext = computed(() => {
+  if (noteDiscussion.value) { const n = noteDiscussion.value.note; return { section_id: n.section_id, section_title: n.section_title, block_id: n.block_id, block_title: n.block_title, quote: n.quote } }
   if (selectedPassage.value) return selectedPassage.value
   const section = currentRevision.value?.sections.find(s => s.id === activeChapter.value) || currentRevision.value?.sections[0]
   return { section_id: section?.id || '', section_title: section?.title || '', block_id: '', block_title: '', quote: '' }
@@ -264,10 +287,71 @@ function selectPassage() {
   const section = currentRevision.value?.sections.find(s => s.id === sid)
   const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
   const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
+  if (start?.closest('[data-note-controls]') || end?.closest('[data-note-controls]')) return
   const quote = selection.toString().trim()
   if (!section || !quote || quote.length > 3000) return
-  selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', quote }
+  const contentRoot = start?.closest<HTMLElement>('[data-block-id]')?.querySelector<HTMLElement>('.study-block-content')
+  const anchor = block && contentRoot ? capturePersonalAnchor(contentRoot, range) : { quote }
+  noteDiscussion.value = null
+  selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', ...anchor }
 }
+const notesPanel = ref<InstanceType<typeof PersonalHandoutNotes> | null>(null)
+const noteDiscussion = ref<{ note: StudyNote; draft: string } | null>(null)
+const personalNotes = computed(() => Object.values(material.value?.notes || {}).flatMap(n => n.entries || []))
+function notesForBlock(blockId: string) { return personalNotes.value.filter(n => n.revision_id === currentRevision.value?.id && n.block_id === blockId && n.location_status === 'current') }
+function acceptPersonalNote(note: StudyNote) {
+  if (!material.value) return
+  const group = material.value.notes[note.revision_id] || { content: '', updated_at: note.updated_at, entries: [] }
+  group.entries = [...(group.entries || []).filter(n => n.id !== note.id), note]
+  material.value.notes[note.revision_id] = group
+  if (noteDiscussion.value?.note.id === note.id) noteDiscussion.value = { note, draft: note.content }
+}
+function removePersonalNote(id: string) {
+  if (!material.value) return
+  for (const group of Object.values(material.value.notes)) group.entries = group.entries?.filter(n => n.id !== id)
+  if (noteDiscussion.value?.note.id === id) noteDiscussion.value = null
+}
+async function annotateSelection(question: boolean) {
+  if (!selectedPassage.value) return
+  openTool('note'); await nextTick()
+  notesPanel.value?.create({ ...selectedPassage.value, question_state: question ? 'open' : 'none' })
+}
+async function markSelection() {
+  if (!selectedPassage.value) return
+  openTool('note'); await nextTick()
+  if (!selectedPassage.value.block_id) { notesPanel.value?.create({ ...selectedPassage.value, content: selectedPassage.value.quote }); return }
+  notesPanel.value?.create(selectedPassage.value, 'mark')
+  await notesPanel.value?.save()
+}
+async function noteBlock(sectionId: string, blockId: string) { openTool('note'); await nextTick(); notesPanel.value?.create({ section_id: sectionId, block_id: blockId }) }
+async function openPersonalNote(note: StudyNote) { openTool('note'); await nextTick(); notesPanel.value?.open(personalNotes.value.find(n => n.id === note.id) || note) }
+function discussPersonalNote(payload: { note: StudyNote; draft: string }) { noteDiscussion.value = payload; selectedPassage.value = null; openTool('assistant') }
+function receiveNoteDraft(value: NoteDraftSuggestion) { notesPanel.value?.receiveSuggestion(value); if (noteDiscussion.value?.note.id === value.noteId) noteDiscussion.value.draft = notesPanel.value?.currentDraft(value.noteId) ?? value.basedOnDraft }
+async function saveAssistantReply(message: AssistantMessage) {
+  openTool('note'); await nextTick()
+  notesPanel.value?.create({ ...message.context_ref, content: message.content, source_message_id: message.message_id })
+}
+async function locatePersonalNote(note: StudyNote) {
+  if (note.location_status !== 'current') return
+  await jumpToAnchor(note.block_id ? blockAnchor(note.block_id) : sectionAnchor(note.section_id))
+  const root = Array.from(readingTarget.value?.querySelectorAll<HTMLElement>('[data-block-id]') || []).find(n => n.dataset.blockId === note.block_id)?.querySelector<HTMLElement>('.study-block-content')
+  if (root && note.quote) {
+    const range = resolvePersonalAnchor(root, note)
+    if (range) { const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range) }
+  }
+}
+function paintPersonalNotes() {
+  const ranges: Range[] = []
+  for (const block of readingTarget.value?.querySelectorAll<HTMLElement>('[data-block-id]') || []) {
+    const content = block.querySelector<HTMLElement>('.study-block-content')
+    if (!content) continue
+    for (const note of notesForBlock(block.dataset.blockId || '')) { const range = resolvePersonalAnchor(content, note); if (range) ranges.push(range) }
+  }
+  highlightPersonalNotes(ranges)
+}
+watch([personalNotes, () => currentRevision.value?.sections], () => { void nextTick(paintPersonalNotes) }, { deep: true })
+watch(() => material.value?.id, () => { noteDiscussion.value = null })
+onBeforeUnmount(() => highlightPersonalNotes([]))
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
@@ -307,6 +391,7 @@ async function updateViewport() {
   followChapter()
 }
 function closePanels(event: KeyboardEvent) {
+  if (event.defaultPrevented) return
   if (event.key === 'Tab' && mobileViewport.value && directoryOpen.value) {
     const controls = Array.from(studyLayoutRoot.value?.querySelectorAll<HTMLElement>('.study-navigation button, .study-navigation input') || []).filter(node => node.getClientRects().length)
     const first = controls[0], last = controls.at(-1)
@@ -367,8 +452,16 @@ const filteredReadingSections = computed(() => {
   return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
     .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => (block.title + ' ' + block.presentation.label).toLocaleLowerCase().includes(query)))
 })
-const conceptSections = computed(() => buildHandoutConceptSections(material.value?.plans || [], readingSections.value))
-const conceptsReady = computed(() => material.value?.concepts_complete ?? (conceptSections.value.length > 0 && conceptSections.value.every(section => section.nodes.length > 0)))
+const readingToolsReady = computed(() => material.value?.reading_tools_complete === true)
+const usablePlans = computed(() => (material.value?.plans || []).filter((raw: any) => {
+  const state = material.value?.reading_tool_states?.[raw.node_id]
+  return state !== 'stale' && state !== 'missing' && (!raw.handout_revision_id || raw.handout_revision_id === currentRevision.value?.id)
+}))
+const conceptSections = computed(() => {
+  const allowed = new Set((currentRevision.value?.sections || []).flatMap(s => s.blocks.filter(b => !b.answer_to && !['answer', 'exercise', 'question', 'review_question', 'guiding_question'].includes(handoutContentType(b.content_type))).map(b => b.block_id)))
+  return buildHandoutConceptSections(usablePlans.value, readingSections.value.map(s => ({ ...s, blocks: s.blocks.filter(b => allowed.has(b.id)) })))
+})
+const pathSections = computed(() => buildHandoutPaths(material.value?.plans || [], currentRevision.value?.sections || [], currentRevision.value?.id || '', material.value?.reading_tool_states))
 const selectedSourceScopes = computed(() => material.value?.sources || [])
 let timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), submittedFingerprint = '', disposed = false, epoch = 0, actionSequence = 0, librarySequence = 0
 const draftKey = () => `lingzhi-study-draft:${user.value?.id || ''}`
@@ -620,7 +713,14 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-draft { border-top: 1px dashed #d3d8e6; padding: 15px 0; }
 .study-draft > span { font: 15px/1.6 var(--handout-sans); color: #8792a5; }
 .study-reading-tools { box-sizing: border-box; width: var(--column-right-width); flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: auto; background: white; border-left: 1px solid #e3e8f2; }
-.study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference) { overflow: hidden; }
+.study-reading-tools:has(.personal-assistant), .study-reading-tools:has(.handout-reference), .study-reading-tools:has(.handout-paths), .study-reading-tools:has(.handout-knowledge), .study-reading-tools.is-notes, .study-reading-tools.is-practice { overflow: hidden; }
+.study-inline-notes { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:-2px 0 20px; }
+.study-inline-notes button { border:0; background:transparent; color:#8b799d; font:13px/1.6 var(--study-ui-font); cursor:pointer; padding:3px 6px; }
+.study-inline-notes .study-note-add { display:flex; align-items:center; gap:4px; }
+.study-inline-notes .study-inline-note { max-width:100%; text-align:left; background:#f3eef9; border-radius:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#715b88; }
+.study-inline-note > span:first-child { margin-right:7px; font-weight:600; }.study-inline-notes .is-question { color:#9d713d; background:#faf4e9; }
+:global(::highlight(lingzhi-personal-notes)) { background:#f5e0a5; color:inherit; }
+.study-aid-status { padding:12px 16px; flex:none; font-size:14px; line-height:1.65; color:#756787; border-bottom:1px solid #e7e2ee; }.study-aid-status p { margin:0 0 8px; }
 .study-tool-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; box-sizing: border-box; padding: 10px 18px; border-bottom: 1px solid #e9ebf1; background: #fafbfe; flex: none; font-size: 15px; }
 .study-note { padding: 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 16px; }
 .study-note > p { color: var(--lz-text-muted); font-size: 15px; margin: 0; }
@@ -648,7 +748,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .is-reading-page :deep(.workspace-header-action) { box-shadow: none; }
 .study-reading-workspace .learning-dock.is-toolbar.is-bottom { min-height: 58px; background: #fcfcfe; border-color: #e9ebf2; box-shadow: none; padding: 8px 14px; }
 .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { gap: 6px; }
-.study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(button) { font-size: 15px; font-weight: 600; min-height: 40px; border-radius: 8px; }
+.study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { font-size: 15px; font-weight: 600; min-height: 40px; border-radius: 8px; }
 @media (max-width: 1280px) { .study-reading-workspace .learning-dock :deep(.learning-dock__location) { display: none; } }
 @media (max-width: 1200px) { .study-handout { padding: 32px 34px 60px; } .study-header-actions { gap: 4px; } }
 @media (max-width: 1100px) { .study-header-actions .study-user { display: none; } }
@@ -753,18 +853,20 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-handout-section h2 { margin: 8px 0 20px; font-size: 23px; line-height: 1.42; }
   .study-selection-actions { gap: 6px; padding: 8px 10px; }
   .study-selection-actions span { flex-basis: 100%; }
-  .study-selection-actions button { min-height: 42px; }
+  .study-selection-actions button { min-height: 44px; }
   .study-space button.study-tools-backdrop { z-index: 91; }
   .study-reading-tools { position: fixed; z-index: 92; inset: auto 8px calc(66px + env(safe-area-inset-bottom)); width: auto; height: min(70dvh, 720px); max-height: calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 1px solid #e3e8f2; border-radius: 16px 16px 12px 12px; box-shadow: 0 18px 56px rgb(21 31 55 / 22%); }
   .study-tool-heading { min-height: 52px; padding: 7px 12px; }
-  .study-tool-heading :deep(.el-button) { width: 42px; height: 42px; }
+  .study-tool-heading :deep(.el-button) { width: 44px; height: 44px; }
+  .study-inline-notes button { min-height:44px; }
+  .study-inline-notes { user-select:none; }
   .study-note { padding: 12px; }
   .study-note-footer { align-items: start; flex-direction: column; }
   .study-note-footer button { align-self: stretch; min-height: 44px; }
   .study-source-list { overflow: auto; padding: 14px; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
-  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size: 11px; line-height: 1.2; white-space: normal; }
+  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size: 11px; line-height: 1.2; white-space: normal; }
   .study-reading-workspace .learning-dock :deep(button > svg) { flex: none; width: 19px; height: 19px; }
   .study-login-page { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 18px 14px 28px; }
   .login-story h1 { margin: 8px 0 12px; font-size: 30px; }
@@ -821,5 +923,10 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 
 @media (max-width: 340px) {
   .study-purpose-options { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width:768px) {
+  .study-reading-workspace .learning-dock :deep(.learning-dock__location) { display:none; }
+  .study-reading-workspace .learning-dock :deep(.learning-dock__actions) { flex:1; min-width:0; flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto; scrollbar-width:thin; }
+  .study-reading-workspace .learning-dock :deep(.learning-dock__actions > button) { flex:none; }
 }
 </style>

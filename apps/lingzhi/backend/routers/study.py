@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,7 +12,8 @@ from material_storage import MaterialStorageError
 from storage import storage
 from study.auth import GUEST_COOKIE, GUEST_SESSION_SECONDS, LocalStudyAuth, study_identity
 from study.repository import StudyConflict, StudyRepository
-from study.service import create_material, source_sections, concepts_complete
+from study.service import create_material, source_sections, concepts_complete, reading_tool_states, reading_tools_complete
+from study.notes import CreateNote, UpdateNote, public_notes, list_notes, create_note, update_note, delete_note, resolve_note_context
 
 router = APIRouter(prefix="/study", tags=["personal-study"])
 
@@ -60,6 +61,9 @@ class AssistantRequest(BaseModel):
     quote: str = Field(default="", max_length=3000)
     text: str = Field(min_length=1, max_length=6000)
     language: Literal["zh", "en"] = "zh"
+    note_id: str = Field(default="", max_length=80)
+    note_version: int | None = Field(default=None, ge=1)
+    note_draft: str | None = Field(default=None, max_length=20000)
 
 
 def repository() -> StudyRepository:
@@ -92,6 +96,9 @@ def public_material(material: dict) -> dict:
                          for section in material["request"]["source_sections"]]
     result["source_course_ids"] = material_summary(material)["source_course_ids"]
     result["concepts_complete"] = concepts_complete(material)
+    result["reading_tools_complete"] = reading_tools_complete(material)
+    result["reading_tool_states"] = reading_tool_states(material)
+    result["notes"] = public_notes(material)
     return result
 
 
@@ -241,7 +248,7 @@ async def continue_material(material_id: str, user=Depends(study_identity), repo
         if task and (task.get("owner_id") != user["id"] or task.get("type") != "personal_handout_generation"):
             raise HTTPException(409, "生成任务与材料不匹配；已有内容仍保留")
         if not task:
-            if saved["status"] == "completed" and concepts_complete(saved):
+            if saved["status"] == "completed" and reading_tools_complete(saved):
                 return {"task_id": saved["task_id"]}
             if saved["status"] not in {"completed", "failed", "paused"}:
                 raise HTTPException(409, "任务状态尚未确认，请稍后重试；已有内容仍保留")
@@ -262,6 +269,51 @@ def note(material_id: str, request: NoteRequest, user=Depends(study_identity), r
         return saved["notes"][request.revision_id]
     except StudyConflict as exc:
         raise HTTPException(409, str(exc))
+
+
+@router.get("/materials/{material_id}/notes")
+def notes(material_id: str, revision_id: str | None = Query(default=None, max_length=80),
+          user=Depends(study_identity), repo=Depends(repository)):
+    saved = material_or_404(repo, user["id"], material_id)
+    try:
+        return {"entries": list_notes(saved, revision_id)}
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@router.post("/materials/{material_id}/notes")
+def add_note(material_id: str, request: CreateNote, user=Depends(study_identity), repo=Depends(repository)):
+    material_or_404(repo, user["id"], material_id)
+    try:
+        return create_note(repo, user["id"], material_id, request.model_dump())
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except KeyError:
+        raise HTTPException(404, "学习材料或笔记已不存在") from None
+
+
+@router.patch("/materials/{material_id}/notes/{note_id}")
+def edit_note(material_id: str, note_id: str, request: UpdateNote,
+              user=Depends(study_identity), repo=Depends(repository)):
+    material_or_404(repo, user["id"], material_id)
+    try:
+        return update_note(repo, user["id"], material_id, note_id, request.model_dump(exclude_unset=True))
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except KeyError:
+        raise HTTPException(404, "笔记已不存在") from None
+
+
+@router.delete("/materials/{material_id}/notes/{note_id}")
+def remove_note(material_id: str, note_id: str, expected_version: int = Query(ge=1),
+                user=Depends(study_identity), repo=Depends(repository)):
+    material_or_404(repo, user["id"], material_id)
+    try:
+        return delete_note(repo, user["id"], material_id, note_id, expected_version)
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except KeyError:
+        raise HTTPException(404, "笔记已不存在") from None
 
 
 @router.get("/materials/{material_id}/export")
@@ -311,6 +363,8 @@ async def assistant_continue(material_id: str, task_id: str, user=Depends(study_
         raise HTTPException(409, '问题来源已不可用；已有对话仍保留')
     try:
         resolve_context(saved, message['context_ref'])
+        if message['context_ref'].get('note_id'):
+            resolve_note_context(saved, message['context_ref']['note_id'], message['context_ref'].get('note_version'))
     except StudyConflict as exc:
         raise HTTPException(409, str(exc))
     await manager.resume_task(task_id)

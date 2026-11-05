@@ -524,15 +524,15 @@ it.each(['direct', 'materials'])('offers the same concept recovery for %s handou
   api.get.mockResolvedValue({ ...structuredClone(saved), generation_mode, concepts_complete: false })
   const { wrapper } = await page('/study/material-a')
   await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
-  expect(wrapper.text()).toContain('概念关系尚未完整生成')
+  expect(wrapper.text()).toContain('部分阅读辅助尚未整理或已过期')
   expect(wrapper.text()).not.toContain('当前没有资料来源关系图')
-  const resume = wrapper.findAll('button').find(button => button.text() === '继续生成缺失内容')!
+  const resume = wrapper.findAll('button').find(button => button.text() === '补齐缺失内容与阅读辅助')!
   await resume.trigger('click'); await flushPromises()
   expect(api.resume).toHaveBeenCalledWith('material-a')
   expect(wrapper.text()).toContain('真实讲义正文')
   await setLocale('en'); await flushPromises()
-  expect(wrapper.text()).toContain('Concept connections are not complete yet')
-  expect(wrapper.text()).toContain('Continue missing content')
+  expect(wrapper.text()).toContain('Some reading aids are missing or outdated')
+  expect(wrapper.text()).toContain('Complete missing content and reading aids')
 })
 
 it('keeps a partial concept map visible during generation without offering a duplicate run', async () => {
@@ -542,9 +542,9 @@ it('keeps a partial concept map visible during generation without offering a dup
   api.get.mockResolvedValue(partial)
   const { wrapper } = await page('/study/material-a')
   await wrapper.get('[data-tool="concepts"]').trigger('click'); await flushPromises()
-  expect(wrapper.text()).toContain('正在生成学习内容与概念关系')
+  expect(wrapper.text()).toContain('正在整理知识地图与思维链')
   expect(wrapper.find('handout-concept-map-stub').exists()).toBe(true)
-  expect(wrapper.findAll('button').some(button => button.text() === '继续生成缺失内容')).toBe(false)
+  expect(wrapper.findAll('button').some(button => button.text() === '补齐缺失内容与阅读辅助')).toBe(false)
 })
 
 
@@ -663,6 +663,7 @@ it('protects the reading width on medium screens without losing the preferred di
 it('returns from mobile directory navigation to the passage without reopening a tool', async () => {
   vi.stubGlobal('innerWidth', 390)
   const { wrapper } = await page('/study/material-a')
+  await wrapper.get('.learning-dock__more').trigger('click')
   await wrapper.get('[data-tool="concepts"]').trigger('click')
   await wrapper.get('button[aria-label="展开目录"]').trigger('click')
   await wrapper.get('.study-chapter-list button').trigger('click')

@@ -101,18 +101,36 @@ class StudyRepository:
         return self.storage.update_data("study_materials.json", update)[material_id]
 
     def save_note(self, owner: str, material_id: str, revision_id: str, content: str) -> dict:
-        material = self.get(owner, material_id)
-        if not any(revision["id"] == revision_id for revision in material["revisions"]):
-            raise StudyConflict("讲义版本已不存在，请重新打开讲义")
-        notes = deepcopy(material.get("notes") or {})
-        notes[revision_id] = {"content": content, "updated_at": now()}
-        saved = self.update(owner, material_id, {"notes": notes})
+        def change(material):
+            if not any(revision["id"] == revision_id for revision in material["revisions"]):
+                raise StudyConflict("讲义版本已不存在，请重新打开讲义")
+            # An old client edits the course note, never a stale copy of the
+            # structured entries saved by another tab.
+            note = material.setdefault("notes", {}).setdefault(revision_id, {})
+            note.update(content=content, updated_at=now())
+
+        saved = self.mutate_notes(owner, material_id, change)
         from learning_events import record_learning_event
         record_learning_event(
             event_type="personal_note_saved", actor="student", source="personal_study", user_id=owner,
             entity_type="personal_material", entity_id=material_id, entity_revision=revision_id,
-            task_purpose=material["purpose"], record_type="personal_note",
+            task_purpose=saved["purpose"], record_type="personal_note",
             idempotency_key=f"note:{material_id}:{revision_id}:{hashlib.sha256(content.encode()).hexdigest()}",
             result={"saved": True},  # Saving a note never claims understanding or mastery.
         )
         return saved
+
+    def mutate_notes(self, owner: str, material_id: str, change) -> dict:
+        """Serialize notes with the material's existing authoritative ledger."""
+        self.get(owner, material_id)  # Also checks any revoked source access.
+
+        def update(current):
+            current = current or {}
+            material = current.get(material_id)
+            if not material or material["owner_id"] != owner:
+                raise KeyError(material_id)
+            change(material)
+            material["updated_at"] = now()
+            return current
+
+        return deepcopy(self.storage.update_data("study_materials.json", update)[material_id])

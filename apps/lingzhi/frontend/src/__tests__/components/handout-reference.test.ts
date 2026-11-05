@@ -24,18 +24,21 @@ describe('Handout formula and theorem reference', () => {
     const items = result[0]!.items
     expect(items.find(item => item.id === 'definition:statement')?.content).toContain('P(B)>0')
     expect(items.find(item => item.id === 'definition:formulas')?.html).toContain('katex')
-    expect(items.find(item => item.blockId === 'example')?.html?.match(/reference-formula/g)).toHaveLength(1)
+    expect(items.some(item => item.blockId === 'example')).toBe(false)
+    expect(items.find(item => item.id === 'definition:formulas')?.content).toContain('P(B)>0')
     expect(items.some(item => ['code', 'folded', 'answer', 'linked-answer'].includes(item.blockId))).toBe(false)
     expect(result[1]!.items[0]?.kind).toBe('definition')
   })
-  it('shows whole handout first, filters by kind/scope, searches and returns stable block IDs', async () => {
+  it('follows the current lecture, supports whole-course filtering and stable jumps', async () => {
     const wrapper = mount(HandoutReferencePanel, { props: { sections, currentSection: 'a' }, global: { stubs: { MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, MathText: { props: ['content'], template: '<span>{{ content }}</span>' } } } })
-    expect(wrapper.findAll('.reference-item')).toHaveLength(4)
-    await wrapper.findAll('.reference-kinds button')[1]!.trigger('click')
-    expect(wrapper.findAll('.reference-item')).toHaveLength(3)
-    await wrapper.findAll('.reference-kinds button')[2]!.trigger('click')
     expect(wrapper.findAll('.reference-item')).toHaveLength(2)
+    await wrapper.findAll('.reference-kinds button')[1]!.trigger('click')
+    expect(wrapper.findAll('.reference-item')).toHaveLength(2)
+    await wrapper.findAll('.reference-kinds button')[2]!.trigger('click')
+    expect(wrapper.findAll('.reference-item')).toHaveLength(1)
     await wrapper.findAll('.reference-scope button')[1]!.trigger('click')
+    expect(wrapper.findAll('.reference-item')).toHaveLength(2)
+    await wrapper.findAll('.reference-scope button')[0]!.trigger('click')
     expect(wrapper.findAll('.reference-item')).toHaveLength(1)
     await wrapper.get('.reference-jump').trigger('click')
     expect(wrapper.emitted('jump')).toEqual([['definition']])
@@ -55,4 +58,20 @@ describe('Handout formula and theorem reference', () => {
     expect(wrapper.text()).toContain('Go to passage')
     wrapper.unmount()
   })
+  it('indexes text results, methods and pitfalls, but only canonical or boxed formulas', () => {
+    const items = buildHandoutReference([{ id: 's', title: 'Skills', blocks: [
+      block('r', 'result', '成立条件：$x>0$。\n\n$$y=x^2$$'),
+      block('m', 'method', '先确认问题，再选择方法。'),
+      block('w', 'misconception', '不要把相关性理解为因果。'),
+      block('v', 'definition', '变量 $x$ 是输入。'),
+      block('b', 'explanation', '$$\\boxed{a=b}$$\n\n$$temporary=9$$'),
+      block('d', 'definition', '公开定义。<details><summary>提示</summary>secret</details>'),
+    ] }])[0]!.items
+    expect(items.filter(i => i.kind === 'formula').map(i => i.blockId)).toEqual(['r', 'b'])
+    expect(items.find(i => i.blockId === 'b')?.html).not.toContain('temporary')
+    expect(items.find(i => i.blockId === 'm')?.kind).toBe('method')
+    expect(items.find(i => i.blockId === 'w')?.kind).toBe('warning')
+    expect(items.find(i => i.blockId === 'd')?.content).not.toContain('secret')
+  })
+
 })

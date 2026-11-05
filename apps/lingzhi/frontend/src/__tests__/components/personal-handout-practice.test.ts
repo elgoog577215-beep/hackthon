@@ -1,0 +1,173 @@
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import PersonalHandoutPractice from '@/components/PersonalHandoutPractice.vue'
+import { personalPracticeApi as api, PersonalPracticeApiError, type PersonalPracticeAttempt as Attempt, type PersonalPracticeQuestion as Question } from '@/api/personal-practice'
+import { activeLocale } from '@/shared/i18n'
+import { setStudyIdentity } from '@/utils/study-identity'
+
+vi.mock('@/api/personal-practice', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/api/personal-practice')>()
+  return { ...actual, personalPracticeApi: { list: vi.fn(), start: vi.fn(), saveDraft: vi.fn(), submit: vi.fn(), hint: vi.fn(), solution: vi.fn(), grade: vi.fn(), review: vi.fn() } }
+})
+const q: Question = { question_id: 'q1', question_revision_id: 'qr1', section_id: 's1', section_title: '第一讲', block_id: 'b1', title: '检查条件', prompt: '说明为什么这个条件成立。', has_answer: true, has_hint: true }
+const q2: Question = { ...q, question_id: 'q2', question_revision_id: 'qr2', section_id: 's2', section_title: '第二讲', block_id: 'b2', title: '对比概念' }
+const attempt = (changes: Partial<Attempt> = {}): Attempt => ({ attempt_id: 'a1', revision: 1, status: 'in_progress', question_revision_id: 'qr1', node_id: 's1', node_name: '第一讲', answer_payload: { text: '' }, solution_revealed: false, revealed_hints: [], can_continue: true, metadata: { material_id: 'm1', revision_id: 'r1', block_id: 'b1', title: q.title, prompt: q.prompt, intent: 'practice', has_answer: true }, ...changes })
+const graded = (passed: boolean | null = false): Attempt => attempt({ status: 'graded', revision: 2, answer_payload: { text: '原来的回答' }, submitted_answer_payload: { text: '原来的回答' }, result: { status: passed === null ? 'pending_review' : 'completed', score: 0, passed, feedback: passed === null ? '评阅暂不可用。' : '请检查条件。', grading_confidence: 0.8, mastery_eligible: false, grading_method: 'reference' } })
+function button(wrapper: VueWrapper, text: string) { const match = wrapper.findAll('button').find(b => b.text() === text); if (!match) throw new Error(`Missing button: ${text}`); return match }
+function index(items: Attempt[] = [], questionItems = [q, q2]) { vi.mocked(api.list).mockResolvedValue({ material_id: 'm1', revision_id: 'r1', questions: questionItems, attempts: items }) }
+async function render(initialView?: 'practice' | 'mistakes') {
+  const wrapper = mount(PersonalHandoutPractice, { props: { materialId: 'm1', revisionId: 'r1', currentSection: 's1', initialView }, global: { stubs: { MarkdownRenderer: { props: ['content'], template: '<div class="rendered-markdown">{{ content }}</div>' }, MathText: { props: ['content'], template: '<span>{{ content }}</span>' } } } })
+  await flushPromises(); return wrapper
+}
+beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); setStudyIdentity({ id: 'owner1', username: 'one', role: 'student' }); activeLocale.value = 'zh'; index(); vi.mocked(api.start).mockResolvedValue(attempt()) })
+
+describe('personal handout practice', () => {
+  it('loads only; attempts and answer disclosures require an explicit action', async () => {
+    const wrapper = await render()
+    expect(api.list).toHaveBeenCalledOnce(); expect(api.start).not.toHaveBeenCalled(); expect(api.solution).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(q.prompt); expect(wrapper.find('textarea').exists()).toBe(false)
+    await wrapper.get('.practice-jump').trigger('click'); expect(wrapper.emitted('jump')).toEqual([['b1']])
+    await button(wrapper, '开始作答').trigger('click'); await flushPromises()
+    expect(api.start).toHaveBeenCalledWith('m1', expect.objectContaining({ revision_id: 'r1', question_id: 'q1', intent: 'practice', language: 'zh', request_id: expect.any(String) }))
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it('keeps newer typing when a draft save returns and preserves it through scope changes and remount', async () => {
+    index([attempt()]); const wrapper = await render()
+    await wrapper.get('textarea').setValue('第一版')
+    let finish!: (value: Attempt) => void
+    vi.mocked(api.saveDraft).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    await button(wrapper, '保存草稿').trigger('click')
+    await wrapper.get('textarea').setValue('继续补充的第二版')
+    finish(attempt({ revision: 2, answer_payload: { text: '第一版' } })); await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('继续补充的第二版')
+    await wrapper.setProps({ currentSection: 's2' })
+    expect(wrapper.text()).toContain('正在查看的作答会保留')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('继续补充的第二版')
+    wrapper.unmount()
+    const reopened = await render(); expect((reopened.get('textarea').element as HTMLTextAreaElement).value).toBe('继续补充的第二版'); reopened.unmount()
+    setStudyIdentity({ id: 'owner2', username: 'two', role: 'student' })
+    const otherOwner = await render(); expect((otherOwner.get('textarea').element as HTMLTextAreaElement).value).toBe('第一版'); otherOwner.unmount()
+  })
+  it('records explicit disclosures and submits using the latest attempt revision', async () => {
+    index([attempt()]); const wrapper = await render()
+    vi.mocked(api.hint).mockResolvedValue({ attempt: attempt({ revision: 2, revealed_hints: [{ level: 1, content: '先检查范围。' }] }), content: '先检查范围。' })
+    await button(wrapper, '查看提示').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('先检查范围。'); expect(wrapper.text()).toContain('已使用提示')
+    vi.mocked(api.solution).mockResolvedValue({ attempt: attempt({ revision: 3, solution_revealed: true, revealed_hints: [{ level: 1, content: '先检查范围。' }] }), content: '参考解答仅在查看后出现。' })
+    expect(wrapper.text()).not.toContain('参考解答仅在查看后出现。')
+    await button(wrapper, '查看参考答案').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('参考解答仅在查看后出现。')
+    await wrapper.get('textarea').setValue('我自己的回答')
+    vi.mocked(api.submit).mockResolvedValue({ ...graded(), revision: 4, solution_revealed: true })
+    await button(wrapper, '提交作答').trigger('click'); await flushPromises()
+    expect(api.submit).toHaveBeenCalledWith('m1', 'a1', expect.objectContaining({ expected_revision: 3, answer: '我自己的回答', request_id: expect.any(String) }))
+    expect(wrapper.text()).toContain('订正完成不代表已经掌握'); expect(wrapper.find('.answer-editor').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('creates a correction with an immutable original and a separate retry, resuming an existing retry', async () => {
+    const original = graded(); index([original]); const wrapper = await render('mistakes')
+    await wrapper.get('.attempt-list button').trigger('click')
+    const correction = attempt({ attempt_id: 'a2', origin_attempt_id: 'a1', answer_payload: { text: '原来的回答' }, metadata: { ...original.metadata, intent: 'correction' } })
+    vi.mocked(api.start).mockResolvedValue(correction)
+    await button(wrapper, '订正原题').trigger('click'); await flushPromises()
+    expect(api.start).toHaveBeenLastCalledWith('m1', expect.objectContaining({ intent: 'correction', origin_attempt_id: 'a1' }))
+    expect(wrapper.get('.original-answer').text()).toContain('原来的回答'); expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('原来的回答')
+    await wrapper.get('textarea').setValue('改进的回答'); expect(wrapper.get('.original-answer').text()).toContain('原来的回答')
+    await button(wrapper, '作答记录').trigger('click'); await wrapper.findAll('.attempt-list button').find(b => b.text().includes('需要订正'))!.trigger('click')
+    const retry = attempt({ attempt_id: 'a3', origin_attempt_id: 'a1', metadata: { ...original.metadata, intent: 'retry' } }); vi.mocked(api.start).mockResolvedValue(retry)
+    await button(wrapper, '重新作答').trigger('click'); await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    await button(wrapper, '作答记录').trigger('click'); await wrapper.findAll('.attempt-list button').find(b => b.text().includes('需要订正'))!.trigger('click')
+    await button(wrapper, '重新作答').trigger('click'); await flushPromises()
+    expect(api.start).toHaveBeenCalledTimes(2); expect(wrapper.get('.practice-question').attributes('data-attempt-id')).toBe('a3')
+    wrapper.unmount()
+  })
+  it('keeps historical answers read-only while allowing reference viewing and reflection', async () => {
+    const historical = graded(); historical.can_continue = false; historical.question_revision_id = 'qr-old'; historical.metadata.revision_id = 'r-old'
+    index([historical]); const wrapper = await render('mistakes')
+    await wrapper.get('.attempt-list button').trigger('click')
+    expect(wrapper.text()).toContain('这是旧版讲义的记录'); expect(wrapper.find('.answer-editor').exists()).toBe(false)
+    expect(wrapper.findAll('button').some(b => b.text() === '订正原题')).toBe(false)
+    vi.mocked(api.solution).mockResolvedValue({ attempt: { ...historical, revision: 3, solution_revealed: true }, content: '旧版参考答案' })
+    await button(wrapper, '查看参考答案').trigger('click'); await flushPromises(); expect(wrapper.text()).toContain('旧版参考答案')
+    await wrapper.get('.practice-review textarea').setValue('下次先看清条件')
+    const review = { error_type: 'unknown' as const, state: 'revisit' as const, reflection: '下次先看清条件' }
+    await wrapper.findAll('.review-fields select')[1]!.setValue('revisit')
+    vi.mocked(api.review).mockResolvedValue({ ...historical, revision: 4, metadata: { ...historical.metadata, review, review_updated: true } })
+    await button(wrapper, '保存反思').trigger('click'); await flushPromises()
+    expect(api.review).toHaveBeenCalledWith('m1', 'a1', { expected_revision: 3, ...review }); expect(wrapper.text()).toContain('错因与反思已保存')
+    wrapper.unmount()
+  })
+  it('does not put correct answers with untouched default review fields in the mistake notebook', async () => {
+    const correct = graded(true); correct.metadata.review = { error_type: 'unknown', reflection: '', state: 'needs_review' }
+    const pending = { ...graded(null), attempt_id: 'a2', status: 'grading' as const }; index([correct, pending])
+    const wrapper = await render('mistakes')
+    expect(wrapper.findAll('.attempt-list li')).toHaveLength(1); expect(wrapper.get('.attempt-list').text()).toContain('待核实')
+    await wrapper.get('.attempt-list button').trigger('click')
+    expect(wrapper.text()).toContain('暂不能可靠判断对错')
+    expect(wrapper.text()).not.toContain('评阅中')
+    wrapper.unmount()
+  })
+  it('preserves input after a conflict, refreshes revision, then saves explicitly', async () => {
+    index([attempt()]); const wrapper = await render(); await wrapper.get('textarea').setValue('我的未保存回答')
+    vi.mocked(api.saveDraft).mockRejectedValueOnce(new PersonalPracticeApiError(409, 'conflict'))
+    await button(wrapper, '保存草稿').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('记录已在其他页面更新'); expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('我的未保存回答')
+    index([attempt({ revision: 4, answer_payload: { text: '其他页面的回答' } })])
+    await button(wrapper, '重新读取').trigger('click'); await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('我的未保存回答')
+    vi.mocked(api.saveDraft).mockResolvedValue(attempt({ revision: 5, answer_payload: { text: '我的未保存回答' } }))
+    await button(wrapper, '保存草稿').trigger('click'); await flushPromises()
+    expect(api.saveDraft).toHaveBeenLastCalledWith('m1', 'a1', { expected_revision: 4, answer: '我的未保存回答' })
+    wrapper.unmount()
+  })
+  it('shows the missing-answer boundary and supports English without generating an answer', async () => {
+    activeLocale.value = 'en'; index([], [{ ...q, has_answer: false, has_hint: false }]); const wrapper = await render()
+    expect(wrapper.text()).toContain('no linked reference answer')
+    await button(wrapper, 'Start answering').trigger('click'); await flushPromises()
+    expect(api.start).toHaveBeenCalledWith('m1', expect.objectContaining({ language: 'en' }))
+    expect(wrapper.find('.help-actions').exists()).toBe(false)
+    expect(api.solution).not.toHaveBeenCalled(); expect(api.hint).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('keeps an unsubmitted local draft visible and cached when another page submits the attempt', async () => {
+    index([attempt()]); const wrapper = await render()
+    await wrapper.get('textarea').setValue('本页尚未提交的推导')
+    vi.mocked(api.saveDraft).mockRejectedValueOnce(new PersonalPracticeApiError(409, 'submitted elsewhere'))
+    await button(wrapper, '保存草稿').trigger('click'); await flushPromises()
+    const submittedElsewhere = graded(); index([submittedElsewhere])
+    await button(wrapper, '重新读取').trigger('click'); await flushPromises()
+    expect(wrapper.get('.submitted-answer').text()).toContain('原来的回答')
+    expect(wrapper.get('.unsubmitted-draft').text()).toContain('本页未提交草稿')
+    expect((wrapper.get('.unsubmitted-draft textarea').element as HTMLTextAreaElement).value).toBe('本页尚未提交的推导')
+    expect(wrapper.get('.unsubmitted-draft textarea').attributes('readonly')).toBeDefined()
+    await wrapper.get('.practice-review textarea').setValue('反思也不应清掉本页草稿')
+    wrapper.unmount()
+    const reopened = await render('mistakes'); await reopened.get('.attempt-list button').trigger('click')
+    expect((reopened.get('.unsubmitted-draft textarea').element as HTMLTextAreaElement).value).toBe('本页尚未提交的推导')
+    expect(reopened.get('.submitted-answer').text()).toContain('原来的回答')
+    reopened.unmount()
+  })
+  it('refreshes an interrupted grading claim and resumes only after one explicit request', async () => {
+    const running = attempt({ status: 'grading', revision: 3, answer_payload: { text: '已保存原答' }, submitted_answer_payload: { text: '已保存原答' }, grading_state: 'running', can_request_grade: false, grading_retry_after_seconds: 90 })
+    index([running]); const wrapper = await render('mistakes'); await wrapper.get('.attempt-list button').trigger('click')
+    expect(wrapper.text()).toContain('原答已保存，请稍后刷新查看结果')
+    expect(wrapper.get('.attempt-heading').text()).toContain('评阅状态待确认')
+    expect(wrapper.findAll('button').some(b => ['继续评阅', '重新评阅'].includes(b.text()))).toBe(false)
+    expect(api.grade).not.toHaveBeenCalled(); expect(api.list).toHaveBeenCalledOnce()
+    const interrupted = { ...running, grading_state: 'interrupted' as const, can_request_grade: true, grading_retry_after_seconds: 0 }
+    index([interrupted]); await button(wrapper, '刷新评阅状态').trigger('click'); await flushPromises()
+    expect(api.list).toHaveBeenCalledTimes(2); expect(api.grade).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('主动继续才会再次评阅')
+    expect(wrapper.get('.attempt-heading').text()).toContain('评阅未完成')
+    let finish!: (value: Attempt) => void
+    vi.mocked(api.grade).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    await button(wrapper, '继续评阅').trigger('click'); await button(wrapper, '继续评阅').trigger('click')
+    expect(api.grade).toHaveBeenCalledExactlyOnceWith('m1', 'a1', 3)
+    finish({ ...graded(true), revision: 4, grading_state: 'complete', can_request_grade: false }); await flushPromises()
+    expect(wrapper.get('.attempt-heading').text()).toContain('本次答对')
+    expect(api.list).toHaveBeenCalledTimes(2); expect(api.grade).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+})

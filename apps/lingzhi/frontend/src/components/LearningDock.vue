@@ -131,7 +131,7 @@
           <header>
             <div>
               <h2>{{ t('learningDock.moreTools', '更多学习工具') }}</h2>
-              <p>{{ t('learningDock.moreToolsHint', '错题、知识树、课程目录与学习概况') }}</p>
+              <p>{{ moreHint || t('learningDock.moreToolsHint', '错题、知识树、课程目录与学习概况') }}</p>
             </div>
             <button type="button" :aria-label="t('common.close', '关闭')" @click="closeMore"><X :size="19" /></button>
           </header>
@@ -163,6 +163,7 @@ import { t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{
   location: string
+  moreHint?: string
   assistantOpen?: boolean
   toolbar?: boolean
   placement?: 'top' | 'bottom'
@@ -187,9 +188,10 @@ const props = withDefaults(defineProps<{
   resumeActionAvailable: true,
   resumeActionBusy: false,
 })
-const { location, assistantOpen, toolbar, placement, navigatorHidden, notebookOpen, activeDomain, noteCount, questionCount, resumeActionLabel, resumeActionAvailable, resumeActionBusy } = toRefs(props)
+const { moreHint, location, assistantOpen, toolbar, placement, navigatorHidden, notebookOpen, activeDomain, noteCount, questionCount, resumeActionLabel, resumeActionAvailable, resumeActionBusy } = toRefs(props)
 
 const emit = defineEmits<{
+  (event: 'more-toggle', open: boolean): void
   (event: 'navigator' | 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume' | 'reading' | 'mistakes'): void
 }>()
 
@@ -206,6 +208,7 @@ async function toggleMore() {
     return
   }
   mobileMoreOpen.value = true
+  emit('more-toggle', true)
   await nextTick()
   morePanel.value?.querySelector<HTMLElement>('button:not(:disabled), a[href], select:not(:disabled)')?.focus()
 }
@@ -213,6 +216,7 @@ async function toggleMore() {
 function closeMore() {
   if (!mobileMoreOpen.value) return
   mobileMoreOpen.value = false
+  emit('more-toggle', false)
   void nextTick(() => moreButton.value?.focus())
 }
 

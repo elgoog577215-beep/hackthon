@@ -18,7 +18,10 @@
             <h4><span class="reference-kind-label">{{ c(kindLabels[item.kind]) }} · </span><MathText :content="item.title" /></h4>
             <button type="button" class="reference-jump" :aria-label="`${c('referenceJump')}：${item.title}`" :title="c('referenceJump')" @click="emit('jump', item.blockId)"><ArrowUpRight :size="17" aria-hidden="true" /><span class="reference-sr-only">{{ c('referenceJump') }}</span></button>
           </header>
-          <div v-if="item.html" class="reference-math" v-html="item.html" />
+          <template v-if="item.html">
+            <div class="reference-math" v-html="item.html" />
+            <details class="reference-context"><summary>{{ c('referenceContext') }}</summary><MarkdownRenderer :content="item.content" :enable-code-run="false" /></details>
+          </template>
           <MarkdownRenderer v-else :content="item.content" :enable-code-run="false" />
         </article>
       </section>
@@ -36,14 +39,17 @@ import { studyCopy as c, type StudyCopyKey } from '../shared/study-copy'
 import { buildHandoutReference, type ReferenceKind, type ReferenceSection } from '../utils/handout-reference'
 const props = defineProps<{ sections: ReferenceSection[]; currentSection: string }>()
 const emit = defineEmits<{ jump: [blockId: string] }>()
-const scopes = ['all', 'current'] as const
-const scope = ref<'all' | 'current'>('all'), kind = ref<'all' | ReferenceKind>('all'), query = ref('')
-const kindLabels = { formula: 'referenceFormula', definition: 'referenceDefinition', theorem: 'referenceTheorem' } as const
+const scopes = ['current', 'all'] as const
+const scope = ref<'all' | 'current'>('current'), kind = ref<'all' | ReferenceKind>('all'), query = ref('')
+const kindLabels = { formula: 'referenceFormula', definition: 'referenceDefinition', theorem: 'referenceTheorem', result: 'referenceResult', method: 'referenceMethod', warning: 'referenceWarning' } as const
 const kinds: { value: 'all' | ReferenceKind; label: StudyCopyKey }[] = [
   { value: 'all', label: 'referenceAll' },
   { value: 'formula', label: 'referenceFormula' },
   { value: 'definition', label: 'referenceDefinition' },
   { value: 'theorem', label: 'referenceTheorem' },
+  { value: 'result', label: 'referenceResult' },
+  { value: 'method', label: 'referenceMethod' },
+  { value: 'warning', label: 'referenceWarning' },
 ]
 const index = computed(() => buildHandoutReference(props.sections).map((section, index) => ({ ...section, number: index + 1 })))
 const visible = computed(() => {
@@ -73,8 +79,8 @@ watch([scope, kind, query, () => scope.value === 'current' ? props.currentSectio
 .reference-scope { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; border-radius:9px; background:#f0f1f6; }
 .reference-scope button { min-height:34px; padding:4px 8px; border-radius:7px; font-size:14px; line-height:1.4; }
 .reference-scope button[aria-pressed=true] { color:#62529a; background:#fff; box-shadow:0 1px 4px #28354b0d; font-weight:600; }
-.reference-kinds { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin:10px 0; }
-.reference-kinds button { min-height:34px; padding:4px 2px; border-radius:6px; font-size:14px; }
+.reference-kinds { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0; }
+.reference-kinds button { min-height:34px; padding:4px 8px; border-radius:6px; font-size:14px; }
 .reference-kinds button[aria-pressed=true] { background:#eeebf7; color:#645099; font-weight:600; }
 .reference-search { display:flex; align-items:center; gap:8px; border:1px solid #e5e7ef; border-radius:8px; background:#f8f9fc; padding:0 10px; color:#9299aa; }
 .reference-search input { box-sizing:border-box; width:100%; min-width:0; min-height:36px; padding:6px 0; border:0; outline:none; font:inherit; font-size:14px; background:transparent; color:#343c50; }
@@ -95,6 +101,7 @@ watch([scope, kind, query, () => scope.value === 'current' ? props.currentSectio
 .reference-item :deep(.markdown-renderer) { font-size:15px; line-height:1.8; min-width:0; }
 .reference-item :deep(.markdown-renderer > :first-child) { margin-top:0; }
 .reference-item :deep(.markdown-renderer > :last-child) { margin-bottom:0; }
+.reference-context { margin-top:8px; font-size:14px; color:#626b80; }.reference-context summary { cursor:pointer; }.reference-context[open] summary { margin-bottom:8px; }
 .reference-math { max-width:100%; overflow-x:auto; padding:2px 0; text-align:center; }
 .reference-math :deep(.reference-formula) { padding:5px 0; }
 .reference-item :deep(.katex-display) { max-width:100%; overflow-x:auto; overflow-y:hidden; padding:4px 0; margin:.4em 0; }

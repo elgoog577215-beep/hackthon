@@ -14,9 +14,11 @@ export interface StudySummary { id: string; title: string; purpose: StudyPurpose
 export interface StudyMaterial extends StudySummary {
   sources: { node_id: string; title: string; filename: string; asset_id: string; source_sha256: string; characters: number }[]
   concepts_complete?: boolean
+  reading_tools_complete?: boolean
+  reading_tool_states?: Record<string, import('../utils/handout-paths').ReadingToolState>
   plans: unknown[]
   revisions: { id: string; status: string; sections: StudySection[] }[]
-  notes: Record<string, { content: string; updated_at: string }>
+  notes: Record<string, { content?: string; updated_at: string; entries?: StudyNote[] }>
   task?: { id: string; status: string; progress: number; phase_progress?: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
 }
 export interface StudyGenerationRequest {
@@ -24,8 +26,19 @@ export interface StudyGenerationRequest {
   selections: { asset_id: string; section_id: string }[]
   level: string; time_minutes: number; requirements: string; language: 'zh' | 'en'
 }
-export interface AssistantContext { section_id: string; section_title: string; block_id: string; block_title: string; quote: string }
-export interface AssistantMessage { message_id: string; role: 'user' | 'assistant'; content: string; status: string; context_ref: AssistantContext; task_ref?: { task_id: string } }
+export interface StudyNote {
+  id: string; revision_id: string; section_id: string; section_title: string; block_id: string; block_title: string; content_type: string
+  quote: string; anchor_prefix: string; anchor_suffix: string; content: string; kind: 'mark' | 'note'; question_state: 'none' | 'open' | 'answered'
+  important: boolean; version: number; source_type: 'self' | 'ai'; source_message_id?: string; created_at: string; updated_at: string; source_sha256: string
+  location_status: 'current' | 'changed' | 'missing' | 'historical'
+}
+export interface StudyNoteInput {
+  request_id: string; revision_id: string; section_id: string; block_id: string; quote: string; anchor_prefix?: string; anchor_suffix?: string
+  content: string; kind: StudyNote['kind']; question_state: StudyNote['question_state']; important: boolean; source_message_id?: string
+}
+export interface NoteDraftSuggestion { noteId: string; noteVersion: number; content: string; messageId: string; basedOnDraft: string }
+export interface AssistantContext { section_id: string; section_title: string; block_id: string; block_title: string; quote: string; note_id?: string; note_version?: number }
+export interface AssistantMessage { message_id: string; role: 'user' | 'assistant'; content: string; status: string; context_ref: AssistantContext; task_ref?: { task_id: string }; note_draft?: string; note_version?: number; based_on_note_draft?: string }
 export interface AssistantConversation { conversation_id: string; messages: AssistantMessage[] }
 export const studySession = {
   get: getStudyToken,
@@ -92,9 +105,13 @@ export const studyApi = {
   get: (id: string) => request<StudyMaterial>(`/materials/${encodeURIComponent(id)}`),
   resume: (id: string) => request(`/materials/${encodeURIComponent(id)}/continue`, { method: 'POST' }),
   note: (id: string, revision_id: string, content: string) => request<{ content: string; updated_at: string }>(`/materials/${encodeURIComponent(id)}/note`, { ...json({ revision_id, content }), method: 'PUT' }),
+  listNotes: (id: string, revisionId?: string) => request<{ entries: StudyNote[] }>(`/materials/${encodeURIComponent(id)}/notes${revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : ''}`),
+  createNote: (id: string, body: StudyNoteInput) => request<StudyNote>(`/materials/${encodeURIComponent(id)}/notes`, json(body)),
+  updateNote: (id: string, noteId: string, body: { expected_version: number; content?: string; kind?: StudyNote['kind']; question_state?: StudyNote['question_state']; important?: boolean; source_message_id?: string }) => request<StudyNote>(`/materials/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, { ...json(body), method: 'PATCH' }),
+  deleteNote: (id: string, noteId: string, version: number) => request(`/materials/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}?expected_version=${version}`, { method: 'DELETE' }),
   export: (id: string) => request<Blob>(`/materials/${encodeURIComponent(id)}/export`),
   assistant: (id: string) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`),
-  ask: (id: string, body: { request_id: string; revision_id: string; section_id: string; block_id: string; quote: string; text: string; language: 'zh' | 'en' }) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`, json(body)),
+  ask: (id: string, body: { request_id: string; revision_id: string; section_id: string; block_id: string; quote: string; text: string; language: 'zh' | 'en'; note_id?: string; note_version?: number; note_draft?: string }) => request<AssistantConversation>(`/materials/${encodeURIComponent(id)}/assistant`, json(body)),
   continueAnswer: (id: string, taskId: string) => request(`/materials/${encodeURIComponent(id)}/assistant/${encodeURIComponent(taskId)}/continue`, { method: 'POST' }),
 }
 export interface PublishedCoursePpt { asset_id: string; filename: string; sha256: string; size_bytes: number }

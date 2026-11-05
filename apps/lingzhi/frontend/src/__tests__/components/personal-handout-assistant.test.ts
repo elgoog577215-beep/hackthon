@@ -165,4 +165,42 @@ describe('personal handout assistant', () => {
     expect(view.text()).toContain('Explain with a diagram')
     expect(view.text()).toContain('u + 2v')
   })
+  it('labels a note explanation accurately and keeps independent drafts when switching notes', async () => {
+    const view = page(); await flushPromises()
+    await view.get('textarea').setValue('普通讲义的问题')
+    const first = { id: 'n1', version: 1, content: '第一条笔记' } as any
+    const second = { id: 'n2', version: 1, content: '第二条笔记' } as any
+    await view.setProps({ note: first, context: { ...context, quote: '' } }); await flushPromises()
+    expect(view.get('.assistant-prompts button').text()).toBe('解释这条笔记')
+    expect(view.get('textarea').element).toHaveProperty('value', '')
+    await view.get('textarea').setValue('第一条笔记的问题')
+    await view.setProps({ note: second }); await flushPromises()
+    expect(view.get('textarea').element).toHaveProperty('value', '')
+    await view.get('textarea').setValue('第二条笔记的问题')
+    await view.setProps({ note: first }); await flushPromises()
+    expect(view.get('textarea').element).toHaveProperty('value', '第一条笔记的问题')
+    activeLocale.value = 'en'; await flushPromises()
+    expect(view.get('.assistant-prompts button').text()).toBe('Explain this note')
+    await view.setProps({ note: undefined }); await flushPromises()
+    expect(view.get('textarea').element).toHaveProperty('value', '普通讲义的问题')
+  })
+  it('does not show another note history or accept its late send response after switching', async () => {
+    const first = { id: 'n1', version: 1, content: '第一条笔记' } as any
+    const second = { id: 'n2', version: 1, content: '第二条笔记' } as any
+    const reply = (noteId: string, content: string) => ({ ...conversation('complete', content), messages: conversation('complete', content).messages.map(m => ({ ...m, context_ref: { ...m.context_ref, note_id: noteId } })) })
+    const view = page(); await flushPromises()
+    await view.setProps({ note: first }); await flushPromises()
+    let finish!: (value: unknown) => void
+    api.ask.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await view.get('textarea').setValue('第一条的问题'); await view.get('form').trigger('submit')
+    api.assistant.mockResolvedValue(reply('n2', '第二条历史回复'))
+    await view.setProps({ note: second }); await flushPromises()
+    await view.get('textarea').setValue('第二条的新问题')
+    finish(reply('n1', '迟到的第一条回复')); await flushPromises()
+    expect(view.text()).toContain('第二条历史回复')
+    expect(view.text()).not.toContain('迟到的第一条回复')
+    expect(view.get('textarea').element).toHaveProperty('value', '第二条的新问题')
+    await view.setProps({ note: undefined }); await flushPromises()
+    expect(view.text()).not.toContain('第二条历史回复')
+  })
 })

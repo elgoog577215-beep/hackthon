@@ -1,0 +1,14 @@
+.reading-aid-controls { padding:14px 16px 12px; flex:none; border-bottom:1px solid #e7eaf2; background:#fff; }
+.reading-aid-scope { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; border-radius:9px; background:#f0f1f6; }
+.reading-aid-scope button { min-height:34px; border:0; border-radius:7px; padding:5px 8px; font:inherit; font-size:14px; cursor:pointer; color:#626b80; background:transparent; }
+.reading-aid-scope button[aria-pressed=true] { background:#fff; color:#62529a; font-weight:600; box-shadow:0 1px 4px #28354b0d; }
+.reading-aid-controls input { box-sizing:border-box; width:100%; min-width:0; margin-top:12px; padding:8px 10px; font:inherit; font-size:14px; color:#343c50; border:1px solid #e5e7ef; border-radius:8px; background:#f8f9fc; }
+.reading-aid-controls p { margin:10px 0 0; font-size:13px; line-height:1.65; color:#7d8392; }
+.reading-aid-results { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:0 16px 24px; color:#434b5b; font:15px/1.7 var(--study-ui-font); background:#fafbfe; scrollbar-width:thin; }
+.handout-paths button:focus-visible,.handout-paths summary:focus-visible,.handout-paths input:focus-visible,.handout-knowledge button:focus-visible,.handout-knowledge input:focus-visible { outline:2px solid #8875b2; outline-offset:2px; }
+
+@media (max-width:760px) {
+ .reading-aid-scope button { min-height:44px; }
+ .reading-aid-controls input { min-height:44px; font-size:16px; }
+ .reading-aid-results { overflow-wrap:anywhere; }
+}

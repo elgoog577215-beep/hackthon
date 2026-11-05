@@ -1,6 +1,6 @@
 <template>
   <aside ref="panel" class="handout-concept-map" :aria-label="tr('title')" :style="availableHeight == null ? undefined : { '--handout-aside-available-height': `${availableHeight}px` }" tabindex="0" data-handout-print-exclude>
-    <header><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
+    <header v-if="!embedded"><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
     <nav v-if="sections.length > 1" class="concept-sections" :aria-label="tr('sections')">
       <button v-for="section in sections" :key="section.id" :aria-pressed="current?.id === section.id" @click="chooseSection(section.id)"><MathText :content="section.title" /></button>
     </nav>
@@ -66,7 +66,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { conceptLayers, type HandoutConcept, type HandoutConceptSection, type HandoutRelation } from '../utils/handout-concepts'
-const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void }>()
+const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void; embedded?: boolean }>()
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)

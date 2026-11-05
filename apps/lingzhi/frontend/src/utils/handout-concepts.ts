@@ -112,6 +112,19 @@ export function buildHandoutConceptSections(rawPlans: unknown, reading: HandoutR
   })
 }
 
+/** An all-course neighborhood uses exact saved identities, never equal display names. */
+export function conceptNeighborhood(sections: HandoutConceptSection[], focus: Set<string>, title: string): HandoutConceptSection {
+  const nodes = new Map<string, HandoutConcept>(), relations = new Map<string, HandoutRelation>()
+  for (const section of sections) {
+    for (const node of section.nodes) if (!nodes.has(node.id) || !node.external) nodes.set(node.id, node)
+    for (const edge of section.relations) if (focus.has(edge.source) || focus.has(edge.target)) relations.set(edge.id, edge)
+  }
+  const included = new Set(focus)
+  for (const edge of relations.values()) { included.add(edge.source); included.add(edge.target) }
+  return { id: [...focus].sort().join(':'), title, anchor: '', blockAnchors: [],
+    nodes: [...nodes.values()].filter(n => included.has(n.id)), relations: [...relations.values()] }
+}
+
 /** Dependency ranks with cycles condensed, while symmetric/comparison edges stay lateral. */
 export function conceptLayers(section: HandoutConceptSection): HandoutConcept[][] {
   const edges = section.relations.flatMap(edge => edge.type === 'contrasts_with' ? [] : edge.type === 'equivalent_to' ? [edge, { ...edge, source: edge.target, target: edge.source }] : [edge])

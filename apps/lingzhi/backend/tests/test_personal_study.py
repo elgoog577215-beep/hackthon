@@ -36,8 +36,8 @@ class SharedWriter:
             ]})
         self.calls.append(('scope', kwargs))
         return json.dumps({'sections': [{'node_id': section['node_id'],
-                         'knowledge_structure': [{'knowledge_points': [{'name': '向量', 'statement': '有序分量'}, {'name': '组合', 'statement': '分量的运算'}]}],
-                         'knowledge_relations': [{'source_name': '向量', 'target_name': '组合', 'relation_type': 'applies_to', 'reason': '向量是组合的对象',
+                         'knowledge_structure': [{'knowledge_points': [{'name': '向量', 'statement': '有序分量', 'source_refs': [{'evidence_id': section['blocks'][0]['evidence_id']}]}, {'name': '组合', 'statement': '分量的运算', 'source_refs': [{'evidence_id': section['blocks'][0]['evidence_id']}]}]}],
+                         'learning_paths': [], 'knowledge_relations': [{'source_name': '向量', 'target_name': '组合', 'relation_type': 'applies_to', 'reason': '向量是组合的对象',
                                                  'source_refs': [{'evidence_id': section['blocks'][0]['evidence_id'], 'quote': section['blocks'][0]['text']}]}]}
                         for section in request['source_sections']]})
 
@@ -676,3 +676,42 @@ async def test_uploaded_materials_keep_the_same_goal_time_and_course_context(set
         assert kwargs['outline_sections'][0]['blocks']  # Exact sources still reach the shared writer.
         assert '补充' in kwargs['requirements']
     assert repo.get(owner, material['id'])['status'] == 'completed'
+
+
+@pytest.mark.asyncio
+async def test_legacy_reading_aids_upgrade_is_explicit_and_failure_retains_old_map_and_notes(setup_study):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    material = await create_material(manager, repo, owner, request_for(add_source(client, headers)))
+    await manager._process_task(material['task_id'])
+    saved = repo.get(owner, material['id'])
+    legacy = deepcopy(saved['plans'])
+    for plan in legacy:
+        plan.pop('reading_schema_version')
+        plan.pop('learning_paths')
+    repo.update(owner, material['id'], {'plans': legacy})
+    repo.save_note(owner, material['id'], material['task_id'], '保留我的理解')
+    before = repo.get(owner, material['id'])
+    count = len(writer.calls)
+    for _ in range(2):
+        value = client.get('/api/study/materials/' + material['id'], headers=headers).json()
+        assert value['concepts_complete'] and not value['reading_tools_complete']
+        assert set(value['reading_tool_states'].values()) == {'legacy'}
+    assert len(writer.calls) == count
+    original = writer._call_llm
+    async def fail(*args, **kwargs):
+        raise RuntimeError('provider failed during explicit upgrade')
+    writer._call_llm = fail
+    assert client.post('/api/study/materials/' + material['id'] + '/continue', headers=headers).status_code == 200
+    await manager._run_job(material['task_id'])
+    interrupted = repo.get(owner, material['id'])
+    assert interrupted['revisions'] == before['revisions']
+    assert interrupted['notes'] == before['notes']
+    assert interrupted['plans'] == legacy
+    writer._call_llm = original
+    await manager.resume_task(material['task_id'])
+    await manager._process_task(material['task_id'])
+    after = repo.get(owner, material['id'])
+    assert after['revisions'] == before['revisions'] and after['notes'] == before['notes']
+    assert [call[0] for call in writer.calls[count:]] == ['scope', 'scope']
+    assert client.get('/api/study/materials/' + material['id'], headers=headers).json()['reading_tools_complete']

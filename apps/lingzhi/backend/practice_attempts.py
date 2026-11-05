@@ -321,6 +321,49 @@ class PracticeAttemptRepository:
             mutate=lambda item: item.update({"status": "abandoned", "abandoned_at": _now()}),
         )
 
+    def claim_grading(
+        self, user_id: str, course_id: str, attempt_id: str, *,
+        expected_revision: int, claim_id: str,
+    ) -> dict[str, Any]:
+        """Durably reserve one explicit evaluation; stale reservations need a new action."""
+        def mutate(item):
+            previous = item.get("grading_claim") or {}
+            if previous.get("expires_at", 0) > datetime.now(timezone.utc).timestamp():
+                raise InvalidAttemptTransition("evaluation_in_progress")
+            item.update({
+                "status": "grading",
+                "grading_claim": {"id": claim_id, "expires_at": datetime.now(timezone.utc).timestamp() + 120},
+            })
+        return self._update(user_id, course_id, attempt_id, expected_revision=expected_revision,
+                            allowed_statuses={"submitted", "grading"}, mutate=mutate)
+
+    def finish_claimed_grade(
+        self, user_id: str, course_id: str, attempt_id: str, *, claim_id: str, result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """A review edit cannot discard an evaluation, and an old evaluation cannot win."""
+        key = self._key(user_id, course_id)
+        with self._lock(key):
+            current = self.get(user_id, course_id, attempt_id)
+            if (current.get("grading_claim") or {}).get("id") != claim_id:
+                raise AttemptConflict(current)
+            def mutate(item):
+                pending = result.get("status") in {"pending_review", "submitted_for_review"}
+                item.update({"status": "grading" if pending else "graded", "result": _sanitize_value(result),
+                             "graded_at": None if pending else _now(), "grading_claim": {}})
+            return self._update(user_id, course_id, attempt_id, expected_revision=current["revision"],
+                                allowed_statuses={"grading"}, mutate=mutate)
+
+    def update_review(
+        self, user_id: str, course_id: str, attempt_id: str, *,
+        expected_revision: int, review: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Learner reflection is separate from frozen answers and evaluation results."""
+        def mutate(item):
+            item.setdefault("metadata", {})["review"] = _sanitize_value(review)
+            item["metadata"]["review_updated"] = True
+        return self._update(user_id, course_id, attempt_id, expected_revision=expected_revision,
+                            allowed_statuses={"submitted", "grading", "graded"}, mutate=mutate)
+
     def invalidate(
         self,
         user_id: str,
