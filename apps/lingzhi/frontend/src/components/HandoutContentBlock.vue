@@ -1,7 +1,7 @@
 <template>
   <component :is="isAnswerDisclosure ? 'details' : 'div'" class="handout-block"
     :class="[`handout-block--${tone}`, group ? `handout-block--group-${group}` : '', { 'handout-block--answer': isAnswerDisclosure }]"
-    :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
+    :style="presentation.style" :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
         <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
@@ -25,7 +25,7 @@ import { computed } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import { activeLocale, t } from '../shared/i18n'
-import { handoutContentGroup, handoutContentType, handoutTypeDefinition } from '../utils/handout-content'
+import { handoutContentGroup, handoutContentType, handoutTypeDefinition, handoutPresentation } from '../utils/handout-content'
 import '../styles/handout-document.css'
 
 const props = withDefaults(defineProps<{
@@ -43,15 +43,8 @@ const isAnswerDisclosure = computed(() => Boolean(props.answerTo && props.collap
 const normalizedType = computed(() => handoutContentType(props.contentType))
 const definition = computed(() => handoutTypeDefinition(normalizedType.value))
 const group = computed(() => props.answerTo ? undefined : handoutContentGroup(normalizedType.value))
-const tone = computed(() => {
-  const tones: Record<string, string> = {
-    definition: 'definition', 定义: 'definition',
-    theorem: 'theorem', 定理: 'theorem', result: 'result', 结论: 'result', summary: 'result',
-    example: 'example', 例题: 'example', exercise: 'exercise', 练习: 'exercise',
-    misconception: 'warning', 辨析: 'warning', warning: 'warning', 易错点: 'warning',
-  }
-  return tones[normalizedType.value] || 'prose'
-})
+const presentation = computed(() => handoutPresentation(normalizedType.value, activeLocale.value, props.label))
+const tone = computed(() => presentation.value.tone)
 const displayLabel = computed(() => {
   const label = definition.value?.label[activeLocale.value] || (normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label)
   return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
@@ -79,11 +72,6 @@ const displayTitle = computed(() => {
 .handout-block__body :deep(.markdown-renderer){font:inherit;color:inherit}
 .handout-block__body :deep(.markdown-renderer> :first-child){margin-top:0}
 .handout-block__body :deep(.markdown-renderer> :last-child){margin-bottom:0}
-.handout-block--definition{--handout-accent:#17815a;--handout-tint:#edf7f2;--handout-edge:#cbe5d8}
-.handout-block--theorem{--handout-accent:#6e4a9c;--handout-tint:#f0ecf7;--handout-edge:#d8cce9}
-.handout-block--result,.handout-block--exercise{--handout-accent:#126d9b;--handout-tint:#eef7fb;--handout-edge:#cce3ef}
-.handout-block--example{--handout-accent:#9a531d;--handout-tint:#fcf2e9;--handout-edge:#ead5c3}
-.handout-block--warning{--handout-accent:#a64355;--handout-tint:#fcf0f2;--handout-edge:#efd1d7}
 .handout-block:not(.handout-block--prose):not(.handout-block--answer){padding:17px 23px 19px;border:1px solid var(--handout-edge);border-left:4px solid var(--handout-accent);border-radius:0;background:var(--handout-tint)}
 .handout-block--answer{padding:0;border:1px solid #dbe3ed;border-radius:0;background:#fafbfd}
 .handout-block--answer>.handout-block__heading{align-items:center;margin:0;padding:14px 20px;cursor:pointer;list-style:none}
@@ -91,12 +79,12 @@ const displayTitle = computed(() => {
 .handout-block--answer>.handout-block__heading:focus-visible{outline:3px solid #328dcc;outline-offset:3px}
 .handout-block--answer>.handout-block__body{padding:6px 20px 20px}
 .handout-block--answer>.handout-block__heading h5{color:#315e91;font:650 16px/1.7 var(--handout-sans)}
-.handout-block__group{flex:none;padding:1px 7px;border:1px solid var(--handout-edge);border-radius:4px;color:var(--handout-accent);background:var(--handout-tint);font:700 15px/1.7 var(--handout-sans)}
-.handout-block--group-explanation{--handout-accent:#315e91;--handout-tint:#f0f5fc;--handout-edge:#d1dfef}
-.handout-block--group-practice{--handout-accent:#17815a;--handout-tint:#edf7f2;--handout-edge:#cbe5d8}
-.handout-block--group-question{--handout-accent:#6e4a9c;--handout-tint:#f2eef9;--handout-edge:#d8cce9}
+.handout-block__group{flex:none;padding:1px 7px;border:1px solid var(--handout-group-edge,var(--handout-edge));border-radius:4px;color:var(--handout-group-accent,var(--handout-accent));background:var(--handout-group-tint,var(--handout-tint));font:700 15px/1.7 var(--handout-sans)}
+.handout-block--group-explanation{--handout-group-accent:#315e91;--handout-group-tint:#f0f5fc;--handout-group-edge:#d1dfef}
+.handout-block--group-practice{--handout-group-accent:#17815a;--handout-group-tint:#edf7f2;--handout-group-edge:#cbe5d8}
+.handout-block--group-question{--handout-group-accent:#6e4a9c;--handout-group-tint:#f2eef9;--handout-group-edge:#d8cce9}
 .handout-block[data-handout-group]:not(.handout-block--answer){padding:16px 22px 18px;border:0;border-left:3px solid var(--handout-accent);background:var(--handout-tint)}
-.handout-block[data-handout-group="explanation"]:not(.handout-block--answer){background:transparent}
+
 .handout-block[data-handout-group]>.handout-block__heading{margin:0 0 12px}
 .handout-block[data-handout-group]>.handout-block__heading h5{color:#242a35;font:700 19px/1.6 var(--handout-serif)}
 .handout-block--warning .handout-block__label,.handout-block--warning .handout-block__separator{color:#a64355}

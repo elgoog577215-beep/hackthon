@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, h, render, getCurrentInstance, useId } from 'vue'
+import { useSmoothText } from '../composables/useSmoothText'
 import TeachingDiagram from './TeachingDiagram.vue'
 import { activeLocale } from '../shared/i18n'
 import { renderMarkdown } from '../utils/markdown'
@@ -19,6 +20,8 @@ import { ElMessage } from 'element-plus'
 
 const props = withDefaults(defineProps<{
   content: string
+  smoothStream?: boolean
+  animateInitial?: boolean
   inlineEditable?: boolean
   searchWords?: string[]
   enableCodeRun?: boolean
@@ -27,6 +30,7 @@ const props = withDefaults(defineProps<{
   enableCodeRun: true,
 })
 
+const visibleContent = useSmoothText(() => props.content || '', () => !!props.smoothStream && !props.inlineEditable, () => !!props.animateInitial)
 const containerRef = ref<HTMLElement | null>(null)
 const appContext = getCurrentInstance()?.appContext
 const diagramPrefix = useId().replace(/[^\w-]/g, '-')
@@ -112,16 +116,16 @@ function enhanceContent() {
 
 const updateContent = () => {
   if (!dom) return
-  let html = renderMarkdown(props.content || '')
-  if (props.inlineEditable) html = bindInlineMarkdownSource(html, props.content)
+  let html = renderMarkdown(visibleContent.value)
+  if (props.inlineEditable) html = bindInlineMarkdownSource(html, visibleContent.value)
   if (props.searchWords.length) html = highlightRenderedMarkdownText(html, props.searchWords)
-  const replacement = Boolean(displayedContent && props.content !== displayedContent && !props.content.startsWith(displayedContent))
+  const replacement = Boolean(displayedContent && visibleContent.value !== displayedContent && !visibleContent.value.startsWith(displayedContent))
   if (html !== lastHtml || replacement) {
     dom.update(html, replacement)
     lastHtml = html
     enhanceContent()
   }
-  displayedContent = props.content || ''
+  displayedContent = visibleContent.value
 }
 
 // Keep the existing frame cadence: every arriving append reaches the next
@@ -134,8 +138,8 @@ const scheduleUpdate = () => {
   pendingFrame = requestAnimationFrame(() => { pendingFrame = 0; updateContent() })
 }
 
-watch(() => [props.content, props.searchWords, props.inlineEditable], () => {
-  const nextContent = props.content || ''
+watch(() => [visibleContent.value, props.searchWords, props.inlineEditable], () => {
+  const nextContent = visibleContent.value
   const append = Boolean(lastContent && nextContent.length > lastContent.length && nextContent.startsWith(lastContent))
   lastContent = nextContent
   if (append) { scheduleUpdate(); return }

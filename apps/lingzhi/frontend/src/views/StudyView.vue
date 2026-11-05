@@ -1,5 +1,5 @@
 <template>
-  <div class="study-space" :class="{ 'is-reading-page': !!materialId }">
+  <div class="study-space" :class="{ 'is-reading-page': !!materialId, 'is-creating-page': creating }">
     <ApplicationHeader surface="student" :show-brand="!materialId" :centered="!materialId && !creating" :library="!materialId" :compact-actions="!!materialId && mobileViewport">
       <template v-if="materialId" #context>
         <div class="study-course-context">
@@ -61,7 +61,7 @@
                 <button v-if="section.blocks.length" type="button" class="study-chapter-toggle" :aria-label="`${activeLocale === 'zh' ? (sectionExpanded(section.id) ? '收起' : '展开') : (sectionExpanded(section.id) ? 'Collapse' : 'Expand')} ${section.title}`" :aria-expanded="sectionExpanded(section.id)" :aria-controls="`study-directory-${section.id}`" @click="toggleSection(section.id)"><ChevronRight :size="16" :class="{ 'is-open': sectionExpanded(section.id) }" /></button>
               </div>
               <div v-if="sectionExpanded(section.id)" :id="`study-directory-${section.id}`" class="study-block-list">
-                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><span class="study-block-dot" aria-hidden="true" /><span>{{ block.title }}</span></button>
+                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><span v-if="block.presentation.label" class="study-block-tag" :style="block.presentation.style">{{ block.presentation.label }}</span><span>{{ block.title }}</span></button>
               </div>
             </div>
           </nav>
@@ -97,7 +97,7 @@
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
-                  <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" /></div></section>
+                  <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section"><div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2><div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" smooth-stream :animate-initial="newBlockIds.has(block.block_id)" :node-id="block.block_id" /></HandoutContentBlock></div><div v-if="section.fragment" class="study-draft"><span>{{ c('draft') }}</span><MarkdownRenderer :content="section.fragment" smooth-stream /></div></section>
 
                 </article>
               </div>
@@ -137,6 +137,7 @@ import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, X, NotebookPen, Network, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, ChevronRight } from 'lucide-vue-next'
+import { handoutPresentation } from '../utils/handout-content'
 import LearningDock from '../components/LearningDock.vue'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
@@ -358,11 +359,11 @@ const materialStatus = computed(() => material.value?.task?.status || material.v
 const isGenerating = computed(() => ['pending', 'running'].includes(materialStatus.value))
 const sectionAnchor = (id: string) => `study-${materialId.value}-${id}`
 const blockAnchor = (id: string) => `study-${materialId.value}-${id}`
-const readingSections = computed(() => (currentRevision.value?.sections || []).map(section => ({ id: section.id, title: section.title, anchor: sectionAnchor(section.id), blocks: section.blocks.map(block => ({ id: block.block_id, title: block.title, anchor: blockAnchor(block.block_id), content: block.content, knowledge: block.knowledge_names })) })))
+const readingSections = computed(() => (currentRevision.value?.sections || []).map(section => ({ id: section.id, title: section.title, anchor: sectionAnchor(section.id), blocks: section.blocks.map(block => ({ id: block.block_id, title: block.title, anchor: blockAnchor(block.block_id), content: block.content, presentation: handoutPresentation(block.content_type, activeLocale.value, block.type_label), knowledge: block.knowledge_names })) })))
 const filteredReadingSections = computed(() => {
   const query = chapterQuery.value.trim().toLocaleLowerCase()
   return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
-    .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => block.title.toLocaleLowerCase().includes(query)))
+    .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => (block.title + ' ' + block.presentation.label).toLocaleLowerCase().includes(query)))
 })
 const conceptSections = computed(() => buildHandoutConceptSections(material.value?.plans || [], readingSections.value))
 const conceptsReady = computed(() => material.value?.concepts_complete ?? (conceptSections.value.length > 0 && conceptSections.value.every(section => section.nodes.length > 0)))
@@ -474,11 +475,12 @@ async function generate() {
     requestId = createUuid(); submittedFingerprint = ''; persistDraft(); creating.value = false; await router.push(`/study/${result.id}`); await loadLibrary()
   })
 }
+const newBlockIds = ref(new Set<string>())
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
   const retainedRevision = material.value?.id === id ? currentRevision.value?.id : undefined
   if (!retainedRevision) {
-    material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
+    newBlockIds.value.clear(); material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
     activeChapter.value = ''; selectedPassage.value = null; restoreTool()
   }
   if (!id || !user.value) return
@@ -487,7 +489,12 @@ async function openMaterial() {
       const result = await studyApi.get(id)
       if (disposed || current !== epoch || materialId.value !== id || !user.value) return
       const previousRevision = currentRevision.value?.id
+      const previousBlocks = new Set(currentRevision.value?.sections.flatMap(section => section.blocks.map(block => block.block_id)) || [])
       material.value = result
+      if (previousRevision !== currentRevision.value?.id) newBlockIds.value.clear()
+      else if (!first) for (const section of currentRevision.value?.sections || []) {
+        for (const block of section.blocks) if (!previousBlocks.has(block.block_id)) newBlockIds.value.add(block.block_id)
+      }
       if (first && !retainedRevision) {
         await nextTick()
         if (disposed || current !== epoch || materialId.value !== id) return
@@ -580,12 +587,11 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-space .study-chapter-toggle { display: grid; place-items: center; flex: none; width: 32px; min-height: 44px; padding: 0; border: 0; background: transparent; color: #9298a9; }
 .study-chapter-toggle svg { transition: transform .15s ease; }
 .study-chapter-toggle svg.is-open { transform: rotate(90deg); }
+.study-block-tag { display:inline-block; vertical-align:1px; margin-right:6px; padding:0 4px; border-radius:3px; color:var(--handout-accent); background:var(--handout-tint); font-size:12px; font-weight:500; line-height:20px; }
 .study-block-list { margin: 6px 5px 12px 25px; padding-left: 12px; border-left: 1px dashed #d8dcea; }
-.study-space .study-block-list button { position: relative; display: flex; align-items: baseline; justify-content: flex-start; gap: 9px; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
+.study-space .study-block-list button { position: relative; display: block; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
 .study-space .study-block-list button:hover { background: #f0f1f7; color: #4d5267; }
 .study-space .study-block-list button.active { color: #6254a7; background: #efedf7; font-weight: 550; }
-.study-block-dot { flex: none; width: 4px; height: 4px; border-radius: 50%; border: 1px solid #c4c8d6; transform: translateY(-2px); }
-.active .study-block-dot { background: #8579c0; border-color: #8579c0; }
 .study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }
 .study-main-scroll { flex: 1; min-width: 0; overflow: auto; }
 .study-reading-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border: 1px solid #e5e7ee; border-radius: 12px; overflow: hidden; background: white; }
@@ -595,6 +601,10 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-selection-actions span { flex: 1; }
 .study-selection-actions button { padding: 4px 8px; }
 .study-document-scroll { min-height: 0; flex: 1; overflow: auto; scroll-behavior: smooth; }
+.study-handout :deep(.code-block-wrapper) { border-radius:8px; border:0; box-shadow:none; }
+.study-handout :deep(.markdown-code-tools) { padding:6px 10px 0; }
+.study-handout :deep(.markdown-code-tools .copy-btn) { min-height:28px; border-radius:5px; padding:3px 7px; font-size:13px; }
+.study-handout :deep(pre) { padding:10px 14px 14px; border-radius:0; }
 .study-handout { box-sizing: border-box; max-width: 890px; margin: auto; min-width: 0; padding: 28px clamp(24px, 3vw, 48px) 64px; color: #303440; font: var(--study-reading-size, 18px)/1.95 var(--study-reading-font, var(--handout-serif)); }
 .study-handout :deep(.handout-block) { font-size: var(--study-reading-size, 18px); font-family: var(--study-reading-font, var(--handout-serif)); }
 .study-handout-section { scroll-margin-top: 24px; }
@@ -632,7 +642,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 @keyframes study-jump { from { box-shadow: inset 3px 0 var(--lz-brand); background: var(--lz-brand-soft); } to { box-shadow: inset 3px 0 transparent; background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .study-jump-target { animation: none; outline: 2px solid var(--lz-brand-soft); } }
 .study-space.is-reading-page { padding: 14px; gap: 12px; background: #f5f6fa; }
-.is-reading-page :deep(.app-header) { min-height: 56px; border: 1px solid #e5e7ee; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px #27364e04; backdrop-filter: none; }
+.is-reading-page :deep(.app-header), .is-creating-page :deep(.app-header) { min-height: 56px; border: 1px solid #e5e7ee; border-radius: 12px; background: #fff; box-shadow: none; backdrop-filter: none; }
 .is-reading-page :deep(.workspace-header-action) { box-shadow: none; }
 .study-reading-workspace .learning-dock.is-toolbar.is-bottom { min-height: 58px; background: #fcfcfe; border-color: #e9ebf2; box-shadow: none; padding: 8px 14px; }
 .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { gap: 6px; }
@@ -658,8 +668,9 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-create-back { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 7px; min-height: 44px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--lz-text-secondary); font-size: 15px; font-weight: 550; cursor: pointer; }
 .study-create-back:hover { background: var(--lz-brand-soft); color: var(--lz-brand-strong); }
 .study-page-heading p { color: #7a889c; margin: 0; }
-.study-form-section { background: #fff; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); padding: 26px 28px; margin: 22px 0; }
-.study-form-section h2 { font-size: 20px; margin: 0 0 10px; }
+.study-form-section { padding:26px 0 0; margin:26px 0; border:0; border-top:1px solid #e2e6ed; border-radius:0; background:transparent; }
+#study-create-purpose { border-top:0; padding-top:0; }
+.study-form-section h2 { font-size: 18px; font-weight:600; margin: 0 0 10px; }
 .study-form-section>p { margin: 0 0 22px; color: #7b879b; }
 .study-space :is(.study-create, .study-login-card) label:not(.source-selection):not(.study-upload) { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; font-weight: 550; }
 .study-space :is(.study-create, .study-login-card) input:not([type=checkbox]):not([type=file]),.study-space :is(.study-create, .study-login-card) textarea,.study-space :is(.study-create, .study-login-card) select { width: 100%; min-width: 0; border: 1px solid #d7deeb; border-radius: 9px; background: #fcfdff; padding: 11px 13px; color: #33455f; box-sizing: border-box; }
@@ -676,17 +687,21 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .source-selection small { margin-left: auto; color: #8a95a5; font-size: 15px; }
 .source-warning { color: #a47548; font-size: 15px; }
 .study-purpose-options { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
-.study-purpose-options button { position: relative; display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 21px; border: 1px solid #e1e5ef; background: #fcfcff; gap: 12px; align-content: start; border-radius: var(--lz-radius-control); }
+.study-purpose-options button { position: relative; display: grid; grid-template-columns:25px minmax(0,1fr); align-items: center; text-align: left; padding:16px; border: 1px solid #e1e5ef; background: #fcfcff; gap: 12px; align-content: start; border-radius: var(--lz-radius-control); }
 .study-purpose-options button.selected { border-color: var(--lz-brand); background: var(--lz-brand-soft); }
-.study-purpose-options strong { font-size: 18px; color: #3c4260; }
+.study-purpose-options strong { padding-right:22px; font-size:16px; font-weight:600; color: #3c4260; }
 .study-purpose-options span { color: #7d849c; font-size: 15px; font-weight: 400; }
 .purpose-check { position: absolute; right: 18px; top: 23px; color: #7761bc; }
 .study-settings-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .study-generate-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; color: #8190a3; flex-wrap: wrap; gap: 16px; }
 .study-upload-input { display: none; }
+.is-creating-page { background:#f8f9fc; }
+.study-create :deep(.el-input__wrapper) { min-height:44px; box-sizing:border-box; border-radius:8px; }
+.study-create :deep(.el-input__inner), .study-create :deep(.el-textarea__inner) { font-weight:400; font-size:15px; }
+.study-create :deep(input::placeholder), .study-create :deep(textarea::placeholder) { color:#758095; }
 .study-create { width: 100%; max-width: 980px; margin: 0 auto; padding: 28px; box-sizing: border-box; }
 .study-create .study-page-heading p { max-width: 740px; color: var(--lz-text-secondary); font-size: 15px; line-height: 1.7; margin: 10px 0 0; }
-.study-purpose-options button > span { font-size: 15px; line-height: 1.7; color: var(--lz-text-secondary); }
+.study-purpose-options button > span { grid-column:1 / -1; font-size:14px; line-height: 1.7; color: var(--lz-text-secondary); }
 .study-purpose-mobile-hint { display: none; }
 .study-range-recovery { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--lz-text-secondary); font-size: 15px; }
 .study-generation-issue { color: var(--lz-brand-strong) !important; }
@@ -763,9 +778,9 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-page-heading { justify-content: flex-start; gap: 10px; margin-bottom: 12px; }
   .study-page-heading h1 { margin: 0; font-size: 23px; }
   .study-create-back { min-height: 44px; gap: 5px; padding: 0 2px; font-size: 14px; }
-  .study-form-section { padding: 18px 15px; margin: 14px 0; border-radius: 12px; }
+  .study-form-section { padding:20px 0 0; margin:20px 0; border-radius:0; }
   .study-purpose-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
-  .study-purpose-options button { min-height: 50px; flex-direction: row; align-items: center; padding: 10px; gap: 8px; }
+  .study-purpose-options button { display:flex; min-height:50px; flex-direction:row; align-items: center; padding: 10px; gap: 8px; }
   .study-purpose-options button > svg:not(.purpose-check) { width: 21px; height: 21px; }
   .study-purpose-options strong { font-size: 15px; }
   .study-purpose-options button > span { display: none; }
@@ -784,8 +799,18 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-generate-bar button { min-height: 46px; }
 }
 
+@media (max-width: 480px) {
+  .study-create .study-page-heading { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .study-create .study-create-back { border: 0; background: transparent; }
+  .study-generate-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .study-generate-bar > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .study-generate-bar > div p { margin: 0; }
+  .study-generate-bar button { justify-content: center; }
+}
+
 @media (max-width: 380px) {
   .study-space { padding-inline: 4px; }
+  .is-creating-page :deep(.product-brand-copy) { display: none; }
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools) { overflow-x: auto; scrollbar-width: none; }
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools::-webkit-scrollbar) { display: none; }
   .study-header-actions :deep(.workspace-header-action) { min-width: 44px; }

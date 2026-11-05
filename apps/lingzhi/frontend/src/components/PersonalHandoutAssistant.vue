@@ -8,7 +8,7 @@
       <article v-for="message in conversation?.messages || []" :key="message.message_id" :class="['assistant-message', message.role]">
         <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
         <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
-        <MarkdownRenderer :content="message.content" :enable-code-run="false" />
+        <MarkdownRenderer :content="message.content" :smooth-stream="message.role === 'assistant'" :animate-initial="newMessageIds.has(message.message_id)" :enable-code-run="false" />
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
         <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><ElButton :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</ElButton></template>
       </article>
@@ -48,6 +48,13 @@ const historyLoading = ref(false), historyReady = ref(false)
 const threadContent = ref<HTMLElement | null>(null)
 const { followingLatest, handleMessageScroll, scrollToBottom } = useFollowingScroll(thread,
   () => [conversation.value?.messages.length, conversation.value?.messages.at(-1)?.content], () => true, threadContent)
+const newMessageIds = ref(new Set<string>())
+let knownMessages: Set<string> | undefined
+function acceptConversation(result: AssistantConversation) {
+  for (const message of result.messages) if (knownMessages && !knownMessages.has(message.message_id)) newMessageIds.value.add(message.message_id)
+  knownMessages = new Set(result.messages.map(message => message.message_id))
+  conversation.value = result
+}
 const active = computed(() => conversation.value?.messages.some(m => ['pending','running'].includes(m.status)) || false)
 const key = `lingzhi-study-ai:${props.ownerId}:${props.materialId}:${props.revisionId}`
 let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, requestId = createUuid(), fingerprint = '', observation = 0
@@ -60,7 +67,7 @@ async function load() {
   clearTimeout(timer)
   const current = ++observation
   if (!historyReady.value) historyLoading.value = true
-  try { const result = await studyApi.assistant(props.materialId); if (disposed || current !== observation) return; conversation.value = result; historyReady.value = true; error.value = ''; if (active.value) timer = setTimeout(() => { void load() }, 1500) }
+  try { const result = await studyApi.assistant(props.materialId); if (disposed || current !== observation) return; acceptConversation(result); historyReady.value = true; error.value = ''; if (active.value) timer = setTimeout(() => { void load() }, 1500) }
   catch (cause) { if (!disposed && current === observation) { historyReady.value = false; fail(cause) } }
   finally { if (!disposed && current === observation) historyLoading.value = false }
 }
@@ -71,7 +78,7 @@ async function send(prompt?: string) {
   const body = { revision_id: props.revisionId, section_id: props.context.section_id, block_id: props.context.block_id, quote: props.context.quote, text, language: activeLocale.value }
   const next = JSON.stringify(body); if (fingerprint && fingerprint !== next) requestId = createUuid(); fingerprint = next; keepDraft()
   busy.value = true; error.value = ''; observation++; clearTimeout(timer); scrollToBottom()
-  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; conversation.value = result; if (input.value.trim() === text) input.value = ''; requestId = createUuid(); fingerprint = ''; keepDraft(); await load() }
+  try { const result = await studyApi.ask(props.materialId, { ...body, request_id: requestId }); if (disposed) return; acceptConversation(result); if (input.value.trim() === text) input.value = ''; requestId = createUuid(); fingerprint = ''; keepDraft(); await load() }
   catch (cause) { fail(cause) }
   finally { if (!disposed) busy.value = false }
 }

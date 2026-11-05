@@ -241,6 +241,19 @@ describe('personal study handouts', () => {
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
+  it('labels directory entries from teaching metadata and localizes the label', async () => {
+    const material = structuredClone(saved)
+    material.revisions[0]!.sections[0]!.blocks[0]!.title = '练习中的概念'
+    api.get.mockResolvedValue(material)
+    const { wrapper } = await page('/study/material-a')
+    expect(wrapper.get('.study-block-tag').text()).toBe('定义')
+    await wrapper.get('.study-chapter-search input').setValue('定义')
+    expect(wrapper.find('.study-block-list').exists()).toBe(true)
+    await wrapper.get('.study-chapter-search input').setValue('')
+    await setLocale('en'); await flushPromises()
+    expect(wrapper.get('.study-block-tag').text()).toBe('Definition')
+  })
+
   it('filters the directory without changing the handout and keeps notes when the directory is hidden', async () => {
     const material = structuredClone(saved)
     material.revisions[0]!.sections.push({ ...material.revisions[0]!.sections[0]!, id: 's2', title: '第二章', blocks: [] })
