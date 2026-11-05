@@ -42,7 +42,7 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
       const kind = statementKinds[type]
       const items: HandoutReference[] = []
       if (kind) items.push({ id: `${block.block_id}:statement`, blockId: block.block_id,
-        title: block.title, kind, content, includedInStatement: false })
+        title: block.title, kind, content, html: renderMarkdown(content), includedInStatement: false })
       const canonical = ['definition', 'theorem', 'rule', 'result'].includes(type)
       const boxedProse = ['explanation', 'derivation', 'introduction'].includes(type) && content.includes('\\boxed')
       if (!canonical && !boxedProse) return items

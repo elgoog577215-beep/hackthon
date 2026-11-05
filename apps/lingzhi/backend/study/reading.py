@@ -3,7 +3,7 @@ from copy import deepcopy
 import uuid
 
 READING_SCHEMA_VERSION = "study_reading_v1"
-READING_PROMPT_VERSION = "study_reading_relations_v3"
+READING_PROMPT_VERSION = "study_reading_relations_v4"
 RELATION_TYPES = {"prerequisite", "derives", "applies_to", "contrasts_with", "equivalent_to", "generalizes"}
 
 
@@ -18,9 +18,10 @@ def reading_response_schema(source: dict, prior: list[dict]) -> dict:
     short = {"type": "string", "maxLength": 120}
     sentence = {"type": "string", "maxLength": 240}
     refs = array(obj({"evidence_id": {"type": "string", "enum": [b["evidence_id"] for b in source["blocks"]]}}), 2, 1)
-    point = obj({"name": short, "statement": sentence, "source_refs": refs})
-    relation = obj({"source_name": short, "target_name": short,
-                    "source_knowledge_id": {"type": "string", "enum": ["", *[p["knowledge_id"] for p in prior]]},
+    local_keys = ["c1", "c2", "c3", "c4"]
+    point = obj({"key": {"type": "string", "enum": local_keys}, "name": short, "statement": sentence, "source_refs": refs})
+    relation = obj({"source_ref": {"type": "string", "enum": [*local_keys, *[p["knowledge_id"] for p in prior]]},
+                    "target_ref": {"type": "string", "enum": local_keys},
                     "relation_type": {"type": "string", "enum": sorted(RELATION_TYPES)},
                     "reason": sentence, "conditions": array(short, 3),
                     "derivation_steps": array({"type": "string", "maxLength": 2000}, 32), "source_refs": refs})
@@ -61,7 +62,7 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
         raise ValueError("知识概念结构不完整，请主动继续") from None
     if not 0 <= len(raw_points) <= 6:
         raise ValueError("本讲核心概念不能超过 6 个，请主动继续")
-    points, by_name = [], {}
+    points, by_name, by_key = [], {}, {}
     for point in raw_points:
         if not isinstance(point, dict):
             raise ValueError("知识概念结构不完整，请主动继续")
@@ -74,6 +75,11 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
                 "source_refs": bind_refs(point.get("source_refs"), source)}
         points.append(item)
         by_name[name] = item
+        if "key" in point:
+            key = point["key"]
+            if key not in {"c1", "c2", "c3", "c4"} or key in by_key:
+                raise ValueError("本讲概念引用键重复或无效，已保留正文，请主动继续")
+            by_key[key] = identity
     known = {p["knowledge_id"]: p for p in [*prior, *points]}
     local = {p["knowledge_id"] for p in points}
     relations = []
@@ -82,10 +88,21 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
     for edge in plan["knowledge_relations"]:
         if not isinstance(edge, dict):
             raise ValueError("知识关系结构不完整，请主动继续")
-        endpoints = [edge.get(f"{side}_knowledge_id") or by_name.get(edge.get(f"{side}_name"), {}).get("knowledge_id") for side in ("source", "target")]
+        if "source_ref" in edge or "target_ref" in edge:
+            # New outputs route through finite keys rather than repeating free-text names.
+            # Prior IDs are accepted only as sources; never infer an identity by similarity.
+            prior_ids = {p["knowledge_id"] for p in prior}
+            source_ref, target_ref = edge.get("source_ref"), edge.get("target_ref")
+            endpoints = [by_key.get(source_ref) or (source_ref if source_ref in prior_ids else None), by_key.get(target_ref)]
+        else:
+            endpoints = [edge.get(f"{side}_knowledge_id") or by_name.get(edge.get(f"{side}_name"), {}).get("knowledge_id") for side in ("source", "target")]
         a, b = endpoints
-        if a not in known or b not in known or a == b or b not in local or edge.get("relation_type") not in RELATION_TYPES:
-            raise ValueError("知识关系的概念或类型不完整，请主动继续")
+        if a not in known or b not in known or b not in local:
+            raise ValueError("知识关系引用了未声明的概念，已保留正文，请主动继续整理概念关系")
+        if a == b:
+            raise ValueError("知识关系的两个概念相同，已保留正文，请主动继续整理概念关系")
+        if edge.get("relation_type") not in RELATION_TYPES:
+            raise ValueError("知识关系类型不支持，已保留正文，请主动继续整理概念关系")
         conditions = edge.get("conditions", [])
         if not isinstance(conditions, list) or len(conditions) > 8:
             raise ValueError("关系条件结构不完整，请主动继续")

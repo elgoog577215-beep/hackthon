@@ -36,12 +36,12 @@ describe('Handout formula and theorem reference', () => {
     expect(wrapper.find('.reference-context').exists()).toBe(false)
     expect(wrapper.find('.aid-toolbar input').exists()).toBe(false)
     await wrapper.get('.aid-scope-toggle').trigger('click')
-    expect(wrapper.findAll('.reference-item')).toHaveLength(2)
+    expect(wrapper.findAll('.reference-item')).toHaveLength(3)
     await wrapper.get('.aid-scope-toggle').trigger('click')
-    await wrapper.findAll('.reference-item')[0]!.trigger('click')
+    await wrapper.findAll('.reference-open')[0]!.trigger('click')
     expect(wrapper.emitted('jump')).toEqual([['definition']])
     await wrapper.setProps({ currentSection: 'b' })
-    expect(wrapper.text()).toContain('当前范围暂无公式')
+    expect(wrapper.text()).toContain('随机变量是样本空间上的实值函数')
     expect(wrapper.text()).not.toContain('条件概率')
     await wrapper.get('.aid-search-toggle').trigger('click')
     await wrapper.get('input').setValue('不存在')
@@ -53,8 +53,8 @@ describe('Handout formula and theorem reference', () => {
     expect(wrapper.text()).not.toContain('随机变量')
     activeLocale.value = 'en'
     await wrapper.vm.$nextTick()
-    expect(wrapper.attributes('aria-label')).toBe('Formula reference')
-    expect(wrapper.get('.reference-item').attributes('aria-label')).toContain('Go to passage')
+    expect(wrapper.attributes('aria-label')).toBe('Quick reference')
+    expect(wrapper.get('.reference-open').attributes('aria-label')).toContain('Go to passage')
     wrapper.unmount()
   })
   it('shows each display formula once despite nested renderer wrappers', () => {
@@ -106,5 +106,20 @@ it('scrolls the reference results to the current lecture without scrolling the r
   await wrapper.setProps({ currentSection: 'b' })
   await Promise.resolve()
   expect(results.scrollTop).toBe(280)
+  wrapper.unmount()
+})
+
+
+it('shows programming methods directly from the body while keeping exercises and answers out', () => {
+  const wrapper = mount(HandoutReferencePanel, { props: { currentSection: 's', sections: [{ id: 's', title: '编程', blocks: [
+    block('method', 'method', '输入必须非空。\n\n1. 初始化累加值。\n2. 逐项累加。\n\n```python\ntotal += value\n```', '累加算法'),
+    block('exercise', 'exercise', '请实现快速排序', '练习'),
+    block('answer', 'answer', '答案内容', '参考答案'),
+  ] }] } })
+  expect(wrapper.findAll('.reference-item')).toHaveLength(1)
+  expect(wrapper.text()).toContain('输入必须非空')
+  expect(wrapper.text()).toContain('逐项累加')
+  expect(wrapper.text()).not.toContain('答案内容')
+  expect(wrapper.find('code').text()).toContain('total += value')
   wrapper.unmount()
 })

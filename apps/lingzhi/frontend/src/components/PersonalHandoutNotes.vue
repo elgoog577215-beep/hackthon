@@ -1,5 +1,5 @@
 <template>
-  <section class="personal-notes" :aria-label="c('note')">
+  <section class="personal-notes" :class="{ 'is-editing': !!editor }" :aria-label="c('note')">
     <div v-if="!editor" class="reading-aid-controls">
       <div class="notes-heading"><strong>{{ c('notesNotebook') }}</strong><ElButton plain @click="create({})"><Plus :size="15" />{{ c('notesNew') }}</ElButton></div>
       <template v-if="!editor">
@@ -11,29 +11,29 @@
     <div ref="results" class="reading-aid-results">
       <p v-if="!draftStorageAvailable" role="alert">{{ c('notesDraftUnavailable') }}</p>
       <div v-if="editor" ref="editorRoot" class="note-editor">
-        <header><strong>{{ editor.id ? c('notesEdit') : c('notesNew') }}</strong><ElButton plain :disabled="saving" @click="closeEditor"><ChevronUp :size="16" aria-hidden="true" />{{ c('notesBack') }}</ElButton></header>
+        <header><ElButton text :disabled="saving" @click="closeEditor"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesBack') }}</ElButton><button class="note-important" :aria-pressed="editor.important" @click="editor.important = !editor.important"><Star :size="16" :fill="editor.important ? 'currentColor' : 'none'" />{{ c('notesImportant') }}</button></header>
         <p class="note-location"><MathText :content="editor.section_title || c('notesCourseWide')" /><template v-if="editor.block_title"> · <MathText :content="editor.block_title" /></template></p>
         <blockquote v-if="editor.quote"><small>{{ c('notesSource') }}</small><MathText :content="editor.quote" /></blockquote>
         <p v-if="editor.location_status !== 'current'" class="notes-status">{{ locationLabel(editor.location_status) }}</p>
-        <label class="note-input-label">{{ c('notesMyText') }}<ElInput v-model="editor.content" type="textarea" :rows="5" :maxlength="20000" resize="vertical" :aria-label="c('notesMyText')" :placeholder="c('notesTextPlaceholder')" /></label>
-        <div class="notes-options"><label><input v-model="editor.important" type="checkbox" />{{ c('notesImportant') }}</label><select v-model="editor.question_state" :aria-label="c('notesQuestionState')"><option value="none">{{ c('notesNoQuestion') }}</option><option value="open">{{ c('notesOpen') }}</option><option value="answered">{{ c('notesAnswered') }}</option></select></div>
+        <label class="note-input-label"><span class="note-input-caption">{{ c('notesMyText') }}</span><ElInput v-model="editor.content" type="textarea" :rows="10" :maxlength="20000" resize="none" :aria-label="c('notesMyText')" :placeholder="c('notesTextPlaceholder')" /></label>
+        <div class="notes-options"><label for="note-question-state">{{ c('notesQuestionState') }}</label><select id="note-question-state" v-model="editor.question_state" :aria-label="c('notesQuestionState')"><option value="none">{{ c('notesNoQuestion') }}</option><option value="open">{{ c('notesOpen') }}</option><option value="answered">{{ c('notesAnswered') }}</option></select></div>
         <div v-if="suggestions[editor.id]" class="notes-suggestion"><p>{{ c(suggestions[editor.id]!.noteVersion === editor.version ? 'notesSuggestionHint' : 'notesSuggestionOutdated') }}</p><details><summary>{{ c('notesViewSuggestion') }}</summary><MarkdownRenderer :content="suggestions[editor.id]!.content" :enable-code-run="false" /></details><ElButton plain :disabled="suggestions[editor.id]!.noteVersion !== editor.version" @click="applySuggestion(true)">{{ c('notesUseSuggestion') }}</ElButton></div>
         <div v-if="conflict" class="notes-conflict" role="alert"><p>{{ c('notesConflict') }}</p><details><summary>{{ c('notesSavedVersion') }}</summary><MarkdownRenderer :content="conflict.content" :enable-code-run="false" /></details><ElButton plain @click="adoptServerVersion">{{ c('notesUseSaved') }}</ElButton><ElButton plain @click="keepMyDraft">{{ c('notesKeepMine') }}</ElButton></div>
         <p v-if="error" role="alert">{{ error }}<ElButton v-if="editor.id" text @click="compareLatest">{{ c('notesCompare') }}</ElButton></p>
-        <p v-if="saved" class="notes-status" role="status">{{ c('noteSaved') }}</p>
-        <footer><ElButton type="primary" :disabled="saving || !canSave || !!conflict" @click="save()"><Save :size="16" aria-hidden="true" />{{ saving ? c('busy') : c('saveNote') }}</ElButton><ElButton :disabled="saving || !canSave || !!conflict || !editor.section_id || editor.location_status !== 'current'" @click="discuss"><MessageCircle :size="16" aria-hidden="true" />{{ c('notesDiscuss') }}</ElButton></footer>
+        <p class="notes-status note-save-status" role="status">{{ saving ? c('busy') : dirty ? c('noteUnsaved') : editor.id ? c('noteSaved') : '' }}</p>
+        <footer><ElButton type="primary" data-action="save" :disabled="saving || !canSave || !dirty || !!conflict" @click="save()"><Save :size="16" aria-hidden="true" />{{ saving ? c('busy') : c('saveNote') }}</ElButton><ElButton :disabled="saving || !canSave || !!conflict || !editor.section_id || editor.location_status !== 'current'" data-action="discuss" @click="discuss"><MessageCircle :size="16" aria-hidden="true" />{{ c('notesDiscuss') }}</ElButton></footer>
       </div>
       <p v-if="error && !editor" role="alert">{{ error }}</p>
       <p v-if="!visible.length && !editor" class="notes-empty">{{ c(query || filter !== 'all' || sourceType ? 'referenceNoMatches' : 'notesEmpty') }}</p>
-      <article v-for="note in visible" :key="note.id" v-show="editor?.id !== note.id" class="personal-note-card" :class="{ selected: editor?.id === note.id }" :data-note-id="note.id">
+      <article v-for="note in editor ? [] : visible" :key="note.id" class="personal-note-card" :class="{ selected: editor?.id === note.id }" :data-note-id="note.id">
         <header><small><MathText :content="note.section_title || c('notesCourseWide')" /><span v-if="note.content_type" class="note-type">{{ typeLabel(note.content_type) }}</span></small><button :aria-label="c(note.important ? 'notesUnmark' : 'notesImportant')" :aria-pressed="note.important" :disabled="saving" @click="toggleImportant(note)"><Star :size="16" :fill="note.important ? 'currentColor' : 'none'" /></button></header>
-        <button class="note-card-open" @click="open(note)"><blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote><MathText v-if="note.content" tag="p" :content="note.content" /><span v-else>{{ c('notesMarked') }}</span></button>
+        <div class="note-card-preview"><blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote><MarkdownRenderer v-if="note.content" :content="note.content" :enable-code-run="false" /><span v-else>{{ c('notesMarked') }}</span></div>
         <p v-if="note.location_status !== 'current'" class="notes-status">{{ locationLabel(note.location_status) }}</p>
-        <footer><span v-if="note.question_state !== 'none' || note.source_type === 'ai'" class="note-state" :class="{ 'is-question': note.question_state === 'open' }">{{ c(note.question_state === 'open' ? 'notesOpen' : note.question_state === 'answered' ? 'notesAnswered' : note.source_type === 'ai' ? 'notesAIOrigin' : 'notesMyRecord') }}</span><button v-if="note.location_status === 'current' && (note.block_id || note.section_id)" @click="emit('locate', note)"><ArrowUpRight :size="14" aria-hidden="true" />{{ c('referenceJump') }}</button><button @click="open(note)"><Pencil :size="14" aria-hidden="true" />{{ c('notesEdit') }}</button></footer>
+        <footer><span v-if="note.question_state !== 'none' || note.source_type === 'ai'" class="note-state" :class="{ 'is-question': note.question_state === 'open' }">{{ c(note.question_state === 'open' ? 'notesOpen' : note.question_state === 'answered' ? 'notesAnswered' : note.source_type === 'ai' ? 'notesAIOrigin' : 'notesMyRecord') }}</span><button v-if="note.location_status === 'current' && (note.block_id || note.section_id)" @click="emit('locate', note)"><ArrowUpRight :size="14" aria-hidden="true" />{{ c('referenceJump') }}</button><button class="note-card-open" @click="open(note)"><Pencil :size="14" aria-hidden="true" />{{ c('notesEdit') }}</button></footer>
         <div v-if="deleting === note.id" class="note-delete-confirm"><span>{{ c('notesDeleteConfirm') }}</span><ElButton plain :disabled="saving" @click="remove(note)">{{ c('notesDelete') }}</ElButton><ElButton plain @click="deleting = ''">{{ c('notesCancel') }}</ElButton></div>
         <button v-else class="note-delete" :aria-label="c('notesDelete')" @click="deleting = note.id"><Trash2 :size="13" /></button>
       </article>
-      <details class="notes-legacy"><summary>{{ c('notesCourseWide') }}</summary><slot name="legacy" /></details>
+      <details v-if="!editor" class="notes-legacy"><summary>{{ c('notesCourseWide') }}</summary><slot name="legacy" /></details>
     </div>
   </section>
 </template>
@@ -42,7 +42,7 @@
 import "../styles/study-tool-controls.css"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
-import { Plus, Star, Trash2, Save, MessageCircle, ChevronUp, Pencil, ArrowUpRight } from 'lucide-vue-next'
+import { Plus, Star, Trash2, Save, MessageCircle, ArrowLeft, Pencil, ArrowUpRight } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { studyApi, StudyApiError, type StudyNote, type StudyNoteInput, type StudySection, type NoteDraftSuggestion } from '../api/study'
@@ -76,10 +76,16 @@ const visible = computed(() => {
     && (!needle || [n.quote, n.content, n.section_title, n.block_title].join(' ').toLocaleLowerCase().includes(needle)))
     .sort((a, b) => (positions.get(a.block_id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.block_id) ?? Number.MAX_SAFE_INTEGER) || a.created_at.localeCompare(b.created_at))
 })
+const baseline = ref<StudyNote | null>(null)
+const dirty = computed(() => {
+  const draft = editor.value, original = baseline.value
+  return !!draft && (!draft.id || !original || draft.content !== original.content || draft.important !== original.important || draft.question_state !== original.question_state || !!draft.pending_ai_message_id)
+})
 const canSave = computed(() => !!editor.value && (!!editor.value.content.trim() || !!editor.value.quote.trim() && !!editor.value.block_id))
 function top() { void nextTick(() => { if (results.value) results.value.scrollTop = 0; editorRoot.value?.querySelector('textarea')?.focus({ preventScroll: true }) }) }
 function create(context: NoteContext = {}, kind: StudyNote['kind'] = 'note') {
   editorGeneration++
+  baseline.value = null
   persist(); submittedFingerprint = ''; conflict.value = null; error.value = ''; saved.value = false
   const sid = context.section_id ?? props.currentSection ?? '', section = props.sections.find(s => s.id === sid), block = section?.blocks.find(b => b.block_id === context.block_id)
   editor.value = { id: '', request_id: createUuid(), revision_id: props.revisionId, section_id: section?.id || '', section_title: section?.title || '', block_id: block?.block_id || '', block_title: block?.title || '', content_type: block?.content_type || '', quote: context.quote || '', anchor_prefix: context.anchor_prefix || '', anchor_suffix: context.anchor_suffix || '', content: context.content || '', kind, question_state: context.question_state || 'none', important: kind === 'mark', version: 0, source_type: context.source_message_id ? 'ai' : 'self', source_message_id: context.source_message_id, created_at: '', updated_at: '', source_sha256: '', location_status: 'current' }
@@ -88,6 +94,7 @@ function create(context: NoteContext = {}, kind: StudyNote['kind'] = 'note') {
 function open(note: StudyNote) {
   editorGeneration++
   persist(); error.value = ''; saved.value = false
+  baseline.value = { ...note }
   const draft = cached(note.id)
   editor.value = draft || { ...note, request_id: createUuid() }
   editor.value.location_status = note.location_status
@@ -116,6 +123,7 @@ async function save(): Promise<StudyNote | undefined> {
     if (disposed) return
     emit('saved', note)
     if (generation === editorGeneration && editor.value && editor.value.id === draft.id) {
+      baseline.value = { ...note }
       const unchanged = editor.value.content === draft.content && editor.value.question_state === draft.question_state && editor.value.important === draft.important
       editor.value = unchanged ? { ...note, request_id: createUuid() } : { ...editor.value, id: note.id, version: note.version }
       await nextTick(); saved.value = unchanged
@@ -132,8 +140,8 @@ async function compareLatest() {
   try { const result = await studyApi.listNotes(props.materialId, revision); if (disposed || generation !== editorGeneration) return; const latest = result.entries.find(n => n.id === id); if (latest) { emit('saved', latest); conflict.value = latest; } }
   catch (cause) { if (!disposed && generation === editorGeneration) fail(cause) }
 }
-function adoptServerVersion() { if (conflict.value) { editor.value = { ...conflict.value, request_id: createUuid() }; conflict.value = null; error.value = '' } }
-function keepMyDraft() { if (editor.value && conflict.value) { editor.value.version = conflict.value.version; editor.value.location_status = conflict.value.location_status; editor.value.pending_ai_message_id = undefined; conflict.value = null; error.value = '' } }
+function adoptServerVersion() { if (conflict.value) { baseline.value = { ...conflict.value }; editor.value = { ...conflict.value, request_id: createUuid() }; conflict.value = null; error.value = '' } }
+function keepMyDraft() { if (editor.value && conflict.value) { baseline.value = { ...conflict.value }; editor.value.version = conflict.value.version; editor.value.location_status = conflict.value.location_status; editor.value.pending_ai_message_id = undefined; conflict.value = null; error.value = '' } }
 async function discuss() {
   if (!editor.value || saving.value || !canSave.value || conflict.value) return
   const generation = editorGeneration, draft = editor.value
@@ -170,7 +178,7 @@ function applySuggestion(explicit: boolean) {
   editor.value.content = value.content; editor.value.pending_ai_message_id = value.messageId; editor.value.source_type = 'ai'
   delete suggestions.value[editor.value.id]
 }
-try { const active = sessionStorage.getItem(key); if (active) { const draft = cached(active); if (draft) { editor.value = draft; const current = props.notes.find(n => n.id === draft.id); if (current) { editor.value.location_status = current.location_status; if (current.version !== draft.version) conflict.value = current } } } } catch { /* Drafts are optional, official notes remain available. */ }
+try { const active = sessionStorage.getItem(key); if (active) { const draft = cached(active); if (draft) { editor.value = draft; const current = props.notes.find(n => n.id === draft.id); if (current) { baseline.value = { ...current }; editor.value.location_status = current.location_status; if (current.version !== draft.version) conflict.value = current } } } } catch { /* Drafts are optional, official notes remain available. */ }
 watch(() => props.notes, notes => { const current = notes.find(n => n.id === editor.value?.id); if (!current || !editor.value) return; editor.value.location_status = current.location_status; if (current.version !== editor.value.version) conflict.value = current }, { deep: true })
 onBeforeUnmount(() => { persist(); disposed = true; editorGeneration++ })
 function currentDraft(noteId: string) { return editor.value?.id === noteId ? editor.value.content : cached(noteId)?.content }
@@ -222,4 +230,31 @@ defineExpose({ create, open, receiveSuggestion, save, currentDraft })
 .personal-notes .reading-aid-controls>input { grid-column:1 / -1; margin:0; }
 .personal-notes .notes-filters { grid-column:1 / -1; margin:0; }
 .personal-notes .notes-heading:has(+ .reading-aid-scope) { margin:0; }
+.personal-notes.is-editing .reading-aid-results { display:flex; flex-direction:column; padding:0 18px 16px; }
+.note-editor { flex:1; display:flex; flex-direction:column; min-height:440px; margin:12px 0 0; }
+.note-editor header { margin:0 0 12px; }
+.note-editor header :deep(.el-button) { padding-left:0; }
+.note-important { display:inline-flex; align-items:center; gap:6px; padding:8px; border:0; background:transparent; color:#625578; font:inherit; cursor:pointer; }
+.note-important[aria-pressed=true] { color:#6552bb; }
+.note-input-label { display:flex; flex-direction:column; flex:1; min-height:240px; }
+.note-input-caption { position:absolute; clip-path:inset(50%); width:1px; height:1px; overflow:hidden; }
+.note-input-label :deep(.el-textarea) { flex:1; display:flex; margin:0; }
+.note-input-label :deep(textarea) { flex:1; min-height:240px!important; padding:14px; background:#fff; color:#343c50; }
+.notes-options { justify-content:flex-start; margin:12px 0 0; }
+.notes-options label { color:#637086; }
+.note-save-status { margin:10px 0 8px; min-height:22px; }
+.note-editor footer { border-top:1px solid #e9ebf2; padding-top:12px; justify-content:flex-end; }
+.note-editor footer [data-action=discuss] { order:-1; margin-right:auto; }
+.note-editor blockquote { max-height:100px; overflow:auto; }
+.note-card-preview { color:#343c50; font-size:15px; overflow-wrap:anywhere; max-height:240px; overflow:auto; }
+.note-card-preview :deep(.markdown-body) { font:inherit; }
+.note-card-preview :deep(p) { margin:8px 0; }
+.note-card-preview :deep(pre) { max-width:100%; overflow:auto; }
+.personal-note-card .note-card-open { width:auto; }
+@media(max-width:760px) {
+  .personal-notes.is-editing .reading-aid-results { padding:0 16px max(16px,env(safe-area-inset-bottom)); }
+  .note-editor { min-height:440px; }
+  .note-important { min-height:44px; }
+  .note-editor footer { position:sticky; bottom:0; background:white; padding-bottom:4px; }
+}
 </style>

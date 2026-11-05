@@ -95,7 +95,7 @@
               <div class="study-reading-with-reasoning">
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
-                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ budgetBlocked ? c('generationBudgetExceeded') : ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'continue') }}</button></div>
+                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ budgetBlocked ? c('generationBudgetExceeded') : ['failed', 'paused'].includes(materialStatus) ? c(material.task?.phase === 'study_concepts' ? 'conceptsInterrupted' : 'interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : material.task?.phase === 'study_concepts' ? 'completeConcepts' : 'continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
                   <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section">
@@ -120,7 +120,7 @@
               </aside>
               </div>
             </div>
-            <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport" v-bind="rightColumnHandle" />
+            <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport && !reasoningOpen" v-bind="rightColumnHandle" />
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
             <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note' }">
               <header class="study-tool-heading"><component :is="toolIcons[toolTab]" :size="18" class="study-tool-icon" aria-hidden="true" /><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="mobileViewport ? c('backToReading') : t('common.close')" @click="closeTool"><ArrowLeft v-if="mobileViewport" :size="20" /><X v-else :size="18" /></ElButton></header>
@@ -142,7 +142,7 @@
             <template #tools>
               <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': isToolActive(tab) }" :aria-pressed="isToolActive(tab)" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', paths: 'pathsShort' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
             </template>
-            <template #mobile-more><button v-for="tab in moreTools" :key="tab" :data-tool="tab" class="learning-dock__more-action" :class="{ 'is-active': isToolActive(tab) }" @click="openTool(tab)"><component :is="toolIcons[tab]" :size="21" /><span>{{ c(tab) }}</span></button></template>
+            <template v-if="moreTools.length" #mobile-more><button v-for="tab in moreTools" :key="tab" :data-tool="tab" class="learning-dock__more-action" :class="{ 'is-active': isToolActive(tab) }" @click="openTool(tab)"><component :is="toolIcons[tab]" :size="21" /><span>{{ c(tab) }}</span></button></template>
           </LearningDock>
         </div>
       </template>
@@ -207,8 +207,8 @@ const toolTabs = ['note', 'assistant', 'reference', 'paths'] as const
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
 const toolIcons = { assistant: MessageCircle, note: NotebookPen, reference: Sigma, paths: Route }
-const primaryTools: StudyTool[] = ['reference', 'paths', 'assistant']
-const moreTools: StudyTool[] = ['note']
+const primaryTools: StudyTool[] = ['note', 'assistant', 'reference', 'paths']
+const moreTools: StudyTool[] = []
 const visibleTools = computed(() => mobileViewport.value ? primaryTools : toolTabs)
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
@@ -369,8 +369,8 @@ const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNo
 const noteDirty = computed(() => noteText.value !== savedNote.value)
 const materialId = computed(() => String(route.params.materialId || ''))
 const studyLayoutRoot = ref<HTMLElement | null>(null)
-const viewportWidth = ref(window.innerWidth)
-const mobileViewport = computed(() => viewportWidth.value <= 760)
+const viewportWidth = ref(window.innerWidth), viewportHeight = ref(window.innerHeight)
+const mobileViewport = computed(() => viewportWidth.value <= 760 || viewportWidth.value <= 1024 && viewportHeight.value <= 520)
 const compactViewport = computed(() => viewportWidth.value <= 1280)
 const desktopDirectoryOpen = ref(true), mobileDirectoryOpen = ref(false), chapterQuery = ref('')
 const expandedChapters = ref<Record<string, boolean>>({})
@@ -396,6 +396,7 @@ async function updateViewport() {
   reflowing = true
   const wasMobile = mobileViewport.value
   viewportWidth.value = window.innerWidth
+  viewportHeight.value = window.innerHeight
   if (wasMobile !== mobileViewport.value) mobileDirectoryOpen.value = false
   await nextTick()
   if (sequence !== viewportSequence) return
@@ -839,7 +840,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-home-navigation { --ui-segment-font-size: 15px; width: max-content; margin: 0 auto; }
 .study-home-mobile-title { display: none; margin: 0; color: var(--lz-text-strong); font-size: 16px; font-weight: 650; line-height: 1.3; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-width:1024px) and (max-height:520px) {
   .study-space, .study-space.is-reading-page { padding: max(6px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px)) 0 max(6px, env(safe-area-inset-left, 0px)); gap: 7px; }
   .study-home-navigation { display: none; }
   .study-home-mobile-title { display: block; }
@@ -890,7 +891,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-note-footer { align-items: start; flex-direction: column; }
   .study-note-footer button { align-self: stretch; min-height: 44px; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
-  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
+  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size:12px; line-height:1.25; white-space:normal; }
   .study-reading-workspace .learning-dock :deep(button > svg) { flex: none; width: 19px; height: 19px; }
   .study-login-page { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 18px 14px 28px; }
@@ -954,10 +955,31 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-reading-workspace .learning-dock :deep(.learning-dock__actions) { flex:1; min-width:0; flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto; scrollbar-width:thin; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__actions > button) { flex:none; }
 }
-@media(max-width:760px) {
+@media(max-width:760px), (max-width:1024px) and (max-height:520px) {
   .study-reading-workspace .learning-dock :deep(.learning-dock__actions > button.is-active) { box-shadow:inset 0 2px #8c78bc; background:#f0ecfa; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__more-panel p) { display:none; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__more-actions) { gap:10px; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__more-action) { min-height:60px; }
+}
+/* Like the reference reader, concurrent aids share one rail rather than taking
+   a second column away from the textbook. Each panel keeps its own switch. */
+@media(min-width:761px) and (min-height:521px), (min-width:1025px) {
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) { display:grid; grid-template-columns:minmax(0,1fr) var(--column-right-width); grid-template-rows:minmax(0, .55fr) minmax(0, .45fr); }
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-reading-pane,
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-reading-with-reasoning { display:contents; }
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-document-scroll { grid-column:1; grid-row:1 / 3; }
+  .is-tools-open .study-reasoning-panel :deep(.handout-concept-map > header) { padding:12px 40px 12px 16px; }
+  .is-tools-open .study-reasoning-panel :deep(header h3) { margin:4px 0; font-size:18px; }
+  .is-tools-open .study-reasoning-panel :deep(header p) { margin:4px 0 0; font-size:13px; }
+  .is-tools-open .study-reasoning-panel :deep(.concept-sections) { flex-wrap:nowrap; overflow-x:auto; padding:10px; }
+  .is-tools-open .study-reasoning-panel :deep(.concept-sections button) { flex:none; white-space:nowrap; }
+  .is-tools-open .study-reasoning-panel :deep(.concept-section-title) { padding:12px 16px; }
+  .is-tools-open .study-reasoning-panel { grid-column:2; grid-row:1; margin:0; border-left:1px solid #e3e8f2; }
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-reading-tools { grid-column:2; grid-row:2; width:auto; border-top:1px solid #e3e8f2; }
+  .is-tools-open .study-reading-body:has(.study-selection-actions):has(.study-reasoning-panel) { grid-template-rows:auto minmax(0,.55fr) minmax(0,.45fr); }
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-selection-actions { grid-column:1 / 3; grid-row:1; }
+  .is-tools-open .study-reading-body:has(.study-selection-actions):has(.study-reasoning-panel) .study-document-scroll { grid-row:2 / 4; }
+  .is-tools-open .study-reading-body:has(.study-selection-actions) .study-reasoning-panel { grid-row:2; }
+  .is-tools-open .study-reading-body:has(.study-selection-actions):has(.study-reasoning-panel) .study-reading-tools { grid-row:3; }
 }
 </style>

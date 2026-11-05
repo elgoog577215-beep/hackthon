@@ -692,7 +692,6 @@ it('coordinates mobile drawers and restores the desktop directory after resizing
   expect(wrapper.find('.study-navigation').exists()).toBe(false)
   await wrapper.get('button[aria-label="展开目录"]').trigger('click')
   expect(wrapper.find('.study-navigation').exists()).toBe(true)
-  await wrapper.get('.learning-dock__more').trigger('click')
   await wrapper.get('[data-tool="note"]').trigger('click')
   expect(wrapper.find('.study-navigation').exists()).toBe(false)
   await wrapper.get('.study-tool-heading button').trigger('click')
@@ -724,7 +723,7 @@ it('protects the reading width on medium screens without losing the preferred di
 it('returns from mobile directory navigation to the passage without reopening a tool', async () => {
   vi.stubGlobal('innerWidth', 390)
   const { wrapper } = await page('/study/material-a')
-  expect(wrapper.findAll('.learning-dock__actions [data-tool]').map(b => b.attributes('data-tool'))).toEqual(['reference', 'paths', 'assistant'])
+  expect(wrapper.findAll('.learning-dock__actions [data-tool]').map(b => b.attributes('data-tool'))).toEqual(['note', 'assistant', 'reference', 'paths'])
   await wrapper.get('[data-tool="paths"]').trigger('click')
   await wrapper.get('.study-tool-heading button').trigger('click')
   await wrapper.get('button[aria-label="展开目录"]').trigger('click')
@@ -782,4 +781,15 @@ it('renders formulas in reading titles and directory labels instead of exposing 
   const block = wrapper.get('.study-block-list button')
   expect(block.find('.katex').exists()).toBe(true)
   expect(block.text()).not.toContain('$')
+})
+
+
+it('keeps phone landscape tools full screen instead of splitting a short reading rail', async () => {
+  vi.stubGlobal('innerWidth', 844)
+  vi.stubGlobal('innerHeight', 390)
+  const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="reference"]').trigger('click')
+  expect(wrapper.get('.study-reading-tools').attributes('role')).toBe('dialog')
+  expect(wrapper.find('.study-reasoning-panel').exists()).toBe(false)
+  expect(wrapper.get('.learning-dock').isVisible()).toBe(false)
 })

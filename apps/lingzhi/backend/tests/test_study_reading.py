@@ -153,7 +153,7 @@ def test_relation_derivation_survives_normalization_and_keeps_legacy_records_rea
     other["knowledge_relations"] = [edge]
     result = validate(other, source, [first])
     assert result["knowledge_relations"][0]["derivation_steps"] == edge["derivation_steps"]
-    assert result["reading_prompt_version"] == "study_reading_relations_v3"
+    assert result["reading_prompt_version"] == "study_reading_relations_v4"
     edge.pop("derivation_steps")
     assert validate(other, source, [first])["knowledge_relations"][0]["derivation_steps"] == []
     edge["derivation_steps"] = "not an array"
@@ -179,4 +179,52 @@ def test_restored_relations_do_not_require_retired_learning_paths():
     assert 'learning_paths' not in prompt and 'choice/step' not in prompt
     # The actual JSON example remains valid after retiring the extra generation contract.
     example = prompt.split('只返回 JSON：', 1)[1]
-    json.JSONDecoder().raw_decode(example)
+    decoded, _ = json.JSONDecoder().raw_decode(example)
+    points = decoded['sections'][0]['knowledge_structure'][0]['knowledge_points']
+    keys = {point['key'] for point in points}
+    assert all(edge['source_ref'] in keys and edge['target_ref'] in keys for edge in decoded['sections'][0]['knowledge_relations'])
+
+
+def test_finite_local_keys_bind_relations_without_repeating_names():
+    _, source, plan = sample()
+    points = plan['knowledge_structure'][0]['knowledge_points']
+    points[0]['key'] = 'c1'
+    points.append({**points[0], 'key': 'c2', 'name': '求导规则'})
+    plan['knowledge_relations'] = [{'source_ref': 'c1', 'target_ref': 'c2',
+        'relation_type': 'applies_to', 'reason': '用定义建立求导规则',
+        'source_refs': [{'evidence_id': 'method'}]}]
+    result = validate(plan, source)
+    assert result['knowledge_relations'][0]['target_name'] == '求导规则'
+    assert result['knowledge_relations'][0]['source_name'] == '导数'
+    plan['knowledge_relations'][0]['target_ref'] = 'c3'
+    with pytest.raises(ValueError, match='未声明'):
+        validate(plan, source)
+    plan['knowledge_relations'][0]['target_ref'] = 'c1'
+    with pytest.raises(ValueError, match='相同'):
+        validate(plan, source)
+    points[1]['key'] = 'c1'
+    with pytest.raises(ValueError, match='重复'):
+        validate(plan, source)
+
+
+def test_local_keys_accept_exact_prior_identity_only_for_source():
+    _, source, plan = sample()
+    prior = validate(plan, source)['knowledge_structure'][0]['knowledge_points']
+    _, source, plan = sample('s2')
+    plan['knowledge_structure'][0]['knowledge_points'][0]['key'] = 'c1'
+    plan['knowledge_relations'] = [{'source_ref': prior[0]['knowledge_id'], 'target_ref': 'c1',
+        'relation_type': 'generalizes', 'reason': '本讲推广前讲定义',
+        'source_refs': [{'evidence_id': 'method'}]}]
+    assert validate(plan, source, prior)['knowledge_relations'][0]['source_knowledge_id'] == prior[0]['knowledge_id']
+    with pytest.raises(ValueError, match='未声明'):
+        validate(plan, source)
+
+
+def test_literal_newlines_in_model_json_preserve_the_complete_statement():
+    _, source, plan = sample()
+    plan['knowledge_structure'][0]['knowledge_points'][0]['statement'] = '第一行\n第二行'
+    raw = json.dumps({'sections': [plan]}, ensure_ascii=False).replace('第一行\\n第二行', '第一行\n第二行')
+    result = validate_plans(raw, [source], reading=True)[0]
+    assert result['knowledge_structure'][0]['knowledge_points'][0]['statement'] == '第一行\n第二行'
+    with pytest.raises(ValueError):
+        validate_plans(raw[:-2], [source], reading=True)

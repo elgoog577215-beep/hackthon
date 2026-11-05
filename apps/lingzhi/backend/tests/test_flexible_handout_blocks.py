@@ -254,8 +254,8 @@ def test_handout_prompt_separates_teaching_metadata_from_diagram_json():
     from course_generation.prompts import build_handout_prompt, PROMPT_CONTRACT_VERSION
     prompt = build_handout_prompt(course_title='C', lesson={}, requirements='', contract='test',
         sections=[{'node_id': 's'}], plan_sections={}, completed_sections=[], partial_text='')
-    assert PROMPT_CONTRACT_VERSION == 'course_prompt_v45'
-    assert '正文是公式速览的唯一来源' in prompt
+    assert PROMPT_CONTRACT_VERSION == 'course_prompt_v46'
+    assert '正文是速览的唯一来源' in prompt
     assert '不为速览捏造公式' in prompt
     assert '每个 JSON 键只能出现一次' in prompt
     assert '两个独立 JSON 对象，不合并字段' in prompt

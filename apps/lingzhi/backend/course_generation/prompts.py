@@ -31,7 +31,7 @@ from teaching_design import (
 from teaching_diagrams import teaching_diagram_prompt
 from handout_content import handout_writing_guide
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v45"
+PROMPT_CONTRACT_VERSION = "course_prompt_v46"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
@@ -138,8 +138,8 @@ def build_handout_prompt(
         "下一块标记、小节标记或响应结束即结束当前块，不另写块结束标记。"
         + handout_writing_guide()
         + "例子、图表、代码和公式服务当前块的教学目的，不把表达形式当作新的教学类型。"
-        "正文是公式速览的唯一来源，不另输出速览、公式清单或重复摘要。定义、定理、结论分别使用 definition、theorem、result 教学块，标题写具体名称，成立条件和完整解释留在同一正文块。"
-        "核心公式用独立行的 $$...$$ 数学格式；适合行内书写的短等式可用 $...$。正文推导中需突出最终结论时可用行间 \\boxed{...}，不为速览捏造公式，不把代码或纯文字定义强改为等式。例题、练习和答案保持各自类型，不混入定义或定理块。"
+        "正文是速览的唯一来源，不另输出速览、公式清单或重复摘要。定义、定理、结论分别使用 definition、theorem、result 教学块，标题写具体名称，成立条件和完整解释留在同一正文块。"
+        "核心公式用独立行的 $$...$$ 数学格式；适合行内书写的短等式可用 $...$。正文推导中需突出最终结论时可用行间 \\boxed{...}，不为速览捏造公式，不把代码或纯文字定义强改为等式。编程课程的变量、语法和数据结构定义使用 definition 块，算法或操作流程使用 method 块，原样保留必要条件、步骤和代码，不硬凑数学公式。例题、练习和答案保持各自类型，不混入定义或定理块。"
         "这不是必选清单：按学习起点、目标、学科、资料和要求自由决定块类型、数量、顺序；允许先推导后定义，不凑齐、不为变化而变化。"
         "一个块承担一个连贯的学习作用，可含多个段落、代码、公式或表格；不要每个自然段都拆块。"
         "解答或自定义反馈块用 answer_to 引用本小节需要回应的练习、思想实验或任务块的 key。"
