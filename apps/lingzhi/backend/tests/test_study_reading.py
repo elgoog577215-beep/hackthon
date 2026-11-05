@@ -159,3 +159,9 @@ def test_relation_derivation_survives_normalization_and_keeps_legacy_records_rea
     edge["derivation_steps"] = "not an array"
     with pytest.raises(ValueError, match="推导步骤"):
         validate(other, source, [first])
+
+def test_reading_aids_do_not_extract_nested_or_unfinished_folded_answers():
+    section, _, _ = sample()
+    section["blocks"][1]["content"] = "公开方法<details>外层<details>内层答案</details>外层答案</details>公开条件<details>未完成答案"
+    source = concept_source({"id": "r"}, section)
+    assert source["blocks"][1]["text"] == "公开方法公开条件"

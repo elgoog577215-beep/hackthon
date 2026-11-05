@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HandoutReferencePanel from '@/components/HandoutReferencePanel.vue'
 import { buildHandoutReference, type ReferenceSection } from '@/utils/handout-reference'
 import { activeLocale } from '@/shared/i18n'
@@ -80,4 +80,31 @@ describe('Handout formula and theorem reference', () => {
     expect(items.find(i => i.blockId === 'd')?.content).not.toContain('secret')
   })
 
+})
+
+it('excludes inline boxed prose and whole nested folded subtrees like the reference reader', () => {
+  const result = buildHandoutReference([{ id: 'scope', title: '范围', blocks: [
+    block('inline', 'explanation', '正文行内 $\\boxed{x=1}$'),
+    block('display', 'explanation', '$$\\boxed{x=2}$$'),
+    block('nested', 'definition', '<details><summary>外层答案</summary><details>$$secret=1$$</details>$$secret=2$$</details>\n\n$$public=3$$'),
+    block('unfinished', 'definition', '<details>$$secret=4$$'),
+  ] }])[0]!.items.filter(item => item.kind === 'formula')
+  expect(result.map(item => item.blockId)).toEqual(['display', 'nested'])
+  expect(result.map(item => item.content).join(' ')).not.toContain('secret')
+  expect(result.find(item => item.blockId === 'nested')!.html).not.toContain('secret')
+})
+
+it('scrolls the reference results to the current lecture without scrolling the reading page', async () => {
+  const wrapper = mount(HandoutReferencePanel, { props: { sections: [
+    { id: 'a', title: '第一讲', blocks: [block('one', 'definition', '$$x=1$$')] },
+    { id: 'b', title: '第二讲', blocks: [block('two', 'definition', '$$x=2$$')] },
+  ], currentSection: 'a' } })
+  await wrapper.get('.aid-scope-toggle').trigger('click')
+  const results = wrapper.get('.reference-results').element as HTMLElement
+  vi.spyOn(results, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+  vi.spyOn(wrapper.get('[data-reference-section="b"]').element, 'getBoundingClientRect').mockReturnValue({ top: 380 } as DOMRect)
+  await wrapper.setProps({ currentSection: 'b' })
+  await Promise.resolve()
+  expect(results.scrollTop).toBe(280)
+  wrapper.unmount()
 })

@@ -58,6 +58,10 @@ describe('personal study handouts', () => {
     expect(map.props('sections')[0].relations[0].steps).toEqual(['先对齐分量', '再逐项相加'])
     await setLocale('en'); await flushPromises()
     expect(wrapper.get('#study-reasoning-panel').attributes('aria-label')).toBe('Reasoning')
+    const close = wrapper.get('#study-reasoning-panel button[aria-label="Close reasoning sidebar"]')
+    ;(close.element as HTMLElement).focus()
+    await close.trigger('click'); await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[data-tool="paths"]').element)
   })
 
   it('does not interpret an unavailable auth configuration as disabled login, and reconnects', async () => {

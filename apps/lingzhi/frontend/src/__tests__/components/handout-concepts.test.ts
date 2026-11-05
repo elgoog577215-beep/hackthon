@@ -226,3 +226,15 @@ it('keeps the knowledge map compact and navigates from reference-style concept n
   expect(wrapper.find('.map-reset').exists()).toBe(true)
   wrapper.unmount()
 })
+
+it('clears a removed map focus when the available knowledge changes', async () => {
+  const sections = buildHandoutConceptSections(plans, reading)
+  const wrapper = mount(HandoutKnowledgeMap, { props: { sections, currentSection: 's1', navigate: vi.fn() } })
+  await wrapper.get('.aid-scope-toggle').trigger('click')
+  await wrapper.get('.map-lecture button').trigger('click')
+  expect(wrapper.find('.map-reset').exists()).toBe(true)
+  await wrapper.setProps({ sections: [{ ...sections[0]!, nodes: [{ id: 'replacement', name: '新概念', statement: '新说明', anchor: 'b2', external: false }], relations: [] }] })
+  expect(wrapper.find('.map-reset').exists()).toBe(false)
+  expect(wrapper.get('.map-lecture button').text()).toContain('新概念')
+  wrapper.unmount()
+})

@@ -35,6 +35,9 @@ const graph = computed(() => {
   return conceptNeighborhood([current], ids, current.title)
 })
 watch([query, scope], () => { focused.value = '' })
+watch(() => props.sections, sections => {
+  if (focused.value && !sections.some(section => section.nodes.some(node => node.id === focused.value))) focused.value = ''
+}, { deep: true })
 </script>
 
 <style scoped>

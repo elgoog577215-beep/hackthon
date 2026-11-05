@@ -324,6 +324,20 @@ def validate_plans(raw: str, sections: list[dict], *, reading: bool = False, pri
     return plans
 
 
+def without_folded_content(content: str) -> str:
+    """Exclude complete nested folds from the shared reading-aid input."""
+    depth, end = 0, 0
+    visible = []
+    for tag in re.finditer(r"</?details\b[^>]*>", content, re.I):
+        if not depth:
+            visible.append(content[end:tag.start()])
+        depth = max(0, depth - 1) if tag.group().startswith("</") else depth + 1
+        end = tag.end()
+    if not depth:
+        visible.append(content[end:])
+    return "".join(visible).strip()
+
+
 def concept_source(revision: dict, section: dict) -> dict:
     """Both source paths use the saved handout, never invented uploaded assets."""
     blocks = [{"evidence_id": block["block_id"], "block_id": block["block_id"],
@@ -339,7 +353,7 @@ def concept_source(revision: dict, section: dict) -> dict:
         kind = HANDOUT_CONTENT_ALIASES.get(original.get("content_type", ""), original.get("content_type", ""))
         if original.get("answer_to") or kind in {"answer", "exercise", "question", "review_question", "guiding_question"}:
             continue
-        text = re.sub(r"<details\b[^>]*>.*?(?:</details>|$)", "", block["text"], flags=re.S | re.I).strip()
+        text = without_folded_content(block["text"])
         if text:
             visible.append({**block, "text": text, "content_type": kind})
     reading_digest = hashlib.sha256(json.dumps(visible, ensure_ascii=False, sort_keys=True).encode()).hexdigest()

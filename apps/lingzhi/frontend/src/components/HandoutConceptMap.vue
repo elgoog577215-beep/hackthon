@@ -242,4 +242,11 @@ onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); win
 .is-embedded .concept-edges marker path { fill:#b9a6da; }
 .is-embedded .concept-edge text { fill:#8a7bb0; stroke:#fbfbfd; stroke-width:4px; }
 .is-embedded .concept-row button { padding:4px 10px; font-weight:700; }
+
+/* October reading sidebar: preserve its own concept identity, not generic action buttons. */
+.is-explanatory .concept-row button { border:1px solid #cbb8df; border-radius:5px; background:#f3eff9; color:#503373; box-shadow:none; }
+.is-explanatory .concept-row button:hover,.is-explanatory .concept-row button.selected { background:#6e4a9c; color:#fff; border-color:#6e4a9c; }
+.is-explanatory .concept-sections button[aria-pressed=true] { background:#6e4a9c; color:#fff; }
+.is-explanatory .concept-relation-title { display:flex; flex-direction:column-reverse; align-items:flex-start; }
+.is-explanatory .concept-relation-type { padding:0; margin:4px 0; background:transparent; font-size:13px; }
 </style>

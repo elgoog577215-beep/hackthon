@@ -221,8 +221,10 @@ function rememberTool() {
 const reasoningOpen = ref(true)
 function reasoningKey() { return `lingzhi-study-reasoning:${user.value?.id}:${materialId.value}` }
 function toggleReasoning() {
+  const restoreFocus = studyLayoutRoot.value?.querySelector('#study-reasoning-panel')?.contains(document.activeElement)
   reasoningOpen.value = !reasoningOpen.value
   try { sessionStorage.setItem(reasoningKey(), String(reasoningOpen.value)) } catch { /* Optional layout preference. */ }
+  if (restoreFocus && !reasoningOpen.value) void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-tool="paths"]')?.focus())
 }
 function isToolActive(tab: StudyTool) { return tab === 'paths' && !mobileViewport.value ? reasoningOpen.value : toolsOpen.value && toolTab.value === tab }
 function openTool(tab: StudyTool) { if (tab === 'paths' && !mobileViewport.value) { if (!reasoningOpen.value) toggleReasoning(); return } mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool(); if (mobileViewport.value) void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('.study-tool-heading button')?.focus()) }

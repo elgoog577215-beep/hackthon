@@ -17,6 +17,18 @@ const statementKinds: Record<string, Exclude<ReferenceKind, 'formula'>> = {
   method: 'method', checklist: 'method', warning: 'warning', misconception: 'warning', counterexample: 'warning',
 }
 
+/** Remove whole folded subtrees, including nested and unfinished legacy details. */
+function withoutFoldedContent(content: string): string {
+  let depth = 0, end = 0, visible = ''
+  for (const match of content.matchAll(/<\/?details\b[^>]*>/gi)) {
+    if (!depth) visible += content.slice(end, match.index)
+    if (/^<\//.test(match[0])) depth = Math.max(0, depth - 1)
+    else depth++
+    end = match.index! + match[0].length
+  }
+  return (visible + (depth ? '' : content.slice(end))).trim()
+}
+
 /** Follow the reference reader's inclusion rules, while retaining text and conditions. */
 export function buildHandoutReference(sections: ReferenceSection[]) {
   return sections.map(section => ({
@@ -25,7 +37,7 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
       const type = handoutContentType(block.content_type)
       if (type === 'answer' || block.answer_to) return []
       // Folded answers are not part of the quick reference, even in legacy blocks.
-      const content = block.content.replace(/<details\b[^>]*>[\s\S]*?(?:<\/details>|$)/gi, '').trim()
+      const content = withoutFoldedContent(block.content)
       if (!content) return []
       const kind = statementKinds[type]
       const items: HandoutReference[] = []
@@ -39,7 +51,7 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
       // Markdown may wrap KaTeX's own display span; keep only the actual inner display.
       const displays = Array.from(root.content.querySelectorAll('.katex-display, .math-fallback.is-display'))
         .filter(node => !node.querySelector('.katex-display, .math-fallback.is-display'))
-      const candidates = displays.length ? displays : Array.from(root.content.querySelectorAll('.katex, .math-fallback'))
+      const candidates = displays.length || boxedProse ? displays : Array.from(root.content.querySelectorAll('.katex, .math-fallback'))
         .filter(node => node.textContent?.includes('=')).slice(0, 2)
       const seen = new Set<string>(), formulas: string[] = []
       for (const formula of candidates) {
