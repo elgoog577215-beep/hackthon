@@ -9,7 +9,7 @@
       </div>
       <div class="reference-search"><Search :size="16" aria-hidden="true" /><input v-model="query" type="search" :placeholder="c('referenceSearch')" :aria-label="c('referenceSearch')" /></div>
     </div>
-    <div class="reference-results" tabindex="0" :aria-label="c('reference')">
+    <div ref="results" class="reference-results" @scroll="rememberPosition" tabindex="0" :aria-label="c('reference')">
       <p class="reference-count" role="status" :title="c('referenceHint')">{{ c('referenceCount') }} · {{ count }}</p>
       <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }">
         <h3><span class="reference-section-number">{{ String(section.number).padStart(2, '0') }}</span><MathText :content="section.title" /></h3>
@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { ArrowUpRight, Search } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MathText from './MathText.vue'
@@ -55,6 +55,15 @@ const visible = computed(() => {
     ) })).filter(section => section.items.length)
 })
 const count = computed(() => visible.value.reduce((sum, section) => sum + section.items.length, 0))
+const results = ref<HTMLElement | null>(null)
+let savedScrollTop = 0, deactivated = false
+function rememberPosition() { if (!deactivated && results.value) savedScrollTop = results.value.scrollTop }
+onDeactivated(() => { deactivated = true })
+onActivated(() => { deactivated = false; void nextTick(() => { if (results.value) results.value.scrollTop = savedScrollTop }) })
+watch([scope, kind, query, () => scope.value === 'current' ? props.currentSection : ''], () => {
+  savedScrollTop = 0
+  if (results.value) results.value.scrollTop = 0
+})
 </script>
 
 <style scoped>
@@ -89,7 +98,12 @@ const count = computed(() => visible.value.reduce((sum, section) => sum + sectio
 .reference-math { max-width:100%; overflow-x:auto; padding:2px 0; text-align:center; }
 .reference-math :deep(.reference-formula) { padding:5px 0; }
 .reference-item :deep(.katex-display) { max-width:100%; overflow-x:auto; overflow-y:hidden; padding:4px 0; margin:.4em 0; }
-.reference-item :deep(pre),.reference-item :deep(table) { max-width:100%; overflow-x:auto; }
+.reference-item :deep(.code-block-wrapper) { margin:12px 0; border:0; border-radius:8px; box-shadow:none; }
+.reference-item :deep(.markdown-code-tools) { padding:5px 10px 0; gap:7px; }
+.reference-item :deep(.markdown-code-tools span),.reference-item :deep(.copy-btn) { font-size:12px; }
+.reference-item :deep(.copy-btn) { min-height:28px; padding:3px 7px; border-radius:5px; }
+.reference-item :deep(pre) { max-width:100%; overflow-x:auto; margin:0; padding:10px 12px 12px; font-size:13px; line-height:1.65; }
+.reference-item :deep(table) { display:block; max-width:100%; overflow-x:auto; }
 .reference-item :deep(img) { max-width:100%; }
 .reference-empty { margin:24px 4px; color:#778095; font-size:14px; }
 .reference-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
@@ -97,6 +111,8 @@ const count = computed(() => visible.value.reduce((sum, section) => sum + sectio
   .reference-controls { padding:10px 12px; }
   .reference-results { padding:0 12px 20px; }
   .reference-scope button,.reference-kinds button,.reference-search input { min-height:44px; }
+  .reference-search input { font-size:16px; }
+  .reference-item :deep(.copy-btn) { min-width:44px; min-height:44px; }
   .reference-kinds { margin:6px 0; }
   .reference-kinds button { font-size:13px; padding-inline:0; }
   .handout-reference .reference-jump { min-width:44px; min-height:44px; margin:-6px -6px -4px 0; }

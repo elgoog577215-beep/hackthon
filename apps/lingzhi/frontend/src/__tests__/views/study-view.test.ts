@@ -679,3 +679,28 @@ it('restores reading preferences for the current student', async () => {
   await wrapper.get('input[type="range"]').setValue(20)
   expect(JSON.parse(localStorage.getItem('lingzhi-study-reading:student-a')!)).toEqual({ size: 20, font: 'sans' })
 })
+
+
+it('keeps reference filters and reading position across tools, but clears them for another material', async () => {
+  const { wrapper, router } = await page('/study/material-a')
+  await wrapper.get('[data-tool="reference"]').trigger('click')
+  await wrapper.get('.reference-search input').setValue('向量')
+  await wrapper.findAll('.reference-kinds button')[2]!.trigger('click')
+  const results = wrapper.get('.reference-results').element
+  results.scrollTop = 180
+  await wrapper.get('.reference-results').trigger('scroll')
+  await wrapper.get('[data-tool="note"]').trigger('click')
+  expect(wrapper.find('.reference-search').exists()).toBe(false)
+  await wrapper.get('[data-tool="reference"]').trigger('click'); await flushPromises()
+  expect(wrapper.get('.reference-search input').element).toHaveProperty('value', '向量')
+  expect(wrapper.get('.reference-kinds button[aria-pressed="true"]').text()).toBe('定义')
+  expect(wrapper.get('.reference-results').element.scrollTop).toBe(180)
+  await wrapper.get('.study-tool-heading button').trigger('click')
+  await wrapper.get('[data-tool="reference"]').trigger('click')
+  expect(wrapper.get('.reference-search input').element).toHaveProperty('value', '向量')
+  api.get.mockResolvedValue({ ...structuredClone(saved), id: 'material-b' })
+  await router.push('/study/material-b'); await flushPromises()
+  await wrapper.get('[data-tool="reference"]').trigger('click')
+  expect(wrapper.get('.reference-search input').element).toHaveProperty('value', '')
+  expect(wrapper.get('.reference-kinds button[aria-pressed="true"]').text()).toBe('全部')
+})

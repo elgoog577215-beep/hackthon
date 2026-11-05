@@ -109,8 +109,10 @@
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" @clear-quote="selectedPassage = null" @session-expired="showError" />
               <div v-else-if="toolTab === 'note'" class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div>
               <div v-else-if="toolTab === 'sources'" class="study-source-list"><article v-for="source in selectedSourceScopes" :key="source.node_id"><FileText :size="18" /><strong>{{ source.filename }}</strong><p>{{ source.title }}</p><button :disabled="busy" @click="downloadSource(source.asset_id, source.filename)">{{ c('downloadSource') }}</button></article><p v-if="!selectedSourceScopes.length" class="study-note">{{ material.generation_mode === 'direct' ? c('aiGeneratedSourceHint') : c('emptySources') }}</p></div>
-              <HandoutReferencePanel v-else-if="toolTab === 'reference'" :key="`${material.id}:${currentRevision?.id}`" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
-              <div v-else>
+              <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="1">
+                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
+              </KeepAlive>
+              <div v-if="toolTab === 'concepts'">
                 <div v-if="!conceptsReady" class="study-note" role="status">
                   <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
                   <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
