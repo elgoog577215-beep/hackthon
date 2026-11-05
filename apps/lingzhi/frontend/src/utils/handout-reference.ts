@@ -36,7 +36,9 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
       if (!canonical && !boxedProse) return items
       const root = document.createElement('template')
       root.innerHTML = renderMarkdown(content)
+      // Markdown may wrap KaTeX's own display span; keep only the actual inner display.
       const displays = Array.from(root.content.querySelectorAll('.katex-display, .math-fallback.is-display'))
+        .filter(node => !node.querySelector('.katex-display, .math-fallback.is-display'))
       const candidates = displays.length ? displays : Array.from(root.content.querySelectorAll('.katex, .math-fallback'))
         .filter(node => node.textContent?.includes('=')).slice(0, 2)
       const seen = new Set<string>(), formulas: string[] = []

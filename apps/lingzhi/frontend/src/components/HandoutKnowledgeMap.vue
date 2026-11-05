@@ -1,11 +1,6 @@
 <template>
   <section class="handout-knowledge" :aria-label="c('concepts')">
-    <div class="reading-aid-controls">
-      <div class="reading-aid-scope" role="group" :aria-label="c('referenceScope')">
-        <button v-for="s in ['current', 'all'] as const" :key="s" :aria-pressed="scope === s" @click="scope = s; focused = ''">{{ c(s === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</button>
-      </div>
-      <input v-model="query" type="search" :placeholder="c('mapSearch')" :aria-label="c('mapSearch')" />
-    </div>
+    <ReadingAidToolbar v-model:scope="scope" v-model:query="query" :placeholder="c('mapSearch')" />
     <div class="reading-aid-results">
       <template v-if="scope === 'all'">
         <button v-if="focused" class="map-reset" @click="focused = ''">← {{ c('mapOverview') }}</button>
@@ -23,6 +18,7 @@
 </template>
 
 <script setup lang="ts">
+import ReadingAidToolbar from './ReadingAidToolbar.vue'
 import { computed, ref, watch } from 'vue'
 import HandoutConceptMap from './HandoutConceptMap.vue'
 import MathText from './MathText.vue'
@@ -38,7 +34,7 @@ const graph = computed(() => {
   const ids = new Set(current.nodes.filter(n => `${n.name} ${n.statement}`.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())).map(n => n.id))
   return conceptNeighborhood([current], ids, current.title)
 })
-watch(query, () => { focused.value = '' })
+watch([query, scope], () => { focused.value = '' })
 </script>
 
 <style scoped>

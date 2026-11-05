@@ -23,9 +23,9 @@ describe('personal handout assistant', () => {
 
   it('describes the selected passage instead of offering a misleading whole-chapter shortcut', async () => {
     const view = page(); await flushPromises()
-    expect(view.get('.assistant-prompts button').text()).toBe('解释选中内容')
+    expect(view.get('.assistant-prompts button').attributes('aria-label')).toBe('解释选中内容')
     await view.setProps({ context: { ...context, block_id: '', quote: '' } })
-    expect(view.get('.assistant-prompts button').text()).toBe('解释这一章')
+    expect(view.get('.assistant-prompts button').attributes('aria-label')).toBe('解释这一章')
   })
   it('restores history before accepting a question, keeping text typed while waiting', async () => {
     let finish!: (value: unknown) => void
@@ -161,7 +161,8 @@ describe('personal handout assistant', () => {
   it('renders the English counterpart and keeps the exact selected context', async () => {
     activeLocale.value = 'en'; const view = page(); await flushPromises()
     expect(view.get('.personal-assistant').attributes('aria-label')).toBe('AI assistant')
-    expect(view.text()).toContain('Discussing')
+    expect(view.get('.assistant-context').text()).toBe('向量')
+    expect(view.text()).not.toContain('Discussing')
     expect(view.text()).toContain('Explain with a diagram')
     expect(view.text()).toContain('u + 2v')
   })
@@ -171,7 +172,7 @@ describe('personal handout assistant', () => {
     const first = { id: 'n1', version: 1, content: '第一条笔记' } as any
     const second = { id: 'n2', version: 1, content: '第二条笔记' } as any
     await view.setProps({ note: first, context: { ...context, quote: '' } }); await flushPromises()
-    expect(view.get('.assistant-prompts button').text()).toBe('解释这条笔记')
+    expect(view.get('.assistant-prompts button').attributes('aria-label')).toBe('解释这条笔记')
     expect(view.get('textarea').element).toHaveProperty('value', '')
     await view.get('textarea').setValue('第一条笔记的问题')
     await view.setProps({ note: second }); await flushPromises()
@@ -180,7 +181,7 @@ describe('personal handout assistant', () => {
     await view.setProps({ note: first }); await flushPromises()
     expect(view.get('textarea').element).toHaveProperty('value', '第一条笔记的问题')
     activeLocale.value = 'en'; await flushPromises()
-    expect(view.get('.assistant-prompts button').text()).toBe('Explain this note')
+    expect(view.get('.assistant-prompts button').attributes('aria-label')).toBe('Explain this note')
     await view.setProps({ note: undefined }); await flushPromises()
     expect(view.get('textarea').element).toHaveProperty('value', '普通讲义的问题')
   })
@@ -203,4 +204,14 @@ describe('personal handout assistant', () => {
     await view.setProps({ note: undefined }); await flushPromises()
     expect(view.text()).not.toContain('第二条历史回复')
   })
+})
+
+it('renders math in the chapter context and selected quotation without changing raw draft text', async () => {
+  const view = page(); await flushPromises()
+  await view.setProps({ context: { ...context, section_title: '条件 $h=0$', quote: '比较 $x^2$ 与 $x$' } })
+  expect(view.get('.assistant-context').findAll('.katex')).toHaveLength(1)
+  expect(view.get('.assistant-quote').findAll('.katex')).toHaveLength(2)
+  expect(view.get('.assistant-quote').text()).not.toContain('$')
+  await view.get('textarea').setValue('解释 $h=0$')
+  expect(view.get('textarea').element).toHaveProperty('value', '解释 $h=0$')
 })

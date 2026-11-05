@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HandoutContentBlock from '@/components/HandoutContentBlock.vue'
+import { handoutContentTypes, handoutPresentation } from '@/utils/handout-content'
 import { setLocale } from '@/shared/i18n'
 import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
@@ -11,6 +12,19 @@ beforeEach(async () => {
 })
 
 describe('HandoutContentBlock', () => {
+  it('gives every directory type a visible label surface without boxing continuous prose', () => {
+    for (const type of handoutContentTypes) {
+      const presentation = handoutPresentation(type.id, 'zh')
+      expect(presentation.style['--handout-tint']).not.toBe('transparent')
+    }
+    for (const contentType of ['introduction', 'answer', 'explanation', 'custom-type']) {
+      const wrapper = mount(HandoutContentBlock, { props: { contentType, title: '连续正文' } })
+      expect(wrapper.classes()).toContain('handout-block--continuous')
+      expect(wrapper.attributes('style')).toContain('--handout-tint: #f0f2f6')
+      wrapper.unmount()
+    }
+  })
+
   it.each(['zh', 'en'] as const)('按教学用途区分举例、实战练习与两种提问，%s 标签不依赖生成语言', async locale => {
     await setLocale(locale)
     const cases = [

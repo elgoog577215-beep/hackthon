@@ -64,6 +64,8 @@ describe('personal notes', () => {
     await view.get('input[type="search"]').setValue('理解')
     await view.get('.notes-filters select').setValue('open')
     await view.get('.note-card-open').trigger('click')
+    expect(view.find('.reading-aid-controls').exists()).toBe(false)
+    expect(view.text()).not.toContain('编辑中，点击保存')
     expect(view.find('.reading-aid-scope').exists()).toBe(false)
     expect(view.find('input[type="search"]').exists()).toBe(false)
     expect(view.find('.notes-filters').exists()).toBe(false)

@@ -1,11 +1,11 @@
 <template>
   <div class="study-space" :class="{ 'is-reading-page': !!materialId, 'is-creating-page': creating }">
-    <ApplicationHeader surface="student" :show-brand="!materialId" :centered="!materialId && !creating" :library="!materialId" :compact-actions="!!materialId && mobileViewport">
+    <ApplicationHeader :inert="mobileViewport && toolsOpen" surface="student" :show-brand="!materialId" :centered="!materialId && !creating" :library="!materialId" :compact-actions="!!materialId && mobileViewport">
       <template v-if="materialId" #context>
         <div class="study-course-context">
           <CourseWorkspaceHeaderAction :label="t('workspaceUi.backToCourses')" icon-only @click="goLibrary"><ArrowLeft :size="18" /></CourseWorkspaceHeaderAction>
           <CourseWorkspaceHeaderAction v-if="!directoryOpen" :label="c('showDirectory')" :icon-only="mobileViewport" :display-label="t('workspaceUi.directory')" @click="openDirectory"><PanelLeftOpen :size="18" /></CourseWorkspaceHeaderAction>
-          <h1>{{ material?.title }}</h1>
+          <h1><MathText :content="material?.title" /></h1>
         </div>
       </template>
       <template v-if="user && !materialId && !creating" #center>
@@ -57,11 +57,11 @@
           <nav class="study-chapter-list" :aria-label="t('workspaceUi.directory')">
             <div v-for="section in filteredReadingSections" :key="section.id" class="study-chapter-entry">
               <div class="study-chapter-row" :class="{ 'is-current': activeChapter === section.id }">
-                <button type="button" class="study-chapter-link" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="selectChapter(section.id)"><span class="study-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><span class="study-chapter-title">{{ section.title }}</span></button>
+                <button type="button" class="study-chapter-link" :aria-current="activeChapter === section.id ? 'location' : undefined" @click="selectChapter(section.id)"><span class="study-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><MathText class="study-chapter-title" :content="section.title" /></button>
                 <button v-if="section.blocks.length" type="button" class="study-chapter-toggle" :aria-label="`${activeLocale === 'zh' ? (sectionExpanded(section.id) ? '收起' : '展开') : (sectionExpanded(section.id) ? 'Collapse' : 'Expand')} ${section.title}`" :aria-expanded="sectionExpanded(section.id)" :aria-controls="`study-directory-${section.id}`" @click="toggleSection(section.id)"><ChevronRight :size="16" :class="{ 'is-open': sectionExpanded(section.id) }" /></button>
               </div>
               <div v-if="sectionExpanded(section.id)" :id="`study-directory-${section.id}`" class="study-block-list">
-                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><span v-if="block.presentation.label" class="study-block-tag" :style="block.presentation.style">{{ block.presentation.label }}</span><span>{{ block.title }}</span></button>
+                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><span v-if="block.presentation.label" class="study-block-tag" :style="block.presentation.style">{{ block.presentation.label }}</span><MathText :content="block.title" /></button>
               </div>
             </div>
           </nav>
@@ -91,14 +91,14 @@
         <div class="study-reading-workspace">
           <div class="study-reading-body">
             <div class="study-reading-pane" :inert="mobileViewport && (toolsOpen || directoryOpen)">
-              <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · {{ selectedPassage.block_title || selectedPassage.section_title }}</span><button @pointerdown.prevent @click="markSelection">{{ c('notesMark') }}</button><button @pointerdown.prevent @click="annotateSelection(false)">{{ c('notesAnnotate') }}</button><button @pointerdown.prevent @click="annotateSelection(true)">{{ c('notesQuestion') }}</button><button @pointerdown.prevent @click="noteDiscussion = null; openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
+              <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · <MathText :content="selectedPassage.block_title || selectedPassage.section_title" /></span><button @pointerdown.prevent @click="markSelection">{{ c('notesMark') }}</button><button @pointerdown.prevent @click="annotateSelection(false)">{{ c('notesAnnotate') }}</button><button @pointerdown.prevent @click="annotateSelection(true)">{{ c('notesQuestion') }}</button><button @pointerdown.prevent @click="noteDiscussion = null; openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
                   <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ ['failed', 'paused'].includes(materialStatus) ? c('interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
                   <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section">
-                    <div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2>{{ section.title }}</h2>
+                    <div class="study-section-kicker">{{ section.source?.kind === 'ai_generated' ? c('directMode') : section.source?.filename || '' }}</div><h2><MathText :content="section.title" /></h2>
                     <div v-for="block in section.blocks" :id="blockAnchor(block.block_id)" :data-block-id="block.block_id" :key="block.block_id">
                       <div class="study-block-content"><HandoutContentBlock :content-type="block.content_type" :label="block.type_label" :title="block.title" :answer-to="block.answer_to" :streaming="!section.complete"><MarkdownRenderer :content="block.content" smooth-stream :animate-initial="newBlockIds.has(block.block_id)" :node-id="block.block_id" /></HandoutContentBlock></div>
                       <div class="study-inline-notes" data-note-controls>
@@ -114,8 +114,8 @@
             </div>
             <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport" v-bind="rightColumnHandle" />
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
-            <aside v-if="material" v-show="toolsOpen" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note', 'is-practice': ['practice', 'mistakes'].includes(toolTab) }">
-              <header class="study-tool-heading"><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="t('common.close')" @click="closeTool"><X :size="18" /></ElButton></header>
+            <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note', 'is-practice': ['practice', 'mistakes'].includes(toolTab) }">
+              <header class="study-tool-heading"><component :is="toolIcons[toolTab]" :size="18" class="study-tool-icon" aria-hidden="true" /><strong>{{ c(toolTab) }}</strong><ElButton text circle :aria-label="mobileViewport ? c('backToReading') : t('common.close')" @click="closeTool"><ArrowLeft v-if="mobileViewport" :size="20" /><X v-else :size="18" /></ElButton></header>
               <PersonalHandoutAssistant v-if="toolTab === 'assistant' && currentRevision" :key="`${user.id}:${material.id}:${currentRevision.id}:${noteDiscussion?.note.id || 'handout'}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :context="assistantContext" :note="noteDiscussion?.note" :note-draft="noteDiscussion?.draft" @clear-quote="selectedPassage = null" @session-expired="showError" @save-reply="saveAssistantReply" @note-draft="receiveNoteDraft" @return-note="noteDiscussion && openPersonalNote(noteDiscussion.note)" @clear-note="noteDiscussion = null" />
               <PersonalHandoutNotes v-if="currentRevision" v-show="toolTab === 'note'" ref="notesPanel" :key="`notes:${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :notes="personalNotes" :sections="currentRevision.sections" :current-section="activeChapter" @saved="acceptPersonalNote" @removed="removePersonalNote" @locate="locatePersonalNote" @discuss="discussPersonalNote" @session-expired="showError">
                 <template #legacy><div class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div></template>
@@ -133,9 +133,9 @@
               </KeepAlive>
             </aside>
           </div>
-          <LearningDock v-if="material" toolbar placement="bottom" :location="assistantContext.section_title || material.title" :more-hint="c('moreToolsHint')" :active-domain="toolsOpen && moreTools.includes(toolTab) ? 'knowledge-library' : 'course'" @more-toggle="open => { if (open) { closeTool(); closeDirectory() } }">
+          <LearningDock v-if="material" v-show="!mobileViewport || !toolsOpen" toolbar placement="bottom" :location="assistantContext.section_title || material.title" :more-hint="c('moreToolsHint')" :active-domain="toolsOpen && moreTools.includes(toolTab) ? 'knowledge-library' : 'course'" @more-toggle="open => { if (open) { closeTool(); closeDirectory() } }">
             <template #tools>
-              <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', practice: 'practice' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
+              <button v-for="tab in visibleTools" :key="tab" :data-tool="tab" type="button" class="learning-dock__domain" :class="{ 'is-active': toolsOpen && toolTab === tab }" :aria-pressed="toolsOpen && toolTab === tab" @click="toggleTool(tab)"><component :is="toolIcons[tab]" :size="17" />{{ mobileViewport ? c(({ note: 'noteShort', assistant: 'assistantShort', reference: 'referenceShort', practice: 'practice', paths: 'pathsShort', concepts: 'mapShort' } as Record<string, StudyCopyKey>)[tab] || tab) : c(tab) }}</button>
             </template>
             <template #mobile-more><button v-for="tab in moreTools" :key="tab" :data-tool="tab" class="learning-dock__more-action" :class="{ 'is-active': toolsOpen && toolTab === tab }" @click="openTool(tab)"><component :is="toolIcons[tab]" :size="21" /><span>{{ c(tab) }}</span></button></template>
           </LearningDock>
@@ -205,18 +205,18 @@ const toolTabs = ['note', 'assistant', 'reference', 'practice', 'mistakes', 'pat
 type StudyTool = typeof toolTabs[number]
 const toolTab = ref<StudyTool>('assistant'), toolsOpen = ref(false)
 const toolIcons = { assistant: MessageCircle, note: NotebookPen, concepts: Network, sources: FileText, reference: Sigma, paths: Route, practice: PencilLine, mistakes: BookOpenCheck }
-const primaryTools: StudyTool[] = ['note', 'assistant', 'reference', 'practice']
-const moreTools: StudyTool[] = ['mistakes', 'paths', 'concepts', 'sources']
+const primaryTools: StudyTool[] = ['reference', 'paths', 'concepts', 'assistant']
+const moreTools: StudyTool[] = ['note', 'practice', 'mistakes', 'sources']
 const visibleTools = computed(() => mobileViewport.value ? primaryTools : toolTabs)
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
   try { sessionStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
 }
-function openTool(tab: StudyTool) { mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool() }
+function openTool(tab: StudyTool) { mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool(); if (mobileViewport.value) void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('.study-tool-heading button')?.focus()) }
 function closeTool() {
   const restoreFocus = studyLayoutRoot.value?.querySelector('.study-reading-tools')?.contains(document.activeElement)
   toolsOpen.value = false; rememberTool()
-  if (restoreFocus && !navigating) void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>(`[data-tool="${toolTab.value}"]`)?.focus())
+  if (restoreFocus && !navigating) void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>(mobileViewport.value && moreTools.includes(toolTab.value) ? '.learning-dock__more' : `[data-tool="${toolTab.value}"]`)?.focus())
 }
 function toggleTool(tab: StudyTool) { if (toolsOpen.value && toolTab.value === tab) closeTool(); else openTool(tab) }
 function restoreTool() {
@@ -392,6 +392,13 @@ async function updateViewport() {
 }
 function closePanels(event: KeyboardEvent) {
   if (event.defaultPrevented) return
+  if (event.key === 'Tab' && mobileViewport.value && toolsOpen.value) {
+    const controls = Array.from(studyLayoutRoot.value?.querySelectorAll<HTMLElement>('.study-reading-tools button:not(:disabled), .study-reading-tools input:not(:disabled), .study-reading-tools textarea:not(:disabled), .study-reading-tools select:not(:disabled), .study-reading-tools summary, .study-reading-tools a[href]') || []).filter(node => node.getClientRects().length)
+    const first = controls[0], last = controls.at(-1)
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    return
+  }
   if (event.key === 'Tab' && mobileViewport.value && directoryOpen.value) {
     const controls = Array.from(studyLayoutRoot.value?.querySelectorAll<HTMLElement>('.study-navigation button, .study-navigation input') || []).filter(node => node.getClientRects().length)
     const first = controls[0], last = controls.at(-1)
@@ -682,9 +689,10 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-space .study-chapter-toggle { display: grid; place-items: center; flex: none; width: 32px; min-height: 44px; padding: 0; border: 0; background: transparent; color: #9298a9; }
 .study-chapter-toggle svg { transition: transform .15s ease; }
 .study-chapter-toggle svg.is-open { transform: rotate(90deg); }
-.study-block-tag { display:inline-block; vertical-align:1px; margin-right:6px; padding:0 4px; border-radius:3px; color:var(--handout-accent); background:var(--handout-tint); font-size:12px; font-weight:500; line-height:20px; }
+.study-block-tag { display:inline-block; vertical-align:1px; margin-right:0; white-space:nowrap; padding:0 4px; border-radius:3px; color:var(--handout-accent); background:var(--handout-tint); font-size:12px; font-weight:500; line-height:20px; }
 .study-block-list { margin: 6px 5px 12px 25px; padding-left: 12px; border-left: 1px dashed #d8dcea; }
-.study-space .study-block-list button { position: relative; display: block; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
+.study-space .study-block-list button { position: relative; display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:start; column-gap:6px; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
+.study-block-list button > :last-child { min-width:0; }
 .study-space .study-block-list button:hover { background: #f0f1f7; color: #4d5267; }
 .study-space .study-block-list button.active { color: #6254a7; background: #efedf7; font-weight: 550; }
 .study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }
@@ -855,8 +863,12 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-selection-actions span { flex-basis: 100%; }
   .study-selection-actions button { min-height: 44px; }
   .study-space button.study-tools-backdrop { z-index: 91; }
-  .study-reading-tools { position: fixed; z-index: 92; inset: auto 8px calc(66px + env(safe-area-inset-bottom)); width: auto; height: min(70dvh, 720px); max-height: calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 1px solid #e3e8f2; border-radius: 16px 16px 12px 12px; box-shadow: 0 18px 56px rgb(21 31 55 / 22%); }
-  .study-tool-heading { min-height: 52px; padding: 7px 12px; }
+  .study-reading-tools { position: fixed; z-index: 92; inset:0; width:100%; height:100dvh; max-height:none; padding-bottom:env(safe-area-inset-bottom); border:0; border-radius:0; box-shadow:none; }
+  .study-tool-heading { box-sizing:border-box; min-height:calc(56px + env(safe-area-inset-top)); height:auto; padding:calc(6px + env(safe-area-inset-top)) 16px 6px 8px; gap:8px; background:#fff; }
+  .study-tool-heading > .el-button { order:-1; flex:none; margin:0; }
+  .study-tool-heading strong { font-size:16px; }
+  .study-tool-heading strong { margin-right:auto; }
+  .study-tool-icon { flex:none; color:#7864a2; }
   .study-tool-heading :deep(.el-button) { width: 44px; height: 44px; }
   .study-inline-notes button,.study-inline-notes .study-note-add { min-height:44px; }
   .study-inline-notes { user-select:none; }
@@ -866,7 +878,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-source-list { overflow: auto; padding: 14px; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom { position: sticky; z-index: 93; bottom: 0; min-height: 62px; flex-wrap: nowrap; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid #e1e5f0; }
   .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions) { width: 100%; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); justify-content: stretch; align-items: stretch; gap: 2px; margin: 0; overflow: visible; }
-  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size: 11px; line-height: 1.2; white-space: normal; }
+  .study-reading-workspace .learning-dock.is-toolbar.is-bottom :deep(.learning-dock__actions > button) { box-sizing: border-box; width: 100%; min-width: 0; min-height: 54px; padding: 4px 1px; display: flex; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; font-size:12px; line-height:1.25; white-space:normal; }
   .study-reading-workspace .learning-dock :deep(button > svg) { flex: none; width: 19px; height: 19px; }
   .study-login-page { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 18px 14px 28px; }
   .login-story h1 { margin: 8px 0 12px; font-size: 30px; }
@@ -928,5 +940,11 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-reading-workspace .learning-dock :deep(.learning-dock__location) { display:none; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__actions) { flex:1; min-width:0; flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto; scrollbar-width:thin; }
   .study-reading-workspace .learning-dock :deep(.learning-dock__actions > button) { flex:none; }
+}
+@media(max-width:760px) {
+  .study-reading-workspace .learning-dock :deep(.learning-dock__actions > button.is-active) { box-shadow:inset 0 2px #8c78bc; background:#f0ecfa; }
+  .study-reading-workspace .learning-dock :deep(.learning-dock__more-panel p) { display:none; }
+  .study-reading-workspace .learning-dock :deep(.learning-dock__more-actions) { gap:10px; }
+  .study-reading-workspace .learning-dock :deep(.learning-dock__more-action) { min-height:60px; }
 }
 </style>

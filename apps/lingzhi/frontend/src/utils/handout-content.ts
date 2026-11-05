@@ -48,7 +48,8 @@ const typeTones: Record<string, string> = {
   review_question: 'question', guiding_question: 'question', question: 'question',
 }
 const palettes: Record<string, [string, string, string]> = {
-  prose: ['#657080', 'transparent', '#e1e5ec'],
+  // Prose stays in the continuous reading flow; its directory label still needs a visible surface.
+  prose: ['#657080', '#f0f2f6', '#e1e5ec'],
   definition: ['#17815a', '#edf7f2', '#cbe5d8'],
   theorem: ['#6e4a9c', '#f0ecf7', '#d8cce9'],
   derivation: ['#356ca6', '#edf4fc', '#cfdef0'],

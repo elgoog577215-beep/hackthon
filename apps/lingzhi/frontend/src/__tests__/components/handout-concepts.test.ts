@@ -24,6 +24,32 @@ beforeEach(async () => {
 })
 
 describe('Handout concept relationships', () => {
+  it('keeps the embedded map graphical and reveals evidence only on demand', async () => {
+    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading), embedded: true, navigate: () => {} } })
+    expect(wrapper.find('.concept-graph').exists()).toBe(true)
+    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(false)
+    expect(wrapper.find('footer').exists()).toBe(false)
+    await wrapper.get('[data-concept-id="id-a"]').trigger('click')
+    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(true)
+    expect(wrapper.text()).toContain('极限存在')
+    await wrapper.get('[data-concept-id="id-a"]').trigger('click')
+    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('groups relation evidence into numbered disclosures without changing graph nodes', async () => {
+    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading) } })
+    expect(wrapper.findAll('[data-concept-id]')).toHaveLength(2)
+    expect(wrapper.get('.concept-relation-number').text()).toBe('01')
+    expect(wrapper.get('.concept-relation-type').text()).toBeTruthy()
+    const disclosure = wrapper.get('.concept-relation').element as HTMLDetailsElement
+    expect(disclosure.open).toBe(false)
+    disclosure.open = true
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.concept-relation-body').text()).toContain('极限存在')
+    expect(wrapper.get('.concept-relation-body').text()).toContain('建立差商')
+    wrapper.unmount()
+  })
   it('按被外层裁切的滚动区限制侧栏高度，并跟随窗口调整', async () => {
     const host = document.createElement('div'), scrollport = document.createElement('div')
     host.style.overflowY = 'hidden'

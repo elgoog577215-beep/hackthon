@@ -1,6 +1,7 @@
 /* Shared action metrics across personal learning tools. */
 .personal-assistant,.personal-notes,.personal-practice {
   --study-control-height:40px;
+  --study-secondary-height:32px;
   --study-control-font:14px;
 }
 .study-space :is(.personal-assistant,.personal-notes,.personal-practice) .el-button:not(.is-text):not(.is-link) {
@@ -11,5 +12,5 @@
   display:inline-flex; align-items:center; justify-content:center; gap:6px; line-height:20px;
 }
 @media(max-width:760px) {
-  .personal-assistant,.personal-notes,.personal-practice { --study-control-height:44px; }
+  .personal-assistant,.personal-notes,.personal-practice { --study-control-height:44px; --study-secondary-height:36px; }
 }

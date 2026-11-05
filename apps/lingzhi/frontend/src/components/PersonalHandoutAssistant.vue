@@ -1,14 +1,14 @@
 <template>
   <section class="personal-assistant" :aria-label="c('assistant')">
-    <header class="assistant-context"><strong>{{ c('discussing') }}</strong><span :title="context.section_title">{{ context.section_title }}</span></header>
+    <header class="assistant-context"><BookOpen :size="14" aria-hidden="true" /><MathText :content="context.section_title" /></header>
     <div v-if="note" class="assistant-note-context"><span>{{ c('notesDiscuss') }}</span><ElButton plain class="assistant-action" @click="emit('returnNote')"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesReturn') }}</ElButton><ElButton plain class="assistant-action" @click="emit('clearNote')"><MessageCircle :size="16" aria-hidden="true" />{{ c('notesStopDiscussing') }}</ElButton></div>
     <div class="assistant-conversation">
     <div ref="thread" class="assistant-thread" tabindex="0" :aria-label="c('assistant')" @scroll="handleMessageScroll">
       <div ref="threadContent">
       <p v-if="historyLoading" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
       <article v-for="message in visibleMessages" :key="message.message_id" :class="['assistant-message', message.role]">
-        <small>{{ message.context_ref.section_title }}<template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · {{ message.context_ref.block_title }}</template></small>
-        <blockquote v-if="message.role === 'user' && message.context_ref.quote">{{ message.context_ref.quote }}</blockquote>
+        <small v-if="message.role === 'user' && (message.context_ref.section_id !== context.section_id || message.context_ref.block_title)"><MathText :content="message.context_ref.section_title" /><template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · <MathText :content="message.context_ref.block_title" /></template></small>
+        <blockquote v-if="message.role === 'user' && message.context_ref.quote"><MathText :content="message.context_ref.quote" /></blockquote>
         <MarkdownRenderer :content="message.content" :smooth-stream="message.role === 'assistant'" :animate-initial="newMessageIds.has(message.message_id)" :enable-code-run="false" />
         <div v-if="message.role === 'assistant' && message.status === 'complete' && message.content" class="assistant-note-actions"><ElButton v-if="!note" plain class="assistant-action" @click="emit('saveReply', message)"><NotebookPen :size="16" aria-hidden="true" />{{ c('notesSaveReply') }}</ElButton><template v-else-if="message.note_draft !== undefined"><span>{{ c('notesDraftUpdated') }}</span><ElButton plain class="assistant-action" @click="emit('returnNote')"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesReturn') }}</ElButton></template></div>
         <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
@@ -19,14 +19,14 @@
       <button v-if="!followingLatest && visibleMessages.length" type="button" class="latest-reply" @click="scrollToBottom"><ArrowDown :size="14" aria-hidden="true" />{{ t('courseWorkspace.aiTeacher.latestReply') }}</button>
     </div>
     <form class="assistant-compose" @submit.prevent="send()">
-      <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><p>{{ context.quote }}</p></div>
+      <div v-if="context.quote" class="assistant-quote"><div class="assistant-quote-header"><strong>{{ c('selectedQuote') }}</strong><ElButton native-type="button" @click="emit('clearQuote')">{{ c('clearQuote') }}</ElButton></div><MathText tag="p" :content="context.quote" /></div>
       <p v-if="error" role="alert">{{ error }}<ElButton native-type="button" @click="load">{{ c('retry') }}</ElButton></p>
-      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" @click="send(promptText(key))"><component :is="promptIcons[key]" :size="16" aria-hidden="true" /><span>{{ promptText(key) }}</span></button></div>
+      <div class="assistant-prompts"><button v-for="key in prompts" :key="key" type="button" :disabled="busy || active || !historyReady || !context.section_id" :title="promptText(key)" :aria-label="promptText(key)" @click="send(promptText(key))"><component :is="promptIcons[key]" :size="16" aria-hidden="true" /><span class="assistant-prompt-full">{{ promptText(key) }}</span><span class="assistant-prompt-short" aria-hidden="true">{{ promptShortLabels[key][activeLocale === 'en' ? 1 : 0] }}</span></button></div>
       <div class="assistant-input-shell">
       <ElInput v-model="input" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }" resize="none" maxlength="6000" :aria-label="c('aiInput')" :placeholder="c('aiPlaceholder')" @keydown.ctrl.enter.prevent="send()" />
       <footer><button class="assistant-send" type="submit" :aria-label="busy ? c('busy') : c('aiSend')" :title="c('aiSend')" :disabled="busy || active || !historyReady || !input.trim() || !context.section_id"><ArrowUp :size="19" aria-hidden="true" /></button></footer>
       </div>
-      <p v-if="active" class="assistant-save-state" role="status">{{ c('running') }}</p>
+
     </form>
   </section>
 </template>
@@ -38,6 +38,7 @@ import { ElButton, ElInput } from 'element-plus'
 import { ArrowDown, ArrowUp, BookOpen, Lightbulb, Network, NotebookPen, ArrowLeft, MessageCircle } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import MathText from './MathText.vue'
 import { studyApi, StudyApiError, type AssistantContext, type AssistantConversation, type AssistantMessage, type StudyNote, type NoteDraftSuggestion } from '../api/study'
 import { activeLocale, t } from '../shared/i18n'
 import { studyCopy as c } from '../shared/study-copy'
@@ -46,6 +47,7 @@ const props = defineProps<{ ownerId: string; materialId: string; revisionId: str
 const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError]; saveReply: [message: AssistantMessage]; noteDraft: [value: NoteDraftSuggestion]; returnNote: []; clearNote: [] }>()
 const promptIcons = { aiExplain: BookOpen, aiExample: Lightbulb, aiDiagram: Network }
 const prompts = ['aiExplain','aiExample','aiDiagram'] as const
+const promptShortLabels = { aiExplain: ['讲解', 'Explain'], aiExample: ['举例', 'Example'], aiDiagram: ['图解', 'Diagram'] } as const
 const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' ? props.note ? 'aiExplainNote' : props.context.quote ? 'aiExplainQuote' : key : key)
 const conversation = ref<AssistantConversation | null>(null), input = ref(''), error = ref(''), busy = ref(false), thread = ref<HTMLElement | null>(null)
 const historyLoading = ref(false), historyReady = ref(false)
@@ -112,14 +114,14 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 <style scoped>
 .personal-assistant { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; font:15px/1.75 var(--study-ui-font, var(--handout-sans)); color:#414a5d; }
 .assistant-note-context { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; padding:4px 16px 9px; font-size:13px; color:#856c9c; background:#fbf9fe; }.assistant-note-context :deep(.el-button) { margin:0; }.assistant-note-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; color:#8a7b97; margin-top:7px; }.assistant-note-actions :deep(.el-button) { margin:0; }
-.assistant-context { flex:none; margin:0; padding:9px 18px; display:flex; align-items:baseline; gap:8px; background:#fcfcfe; }
-.assistant-context strong { flex:none; font-size:12px; font-weight:400; color:#929aab; }
+.assistant-context { flex:none; margin:0; padding:9px 18px; display:flex; align-items:center; gap:6px; background:#fcfcfe; }
+.assistant-context > svg { flex:none; color:#817391; }
 .assistant-context span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#727c90; font-size:13px; }
 .assistant-conversation { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; }
-.assistant-thread { flex:1; min-height:0; overflow:auto; padding:18px 20px 44px; scrollbar-width:thin; scrollbar-color:#d9dde7 transparent; }
+.assistant-thread { flex:1; min-height:0; overflow:auto; padding:16px 18px 20px; scrollbar-width:thin; scrollbar-color:#d9dde7 transparent; }
 .personal-assistant button:focus-visible,.assistant-thread:focus-visible { outline:2px solid #8b7ab5; outline-offset:-2px; }
 .assistant-empty { color:#8b95a4; }
-.assistant-message { margin:0 0 28px; min-width:0; overflow-wrap:anywhere; }
+.assistant-message { margin:0 0 22px; min-width:0; overflow-wrap:anywhere; }
 .assistant-message.user { margin-left:24px; padding:10px 13px; background:#f0eef8; border-radius:12px 12px 3px 12px; color:#504764; }
 .assistant-message small { display:block; font-size:12px; line-height:1.5; color:#7f8798; margin-bottom:8px; }
 .assistant-message blockquote { margin:0 0 10px; padding-left:10px; border-left:2px solid #c7bddc; color:#788197; }
@@ -153,14 +155,13 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .personal-assistant .assistant-send { display:grid; place-items:center; width:40px; height:40px; min-height:40px; padding:0; border:0; border-radius:9px; color:#fff; background:#7966aa; cursor:pointer; }
 .personal-assistant .assistant-send:hover:not(:disabled) { background:#695598; }
 .personal-assistant .assistant-send:disabled { color:#b0adc0; background:#eceaf2; cursor:default; }
-.assistant-save-state { min-height:16px; margin:5px 2px 0; color:#8790a1; font-size:12px; line-height:1.5; }
 .assistant-quote { margin:0 0 9px; padding:8px 10px; border-left:2px solid #c2b4dc; background:#f7f5fb; border-radius:0 6px 6px 0; }
 .assistant-quote p { margin:3px 0 0; max-height:52px; overflow:auto; font-size:13px; color:#7a8396; }
 .assistant-quote-header { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; }
 .assistant-compose [role=alert] { color:#ab4b60; font-size:13px; }
 @media(max-width:760px) {
   .assistant-context { padding:8px 14px; }
-  .assistant-thread { padding:14px 16px 48px; }
+  .assistant-thread { padding:14px 16px 20px; }
   .assistant-compose { padding:4px 12px 8px; }
 
   .assistant-input-shell { grid-template-columns:minmax(0,1fr) 44px; padding:2px 2px 2px 12px; }
@@ -176,5 +177,6 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
 .assistant-action { border-color:#dcd6e9; background:#fff; color:#665184; border-radius:9px; padding:0 12px; }
 .assistant-action :deep(span) { gap:6px; }
 .assistant-action :deep(svg) { flex:none; }
-@media(max-width:760px) { .assistant-prompts { gap:7px; } .personal-assistant .assistant-prompts button { flex:1 1 90px; padding:0 8px; font-size:var(--study-control-font); } }
+.assistant-prompt-short { display:none; }
+@media(max-width:760px) { .assistant-prompt-full { display:none; } .assistant-prompt-short { display:inline; } .assistant-prompts { gap:6px; flex-wrap:wrap; margin-bottom:8px; } .personal-assistant .assistant-prompts button { flex:none; padding:0 9px; font-size:var(--study-control-font); } }
 </style>

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HandoutLearningPaths from '@/components/HandoutLearningPaths.vue'
 import HandoutKnowledgeMap from '@/components/HandoutKnowledgeMap.vue'
 import { buildHandoutPaths, pathRows } from '@/utils/handout-paths'
@@ -22,7 +22,7 @@ const mapSections: HandoutConceptSection[] = [
   { id: 's', title: '第一讲', anchor: 's', blockAnchors: ['b'], nodes: [{ id: 'a', name: '同名概念', statement: '第一种含义', anchor: 'b', external: false }], relations: [] },
   { id: 't', title: '第二讲', anchor: 't', blockAnchors: ['c'], nodes: [{ id: 'b', name: '同名概念', statement: '另一种含义', anchor: 'c', external: false }, { id: 'a', name: '同名概念', statement: '第一种含义', anchor: 'b', external: true }], relations: [{ id: 'edge', source: 'a', target: 'b', type: 'contrasts_with', reason: '含义不同', conditions: [], distinction: '', steps: [], sourceRefs: [], groupId: '', groupOperator: '', necessity: '' }] },
 ]
-beforeEach(() => { activeLocale.value = 'zh' })
+beforeEach(() => { activeLocale.value = 'zh'; vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }) })
 
 describe('source-bound learning paths', () => {
   it('keeps sibling branches together and preserves each step’s source', () => {
@@ -43,10 +43,16 @@ describe('source-bound learning paths', () => {
     const data = buildHandoutPaths([plan], sections, 'r', { s: 'ready' })
     const wrapper = mount(HandoutLearningPaths, { props: { sections: data, currentSection: 's' }, global: globals })
     expect(wrapper.text()).toContain('可导')
+    expect(wrapper.find('.path-tree').exists()).toBe(false)
+    expect(wrapper.find('.path-detail').exists()).toBe(false)
+    expect(wrapper.findAll('.path-node')).toHaveLength(4)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.path-diagram-edges > path').map(edge => [edge.attributes('data-parent'), edge.attributes('data-child')])).toEqual([['1', '2'], ['1', '3'], ['2', '4']])
+    await wrapper.get('[data-step-id="2"]').trigger('click')
     expect(wrapper.text()).toContain('满足规则')
-    expect(wrapper.text()).toContain('未整理独立的检验步骤')
     await wrapper.get('.path-sources button').trigger('click')
     expect(wrapper.emitted('jump')).toEqual([['b']])
+    await wrapper.get('.aid-search-toggle').trigger('click')
     await wrapper.get('input').setValue('不存在')
     expect(wrapper.find('.learning-path').exists()).toBe(false)
     expect(wrapper.text()).toContain('没有匹配')
@@ -71,11 +77,12 @@ describe('course knowledge map', () => {
     expect(wrapper.getComponent({ name: 'HandoutConceptMap' }).props('sections')[0].id).toBe('s')
     await wrapper.setProps({ currentSection: 't' })
     expect(wrapper.getComponent({ name: 'HandoutConceptMap' }).props('sections')[0].id).toBe('t')
-    await wrapper.findAll('.reading-aid-scope button')[1]!.trigger('click')
+    await wrapper.get('.aid-scope-toggle').trigger('click')
     expect(wrapper.findAll('.map-lecture button')).toHaveLength(2)
     await wrapper.findAll('.map-lecture button')[0]!.trigger('click')
     expect(wrapper.getComponent({ name: 'HandoutConceptMap' }).props('sections')[0].relations).toHaveLength(1)
     await wrapper.get('.map-reset').trigger('click')
+    await wrapper.get('.aid-search-toggle').trigger('click')
     await wrapper.get('input').setValue('另一种')
     expect(wrapper.findAll('.map-lecture button')).toHaveLength(1)
     expect(wrapper.text()).toContain('第二讲')
