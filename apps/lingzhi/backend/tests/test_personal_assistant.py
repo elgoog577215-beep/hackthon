@@ -52,6 +52,9 @@ async def test_assistant_private_context_idempotent_stream_and_reopen(setup_stud
     assert saved['messages'][-1]['status'] == 'complete'
     assert '按分量相加' in saved['messages'][-1]['content']
     assert calls[0][0]['block']['title'] == '向量'
+    assert calls[0][0]['learner_request']['starting_level'] == before['request']['level']
+    assert calls[0][0]['learner_request']['total_study_minutes'] == before['request']['time_minutes']
+    assert calls[0][0]['prompt_version'] == 'personal_study_v2'
     assert calls[0][0]['source']['source_sha256'] == before['request']['source_sections'][0]['source_sha256']
     assert 'vector_plot' in calls[0][1] and calls[0][2]['max_attempts'] == 1
     assert repo.get(owner, material['id']) == before
@@ -105,3 +108,28 @@ async def test_retry_without_new_tokens_preserves_previous_answer_fragment(setup
     reply = client.get(path, headers=headers).json()['messages'][-1]
     assert reply['content'] == '已经生成的解释。'
     assert reply['status'] == 'failed'
+
+
+@pytest.mark.asyncio
+async def test_assistant_keeps_goal_and_chapter_context_without_using_later_turns(setup_study, monkeypatch):
+    client, manager, repo, writer, owner, headers, material, payload = await ready(setup_study)
+    repo.update(owner, material['id'], {'request': {**material['request'], 'requirements': '游戏角色移动', 'level': 'review'}})
+    path = '/api/study/materials/' + material['id'] + '/assistant'
+    turn = client.post(path, headers=headers, json=payload).json()
+    task_id = turn['messages'][-1]['task_ref']['task_id']
+    def add_history(conv):
+        conv['messages'].insert(0, {'message_id': 'past', 'role': 'user', 'status': 'complete',
+            'content': '另一讲的问题', 'context_ref': {'section_title': '另一讲', 'block_title': '另一个概念'}})
+        conv['messages'].append({'message_id': 'future', 'role': 'assistant', 'status': 'complete',
+            'content': '较晚轮次的回复，不应成为重试依据', 'context_ref': {}})
+    assistant.ai_teacher_repository.material_conversation(owner, material['id'], payload['revision_id'], add_history)
+    async def model(prompt, system, **kwargs):
+        context = json.loads(prompt)
+        assert context['learner_request']['goal_and_scene'] == '游戏角色移动'
+        assert context['learner_request']['starting_level'] == 'review'
+        assert context['recent_dialogue'] == [{'role': 'user', 'content': '另一讲的问题', 'section_title': '另一讲', 'block_title': '另一个概念'}]
+        assert '补充说明' in system and '不等于已验证的能力' in system
+        return '按分量相加。'
+    monkeypatch.setattr(writer, '_call_llm', model)
+    await manager._run_job(task_id)
+    assert manager.tasks[task_id]['status'] == 'completed'

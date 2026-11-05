@@ -17,6 +17,56 @@ PURPOSES = {
 }
 
 
+STUDY_PROMPT_VERSION = "personal_study_v2"
+
+
+def learning_profile(request: dict) -> dict:
+    """The student's stated needs, not an inferred mastery diagnosis."""
+    return {
+        "purpose": request.get("purpose", "systematic"),
+        "starting_level": request.get("level", ""),
+        "goal_and_scene": request.get("requirements", ""),
+        "total_study_minutes": request.get("time_minutes"),
+        "language": request.get("language", "zh"),
+    }
+
+
+def handout_learning_context(request: dict, outlines: list[dict], index: int) -> dict:
+    """Pass the whole course map without duplicating source text or past prose."""
+    return {
+        "prompt_version": STUDY_PROMPT_VERSION,
+        "learner_request": learning_profile(request),
+        "current_lecture": index + 1,
+        "course_map": [{"section_id": item["node_id"], "title": item["title"],
+                        "learning_objective": item.get("learning_objective", "")}
+                       for item in outlines],
+    }
+
+
+def self_study_requirements(request: dict, outline: dict, outlines: list[dict], index: int) -> str:
+    # Time is a whole-course constraint, not an allowance repeated per chapter.
+    return (
+        PURPOSES[request["purpose"]] + "\n" + visual_requirements(outline)
+        + f"\n学习起点：{request['level']}；整门课程预计学习 {request['time_minutes']} 分钟（含阅读、思考与练习），"
+          f"共 {len(outlines)} 讲，当前第 {index + 1} 讲；这不是每讲的时长。按各讲任务分配篇幅与练习量，不承诺精确用时。"
+        + "\n课程全貌见 student_learning.course_map；本讲只完整展开自己负责的目标，"
+          "已学内容简短承接，后续内容只作必要引入，不重复写整套定义和例题。"
+          "来源标题不是现成教案：结合目标与学习起点组织本讲，但不遗漏所选范围的关键条件。"
+        + "\n教学块按学习任务编排，不机械凑齐类型："
+          "讲解先补理解当前问题所必需的基础，定义避免同义反复，推导写明依据，例子展示完整过程；"
+          "提问针对一个明确的判断或理由，避免只问‘理解了吗’；"
+          "练习提供足够题设、输入与预期成果，参考解答或评价标准放在关联的 answer 块，不在题面泄露。"
+          "项目场景要落到可完成的小任务及可检查的结果，示例数据明确标为假设，不冒充真实企业案例；"
+          "初学者用已讲过的概念完成练习，确需新概念时先解释，不突然引入未教的工具或接口。"
+          "本讲结束让学生能检查是否达到目标；有现成练习可复用其验收，不重复添加总结和测验。"
+        + "\n学生目标与应用场景：" + request.get("requirements", "")
+        + ("\n按学生的目标与场景直接生成可独立阅读、学习和复习的通用讲义；不得伪造资料来源或把通用内容说成教师课程原文。"
+           if not request.get("source_sections") else "\n以所选资料为依据；必要的前置知识、解释与假设例子标为补充，不冒充资料原文。")
+        + "没有真实考试资料时，不推测特定课程的考试范围、频率、分值或历年题。"
+        + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。")
+    )
+
+
 def visual_requirements(outline: dict) -> str:
     text = '\n'.join(block.get('text', '') for block in outline.get('blocks', []))
     text += '\n' + str(outline.get('title', '')) + '\n' + str(outline.get('learning_objective', ''))
@@ -116,6 +166,8 @@ def direct_outline_prompt(request: dict) -> str:
     return (
         "为学生设计一门可以直接自学的课程目录。根据主题、目的、学习起点、总时间和学生描述的目标/应用场景，"
         "拆成 2–8 讲；每讲只负责一个清楚的学习任务，前后顺序合理，篇幅与总时间相称。"
+        "time_minutes 是整门课含阅读和练习的总时间，不是每讲时间。时间短时聚焦最小可完成目标，不承诺学完整个学科。"
+        "learning_objective 写可检查的成果，而不只写‘了解/掌握’；前置概念安排在依赖它的任务之前，避免各讲重复承担同一任务。"
         "场景具体时，把相关应用贯穿讲解、练习和提问；不要把场景当装饰案例。"
         "系统学习重视概念、原理、推导和迁移；期末备考围绕常见知识结构与题型组织，但没有真实考试资料时，"
         "不得声称掌握特定课程的考试范围、频率、分值或历年题。"
@@ -377,16 +429,14 @@ async def run_personal_handout(manager, task_id: str) -> None:
                     course_id="", outline_sections=[outline],
                     plan_sections={plan["node_id"]: plan for plan in plans},
                     lesson_context={"title": request["title"], "learning_purpose": request["purpose"]},
-                    requirements=PURPOSES[request["purpose"]] + '\n' + visual_requirements(outline) + f"\n学习起点：{request['level']}；预计阅读 {request['time_minutes']} 分钟。"
-                                 + ("\n" + request.get("requirements", ""))
-                                 + ("\n按学生的目标与场景直接生成可独立阅读、学习和复习的通用讲义；不得伪造资料来源或把通用内容说成教师课程原文。没有真实考试资料时，不推测特定课程的考试范围、频率、分值或历年题。"
-                                    if not has_sources else "\n")
-                                 + ("\nWrite the handout in English." if request["language"] == "en" else "\n用中文编写讲义。"),
+                    requirements=self_study_requirements(request, outline, outlines, index),
                     completed_sections=[{"section_node_id": section["id"], "title": section["title"], "content": section["content"]}
                                         for section in revision["sections"] if section["complete"]],
                     partial_text=saved.get("draft_text", "") if saved else "",
                     course_context={"course_name": request["title"], "learning_purpose": request["purpose"],
-                                    "audience": request["level"], "source_policy": (
+                                    "audience": request["level"],
+                                    "student_learning": handout_learning_context(request, outlines, index),
+                                    "source_policy": (
                                         "按学生的目标与场景直接生成通用自学讲义；不引用上传资料，不伪造来源或教师课程内容。"
                                         if not has_sources else "以所选来源范围为准，补充内容明确标为补充")},
                     on_content_delta=delta, on_content_reset=reset,

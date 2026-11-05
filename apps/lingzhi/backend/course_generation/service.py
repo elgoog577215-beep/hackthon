@@ -7572,7 +7572,7 @@ class CourseService(AIBase):
         output_tokens = self._generation_budget.teacher_handout_max_output_tokens
         def prompt_for(sections):
             return build_handout_prompt(
-                course_title=metadata.get("course_name") or metadata.get("subject") or "",
+                course_title=metadata.get("course_name") or metadata.get("subject") or course_context.get("course_name") or lesson_context.get("title") or "",
                 lesson=lesson_context, requirements=requirements, sections=sections,
                 plan_sections=plan_sections, completed_sections=completed_sections,
                 partial_text=partial_text, contract=HANDOUT_CONTRACT_VERSION,

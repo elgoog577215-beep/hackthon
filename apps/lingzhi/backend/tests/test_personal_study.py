@@ -269,6 +269,16 @@ async def test_direct_generation_builds_self_study_handout_without_sources(setup
                for section in saved['revisions'][0]['sections'])
     assert all('按学生的目标与场景直接生成' in call[1]['requirements']
                for call in writer.calls if call[0].startswith('study-section-'))
+    writing_calls = [call[1] for call in writer.calls if call[0].startswith('study-section-')]
+    for number, call in enumerate(writing_calls, 1):
+        profile = call['course_context']['student_learning']
+        assert profile['current_lecture'] == number
+        assert profile['learner_request']['total_study_minutes'] == 90
+        assert profile['learner_request']['goal_and_scene'] == request['requirements']
+        assert [item['title'] for item in profile['course_map']] == ['C语言基础', '成像项目中的数据处理']
+        assert all(item['learning_objective'] for item in profile['course_map'])
+        assert '整门课程预计学习 90 分钟' in call['requirements']
+        assert '预计阅读 90 分钟' not in call['requirements']
     assert writer.calls[0][0] == 'direct_outline'
     assert client.get(f"/api/study/materials/{material['id']}/export", headers=headers).status_code == 200
     assert client.get(f"/api/study/materials/{material['id']}", headers=headers).json()['sources'] == []
@@ -646,3 +656,23 @@ def test_concept_evidence_uses_server_owned_block_refs_and_rejects_unknown_endpo
     plan["sections"][0]["knowledge_relations"][0]["target_name"] = "不存在"
     with pytest.raises(ValueError, match="概念"):
         validate_plans(json.dumps(plan), [source])
+
+
+@pytest.mark.asyncio
+async def test_uploaded_materials_keep_the_same_goal_time_and_course_context(setup_study):
+    client, manager, repo, writer = setup_study
+    owner, headers = account(client)
+    request = {**request_for(add_source(client, headers)), 'requirements': '用向量解释游戏角色的移动', 'time_minutes': 30}
+    material = client.post('/api/study/materials', headers=headers, json=request).json()
+    await manager._run_job(material['task_id'])
+    calls = [kwargs for name, kwargs in writer.calls if name.startswith('study-section-')]
+    assert calls
+    for number, kwargs in enumerate(calls, 1):
+        context = kwargs['course_context']['student_learning']
+        assert context['learner_request']['goal_and_scene'] == request['requirements']
+        assert context['current_lecture'] == number
+        assert len(context['course_map']) == len(request['selections'])
+        assert '整门课程预计学习 30 分钟' in kwargs['requirements']
+        assert kwargs['outline_sections'][0]['blocks']  # Exact sources still reach the shared writer.
+        assert '补充' in kwargs['requirements']
+    assert repo.get(owner, material['id'])['status'] == 'completed'

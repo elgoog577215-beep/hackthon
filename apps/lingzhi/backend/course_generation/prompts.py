@@ -31,7 +31,7 @@ from teaching_design import (
 from teaching_diagrams import teaching_diagram_prompt
 from handout_content import handout_writing_guide
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v42"
+PROMPT_CONTRACT_VERSION = "course_prompt_v43"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:

@@ -573,3 +573,20 @@ async def test_formal_script_and_completed_job_are_saved_atomically(tmp_path, mo
     assert reloaded.get_job("course-1", job["id"])["status"] == "completed"
     assert len(reloaded.lesson("course-1", "L1-1")["script_revisions"]) == 1
     assert job["result_revision_id"] == reloaded.lesson("course-1", "L1-1")["working_script_revision_id"]
+
+
+@pytest.mark.asyncio
+async def test_personal_handout_keeps_course_title_without_registered_teacher_metadata(monkeypatch):
+    import json
+    service = CourseService()
+    seen = []
+    async def model(prompt, system, **kwargs):
+        seen.append(json.JSONDecoder().raw_decode(prompt.split('\n', 1)[1])[0])
+        return response(['a'])
+    monkeypatch.setattr(service, '_call_llm', model)
+    await service.generate_teacher_handout(course_id='', outline_sections=[{'node_id': 'a'}],
+        plan_sections={}, lesson_context={'title': '本讲标题'}, course_context={'course_name': '游戏开发中的C语言'})
+    assert seen[0]['course_title'] == '游戏开发中的C语言'
+    await service.generate_teacher_handout(course_id='', outline_sections=[{'node_id': 'a'}],
+        plan_sections={}, lesson_context={'title': '自学课程'})
+    assert seen[1]['course_title'] == '自学课程'
