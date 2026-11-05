@@ -3,7 +3,7 @@ from copy import deepcopy
 import uuid
 
 READING_SCHEMA_VERSION = "study_reading_v1"
-READING_PROMPT_VERSION = "study_reading_relations_v2"
+READING_PROMPT_VERSION = "study_reading_relations_v3"
 RELATION_TYPES = {"prerequisite", "derives", "applies_to", "contrasts_with", "equivalent_to", "generalizes"}
 
 
@@ -24,13 +24,9 @@ def reading_response_schema(source: dict, prior: list[dict]) -> dict:
                     "relation_type": {"type": "string", "enum": sorted(RELATION_TYPES)},
                     "reason": sentence, "conditions": array(short, 3),
                     "derivation_steps": array({"type": "string", "maxLength": 2000}, 32), "source_refs": refs})
-    step = obj({"id": short, "parent_id": short,
-                "stage": {"type": "string", "enum": ["start", "choice", "step", "result", "check"]},
-                "text": sentence, "reason": sentence, "condition": short, "source_refs": refs})
-    path = obj({"title": short, "kind": {"type": "string", "enum": ["derivation", "method", "example"]}, "steps": array(step, 8, 2)})
     section = obj({"node_id": {"type": "string", "enum": [source["node_id"]]},
                    "knowledge_structure": array(obj({"knowledge_points": array(point, 4)}), 1, 1),
-                   "knowledge_relations": array(relation, 6), "learning_paths": array(path, 2)})
+                   "knowledge_relations": array(relation, 6)})
     return obj({"sections": array(section, 1, 1)})
 
 
@@ -102,7 +98,7 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
                           "conditions": [required_text(c, "关系条件") for c in conditions],
                           "derivation_steps": [required_text(step, "推导步骤", 2000) for step in derivation],
                           "source_refs": bind_refs(edge.get("source_refs"), source)})
-    raw_paths = plan.get("learning_paths")
+    raw_paths = plan.get("learning_paths", [])
     if not isinstance(raw_paths, list) or len(raw_paths) > 3:
         raise ValueError("思维链结构不完整，请主动继续")
     paths = []

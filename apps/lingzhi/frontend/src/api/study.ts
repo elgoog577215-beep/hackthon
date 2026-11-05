@@ -19,7 +19,7 @@ export interface StudyMaterial extends StudySummary {
   plans: unknown[]
   revisions: { id: string; status: string; sections: StudySection[] }[]
   notes: Record<string, { content?: string; updated_at: string; entries?: StudyNote[] }>
-  task?: { id: string; status: string; progress: number; phase_progress?: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
+  task?: { id: string; status: string; progress: number; phase?: string; phase_progress?: number; completed_nodes: number; total_nodes: number; message: string; error_code: string }
 }
 export interface StudyGenerationRequest {
   request_id: string; title: string; purpose: StudyPurpose

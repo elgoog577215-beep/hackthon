@@ -113,9 +113,10 @@
                 </article>
               </div>
               <aside v-if="material && reasoningOpen && !mobileViewport" id="study-reasoning-panel" class="study-reasoning-panel" :aria-label="c('paths')">
-                <header class="study-reasoning-heading"><Route :size="18" /><strong>{{ c('paths') }}</strong><ElButton text circle :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton></header>
-                <div v-if="!readingToolsReady" class="study-aid-status" role="status"><p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton></div>
-                <HandoutConceptMap :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :title="c('paths')" :origin-label="c('conceptOrigin')" explanatory />
+                <HandoutConceptMap v-if="hasReasoning" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')">
+                  <template #actions><ElButton text circle class="study-reasoning-close" :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton></template>
+                </HandoutConceptMap>
+                <div v-else class="study-aid-status" role="status"><p>{{ reasoningStatus }}</p><ElButton text :aria-label="c('closeReasoning')" @click="toggleReasoning">{{ t('common.close') }}</ElButton><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton></div>
               </aside>
               </div>
             </div>
@@ -127,13 +128,13 @@
               <PersonalHandoutNotes v-if="currentRevision" v-show="toolTab === 'note'" ref="notesPanel" :key="`notes:${user.id}:${material.id}:${currentRevision.id}`" :owner-id="user.id" :material-id="material.id" :revision-id="currentRevision.id" :notes="personalNotes" :sections="currentRevision.sections" :current-section="activeChapter" @saved="acceptPersonalNote" @removed="removePersonalNote" @locate="locatePersonalNote" @discuss="discussPersonalNote" @session-expired="showError">
                 <template #legacy><div class="study-note"><ElInput v-model="noteText" class="study-note-editor" type="textarea" :rows="16" resize="none" :placeholder="c('notePlaceholder')" :aria-label="c('note')" /><footer class="study-note-footer"><div class="study-note-status" role="status">{{ noteDirty ? c('noteUnsaved') : noteSaved ? c('noteSaved') : '' }}</div><ElButton type="primary" :disabled="busy || !noteDirty" @click="saveNote">{{ c('saveNote') }}</ElButton></footer></div></template>
               </PersonalHandoutNotes>
-              <div v-if="toolTab === 'paths' && !readingToolsReady" class="study-aid-status" role="status">
-                <p>{{ isGenerating ? c('preparingConcepts') : c('missingConcepts') }}</p>
+              <div v-if="toolTab === 'paths' && !hasReasoning" class="study-aid-status" role="status">
+                <p>{{ reasoningStatus }}</p>
                 <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c('completeConcepts') }}</ElButton>
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
                 <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
-                <HandoutConceptMap v-else-if="toolTab === 'paths'" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :title="c('paths')" :origin-label="c('conceptOrigin')" explanatory />
+                <HandoutConceptMap v-else-if="toolTab === 'paths' && hasReasoning" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
               </KeepAlive>
             </aside>
           </div>
@@ -471,7 +472,8 @@ const filteredReadingSections = computed(() => {
   return readingSections.value.map((section, index) => ({ ...section, number: index + 1 }))
     .filter(section => section.title.toLocaleLowerCase().includes(query) || section.blocks.some(block => (block.title + ' ' + block.presentation.label).toLocaleLowerCase().includes(query)))
 })
-const readingToolsReady = computed(() => material.value?.reading_tools_complete === true)
+const hasReasoning = computed(() => conceptSections.value.some(section => section.nodes.length))
+const reasoningStatus = computed(() => c(isGenerating.value ? (material.value?.task?.phase === 'study_concepts' ? 'preparingConcepts' : 'reasoningAfterText') : 'missingConcepts'))
 const usablePlans = computed(() => (material.value?.plans || []).filter((raw: any) => {
   const state = material.value?.reading_tool_states?.[raw.node_id]
   return state !== 'stale' && state !== 'missing' && (!raw.handout_revision_id || raw.handout_revision_id === currentRevision.value?.id)
@@ -710,9 +712,10 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-reading-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .study-reading-with-reasoning { display:flex; flex:1; min-width:0; min-height:0; }
 .study-reading-with-reasoning > .study-document-scroll { min-width:0; }
-.study-reasoning-panel { flex:0 0 clamp(260px, 24vw, 340px); min-height:0; overflow:auto; border-left:1px solid #e3e8f2; background:white; }
-.study-reasoning-panel :deep(.handout-concept-map) { position:static; border:0; max-height:none; overflow:visible; }
-.study-reasoning-panel :deep(.handout-concept-map > header) { display:none; }
+.study-reasoning-panel { flex:0 0 330px; min-height:0; overflow:auto; margin:24px 18px 24px 0; background:transparent; }
+.study-reasoning-panel :deep(.handout-concept-map) { position:static; max-height:none; overflow:visible; }
+.study-reasoning-panel :deep(.handout-concept-map > header) { position:relative; padding-right:48px; }
+.study-reasoning-close { position:absolute; top:14px; right:12px; }
 .study-reading-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: white; }
 .study-selection-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 20px; background: #eef2ff; color: var(--lz-brand-strong); font: 15px/1.6 var(--handout-sans); }
 .study-selection-actions span { flex: 1; }

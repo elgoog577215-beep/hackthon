@@ -19,7 +19,7 @@ let wrapper: VueWrapper | undefined
 async function page(path = '/study') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/study/:materialId?', name: 'study', component: StudyView }, { path: '/courses', component: { template: '<div />' } }] })
   await router.push(path); await router.isReady()
-  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { attachTo: document.body, global: { plugins: [createPinia(), router], stubs: { PersonalHandoutAssistant: true, MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: true, HandoutTableOfContents: true } } })
+  wrapper = mount({ components: { RouterView }, template: '<RouterView />' }, { attachTo: document.body, global: { plugins: [createPinia(), router], stubs: { PersonalHandoutAssistant: true, MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, HandoutContentBlock: { template: '<div><slot /></div>' }, HandoutConceptMap: { name: 'HandoutConceptMap', props: ['sections'], template: '<aside class="concept-map-stub"><slot name="actions" /></aside>' }, HandoutTableOfContents: true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -69,7 +69,7 @@ describe('personal study handouts', () => {
     expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
     await wrapper.get('[data-tool="paths"]').trigger('click')
     const map = wrapper.get('#study-reasoning-panel').findComponent({ name: 'HandoutConceptMap' })
-    expect(map.attributes('explanatory')).toBeDefined()
+    expect(map.attributes('explanatory')).toBeUndefined()
     expect(map.props('sections')[0].relations[0].steps).toEqual(['先对齐分量', '再逐项相加'])
     await setLocale('en'); await flushPromises()
     expect(wrapper.get('#study-reasoning-panel').attributes('aria-label')).toBe('Reasoning')
@@ -585,8 +585,8 @@ it('keeps a partial concept map visible during generation without offering a dup
     task: { ...saved.task, status: 'running' } }
   api.get.mockResolvedValue(partial)
   const { wrapper } = await page('/study/material-a')
-  expect(wrapper.text()).toContain('正在整理思维链')
-  expect(wrapper.find('handout-concept-map-stub').exists()).toBe(true)
+  expect(wrapper.text()).not.toContain('正在整理思维链')
+  expect(wrapper.find('.concept-map-stub').exists()).toBe(true)
   expect(wrapper.findAll('button').some(button => button.text() === '补齐缺失内容与阅读辅助')).toBe(false)
 })
 

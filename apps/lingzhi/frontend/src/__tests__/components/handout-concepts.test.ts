@@ -25,32 +25,18 @@ beforeEach(async () => {
 })
 
 describe('Handout concept relationships', () => {
-  it('keeps the embedded map graphical and reveals evidence only on demand', async () => {
-    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading), embedded: true, navigate: () => {} } })
-    expect(wrapper.find('.concept-graph').exists()).toBe(true)
-    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(false)
-    expect(wrapper.find('footer').exists()).toBe(false)
-    await wrapper.get('[data-concept-id="id-a"]').trigger('click')
-    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(true)
-    expect(wrapper.text()).toContain('极限存在')
-    await wrapper.get('[data-concept-id="id-a"]').trigger('click')
-    expect((wrapper.get('.concept-relations').element as HTMLDetailsElement).open).toBe(false)
+  it('restores the October header and directly visible evidence for every shared reader', () => {
+    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading) } })
+    expect(wrapper.get('header').text()).toContain('CONCEPT CONNECTIONS')
+    expect(wrapper.get('h3').text()).toBe('概念关系')
+    expect(wrapper.findAll('[data-concept-id]')).toHaveLength(2)
+    expect(wrapper.find('.concept-relation-number').exists()).toBe(false)
+    expect(wrapper.find('details.concept-relations').exists()).toBe(false)
+    expect(wrapper.get('.concept-relations article').text()).toContain('建立差商')
+    expect(wrapper.get('.concept-relations article').text()).toContain('极限存在')
     wrapper.unmount()
   })
 
-  it('groups relation evidence into numbered disclosures without changing graph nodes', async () => {
-    const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading) } })
-    expect(wrapper.findAll('[data-concept-id]')).toHaveLength(2)
-    expect(wrapper.get('.concept-relation-number').text()).toBe('01')
-    expect(wrapper.get('.concept-relation-type').text()).toBeTruthy()
-    const disclosure = wrapper.get('.concept-relation').element as HTMLDetailsElement
-    expect(disclosure.open).toBe(false)
-    disclosure.open = true
-    await wrapper.vm.$nextTick()
-    expect(wrapper.get('.concept-relation-body').text()).toContain('极限存在')
-    expect(wrapper.get('.concept-relation-body').text()).toContain('建立差商')
-    wrapper.unmount()
-  })
   it('按被外层裁切的滚动区限制侧栏高度，并跟随窗口调整', async () => {
     const host = document.createElement('div'), scrollport = document.createElement('div')
     host.style.overflowY = 'hidden'
@@ -192,7 +178,7 @@ it('lets the student inspect concepts before explicitly returning to the handout
   const wrapper = mount(HandoutConceptMap, { props: { sections: buildHandoutConceptSections(plans, reading), navigate } })
   await wrapper.get('[data-concept-id="id-a"]').trigger('click')
   expect(wrapper.get('.concept-detail').text()).toContain('A 的说明')
-  expect(navigate).not.toHaveBeenCalled()
+  expect(navigate).toHaveBeenCalledWith('b2')
   await wrapper.get('.concept-jump').trigger('click')
   expect(navigate).toHaveBeenCalledWith('b2')
   wrapper.unmount()
@@ -201,8 +187,8 @@ it('lets the student inspect concepts before explicitly returning to the handout
 it('restores directly readable relation steps and follows the reading section without new path records', async () => {
   const sections = buildHandoutConceptSections(plans, reading)
   const navigate = vi.fn()
-  const wrapper = mount(HandoutConceptMap, { props: { sections, explanatory: true, title: '思维链', currentSection: 's1', navigate } })
-  expect(wrapper.find('article.concept-relation').exists()).toBe(true)
+  const wrapper = mount(HandoutConceptMap, { props: { sections, currentSection: 's1', navigate } })
+  expect(wrapper.find('.concept-relations article').exists()).toBe(true)
   expect(wrapper.find('details.concept-relation').exists()).toBe(false)
   expect(wrapper.find('.concept-relation-number').exists()).toBe(false)
   expect(wrapper.find('.concept-coverage').exists()).toBe(false)
@@ -217,11 +203,11 @@ it('restores directly readable relation steps and follows the reading section wi
 it('keeps the knowledge map compact and navigates from reference-style concept nodes', async () => {
   const navigate = vi.fn()
   const wrapper = mount(HandoutKnowledgeMap, { props: { sections: buildHandoutConceptSections(plans, reading), currentSection: 's1', navigate } })
-  expect(wrapper.find('.is-embedded').exists()).toBe(true)
+  expect(wrapper.get('h3').text()).toBe('概念关系')
   expect(wrapper.get('.concept-relations').attributes('open')).toBeUndefined()
   await wrapper.get('[data-concept-id="id-a"]').trigger('click')
   expect(navigate).toHaveBeenCalledWith('b2')
-  expect(wrapper.get('.concept-relations').attributes('open')).toBeDefined()
+  expect(wrapper.get('.concept-relations article').text()).toContain('极限存在')
   await wrapper.get('.aid-scope-toggle').trigger('click')
   expect(wrapper.get('.map-lecture').classes()).toContain('is-current')
   await wrapper.get('.map-lecture button').trigger('click')

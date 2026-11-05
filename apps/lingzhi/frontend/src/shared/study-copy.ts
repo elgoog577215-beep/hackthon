@@ -103,6 +103,7 @@ const messages = {
   personalCourseHint: ['仅保存在你的个人空间。生成后可以阅读、记笔记、查看概念关系和向 AI 提问。', 'Saved in your private space. Read, take notes, explore concept connections and ask the AI after generating.'],
   sourceFailed: ['这份资料没有可读正文，请检查文件或换一份资料。', 'This source has no readable text. Check the file or choose another source.'],
   connected: ['已连接个人学习空间', 'Connected to your study space'], requestFailure: ['操作未完成，请重试。', 'The operation did not complete. Please retry.'],
+  reasoningAfterText: ['正文生成完成后，将整理概念关系。', 'Concept connections will be organized after the handout is complete.'],
   preparingConcepts: ['正在整理思维链，已完成的正文可以继续阅读。', 'Organizing reasoning connections. You can read the completed handout.'],
   missingConcepts: ['部分阅读辅助尚未整理或已过期。补齐时会保留已完成的正文和笔记。', 'Some reading aids are missing or outdated. Completing them preserves your finished handout and notes.'],
   completeConcepts: ['补齐缺失内容与阅读辅助', 'Complete missing content and reading aids'],

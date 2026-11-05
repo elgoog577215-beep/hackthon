@@ -153,7 +153,7 @@ def test_relation_derivation_survives_normalization_and_keeps_legacy_records_rea
     other["knowledge_relations"] = [edge]
     result = validate(other, source, [first])
     assert result["knowledge_relations"][0]["derivation_steps"] == edge["derivation_steps"]
-    assert result["reading_prompt_version"] == "study_reading_relations_v2"
+    assert result["reading_prompt_version"] == "study_reading_relations_v3"
     edge.pop("derivation_steps")
     assert validate(other, source, [first])["knowledge_relations"][0]["derivation_steps"] == []
     edge["derivation_steps"] = "not an array"
@@ -165,3 +165,18 @@ def test_reading_aids_do_not_extract_nested_or_unfinished_folded_answers():
     section["blocks"][1]["content"] = "公开方法<details>外层<details>内层答案</details>外层答案</details>公开条件<details>未完成答案"
     source = concept_source({"id": "r"}, section)
     assert source["blocks"][1]["text"] == "公开方法公开条件"
+
+
+def test_restored_relations_do_not_require_retired_learning_paths():
+    from study.reading import reading_response_schema
+    from study.service import plan_prompt
+    _, source, plan = sample()
+    del plan['learning_paths']
+    assert validate(plan, source)['learning_paths'] == []
+    schema = reading_response_schema(source, [])
+    assert 'learning_paths' not in schema['properties']['sections']['items']['properties']
+    prompt = plan_prompt({'title': '导数', 'purpose': 'systematic', 'level': 'beginner', 'source_sections': [source], 'language': 'zh'})
+    assert 'learning_paths' not in prompt and 'choice/step' not in prompt
+    # The actual JSON example remains valid after retiring the extra generation contract.
+    example = prompt.split('只返回 JSON：', 1)[1]
+    json.JSONDecoder().raw_decode(example)
