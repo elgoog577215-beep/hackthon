@@ -51,17 +51,6 @@
           <span v-if="!isHandoutBlock(item.block) && !shouldShowBlockTitle(item.block, index)" class="block-role">{{ blockLabel(item.block.type) }}</span>
           <h4 v-if="!isHandoutBlock(item.block) && shouldShowBlockTitle(item.block, index)"><MathText :content="teacherFacingTeachingLabel(item.block.title)" /></h4>
         </header>
-        <button
-          v-if="canImproveBlock(item.block.block_id)"
-          type="button"
-          class="block-formal-improvement"
-          :title="t('courseWorkspace.personalization.open', '调整这段')"
-          :aria-label="t('courseWorkspace.personalization.open', '调整这段')"
-          @click="requestBlockImprovement(item.block.block_id)"
-        >
-          <PencilLine :size="13" />
-          <span>{{ t('courseWorkspace.personalization.open', '调整这段') }}</span>
-        </button>
         <CourseEvolutionContentBlock
           v-if="item.block.metadata?.course_evolution"
           :block-id="item.block.block_id"
@@ -91,11 +80,13 @@
         />
         <MarkdownRenderer v-else :content="displayBlockContent(item.block, index)" :search-words="searchWords" />
         <InlineCourseBlockAI
-          v-if="!props.readOnly && !isCanonicalBlock(item.block.block_id)"
+          v-if="!props.readOnly && (!isCanonicalBlock(item.block.block_id) || canImproveBlock(item.block.block_id))"
           :node="node"
           :study-dialogues="props.studyDialogues"
-          @study-dialogue="emit('studyDialogue', $event)"
+          :can-improve="canImproveBlock(item.block.block_id)"
           :block="item.block"
+          @study-dialogue="emit('studyDialogue', $event)"
+          @improve="requestBlockImprovement(item.block.block_id)"
           :active="activeBlockId === item.block.block_id"
           :regeneration-request="regenerationRequests[item.block.block_id]"
           @activate="activeBlockId = $event"
@@ -154,7 +145,7 @@
 <script setup lang="ts">
 import type { StudyRequest } from '../types/study-dialogue'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
-import { GitCompareArrows, PencilLine, Sparkles } from 'lucide-vue-next'
+import { GitCompareArrows, Sparkles } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
 import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
 import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
@@ -476,12 +467,9 @@ async function deleteAiRecord(note: Note) {
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
 .block-heading { display:block; margin-bottom:14px; padding-right:34px; }
 .block-heading.is-label-only { margin-bottom:14px; }
-.course-content-block.can-improve-formal .block-heading { padding-right:120px; }
+.course-content-block.can-improve-formal .block-heading { padding-right:34px; }
 .block-heading > .block-role { color:var(--lz-text-strong); font-size:20px; font-weight:650; line-height:1.5; }
 .block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:20px; font-weight:650; line-height:1.5; text-wrap:pretty; }
-.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:32px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:12px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .22s var(--ease-out),color .22s var(--ease-out),border-color .22s var(--ease-out),background-color .22s var(--ease-out); }
-.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; }
-.block-formal-improvement:focus-visible { outline:2px solid var(--lz-brand-strong); outline-offset:2px; }
 .course-content-block[data-content-block-type="intro"],
 .course-content-block[data-content-block-type="orientation"] { --block-accent:#7c3aed; --block-soft:#f5f3ff; }
 .course-content-block[data-content-block-type="prerequisite"] { --block-accent:#475569; --block-soft:#f8fafc; }
@@ -524,12 +512,9 @@ async function deleteAiRecord(note: Note) {
   100% { transform:translateY(0) scale(1); box-shadow:0 12px 30px rgba(146,101,0,.1); }
 }
 @media (max-width:880px) {
-  .course-content-block.can-improve-formal .block-heading { padding-right:38px; }
-  .block-formal-improvement { width:30px; padding:0; justify-content:center; opacity:.68; pointer-events:auto; }
-  .block-formal-improvement span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 }
 @media (prefers-reduced-motion:reduce) {
-  .block-formal-improvement,.chapter-source-card { transition:none; }
+  .chapter-source-card { transition:none; }
   .course-content-block.is-ai-growth-primary { animation:none; }
   .course-content-block.is-ppt-same-source-pulse { animation:none; }
 }

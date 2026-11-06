@@ -32,11 +32,26 @@
         :key="action.key"
         type="button"
         role="menuitem"
+        :aria-label="action.label"
+        :title="action.label"
         :disabled="aiStore.loading"
         @click="chooseAction(action.key)"
       >
         <component :is="action.icon" :size="15" />
         <span>{{ action.label }}</span>
+      </button>
+      <div v-if="canImprove" class="block-ai-menu__divider" role="separator"></div>
+      <button
+        v-if="canImprove"
+        type="button"
+        role="menuitem"
+        class="block-ai-menu__improve"
+        :title="t('courseWorkspace.personalization.open', '调整这段')"
+        :aria-label="t('courseWorkspace.personalization.open', '调整这段')"
+        @click="requestBlockImprovement"
+      >
+        <PencilLine :size="15" />
+        <span>{{ t('courseWorkspace.personalization.open', '调整这段') }}</span>
       </button>
     </div>
 
@@ -174,6 +189,7 @@ import {
   LoaderCircle,
   MessageCircleMore,
   MessageSquareText,
+  PencilLine,
   RotateCcw,
   SendHorizontal,
   Sparkles,
@@ -201,11 +217,13 @@ const props = withDefaults(defineProps<{
   node: CourseNode
   block: ContentBlock
   studyDialogues?: boolean
+  canImprove?: boolean
   active?: boolean
   regenerationRequest?: RegenerationRequest
-}>(), { active: false, regenerationRequest: undefined })
+}>(), { canImprove: false, active: false, regenerationRequest: undefined })
 const emit = defineEmits<{
   studyDialogue: [payload: StudyRequest]
+  improve: [blockId: string]
   activate: [blockId: string]
   recordPersisted: [recordId: string]
   recordReleased: [recordId: string]
@@ -291,6 +309,12 @@ function toggleMenu() {
 function closeMenu(restoreFocus = false) {
   if (props.active) emit('activate', '')
   if (restoreFocus) nextTick(() => handleButton.value?.focus())
+}
+
+function requestBlockImprovement() {
+  if (!props.canImprove) return
+  emit('improve', props.block.block_id)
+  closeMenu()
 }
 
 function handleOutsidePointerDown(event: PointerEvent) {
@@ -521,10 +545,11 @@ async function removeResult() {
 .inline-course-block-ai.has-result { margin-top:18px; }
 .block-ai-handle { position:absolute; top:-3px; left:-46px; z-index:4; width:32px; height:32px; display:grid; place-items:center; border:1px solid rgba(199,210,254,.78); border-radius:10px; color:#7c83a5; background:rgba(255,255,255,.94); box-shadow:0 5px 14px rgba(79,70,229,.08); opacity:.38; cursor:pointer; transition:opacity .16s ease,transform .16s ease,color .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease; }
 .block-ai-handle:hover,.block-ai-handle:focus-visible,.block-ai-handle.active,:global(.course-content-block:hover .block-ai-handle) { opacity:1; transform:translateY(-1px); border-color:#a5b4fc; color:var(--lz-brand-strong); background:#f5f3ff; box-shadow:0 7px 18px rgba(79,70,229,.13); outline:none; }
-.block-ai-menu { --block-ai-hover-corridor:8px; position:absolute; top:34px; left:-46px; z-index:9; width:min(164px,calc(100vw - 24px)); overflow:hidden; padding:3px; border:1px solid rgba(226,232,240,.82); border-radius:10px; background:rgba(255,255,255,.96); box-shadow:0 7px 18px rgba(15,23,42,.07),0 1px 2px rgba(15,23,42,.035); opacity:0; visibility:hidden; pointer-events:none; transform:translateY(-2px); transform-origin:top left; transition:opacity .12s ease,transform .12s ease,visibility 0s linear .12s; }
+.block-ai-menu { --block-ai-hover-corridor:8px; position:absolute; top:34px; left:-46px; z-index:9; width:min(164px,calc(100vw - 24px)); overflow:hidden; padding:4px; border:1px solid rgba(226,232,240,.82); border-radius:10px; background:rgba(255,255,255,.98); box-shadow:0 7px 18px rgba(15,23,42,.07),0 1px 2px rgba(15,23,42,.035); opacity:0; visibility:hidden; pointer-events:none; transform:translateY(-2px); transform-origin:top left; transition:opacity .12s ease,transform .12s ease,visibility 0s linear .12s; }
 .block-ai-menu.is-active { opacity:1; visibility:visible; pointer-events:auto; transform:none; transition-delay:0s; }
-.block-ai-menu button { width:100%; min-height:30px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:5px; padding:0 6px; border:0; border-radius:7px; color:#64748b; background:transparent; text-align:left; font-size:10px; font-weight:550; cursor:pointer; transition:color .12s ease,background .12s ease; }
+.block-ai-menu button { width:100%; min-height:34px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:6px; padding:0 7px; border:0; border-radius:7px; color:#64748b; background:transparent; text-align:left; font-size:13px; font-weight:550; cursor:pointer; transition:color .12s ease,background .12s ease; }
 .block-ai-menu button span { min-width:0; overflow:hidden; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
+.block-ai-menu__divider { height:1px; margin:4px 5px; background:rgba(226,232,240,.9); }
 .block-ai-menu button:hover:not(:disabled),.block-ai-menu button:focus-visible { color:var(--lz-brand-strong); background:rgba(238,242,255,.72); outline:none; }
 .block-ai-menu button:disabled { opacity:.5; cursor:not-allowed; }
 .inline-ai-result { min-width:0; padding:14px 16px 12px; border-left:3px solid var(--lz-brand); border-radius:0 10px 10px 0; color:var(--lz-text); background:linear-gradient(110deg,#f4f5ff 0%,#fafaff 68%,#fff 100%); box-shadow:inset 0 0 0 1px rgba(199,210,254,.82),0 8px 22px rgba(79,70,229,.05); }
@@ -571,18 +596,35 @@ async function removeResult() {
 .spin { animation:spin .9s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @keyframes ai-shimmer { to { background-position:-180% 0; } }
-@media (hover:none) { .block-ai-handle { opacity:.72; } }
+@media (hover:none) {
+  .block-ai-handle { top:-4px; left:auto; right:0; opacity:.72; }
+  .block-ai-menu { top:34px; left:auto; right:0; transform-origin:top right; }
+  .block-ai-menu button { min-height:44px; }
+}
 @media (min-width:1200px) and (hover:hover) and (pointer:fine) {
   .block-ai-handle,.block-ai-handle:hover,.block-ai-handle.active,:global(.course-content-block:hover .block-ai-handle) { opacity:0; pointer-events:none; transform:none; box-shadow:none; }
   .block-ai-handle:focus-visible { opacity:1; pointer-events:auto; color:var(--lz-brand-strong); border-color:#a5b4fc; background:#f5f3ff; box-shadow:0 7px 18px rgba(79,70,229,.13); }
-  .block-ai-menu { top:1px; right:calc(100% + var(--block-ai-hover-corridor)); left:auto; width:104px; overflow:visible; transform-origin:top right; }
+  .block-ai-menu { --block-ai-hover-corridor:4px; top:1px; right:calc(100% + var(--block-ai-hover-corridor)); left:auto; width:48px; overflow:visible; transform-origin:top right; }
+  .block-ai-menu button { min-height:34px; grid-template-columns:minmax(0,1fr); justify-items:center; gap:0; padding:0; }
+  .block-ai-menu button span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  @container learning-main (min-width:956px) and (max-width:1051px) {
+    .block-ai-menu { --block-ai-hover-corridor:6px; width:88px; }
+    .block-ai-menu button { grid-template-columns:14px minmax(0,1fr); justify-items:stretch; gap:3px; padding:0 4px; font-size:12px; }
+    .block-ai-menu button span { position:static; width:auto; height:auto; overflow:hidden; clip-path:none; line-height:1.15; text-overflow:ellipsis; white-space:normal; }
+  }
+  @container learning-main (min-width:1052px) {
+    .block-ai-menu { --block-ai-hover-corridor:8px; width:132px; }
+    .block-ai-menu button { grid-template-columns:16px minmax(0,1fr); justify-items:stretch; gap:6px; padding:0 7px; font-size:13px; }
+    .block-ai-menu button span { position:static; width:auto; height:auto; overflow:hidden; clip-path:none; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
+  }
   :global(.course-node[data-level="3"] .block-ai-menu),:global(.course-node[data-level="4"] .block-ai-menu),:global(.course-node[data-level="5"] .block-ai-menu) { --block-ai-hover-corridor:var(--inline-ai-menu-offset); }
   :global(.course-content-block:hover .block-ai-menu),:global(.course-content-block:focus-within .block-ai-menu) { opacity:1; visibility:visible; pointer-events:auto; transform:none; transition-delay:0s; }
   .block-ai-menu::after { content:""; position:absolute; top:0; right:calc(-1 * var(--block-ai-hover-corridor)); width:var(--block-ai-hover-corridor); height:100%; }
 }
-@media (max-width:880px) {
+@media (max-width:1199px) {
   .block-ai-handle { top:-4px; left:auto; right:0; }
   .block-ai-menu { top:34px; left:auto; right:0; transform-origin:top right; }
+  .block-ai-menu button { min-height:44px; }
   .inline-course-block-ai.has-result { margin-top:14px; }
   .inline-ai-result { padding:12px 12px 11px; }
 }

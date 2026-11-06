@@ -3,6 +3,7 @@ import { activeLocale } from './i18n'
 const messages = {
   notesUnlocated: ['旧笔记 · 未定位', 'Older note · No passage'],
   readingTools: ['阅读工具', 'Reading tools'],
+  selectionActions: ['选中文字操作', 'Selected text actions'],
   conceptRelations: ['概念关系', 'Concepts'],
   currentLocation: ['当前位置', 'Current location'],
   conceptsInterrupted: ['正文已完成；概念关系整理中断，可继续整理。', 'The handout is complete. Concept extraction stopped; you can continue it.'],

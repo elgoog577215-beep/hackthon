@@ -27,7 +27,7 @@ const block: ContentBlock = {
   order: 0,
 }
 
-function mountBlockAI(attachToDocument = false, props: { active?: boolean; studyDialogues?:boolean } = {}) {
+function mountBlockAI(attachToDocument = false, props: { active?: boolean; studyDialogues?:boolean; canImprove?: boolean } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const courseStore = useCourseStore()
@@ -99,6 +99,20 @@ describe('InlineCourseBlockAI', () => {
     const { wrapper } = mountBlockAI()
 
     expect(wrapper.findAll('.block-ai-menu button').map(button => button.text())).toEqual(['解释', '举例', '简化', '提问'])
+  })
+
+  it('仅在调用方授予正式内容改进权限时显示调整入口，并转交既有对照审阅流程', async () => {
+    const { wrapper } = mountBlockAI(false, { canImprove: true, studyDialogues: true })
+    const action = wrapper.get('.block-ai-menu__improve')
+    expect(action.text()).toContain('调整这段')
+    await action.trigger('click')
+    expect(wrapper.emitted('improve')).toEqual([['block-1']])
+    expect(wrapper.emitted('studyDialogue')).toBeUndefined()
+    wrapper.unmount()
+
+    const restricted = mountBlockAI(false, { canImprove: false })
+    expect(restricted.wrapper.find('.block-ai-menu__improve').exists()).toBe(false)
+    restricted.wrapper.unmount()
   })
 
   it('菜单保持稳定挂载，不再因悬停反复插入和删除 DOM', async () => {

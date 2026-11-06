@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
@@ -9,9 +7,6 @@ import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import { PPT_SAME_SOURCE_STORAGE_KEY, PPT_SAME_SOURCE_TTL_MS } from '@/utils/ppt-same-source'
 import type { Node as CourseNode, Note } from '@/stores/types'
-
-const componentSource = readFileSync(resolve(process.cwd(), 'src/components/CourseBlockStream.vue'), 'utf8')
-const desktopStyles = componentSource.slice(0, componentSource.indexOf('@media (max-width:880px)'))
 
 const baseNode: CourseNode = {
   node_id: 'node-1',
@@ -43,9 +38,9 @@ const global = {
     },
     InlineCourseBlockAI: {
       name: 'InlineCourseBlockAI',
-      props: ['node', 'block', 'active', 'regenerationRequest'],
-      emits: ['activate', 'recordPersisted', 'recordReleased'],
-      template: '<div><button class="inline-block-ai-stub" :data-block-id="block.block_id" @click="$emit(\'activate\', block.block_id)">AI</button><button class="persist-record-stub" @click="$emit(\'recordPersisted\', \'ai-note-1\')">persist</button><button class="release-record-stub" @click="$emit(\'recordReleased\', \'ai-note-1\')">release</button></div>',
+      props: ['node', 'block', 'active', 'canImprove', 'regenerationRequest'],
+      emits: ['activate', 'improve', 'recordPersisted', 'recordReleased'],
+      template: '<div><button class="inline-block-ai-stub" :data-block-id="block.block_id" @click="$emit(\'activate\', block.block_id)">AI</button><button v-if="canImprove" class="formal-adjust-stub" @click="$emit(\'improve\', block.block_id)">调整这段</button><button class="persist-record-stub" @click="$emit(\'recordPersisted\', \'ai-note-1\')">persist</button><button class="release-record-stub" @click="$emit(\'recordReleased\', \'ai-note-1\')">release</button></div>',
     },
   },
 }
@@ -411,7 +406,7 @@ describe('CourseBlockStream', () => {
     )
   })
 
-  it('canonical 正文块只保留一个正式个性化入口并带出稳定块引用', async () => {
+  it('canonical 正文块把个性化入口放进左侧操作菜单并带出稳定块引用', async () => {
     const block = {
       block_id: 'canonical', section_id: 'node-1', position: 0, kind: 'rich_text' as const, role: 'concept' as const,
       payload: { title: '向量定义', markdown: '向量具有大小和方向。' }, asset_refs: [], objective_refs: ['lo-1'],
@@ -423,14 +418,12 @@ describe('CourseBlockStream', () => {
       global,
     })
 
-    expect(wrapper.find('.inline-block-ai-stub').exists()).toBe(false)
-    expect(wrapper.findAll('.block-formal-improvement')).toHaveLength(1)
-    const entry = wrapper.get('.block-formal-improvement')
-    expect(entry.text()).toContain('调整这段')
-    expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*color:#1e293b;/s)
-    expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*opacity:\.68;[^}]*pointer-events:auto;/s)
-    expect(desktopStyles).toMatch(/\.block-formal-improvement:hover,\s*\.block-formal-improvement:focus-visible,\s*\.course-content-block:hover > \.block-formal-improvement\s*\{[^}]*opacity:1;/s)
-    await entry.trigger('click')
+    expect(wrapper.find('.block-formal-improvement').exists()).toBe(false)
+    const blockAi = wrapper.findComponent({ name: 'InlineCourseBlockAI' })
+    expect(blockAi.exists()).toBe(true)
+    expect(blockAi.props('canImprove')).toBe(true)
+    expect(blockAi.find('.formal-adjust-stub').text()).toContain('调整这段')
+    await blockAi.get('.formal-adjust-stub').trigger('click')
     expect(wrapper.emitted('improveBlock')).toEqual([[
       expect.objectContaining({ nodeId: 'node-1', block: expect.objectContaining({ block_id: 'canonical' }) }),
     ]])
@@ -580,6 +573,20 @@ describe('CourseBlockStream', () => {
     expect(blocks[2]!.classes()).toContain('is-ai-evolved-block')
     expect(blocks[2]!.classes()).not.toContain('is-ppt-same-source-highlight')
     expect(JSON.parse(sessionStorage.getItem(PPT_SAME_SOURCE_STORAGE_KEY) || '{}').animationPlayed).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('未授权的正式课程块不提供正文调整入口', () => {
+    const block = {
+      block_id: 'canonical', section_id: 'node-1', position: 0, kind: 'rich_text' as const, role: 'concept' as const,
+      payload: { title: '向量定义', markdown: '向量具有大小和方向。' }, asset_refs: [], objective_refs: [],
+      concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-current', status: 'final' as const,
+    }
+    const node: CourseNode = { ...baseNode, course_blocks: [block] }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.find('.inline-block-ai-stub').exists()).toBe(false)
+    expect(wrapper.find('.formal-adjust-stub').exists()).toBe(false)
     wrapper.unmount()
   })
 

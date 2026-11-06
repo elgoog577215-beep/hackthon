@@ -15,6 +15,7 @@ const user = { id: 'student-a', username: 'student_a', role: 'student' }
 const source = { id: 'mat-123', filename: '两章资料.md', status: 'parsed', warnings: [], error: '', sections: [{ id: 'blk-1', title: '第一章', characters: 300 }, { id: 'blk-3', title: '第二章', characters: 400 }] }
 const saved = { id: 'material-a', title: '两章讲义', purpose: 'systematic', status: 'completed', task_id: 'task-a', updated_at: '', plans: [], notes: { 'revision-a': { content: '已保存的理解', updated_at: '' } }, revisions: [{ id: 'revision-a', status: 'completed', sections: [{ id: 's1', title: '第一章', complete: true, fragment: '', source: { filename: '资料.md', asset_id: 'mat-123', source_sha256: '123456789abcdef' }, blocks: [{ block_id: 'b1', content_type: 'definition', type_label: '定义', title: '向量', content: '真实讲义正文', knowledge_names: [], answer_to: '' }] }] }], task: { id: 'task-a', status: 'completed', progress: 100 } }
 let wrapper: VueWrapper | undefined
+const originalRangeBoundingClientRect = Range.prototype.getBoundingClientRect
 
 async function page(path = '/study') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/study/:materialId?', name: 'study', component: StudyView }, { path: '/courses', component: { template: '<div />' } }] })
@@ -31,7 +32,7 @@ beforeEach(async () => {
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
   api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals() })
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); vi.useRealTimers(); vi.unstubAllGlobals(); if (originalRangeBoundingClientRect) Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value: originalRangeBoundingClientRect }); else delete (Range.prototype as any).getBoundingClientRect })
 
 describe('personal study handouts', () => {
   it('explains input budget failure without retrying or replacing completed text', async () => {
@@ -297,12 +298,31 @@ describe('personal study handouts', () => {
     const assistant = wrapper.getComponent({ name: 'PersonalHandoutAssistant' })
     expect(assistant.props()).toMatchObject({ ownerId: 'student-a', materialId: 'material-a', revisionId: 'revision-a', context: { section_id: 's1', block_id: '', quote: '' } })
     const body = wrapper.get('[data-block-id="b1"]').element
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value: () => new DOMRect(240, 280, 160, 20) })
     const range = document.createRange(); range.selectNodeContents(body)
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
     await wrapper.get('.study-document-scroll').trigger('pointerup')
     expect(assistant.props('context')).toMatchObject({ section_id: 's1', section_title: '第一章', block_id: 'b1', block_title: '向量', quote: '真实讲义正文' })
-    await wrapper.get('.study-selection-actions button:last-child').trigger('click')
+    const toolbar = document.body.querySelector<HTMLElement>('.study-selection-actions')
+    expect(toolbar).not.toBeNull()
+    expect(toolbar?.getAttribute('role')).toBe('toolbar')
+    expect(toolbar?.style.top).toBe('272px')
+    expect(toolbar?.querySelectorAll('button')).toHaveLength(5)
+    expect(toolbar?.textContent).toContain('写批注')
+    expect(toolbar?.textContent).toContain('记疑问')
+    document.body.querySelector<HTMLButtonElement>('[data-selection-action="clear"]')?.click()
+    await flushPromises()
     expect(assistant.props('context')).toMatchObject({ block_id: '', quote: '' })
+    const secondRange = document.createRange(); secondRange.selectNodeContents(body)
+    selection.removeAllRanges(); selection.addRange(secondRange)
+    await wrapper.get('.study-document-scroll').trigger('pointerup')
+    document.body.querySelector<HTMLButtonElement>('[data-selection-action="ask"]')?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.study-selection-actions')).toBeNull()
+    expect(assistant.props('context')).toMatchObject({ block_id: 'b1', quote: '真实讲义正文' })
+    document.body.querySelector<HTMLButtonElement>('[data-tool="note"]')?.click()
+    await flushPromises()
+    expect(wrapper.get('#study-panel-note').attributes('role')).toBe('region')
     selection.removeAllRanges()
   })
 
@@ -600,14 +620,16 @@ it('renders formulas in reading titles and directory labels instead of exposing 
 
 
 
-it('unifies four sidebar tabs and keeps only notebook and actual location in the bottom bar', async () => {
+it('keeps notes in the four-tool tab bar without a duplicate bottom shortcut', async () => {
   const { wrapper } = await page('/study/material-a')
-  expect(wrapper.findAll('[role="tab"]').map(b=>b.attributes('data-tool'))).toEqual(['assistant','reference','paths','note'])
+  expect(wrapper.findAll('.study-tool-tabs [role="tab"]').map(b=>b.attributes('data-tool'))).toEqual(['assistant','reference','paths','note'])
   expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
   expect(wrapper.get('.study-bottom-bar').text()).toContain('第一章')
+  expect(wrapper.find('.study-bottom-bar [data-bottom-tool="note"]').exists()).toBe(false)
   expect(wrapper.find('.study-note-add').exists()).toBe(false)
   await wrapper.get('[data-tool="note"]').trigger('click'); await flushPromises()
   expect(wrapper.findComponent({name:'ReadingNotesPanel'}).exists()).toBe(true)
+  expect(wrapper.get('#study-panel-note').attributes('role')).toBe('region')
   expect(wrapper.find('.notes-legacy').exists()).toBe(false)
   expect(wrapper.find('.study-note textarea').exists()).toBe(false)
   await wrapper.get('[data-tool="reference"]').trigger('click'); await flushPromises()

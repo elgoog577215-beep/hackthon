@@ -91,7 +91,6 @@
         <div class="study-reading-workspace">
           <div class="study-reading-body">
             <div class="study-reading-pane" :inert="mobileViewport && (toolsOpen || directoryOpen)">
-              <div v-if="selectedPassage" class="study-selection-actions"><span>{{ c('selectedQuote') }} · <MathText :content="selectedPassage.block_title || selectedPassage.section_title" /></span><button @pointerdown.prevent @click="markSelection">{{ c('notesMark') }}</button><button @pointerdown.prevent @click="annotateSelection(false)">{{ c('notesAnnotate') }}</button><button @pointerdown.prevent @click="annotateSelection(true)">{{ c('notesQuestion') }}</button><button @pointerdown.prevent @click="noteDiscussion = null; openTool('assistant')">{{ c('askSelection') }}</button><button @click="selectedPassage = null">{{ c('clearQuote') }}</button></div>
               <div class="study-reading-with-reasoning">
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @wheel.passive="navigation.interact" @pointerdown="navigation.interact" @keydown="navigation.interact" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
@@ -141,10 +140,27 @@
             </aside>
           </div>
           <footer v-if="material" class="study-bottom-bar">
-            <button data-bottom-tool="note" type="button" :aria-pressed="toolsOpen && toolTab === 'note'" @click="toggleTool('note')"><NotebookPen :size="17" />{{ c('note') }}</button>
             <div class="study-reading-location" :title="readingLocation"><span>{{ c('currentLocation') }}</span><MathText :content="readingLocation" /></div>
-            <button v-if="!toolsOpen" type="button" data-tool="reopen" @click="openTool('assistant')"><MessageCircle :size="17" />{{ c('readingTools') }}</button>
+            <button v-if="!toolsOpen" type="button" data-tool="reopen" @click="openTool(toolTab)"><PanelRightOpen :size="17" />{{ c('readingTools') }}</button>
           </footer>
+          <Teleport to="body">
+            <div
+              v-if="selectedPassage && selectionActionsOpen"
+              ref="selectionToolbar"
+              class="study-selection-actions"
+              :class="{ 'is-below': selectionToolbarPlacement === 'below' }"
+              :style="{ top: `${selectionToolbarTop}px`, left: `${selectionToolbarLeft}px` }"
+              role="toolbar"
+              :aria-label="c('selectionActions')"
+              @pointerdown.stop.prevent
+            >
+              <button data-selection-action="mark" type="button" :aria-label="c('notesMark')" :title="c('notesMark')" @click="markSelection"><Bookmark :size="16" /><span>{{ c('notesMark') }}</span></button>
+              <button data-selection-action="annotate" type="button" :aria-label="c('notesAnnotate')" :title="c('notesAnnotate')" @click="annotateSelection(false)"><NotebookPen :size="16" /><span>{{ c('notesAnnotate') }}</span></button>
+              <button data-selection-action="question" type="button" :aria-label="c('notesQuestion')" :title="c('notesQuestion')" @click="annotateSelection(true)"><CircleHelp :size="16" /><span>{{ c('notesQuestion') }}</span></button>
+              <button data-selection-action="ask" type="button" :aria-label="c('askSelection')" :title="c('askSelection')" @click="askAboutSelection"><MessageCircle :size="16" /><span>{{ c('askSelection') }}</span></button>
+              <button data-selection-action="clear" class="study-selection-actions__close" type="button" :aria-label="c('clearQuote')" :title="c('clearQuote')" @click="clearSelection"><X :size="16" /></button>
+            </div>
+          </Teleport>
         </div>
       </template>
     </div>
@@ -158,7 +174,7 @@ import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Check, ClipboardPaste, Download, FileText, Target, Upload, UserRound, NotebookPen, MessageCircle, PanelLeftClose, PanelLeftOpen, Search, Settings2, Sigma, Route, ChevronRight } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Bookmark, Check, CircleHelp, ClipboardPaste, Download, FileText, MessageCircle, NotebookPen, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Route, Search, Settings2, Sigma, Target, Upload, UserRound, X, ChevronRight } from 'lucide-vue-next'
 import { handoutPresentation, handoutContentType } from '../utils/handout-content'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
@@ -218,7 +234,6 @@ function rememberTool() {
 }
 function openTool(tab: StudyTool) { mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool() }
 function closeTool() { toolsOpen.value = false; rememberTool(); void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-tool="reopen"]')?.focus()) }
-function toggleTool(tab: StudyTool) { if (toolsOpen.value && toolTab.value === tab) openTool('assistant'); else openTool(tab) }
 function moveToolTab(event: KeyboardEvent, tab: typeof sideTools[number]) {
   const index = sideTools.indexOf(tab)
   const next = event.key === 'ArrowRight' ? (index + 1) % sideTools.length : event.key === 'ArrowLeft' ? (index + sideTools.length - 1) % sideTools.length : event.key === 'Home' ? 0 : event.key === 'End' ? sideTools.length - 1 : -1
@@ -234,6 +249,11 @@ function restoreTool() {
   } catch { /* A damaged preference never blocks reading. */ }
 }
 const activeChapter = ref(''), activeBlock = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string; anchor_prefix?: string; anchor_suffix?: string } | null>(null)
+const selectionToolbar = ref<HTMLElement | null>(null)
+const selectionActionsOpen = ref(false)
+const selectionToolbarLeft = ref(0), selectionToolbarTop = ref(0)
+const selectionToolbarPlacement = ref<'above' | 'below'>('above')
+let activeSelectionRange: Range | null = null
 const readingLocation = computed(() => {
   const section = currentRevision.value?.sections.find(s => s.id === activeChapter.value)
   const block = section?.blocks.find(b => b.block_id === activeBlock.value)
@@ -290,23 +310,48 @@ function jumpToReference(blockId: string, referenceId = '') { return jumpToAncho
 function selectChapter(id: string) { expandedChapters.value[id] = true; return jumpToAnchor(sectionAnchor(id)) }
 function selectPassage() {
   const selection = window.getSelection(), root = readingTarget.value
-  if (!selection || !root || selection.isCollapsed || !selection.rangeCount) return
+  if (!selection || !root || selection.isCollapsed || !selection.rangeCount) { hideSelectionActions(); return }
   const range = selection.getRangeAt(0)
-  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) { hideSelectionActions(); return }
   const start = range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement
   const end = range.endContainer.nodeType === 1 ? range.endContainer as Element : range.endContainer.parentElement
   const sid = start?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId
-  if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) return
+  if (!sid || sid !== end?.closest<HTMLElement>('[data-section-id]')?.dataset.sectionId) { hideSelectionActions(); return }
   const section = currentRevision.value?.sections.find(s => s.id === sid)
   const bid = start?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId
   const block = bid === end?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId ? section?.blocks.find(b => b.block_id === bid) : null
-  if (start?.closest('[data-note-controls]') || end?.closest('[data-note-controls]')) return
+  if (start?.closest('[data-note-controls]') || end?.closest('[data-note-controls]')) { hideSelectionActions(); return }
   const quote = selection.toString().trim()
-  if (!section || !quote || quote.length > 3000) return
+  if (!section || !quote || quote.length > 3000) { hideSelectionActions(); return }
   const contentRoot = start?.closest<HTMLElement>('[data-block-id]')?.querySelector<HTMLElement>('.markdown-renderer, .handout-block__body')
   const anchor = block && contentRoot ? capturePersonalAnchor(contentRoot, range) : { quote }
   noteDiscussion.value = null
   selectedPassage.value = { section_id: sid, section_title: section.title, block_id: block?.block_id || '', block_title: block?.title || '', ...anchor }
+  activeSelectionRange = range.cloneRange()
+  selectionActionsOpen.value = true
+  void nextTick(positionSelectionActions)
+}
+function hideSelectionActions() { selectionActionsOpen.value = false; activeSelectionRange = null }
+function clearSelection() { hideSelectionActions(); selectedPassage.value = null; window.getSelection()?.removeAllRanges() }
+function askAboutSelection() { hideSelectionActions(); noteDiscussion.value = null; openTool('assistant') }
+function dismissSelectionActionsOutside(event: PointerEvent) {
+  if (!selectionActionsOpen.value || selectionToolbar.value?.contains(event.target as Node)) return
+  hideSelectionActions()
+}
+function positionSelectionActions() {
+  if (!selectionActionsOpen.value || !activeSelectionRange) return
+  let rect: DOMRect
+  try { rect = activeSelectionRange.getBoundingClientRect() } catch { hideSelectionActions(); return }
+  if ((!rect.width && !rect.height) && activeSelectionRange.getClientRects().length) rect = activeSelectionRange.getClientRects()[0]!
+  if (rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) { hideSelectionActions(); return }
+  const toolbar = selectionToolbar.value
+  const width = toolbar?.getBoundingClientRect().width || Math.min(window.innerWidth - 16, 430)
+  const height = toolbar?.getBoundingClientRect().height || 48
+  const gap = 8
+  const canPlaceAbove = rect.top >= height + gap + 8
+  selectionToolbarPlacement.value = canPlaceAbove ? 'above' : 'below'
+  selectionToolbarTop.value = Math.min(Math.max(canPlaceAbove ? rect.top - gap : rect.bottom + gap, 8), window.innerHeight - height - 8)
+  selectionToolbarLeft.value = Math.min(Math.max(rect.left + rect.width / 2, width / 2 + 8), window.innerWidth - width / 2 - 8)
 }
 const notesPanel = ref<InstanceType<typeof PersonalHandoutNotes> | null>(null)
 const noteDiscussion = ref<{ note: StudyNote; draft: string } | null>(null)
@@ -337,11 +382,13 @@ function removePersonalNote(id: string) {
 }
 async function annotateSelection(question: boolean) {
   if (!selectedPassage.value) return
+  hideSelectionActions()
   openTool('note'); await nextTick()
   notesPanel.value?.create({ ...selectedPassage.value, question_state: question ? 'open' : 'none' })
 }
 async function markSelection() {
   if (!selectedPassage.value) return
+  hideSelectionActions()
   openTool('note'); await nextTick()
   if (!selectedPassage.value.block_id) { notesPanel.value?.create({ ...selectedPassage.value, content: selectedPassage.value.quote }); return }
   notesPanel.value?.create(selectedPassage.value, 'mark')
@@ -349,7 +396,7 @@ async function markSelection() {
 }
 
 async function openPersonalNote(note: StudyNote) { openTool('note'); await nextTick(); notesPanel.value?.open(personalNotes.value.find(n => n.id === note.id) || note) }
-function discussPersonalNote(payload: { note: StudyNote; draft: string }) { noteDiscussion.value = payload; selectedPassage.value = null; openTool('assistant') }
+function discussPersonalNote(payload: { note: StudyNote; draft: string }) { noteDiscussion.value = payload; hideSelectionActions(); selectedPassage.value = null; openTool('assistant') }
 function receiveNoteDraft(value: NoteDraftSuggestion) { notesPanel.value?.receiveSuggestion(value); if (noteDiscussion.value?.note.id === value.noteId) noteDiscussion.value.draft = notesPanel.value?.currentDraft(value.noteId) ?? value.basedOnDraft }
 async function saveAssistantReply(message: AssistantMessage) {
   openTool('note'); await nextTick()
@@ -418,6 +465,7 @@ async function updateViewport() {
 }
 function closePanels(event: KeyboardEvent) {
   if (event.defaultPrevented) return
+  if (event.key === 'Escape' && selectionActionsOpen.value) { hideSelectionActions(); return }
   if (event.key === 'Tab' && mobileViewport.value && toolsOpen.value) {
     const controls = Array.from(studyLayoutRoot.value?.querySelectorAll<HTMLElement>('.study-reading-tools button:not(:disabled), .study-reading-tools input:not(:disabled), .study-reading-tools textarea:not(:disabled), .study-reading-tools select:not(:disabled), .study-reading-tools summary, .study-reading-tools a[href]') || []).filter(node => node.getClientRects().length)
     const first = controls[0], last = controls.at(-1)
@@ -650,8 +698,8 @@ function download(blob: Blob, filename: string) { const url = URL.createObjectUR
 async function exportHandout() { await action(async () => { const owner = user.value?.id, title = material.value!.title, blob = await studyApi.export(materialId.value); if (sameOwner(owner)) download(blob, `${title}.md`) }) }
 onBeforeRouteUpdate(() => { followChapter() })
 onBeforeRouteLeave(() => { followChapter(); persistDraft() })
-onMounted(() => { window.addEventListener('resize', updateViewport); window.addEventListener('keydown', closePanels); void action(connect) })
-onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', updateViewport); window.removeEventListener('keydown', closePanels); disposed = true; epoch++; clearTimeout(timer); persistDraft() })
+onMounted(() => { window.addEventListener('resize', updateViewport); window.addEventListener('resize', positionSelectionActions); window.addEventListener('scroll', positionSelectionActions, true); document.addEventListener('pointerdown', dismissSelectionActionsOutside, true); window.addEventListener('keydown', closePanels); void action(connect) })
+onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', updateViewport); window.removeEventListener('resize', positionSelectionActions); window.removeEventListener('scroll', positionSelectionActions, true); document.removeEventListener('pointerdown', dismissSelectionActionsOutside, true); window.removeEventListener('keydown', closePanels); disposed = true; epoch++; clearTimeout(timer); persistDraft() })
 </script>
 
 <style scoped>
@@ -730,9 +778,12 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-reasoning-panel :deep(.handout-concept-map > header) { position:relative; padding-right:48px; }
 .study-reasoning-close { position:absolute; top:14px; right:12px; }
 .study-reading-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: white; }
-.study-selection-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 20px; background: #eef2ff; color: var(--lz-brand-strong); font: 15px/1.6 var(--handout-sans); }
-.study-selection-actions span { flex: 1; }
-.study-selection-actions button { padding: 4px 8px; }
+.study-selection-actions { position:fixed; z-index:120; display:flex; align-items:center; gap:3px; max-width:min(430px,calc(100vw - 16px)); overflow-x:auto; padding:5px; border:1px solid rgba(199,210,254,.9); border-radius:12px; color:var(--lz-text-secondary); background:rgba(255,255,255,.98); box-shadow:0 10px 28px rgba(33,38,64,.17),0 2px 6px rgba(33,38,64,.08); font:600 13px/1.3 var(--study-ui-font); scrollbar-width:none; transform:translate(-50%,-100%); }
+.study-selection-actions::-webkit-scrollbar { display:none; }
+.study-selection-actions.is-below { transform:translateX(-50%); }
+.study-selection-actions button { min-height:38px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 9px; border:0; border-radius:8px; color:inherit; background:transparent; font:inherit; white-space:nowrap; cursor:pointer; }
+.study-selection-actions button:hover,.study-selection-actions button:focus-visible { color:var(--lz-brand-strong); background:#f1effa; outline:none; }
+.study-selection-actions .study-selection-actions__close { width:36px; padding:0; margin-left:2px; border-left:1px solid #e8e7ef; border-radius:0 8px 8px 0; }
 .study-document-scroll { min-height: 0; flex: 1; overflow: auto; scroll-behavior: smooth; }
 .study-handout :deep(.code-block-wrapper) { border-radius:8px; border:0; box-shadow:none; }
 .study-handout :deep(.markdown-code-tools) { padding:6px 10px 0; }
@@ -885,9 +936,10 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
   .study-handout { padding: 12px 17px 34px; font-size: var(--study-reading-size, 18px); line-height: 1.85; }
   .study-handout-section + .study-handout-section { padding-top: 24px; margin-top: 32px; }
   .study-handout-section h2 { margin: 8px 0 20px; font-size: 23px; line-height: 1.42; }
-  .study-selection-actions { gap: 6px; padding: 8px 10px; }
-  .study-selection-actions span { flex-basis: 100%; }
-  .study-selection-actions button { min-height: 44px; }
+  .study-selection-actions { gap:1px; max-width:calc(100vw - 12px); padding:4px; border-radius:11px; font-size:12px; }
+  .study-selection-actions button { min-height:44px; gap:4px; padding:0 7px; }
+  .study-selection-actions button svg { width:15px; height:15px; }
+  .study-selection-actions .study-selection-actions__close { width:34px; }
   .study-space button.study-tools-backdrop { z-index: 91; }
   .study-reading-tools { position: fixed; z-index: 92; inset:0; width:100%; height:100dvh; max-height:none; padding-bottom:env(safe-area-inset-bottom); border:0; border-radius:0; box-shadow:none; }
   .study-tool-heading, .study-reasoning-heading { box-sizing:border-box; min-height:calc(56px + env(safe-area-inset-top)); height:auto; padding:calc(6px + env(safe-area-inset-top)) 16px 6px 8px; gap:8px; background:#fff; }
