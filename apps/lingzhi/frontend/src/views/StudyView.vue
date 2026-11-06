@@ -134,7 +134,7 @@
                 <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'completeConcepts') }}</ElButton>
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
-                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" :current-block="activeBlock" :navigation-owner="navigationOwner" :current-reference="navigationReference" @claim="navigation.claim('reference')" @follow="followReference" @jump="jumpToReference" />
+                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" :current-block="activeBlock" :current-reference="navigationReference" @jump="jumpToReference" />
                 <HandoutConceptMap v-else-if="toolTab === 'paths' && hasReasoning" :sections="conceptSections" :current-section="activeChapter" :current-block-anchor="blockAnchor(activeBlock)" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
               </KeepAlive>
               </div>
@@ -287,7 +287,6 @@ function referenceRect(blockId: string, referenceId: string) {
   return block && reference && element ? resolveReferenceAnchor(element, block.content, reference)?.getBoundingClientRect() || null : null
 }
 function jumpToReference(blockId: string, referenceId = '') { return navigation.navigate(blockAnchor(blockId), { referenceId, rect: () => referenceRect(blockId, referenceId) }) }
-function followReference(blockId: string, referenceId: string) { return navigation.navigate(blockAnchor(blockId), { source: 'reference', referenceId, focus: false, rect: () => referenceRect(blockId, referenceId) }) }
 function selectChapter(id: string) { expandedChapters.value[id] = true; return jumpToAnchor(sectionAnchor(id)) }
 function selectPassage() {
   const selection = window.getSelection(), root = readingTarget.value
@@ -379,7 +378,7 @@ watch(() => material.value?.id, () => { noteDiscussion.value = null })
 onBeforeUnmount(() => highlightPersonalNotes([]))
 const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNote = ref(''), noteSaved = ref(false)
 const navigation = useReadingNavigation(readingTarget, followChapter)
-const navigationOwner = navigation.owner, navigationReference = navigation.referenceId
+const navigationReference = navigation.referenceId
 const materialId = computed(() => String(route.params.materialId || ''))
 const studyLayoutRoot = ref<HTMLElement | null>(null)
 const viewportWidth = ref(window.innerWidth), viewportHeight = ref(window.innerHeight)

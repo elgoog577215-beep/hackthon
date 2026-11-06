@@ -17,6 +17,7 @@ const messages = {
   referenceJump: ['回到原文', 'Go to passage'],
   referenceNoMatches: ['没有匹配的内容，试试其他关键词或范围。', 'No matches. Try another search or scope.'],
   referenceEmpty: ['当前范围暂无可速览的定义、公式或方法。', 'No definitions, formulas or methods in this scope.'],
+  referenceCatalog: ['定义与公式 · 全课', 'Definitions & formulas · Course'],
   referenceLegacy: ['核心表达尚未标记，点击标题查看原文。', 'Core statements are not marked here. Open the passage.'],
   referenceUnavailable: ['部分速览标记已失效，完整内容仍可在正文中阅读。', 'Some reference ranges are unavailable. The full text remains in the handout.'],
   referenceExpand: ['展开完整条目', 'Expand full entry'],

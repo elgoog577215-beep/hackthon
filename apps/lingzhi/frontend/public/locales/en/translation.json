@@ -8154,6 +8154,7 @@
     "dismiss": "Got it"
   },
   "handoutConcepts": {
+    "returnReading": "Current reading",
     "nearby": "Current connections",
     "wholeSection": "Whole lecture",
     "basis": "Basis",

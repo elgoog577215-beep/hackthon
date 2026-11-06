@@ -1,7 +1,7 @@
 <template>
   <div class="aid-toolbar">
     <template v-if="!searching">
-      <span class="aid-scope-label">{{ hideScope ? c('referenceAllCourse') : scope === 'current' && currentTitle ? currentTitle : c(scope === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</span>
+      <span class="aid-scope-label">{{ label || (hideScope ? c('referenceAllCourse') : scope === 'current' && currentTitle ? currentTitle : c(scope === 'current' ? 'referenceCurrent' : 'referenceAllCourse')) }}</span>
       <button v-if="!hideScope" class="aid-scope-toggle" :aria-label="c('referenceScope')" :aria-pressed="scope === 'all'" @click="emit('update:scope', scope === 'all' ? 'current' : 'all')">{{ c(scope === 'current' ? 'referenceOverview' : 'referenceCurrent') }}</button>
     </template>
     <input v-else ref="input" :value="query" type="search" :placeholder="placeholder" :aria-label="placeholder" @input="emit('update:query', ($event.target as HTMLInputElement).value)" @keydown.esc.stop="closeSearch" />
@@ -12,7 +12,7 @@
 import { nextTick, ref } from 'vue'
 import { Search, X } from 'lucide-vue-next'
 import { studyCopy as c } from '../shared/study-copy'
-defineProps<{ scope: 'current' | 'all'; query: string; placeholder: string; currentTitle?: string; hideScope?: boolean }>()
+defineProps<{ scope: 'current' | 'all'; query: string; placeholder: string; currentTitle?: string; hideScope?: boolean; label?: string }>()
 const emit = defineEmits<{ 'update:scope': [value: 'current' | 'all']; 'update:query': [value: string] }>()
 const searching = ref(false), input = ref<HTMLInputElement | null>(null), searchButton = ref<HTMLButtonElement | null>(null)
 async function closeSearch() { searching.value = false; emit('update:query', ''); await nextTick(); searchButton.value?.focus() }

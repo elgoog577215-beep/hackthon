@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import HandoutReferencePanel from '@/components/HandoutReferencePanel.vue'
 import { buildHandoutReference, type ReferenceSection, type ReferenceRange } from '@/utils/handout-reference'
 import { activeLocale } from '@/shared/i18n'
@@ -63,6 +63,7 @@ describe('Source-bound handout reference', () => {
   it('shows all lectures, highlights one exact reference, and supports search and source jumps', async () => {
     const wrapper = mount(HandoutReferencePanel, {props:{sections,currentSection:'a',currentBlock:'multi'}})
     expect(wrapper.findAll('.reference-item')).toHaveLength(3)
+    expect(wrapper.findAll('.reference-item-number').map(n=>n.text())).toEqual(['01.01','01.02','02.01'])
     expect(wrapper.findAll('.reference-item.is-current')).toHaveLength(1)
     expect(wrapper.find('.reference-details').exists()).toBe(false)
     await wrapper.get('.reference-open').trigger('click')
@@ -82,20 +83,19 @@ describe('Source-bound handout reference', () => {
 })
 
 
-it('follows only a user-controlled reference scroll, including a gesture at the bottom boundary', async () => {
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
-  vi.stubGlobal('cancelAnimationFrame', vi.fn())
-  const wrapper = mount(HandoutReferencePanel, { props: { sections, currentSection:'a', navigationOwner:'body' } })
-  const root = wrapper.get('.reference-results').element as HTMLElement
-  Object.defineProperties(root, { clientHeight:{value:200}, scrollHeight:{value:600} })
-  root.scrollTop = 400
-  await wrapper.get('.reference-results').trigger('scroll')
-  expect(wrapper.emitted('follow')).toBeUndefined()
-  await wrapper.setProps({navigationOwner:'reference'})
+it('keeps browsing independent of body location and navigates only on a click', async () => {
+  const wrapper=mount(HandoutReferencePanel,{props:{sections,currentSection:'a'}})
+  const root=wrapper.get('.reference-results').element as HTMLElement
+  root.scrollTop=300
   await wrapper.get('.reference-results').trigger('wheel')
-  await wrapper.vm.$nextTick()
-  expect(wrapper.emitted('follow')?.at(-1)).toEqual(['legacy','legacy:source'])
-  wrapper.unmount(); vi.unstubAllGlobals()
+  await wrapper.get('.reference-results').trigger('scroll')
+  await wrapper.setProps({currentSection:'b',currentBlock:'legacy'})
+  expect(root.scrollTop).toBe(300)
+  expect(wrapper.emitted('jump')).toBeUndefined()
+  expect(wrapper.emitted('follow')).toBeUndefined()
+  await wrapper.findAll('.reference-item')[1]!.get('.reference-expression').trigger('click')
+  expect(wrapper.emitted('jump')).toEqual([['multi','multi:r2']])
+  wrapper.unmount()
 })
 
 

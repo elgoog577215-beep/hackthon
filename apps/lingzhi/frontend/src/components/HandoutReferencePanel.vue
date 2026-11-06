@@ -1,14 +1,14 @@
 <template>
   <section class="handout-reference" :aria-label="c('reference')">
-    <ReadingAidToolbar :hide-scope="true" v-model:scope="scope" v-model:query="query" :placeholder="c('referenceSearch')" :current-title="sections.find(section => section.id === currentSection)?.title" />
+    <ReadingAidToolbar :hide-scope="true" :label="c('referenceCatalog')" v-model:scope="scope" v-model:query="query" :placeholder="c('referenceSearch')" :current-title="sections.find(section => section.id === currentSection)?.title" />
     <p v-if="hasUnavailableReferences" class="reference-source-note" role="status">{{ c('referenceUnavailable') }}</p>
-    <div ref="results" class="reference-results" @scroll="onReferenceScroll" @wheel.passive="claim" @pointerdown="claimScrollbar" @keydown="claimKeys" tabindex="0" :aria-label="c('reference')">
+    <div ref="results" class="reference-results" @scroll="rememberPosition" tabindex="0" :aria-label="c('reference')">
       <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }" :data-reference-section="section.id">
-        <h3><MathText :content="section.title" /></h3>
-        <article v-for="item in section.items" :key="item.id" class="reference-item" :data-reference-kind="item.kind" :data-reference-block="item.blockId" :data-reference-id="item.id" :class="{ 'is-current': item.id === activeReferenceId }"><button type="button" class="reference-open" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId, item.id)">
+        <h3><span class="reference-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><MathText :content="section.title" /></h3>
+        <article v-for="item in section.items" :key="item.id" class="reference-item" @click="openCard($event, item.blockId, item.id)" :data-reference-kind="item.kind" :data-reference-block="item.blockId" :data-reference-id="item.id" :class="{ 'is-current': item.id === activeReferenceId }"><button type="button" class="reference-open" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId, item.id)">
           <span class="reference-item-heading">
-            <span class="reference-item-title"><MathText :content="item.title" /></span>
-            <span class="reference-jump">{{ c('referenceJump') }} <ArrowUpRight :size="14" aria-hidden="true" /></span>
+            <span class="reference-item-number">{{ String(section.number).padStart(2, '0') }}.{{ String(item.number).padStart(2, '0') }}</span><span class="reference-item-title"><MathText :content="item.title" /></span>
+            <span class="reference-jump" aria-hidden="true"><ArrowUpRight :size="14" aria-hidden="true" /></span>
           </span>
         </button>
           <div v-if="item.html" class="reference-expression" v-html="item.html" />
@@ -21,21 +21,20 @@
 </template>
 
 <script setup lang="ts">
-import { readingScrollKeys, type ReadingOwner } from '../composables/useReadingNavigation'
 import ReadingAidToolbar from './ReadingAidToolbar.vue'
-import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import { studyCopy as c } from '../shared/study-copy'
 import { buildHandoutReference, type ReferenceSection } from '../utils/handout-reference'
-const props = defineProps<{ sections: ReferenceSection[]; currentSection: string; currentBlock?: string; navigationOwner?: ReadingOwner; currentReference?: string }>()
-const emit = defineEmits<{ jump: [blockId: string, referenceId?: string]; follow: [blockId: string, referenceId: string]; claim: [] }>()
+const props = defineProps<{ sections: ReferenceSection[]; currentSection: string; currentBlock?: string; currentReference?: string }>()
+const emit = defineEmits<{ jump: [blockId: string, referenceId?: string] }>()
 const query = ref('')
 const scope = ref<'all' | 'current'>('all')
 const index = computed(() => buildHandoutReference(props.sections))
 const visible = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return index.value.map(section => ({ ...section, items: section.items.filter(item => !needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) })).filter(s => s.items.length)
+  return index.value.map((section, sectionIndex) => ({ ...section, number: sectionIndex + 1, items: section.items.map((item, itemIndex) => ({ ...item, number: itemIndex + 1 })).filter(item => !needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) })).filter(s => s.items.length)
 })
 const activeReferenceId = computed(() => {
   if (props.currentReference) return props.currentReference
@@ -53,41 +52,17 @@ const hasUnavailableReferences = computed(() => props.sections.some(section => s
 )))
 const count = computed(() => visible.value.reduce((sum, section) => sum + section.items.length, 0))
 const results = ref<HTMLElement | null>(null)
-let savedScrollTop = 0, deactivated = false, userIntent = false, frame = 0
-function claim() { userIntent = true; emit('claim'); void nextTick(onReferenceScroll) }
-function claimKeys(event: KeyboardEvent) { if (readingScrollKeys.has(event.key)) claim() }
-function claimScrollbar(event: PointerEvent) { if (event.target === results.value) claim() }
+let savedScrollTop = 0, deactivated = false
 function rememberPosition() { if (!deactivated && results.value) savedScrollTop = results.value.scrollTop }
-function onReferenceScroll() {
-  rememberPosition()
-  if (!userIntent || props.navigationOwner !== 'reference' || query.value.trim() || deactivated) return
-  cancelAnimationFrame(frame)
-  frame = requestAnimationFrame(() => {
-    const root = results.value
-    if (!root || deactivated || props.navigationOwner !== 'reference') return
-    const top = root.getBoundingClientRect().top
-    const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-block]'))
-    const atBottom = root.scrollHeight > root.clientHeight && root.scrollHeight - root.scrollTop - root.clientHeight <= 2
-    const active = atBottom ? items.at(-1) : items.find(item => item.getBoundingClientRect().bottom > top + 12)
-    if (active?.dataset.referenceBlock && active.dataset.referenceId && active.dataset.referenceId !== props.currentReference) emit('follow', active.dataset.referenceBlock, active.dataset.referenceId)
-  })
+function openCard(event: MouseEvent, blockId: string, referenceId: string) {
+  if ((event.target as HTMLElement).closest('a,button,input,summary')) return
+  const selection = window.getSelection()
+  if (selection && !selection.isCollapsed && selection.anchorNode && (event.currentTarget as HTMLElement).contains(selection.anchorNode)) return
+  emit('jump', blockId, referenceId)
 }
-async function followDocument() {
-  await nextTick()
-  const root = results.value
-  if (!root || deactivated || props.navigationOwner === 'reference' || query.value.trim()) return
-  userIntent = false
-  const item = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-id]')).find(node => node.dataset.referenceId === activeReferenceId.value)
-  if (!item) return
-  const rect = item.getBoundingClientRect(), bounds = root.getBoundingClientRect()
-  // Reveal only when outside the viewport. Never reset to the lecture header.
-  if (rect.top < bounds.top || rect.bottom > bounds.bottom) root.scrollTop += rect.top - bounds.top - 8
-}
-watch(() => [activeReferenceId.value, props.navigationOwner], followDocument, { flush: 'post' })
-watch(query, () => { userIntent = false; if (results.value) results.value.scrollTop = 0 })
-onBeforeUnmount(() => cancelAnimationFrame(frame))
-onDeactivated(() => { deactivated = true; userIntent = false; cancelAnimationFrame(frame) })
-onActivated(async () => { deactivated = false; userIntent = false; await nextTick(); if (results.value) results.value.scrollTop = savedScrollTop; await followDocument() })
+watch(query, () => { if (results.value) results.value.scrollTop = 0 })
+onDeactivated(() => { deactivated = true })
+onActivated(async () => { deactivated = false; await nextTick(); if (results.value) results.value.scrollTop = savedScrollTop })
 </script>
 
 <style scoped>
@@ -98,8 +73,8 @@ onActivated(async () => { deactivated = false; userIntent = false; await nextTic
 .reference-section h3 { margin:0 0 4px; color:#505c72; font-size:14px; font-weight:600; line-height:1.55; overflow-wrap:anywhere; }
 .reference-section.is-current h3 { padding:3px 6px; border-radius:7px; background:#d6eaff; color:#1f4f7a; }
 .reference-open { display:block; width:100%; border:0; padding:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
-.reference-item { display:block; width:100%; min-width:0; margin:6px 0; padding:10px 12px; border:1px solid #e9e5ef; border-radius:8px; background:#fff; color:inherit; text-align:left; font:inherit; overflow-wrap:anywhere; }
-.reference-open:hover .reference-item-title { color:#513279; }
+.reference-item { display:block; width:100%; min-width:0; margin:6px 0; padding:8px 10px; border:1px solid #eceff4; border-radius:10px; background:#fff; color:inherit; text-align:left; font:inherit; overflow-wrap:anywhere; }
+.reference-item:hover .reference-item-title { color:#513279; }
 .reference-item-heading { display:flex; align-items:center; gap:6px; }
 .reference-item-title { flex:1; min-width:0; font-size:15px; line-height:1.5; color:#6e4a9c; font-weight:600; }
 .reference-jump { display:inline-flex; align-items:center; gap:3px; flex:none; color:#69587f; font-size:12px; font-weight:400; }
@@ -115,6 +90,23 @@ onActivated(async () => { deactivated = false; userIntent = false; await nextTic
 .reference-expression :deep(.katex-display) { margin:8px 0; }
 .reference-source-note { margin:6px 16px; color:#687287; font-size:13px; line-height:1.6; }
 .reference-item .reference-source-note { margin:4px 0; }
-.reference-item.is-current { background:#f7f4fb; }
+.reference-item.is-current { border-color:#b6cde6; }
 @media(max-width:760px) { .reference-item { padding:12px; } .reference-item-title { font-size:15px; } }
+</style>
+
+<style scoped>
+.reference-item { cursor:pointer; transition:border-color .15s; }
+.reference-item:hover { border-color:#b6cde6; }
+.reference-jump { opacity:0; transition:opacity .15s; }
+.reference-item:hover .reference-jump,.reference-item:focus-within .reference-jump { opacity:1; }
+.reference-section h3 { padding:5px 8px; margin:12px 0 6px; border-radius:8px; background:#f0f1f5; color:#3a4250; font-weight:650; }
+.reference-section.is-current h3 { padding:5px 8px; }
+</style>
+
+<style scoped>
+.reference-section h3 { display:flex; gap:9px; align-items:baseline; font-size:15px; line-height:1.55; }
+.reference-chapter-number { flex:none; color:#6c7180; font-size:13px; font-variant-numeric:tabular-nums; font-weight:500; }
+.reference-item-heading { align-items:baseline; gap:8px; }
+.reference-item-number { flex:none; color:#7c7388; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; }
+.reference-expression { margin-left:0; }
 </style>
