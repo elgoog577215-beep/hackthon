@@ -9,6 +9,8 @@ export interface ReferenceSection {
 export type ReferenceKind = 'definition' | 'theorem' | 'result' | 'formula' | 'method' | 'warning'
 export interface HandoutReference {
   id: string; blockId: string; title: string; kind: ReferenceKind; content: string
+  previewHtml?: string
+  remainderHtml?: string
   html?: string
   includedInStatement: boolean
 }
@@ -29,6 +31,21 @@ function withoutFoldedContent(content: string): string {
   return (visible + (depth ? '' : content.slice(end))).trim()
 }
 
+/** Split only at complete top-level blocks; never cut sentences, lists or math. */
+function referencePreview(html: string) {
+  const template = document.createElement('template')
+  template.innerHTML = html
+  if ((template.content.textContent?.length || 0) <= 240 || template.content.querySelector('.katex-display, .math-fallback.is-display')) return { previewHtml: html, remainderHtml: '' }
+  const nodes = Array.from(template.content.children)
+  let length = 0, split = nodes.length
+  for (let i = 0; i < nodes.length; i++) {
+    length += nodes[i]!.textContent?.length || 0
+    if ((length >= 120 || nodes[i]!.tagName === 'P') && i < nodes.length - 1) { split = i + 1; break }
+  }
+  return { previewHtml: nodes.slice(0, split).map(node => node.outerHTML).join(''),
+    remainderHtml: nodes.slice(split).map(node => node.outerHTML).join('') }
+}
+
 /** Follow the reference reader's inclusion rules, while retaining text and conditions. */
 export function buildHandoutReference(sections: ReferenceSection[]) {
   return sections.map(section => ({
@@ -42,7 +59,7 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
       const kind = statementKinds[type]
       const items: HandoutReference[] = []
       if (kind) items.push({ id: `${block.block_id}:statement`, blockId: block.block_id,
-        title: block.title, kind, content, html: renderMarkdown(content), includedInStatement: false })
+        title: block.title, kind, content, html: renderMarkdown(content), ...referencePreview(renderMarkdown(content)), includedInStatement: false })
       const canonical = ['definition', 'theorem', 'rule', 'result'].includes(type)
       const boxedProse = ['explanation', 'derivation', 'introduction'].includes(type) && content.includes('\\boxed')
       if (!canonical && !boxedProse) return items

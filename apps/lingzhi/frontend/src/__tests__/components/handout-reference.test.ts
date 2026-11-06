@@ -123,3 +123,17 @@ it('shows programming methods directly from the body while keeping exercises and
   expect(wrapper.find('code').text()).toContain('total += value')
   wrapper.unmount()
 })
+
+ it('retains formula conditions and folds long prose only between complete blocks', () => {
+   const content = '首段完整说明。'.repeat(60) + '\n\n- 参数：接收实际值。\n- 返回值：输出结果。'
+   const data = [{ id: 'long', title: '长内容', blocks: [block('long', 'definition', content)] }]
+   const item = buildHandoutReference(data)[0]!.items[0]!
+   expect(item.previewHtml).toContain('首段完整说明。'.repeat(60))
+   expect(item.remainderHtml).toContain('<ul>')
+   const wrapper = mount(HandoutReferencePanel, { props: { sections: data, currentSection: 'long' } })
+   expect(wrapper.findAll('.reference-item')).toHaveLength(1)
+   expect(wrapper.find('details summary').text()).toContain('展开完整条目')
+   const conditions = mount(HandoutReferencePanel, { props: { sections, currentSection: 'a' } })
+   expect(conditions.find('.reference-excerpt').text()).toContain('在')
+   expect(conditions.find('.reference-excerpt').html()).toContain('katex')
+ })
