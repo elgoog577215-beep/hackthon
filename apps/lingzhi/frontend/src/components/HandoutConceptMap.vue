@@ -1,6 +1,6 @@
 <template>
   <aside ref="panel" class="handout-concept-map" :aria-label="tr('title')" :style="availableHeight == null ? undefined : { '--handout-aside-available-height': `${availableHeight}px` }" tabindex="0" data-handout-print-exclude>
-    <header><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p><slot name="actions" /></header>
+    <header><span class="concept-eyebrow">{{ tr('eyebrow') }}</span><h3>{{ tr('title') }}</h3><p>{{ tr('hint') }}</p></header>
     <nav v-if="sections.length > 1" class="concept-sections" :aria-label="tr('sections')">
       <button v-for="section in sections" :key="section.id" :aria-pressed="current?.id === section.id" @click="chooseSection(section.id)"><MathText :content="section.title" /></button>
     </nav>
@@ -66,7 +66,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import MathText from './MathText.vue'
 import { t } from '../shared/i18n'
 import { conceptLayers, type HandoutConcept, type HandoutConceptSection, type HandoutRelation } from '../utils/handout-concepts'
-const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void; currentSection?: string }>()
+const props = defineProps<{ sections: HandoutConceptSection[]; target?: HTMLElement | null; originLabel?: string; navigate?: (anchor: string) => void }>()
 const tr = (key: string) => t(`handoutConcepts.${key}`)
 const relationLabel = (type: string) => t(`handoutConcepts.types.${type}`)
 const currentId = ref(''), selected = ref(''), graph = ref<HTMLElement | null>(null)
@@ -152,7 +152,6 @@ function draw() {
 }
 let frame = 0, observer: ResizeObserver | undefined, panelObserver: ResizeObserver | undefined
 function followReading() {
-  if (props.currentSection) { currentId.value = props.currentSection; return }
   if (!props.target) return
   const pane = props.target.closest('.pane-body, .script-document')
   const boundary = Math.max(Math.min(160, window.innerHeight * .2), (pane?.getBoundingClientRect().top || 0) + 36)
@@ -164,7 +163,6 @@ function followReading() {
   currentId.value = id
 }
 function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { fitReadingAside(); followReading(); draw() }) }
-watch(() => props.currentSection, id => { if (id) currentId.value = id }, { immediate: true })
 watch(() => props.sections, async () => { await nextTick(); followReading(); draw() }, { deep: true, immediate: true })
 watch(current, async (value, previous) => { if (value?.id !== previous?.id) selected.value = ''; await nextTick(); draw() })
 watch(graph, node => { observer?.disconnect(); if (node) observer?.observe(node) })

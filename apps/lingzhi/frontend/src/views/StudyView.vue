@@ -113,9 +113,8 @@
                 </article>
               </div>
               <aside v-if="material && reasoningOpen && !mobileViewport" id="study-reasoning-panel" class="study-reasoning-panel" :aria-label="c('paths')">
-                <HandoutConceptMap v-if="hasReasoning" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')">
-                  <template #actions><ElButton text circle class="study-reasoning-close" :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton></template>
-                </HandoutConceptMap>
+                <HandoutConceptMap v-if="hasReasoning" :sections="conceptSections" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
+                <ElButton v-if="hasReasoning" text circle class="study-reasoning-close" :aria-label="c('closeReasoning')" @click="toggleReasoning"><X :size="18" /></ElButton>
                 <div v-else class="study-aid-status" role="status"><p>{{ reasoningStatus }}</p><ElButton text :aria-label="c('closeReasoning')" @click="toggleReasoning">{{ t('common.close') }}</ElButton><ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'completeConcepts') }}</ElButton></div>
               </aside>
               </div>
@@ -134,7 +133,7 @@
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
                 <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
-                <HandoutConceptMap v-else-if="toolTab === 'paths' && hasReasoning" :sections="conceptSections" :current-section="activeChapter" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
+                <HandoutConceptMap v-else-if="toolTab === 'paths' && hasReasoning" :sections="conceptSections" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
               </KeepAlive>
             </aside>
           </div>
@@ -714,7 +713,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-reading-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .study-reading-with-reasoning { display:flex; flex:1; min-width:0; min-height:0; }
 .study-reading-with-reasoning > .study-document-scroll { min-width:0; }
-.study-reasoning-panel { flex:0 0 330px; min-height:0; overflow:auto; margin:24px 18px 24px 0; background:transparent; }
+.study-reasoning-panel { position:relative; flex:0 0 330px; min-height:0; overflow:auto; margin:24px 18px 24px 0; background:transparent; }
 .study-reasoning-panel :deep(.handout-concept-map) { position:static; max-height:none; overflow:visible; }
 .study-reasoning-panel :deep(.handout-concept-map > header) { position:relative; padding-right:48px; }
 .study-reasoning-close { position:absolute; top:14px; right:12px; }

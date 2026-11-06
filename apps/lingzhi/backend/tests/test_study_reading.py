@@ -153,7 +153,7 @@ def test_relation_derivation_survives_normalization_and_keeps_legacy_records_rea
     other["knowledge_relations"] = [edge]
     result = validate(other, source, [first])
     assert result["knowledge_relations"][0]["derivation_steps"] == edge["derivation_steps"]
-    assert result["reading_prompt_version"] == "study_reading_relations_v4"
+    assert result["reading_prompt_version"] == "study_reading_relations_v5"
     edge.pop("derivation_steps")
     assert validate(other, source, [first])["knowledge_relations"][0]["derivation_steps"] == []
     edge["derivation_steps"] = "not an array"

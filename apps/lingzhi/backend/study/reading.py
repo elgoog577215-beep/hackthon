@@ -3,7 +3,7 @@ from copy import deepcopy
 import uuid
 
 READING_SCHEMA_VERSION = "study_reading_v1"
-READING_PROMPT_VERSION = "study_reading_relations_v4"
+READING_PROMPT_VERSION = "study_reading_relations_v5"
 RELATION_TYPES = {"prerequisite", "derives", "applies_to", "contrasts_with", "equivalent_to", "generalizes"}
 
 
@@ -18,7 +18,7 @@ def reading_response_schema(source: dict, prior: list[dict]) -> dict:
     short = {"type": "string", "maxLength": 120}
     sentence = {"type": "string", "maxLength": 240}
     refs = array(obj({"evidence_id": {"type": "string", "enum": [b["evidence_id"] for b in source["blocks"]]}}), 2, 1)
-    local_keys = ["c1", "c2", "c3", "c4"]
+    local_keys = [f"c{i}" for i in range(1, 7)]
     point = obj({"key": {"type": "string", "enum": local_keys}, "name": short, "statement": sentence, "source_refs": refs})
     relation = obj({"source_ref": {"type": "string", "enum": [*local_keys, *[p["knowledge_id"] for p in prior]]},
                     "target_ref": {"type": "string", "enum": local_keys},
@@ -26,7 +26,7 @@ def reading_response_schema(source: dict, prior: list[dict]) -> dict:
                     "reason": sentence, "conditions": array(short, 3),
                     "derivation_steps": array({"type": "string", "maxLength": 2000}, 32), "source_refs": refs})
     section = obj({"node_id": {"type": "string", "enum": [source["node_id"]]},
-                   "knowledge_structure": array(obj({"knowledge_points": array(point, 4)}), 1, 1),
+                   "knowledge_structure": array(obj({"knowledge_points": array(point, 6)}), 1, 1),
                    "knowledge_relations": array(relation, 6)})
     return obj({"sections": array(section, 1, 1)})
 

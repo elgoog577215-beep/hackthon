@@ -261,7 +261,7 @@ def plan_prompt(request: dict) -> str:
         '"relation_type":"prerequisite|derives|applies_to|contrasts_with|equivalent_to|generalizes",'
         '"reason":"正文支持的关系依据","conditions":[],"derivation_steps":[],"source_refs":[{"evidence_id":"正文块ID"}]}]'
         '}]}。'
-        "概念关系每讲选0–4个核心概念，依次赋予唯一key c1、c2、c3、c4；没有可提取的核心概念时返回空数组，不编造概念。不把定理细节、例题数据都变成节点。"
+        "每节约3–6个实际概念，依次赋予唯一key c1至c6；关系不是必需的，只提供正文可支持的关系，不猜测事实。没有可提取的实际概念时返回空数组，不编造概念。"
         "每条关系的derivation_steps保留正文已有的完整推导步骤、公式和关键条件；不能压成一句摘要。没有推导过程则返回空数组，不补造步骤。"
         "箭头从依据/前置指向使用它的概念。只保留正文支持的连线，不为凑图连线。"
         "prior_concepts是前面讲次的概念，只在正文明确用到时引用其精确knowledge_id为source_ref；"
