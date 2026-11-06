@@ -38,7 +38,7 @@ describe('HandoutContentBlock', () => {
       const wrapper = mount(HandoutContentBlock, { props: { contentType, label: '历史标签', title: '独立内容' }, slots: { default: '完整内容' } })
       expect(wrapper.attributes('data-handout-group')).toBe(group)
       expect(wrapper.get('.handout-block__label').text()).toBe(label)
-      expect(wrapper.get('.handout-block__group').text()).not.toContain('contentGroups')
+      expect(wrapper.find('.handout-block__group').exists()).toBe(false)
       expect(wrapper.find('details').exists()).toBe(false)
       wrapper.unmount()
     }

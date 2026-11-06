@@ -273,11 +273,11 @@ function restorePosition() {
   followChapter()
 }
 let navigating = false
-async function jumpToAnchor(anchor: string) {
+async function jumpToAnchor(anchor: string, options: {referenceId?: string; rect?: () => DOMRect | null} = {}) {
   navigating = true
   try {
     if (mobileViewport.value) { closeTool(); closeDirectory() }
-    await navigation.navigate(anchor)
+    await navigation.navigate(anchor, options)
   } finally { navigating = false }
 }
 function referenceRect(blockId: string, referenceId: string) {
@@ -286,7 +286,7 @@ function referenceRect(blockId: string, referenceId: string) {
   const element = Array.from(readingTarget.value?.querySelectorAll<HTMLElement>('[data-block-id]') || []).find(node => node.dataset.blockId === blockId)?.querySelector<HTMLElement>('.markdown-renderer')
   return block && reference && element ? resolveReferenceAnchor(element, block.content, reference)?.getBoundingClientRect() || null : null
 }
-function jumpToReference(blockId: string, referenceId = '') { return navigation.navigate(blockAnchor(blockId), { referenceId, rect: () => referenceRect(blockId, referenceId) }) }
+function jumpToReference(blockId: string, referenceId = '') { return jumpToAnchor(blockAnchor(blockId), { referenceId, rect: () => referenceRect(blockId, referenceId) }) }
 function selectChapter(id: string) { expandedChapters.value[id] = true; return jumpToAnchor(sectionAnchor(id)) }
 function selectPassage() {
   const selection = window.getSelection(), root = readingTarget.value

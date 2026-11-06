@@ -4,8 +4,7 @@
     :style="presentation.style" :data-handout-type="contentType || undefined" :data-handout-group="group" :data-answer-to="answerTo || undefined">
     <component :is="isAnswerDisclosure ? 'summary' : 'header'" v-if="showHeader" class="handout-block__heading">
       <div class="handout-block__identity">
-        <div v-if="group || displayLabel" class="handout-block__tags">
-          <span v-if="group" class="handout-block__group">{{ t(`courseWorkbench.scriptDocument.contentGroups.${group}`) }}</span>
+        <div v-if="displayLabel" class="handout-block__tags">
           <span v-if="displayLabel" class="handout-block__label" :title="definition?.purpose?.[activeLocale]">{{ displayLabel }}</span>
         </div>
         <h5 v-if="title"><MathText :content="displayTitle" /></h5>
@@ -52,7 +51,7 @@ const isContinuous = computed(() => tone.value === 'prose' || normalizedType.val
 const displayLabel = computed(() => {
   const label = definition.value?.label[activeLocale.value] || (normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label)
   if (!definition.value && /^[a-zA-Z][\w.-]*$/.test(label)) return ''
-  return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
+  return group.value === 'explanation' && label === t('courseWorkbench.scriptDocument.contentGroups.explanation') ? '' : label
 })
 const displayTitle = computed(() => {
   for (const label of [displayLabel.value, props.label]) {

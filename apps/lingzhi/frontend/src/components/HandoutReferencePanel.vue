@@ -4,10 +4,10 @@
     <p v-if="hasUnavailableReferences" class="reference-source-note" role="status">{{ c('referenceUnavailable') }}</p>
     <div ref="results" class="reference-results" @scroll="rememberPosition" tabindex="0" :aria-label="c('reference')">
       <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }" :data-reference-section="section.id">
-        <h3><span class="reference-chapter-number">{{ String(section.number).padStart(2, '0') }}</span><MathText :content="section.title" /></h3>
+        <h3><MathText :content="section.title" /></h3>
         <article v-for="item in section.items" :key="item.id" class="reference-item" @click="openCard($event, item.blockId, item.id)" :data-reference-kind="item.kind" :data-reference-block="item.blockId" :data-reference-id="item.id" :class="{ 'is-current': item.id === activeReferenceId }"><button type="button" class="reference-open" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId, item.id)">
           <span class="reference-item-heading">
-            <span class="reference-item-number">{{ String(section.number).padStart(2, '0') }}.{{ String(item.number).padStart(2, '0') }}</span><span class="reference-item-title"><MathText :content="item.title" /></span>
+            <span class="reference-item-number">{{ item.number }}</span><span class="reference-item-title"><MathText :content="item.title" /></span>
             <span class="reference-jump" aria-hidden="true"><ArrowUpRight :size="14" aria-hidden="true" /></span>
           </span>
         </button>
@@ -34,7 +34,7 @@ const scope = ref<'all' | 'current'>('all')
 const index = computed(() => buildHandoutReference(props.sections))
 const visible = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return index.value.map((section, sectionIndex) => ({ ...section, number: sectionIndex + 1, items: section.items.map((item, itemIndex) => ({ ...item, number: itemIndex + 1 })).filter(item => !needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) })).filter(s => s.items.length)
+  return index.value.map(section => ({ ...section, items: section.items.map((item, itemIndex) => ({ ...item, number: itemIndex + 1 })).filter(item => !needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) })).filter(s => s.items.length)
 })
 const activeReferenceId = computed(() => {
   if (props.currentReference) return props.currentReference
@@ -105,7 +105,7 @@ onActivated(async () => { deactivated = false; await nextTick(); if (results.val
 
 <style scoped>
 .reference-section h3 { display:flex; gap:9px; align-items:baseline; font-size:15px; line-height:1.55; }
-.reference-chapter-number { flex:none; color:#6c7180; font-size:13px; font-variant-numeric:tabular-nums; font-weight:500; }
+
 .reference-item-heading { align-items:baseline; gap:8px; }
 .reference-item-number { flex:none; color:#7c7388; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; }
 .reference-expression { margin-left:0; }

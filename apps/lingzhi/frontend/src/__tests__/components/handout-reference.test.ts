@@ -63,7 +63,8 @@ describe('Source-bound handout reference', () => {
   it('shows all lectures, highlights one exact reference, and supports search and source jumps', async () => {
     const wrapper = mount(HandoutReferencePanel, {props:{sections,currentSection:'a',currentBlock:'multi'}})
     expect(wrapper.findAll('.reference-item')).toHaveLength(3)
-    expect(wrapper.findAll('.reference-item-number').map(n=>n.text())).toEqual(['01.01','01.02','02.01'])
+    expect(wrapper.findAll('.reference-item-number').map(n=>n.text())).toEqual(['1','2','1'])
+    expect(wrapper.find('.reference-chapter-number').exists()).toBe(false)
     expect(wrapper.findAll('.reference-item.is-current')).toHaveLength(1)
     expect(wrapper.find('.reference-details').exists()).toBe(false)
     await wrapper.get('.reference-open').trigger('click')
