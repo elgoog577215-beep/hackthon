@@ -77,7 +77,7 @@ def validate_reading_plan(plan: dict, source: dict, prior: list[dict]) -> dict:
         by_name[name] = item
         if "key" in point:
             key = point["key"]
-            if key not in {"c1", "c2", "c3", "c4"} or key in by_key:
+            if key not in {f"c{i}" for i in range(1, 7)} or key in by_key:
                 raise ValueError("本讲概念引用键重复或无效，已保留正文，请主动继续")
             by_key[key] = identity
     known = {p["knowledge_id"]: p for p in [*prior, *points]}

@@ -228,3 +228,18 @@ def test_literal_newlines_in_model_json_preserve_the_complete_statement():
     assert result['knowledge_structure'][0]['knowledge_points'][0]['statement'] == '第一行\n第二行'
     with pytest.raises(ValueError):
         validate_plans(raw[:-2], [source], reading=True)
+
+
+def test_six_local_concept_keys_match_generation_schema():
+    _, source, plan = sample()
+    point = plan['knowledge_structure'][0]['knowledge_points'][0]
+    plan['knowledge_structure'][0]['knowledge_points'] = [
+        {**deepcopy(point), 'key': f'c{i}', 'name': f'概念{i}'} for i in range(1, 7)
+    ]
+    assert len(validate(plan, source)['knowledge_structure'][0]['knowledge_points']) == 6
+    plan['knowledge_structure'][0]['knowledge_points'][-1]['key'] = 'c7'
+    with pytest.raises(ValueError, match='引用键'):
+        validate(plan, source)
+    plan['knowledge_structure'][0]['knowledge_points'][-1]['key'] = 'c1'
+    with pytest.raises(ValueError, match='引用键'):
+        validate(plan, source)
