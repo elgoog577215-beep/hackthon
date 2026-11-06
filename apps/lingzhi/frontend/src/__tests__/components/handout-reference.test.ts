@@ -1,139 +1,82 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import HandoutReferencePanel from '@/components/HandoutReferencePanel.vue'
-import { buildHandoutReference, type ReferenceSection } from '@/utils/handout-reference'
+import { buildHandoutReference, type ReferenceSection, type ReferenceRange } from '@/utils/handout-reference'
 import { activeLocale } from '@/shared/i18n'
 const block = (id: string, type: string, content: string, title = id) => ({ block_id: id, content_type: type, title, content })
+function marked(id: string, content: string, pieces: {title: string; kind: ReferenceRange['kind']; content: string}[]) {
+  return { ...block(id, 'explanation', content), reference_schema_version: 'handout_reference_v1', references: pieces.map((p, i) => {
+    const start = Array.from(content.slice(0, content.indexOf(p.content))).length
+    return { ...p, id: `r${i + 1}`, start, end: start + Array.from(p.content).length }
+  }) }
+}
+const statement = '当 $P(B)>0$ 时，\n\n$$P(A|B)=\\frac{P(A\\cap B)}{P(B)}$$'
+const rule = '字典键必须可哈希，例如字符串和整数。'
 const sections: ReferenceSection[] = [
-  { id: 'a', title: '第一讲', blocks: [
-    block('definition', '定义', '在 $P(B)>0$ 时，条件概率为：\n\n$$P(A|B)=\\frac{P(A\\cap B)}{P(B)}$$', '条件概率'),
-    block('theorem', 'theorem', '当事件互斥时，$P(A\\cup B)=P(A)+P(B)$。', '加法定理'),
-    block('example', 'example', '$$x=2$$\n\n$$x=2$$', '计算示例'),
-    block('folded', 'explanation', '<details><summary>答案</summary>\n\n$$hidden=9$$\n\n</details>'),
-    block('code', 'explanation', '```c\n// $not_math=1$\n```'),
-    block('answer', 'answer', '$$secret=42$$'),
-    { ...block('linked-answer', 'explanation', '$$secret=99$$'), answer_to: 'exercise' },
-  ] },
-  { id: 'b', title: '第二讲', blocks: [block('definition-2', 'definition', '随机变量是样本空间上的实值函数。', '随机变量')] },
+  { id: 'a', title: '第一讲', blocks: [marked('multi', '动机🙂。\n\n' + statement + '\n\n长篇证明不在速览。\n\n' + rule,
+    [{title:'条件概率',kind:'formula',content:statement},{title:'字典键',kind:'rule',content:rule}])] },
+  { id: 'b', title: '第二讲', blocks: [block('legacy', 'definition', '旧版长解释。'.repeat(100), '旧版定义')] },
 ]
 beforeEach(() => { activeLocale.value = 'zh' })
 
-describe('Handout formula and theorem reference', () => {
-  it('keeps complete definitions and conditions, extracts math without code or folded answers', () => {
-    const result = buildHandoutReference(sections)
-    const items = result[0]!.items
-    expect(items.find(item => item.id === 'definition:statement')?.content).toContain('P(B)>0')
-    expect(items.find(item => item.id === 'definition:formulas')?.html).toContain('katex')
-    expect(items.some(item => item.blockId === 'example')).toBe(false)
-    expect(items.find(item => item.id === 'definition:formulas')?.content).toContain('P(B)>0')
-    expect(items.some(item => ['code', 'folded', 'answer', 'linked-answer'].includes(item.blockId))).toBe(false)
-    expect(result[1]!.items[0]?.kind).toBe('definition')
+describe('Source-bound handout reference', () => {
+  it('projects multiple exact statements from one block, preserving conditions and Unicode offsets', () => {
+    const items = buildHandoutReference(sections)[0]!.items
+    expect(items).toHaveLength(2)
+    expect(items[0]!.content).toBe(statement)
+    expect(items[0]!.html).toContain('katex-display')
+    expect(items[1]!.content).toBe(rule)
+    expect(items.map(x => x.html).join('')).not.toContain('长篇证明')
   })
-  it('follows the current lecture, supports whole-course filtering and stable jumps', async () => {
-    const wrapper = mount(HandoutReferencePanel, { props: { sections, currentSection: 'a' }, global: { stubs: { MarkdownRenderer: { props: ['content'], template: '<div>{{ content }}</div>' }, MathText: { props: ['content'], template: '<span>{{ content }}</span>' } } } })
+  it('rejects stale ranges instead of displaying an old or first-paragraph summary', () => {
+    const changed = structuredClone(sections)
+    changed[0]!.blocks[0]!.content = changed[0]!.blocks[0]!.content.replace('P(B)>0','P(B)=0')
+    const items = buildHandoutReference(changed)[0]!.items
+    expect(items.some(i => i.title === '条件概率')).toBe(false)
+    const wrapper = mount(HandoutReferencePanel, { props: { sections: changed, currentSection: 'a' } })
+    // At least the unchanged range remains safely bound to its exact source.
+    expect(wrapper.text()).not.toContain('长篇证明')
+  })
+  it('uses compact formula extraction for legacy math and a source index for unmarked prose', () => {
+    const items = buildHandoutReference([{id:'s',title:'旧讲义',blocks:[
+      block('math','definition',statement + '\n\n' + '很长的证明。'.repeat(80)),
+      block('text','method','很长的讲解。'.repeat(80),'方法'),
+      block('boxed','explanation','$$\\boxed{x=1}$$\n\n$$temporary=9$$'),
+    ]}])[0]!.items
+    expect(items[0]!.html).toContain('katex-display')
+    expect(items[0]!.html).toContain('当')
+    expect(items[0]!.html).not.toContain('很长的证明')
+    expect(items[1]!.mode).toBe('source')
+    expect(items[1]!.html).toBe('')
+    expect(items[2]!.html).not.toContain('temporary')
+  })
+  it('excludes exercises, answers, literal code and folded content', () => {
+    const items = buildHandoutReference([{id:'s',title:'范围',blocks:[
+      block('exercise','exercise','$$secret=1$$'),block('answer','answer','$$secret=2$$'),
+      {...marked('linked',rule,[{title:'秘密',kind:'rule',content:rule}]),answer_to:'exercise'},
+      block('code','explanation','```html\n$$not_math=1$$\n```'),
+      block('folded','definition','<details><summary>外层</summary><details>$$secret=3$$</details>$$secret=4$$</details>\n\n$$public=1$$'),
+    ]}])[0]!.items
+    expect(items.map(i=>i.blockId)).toEqual(['folded'])
+    expect(items[0]!.html).not.toContain('secret')
+  })
+  it('supports current/all scopes, search, localization and stable source jumps without inner scroll', async () => {
+    const wrapper = mount(HandoutReferencePanel, {props:{sections,currentSection:'a',currentBlock:'multi'}})
     expect(wrapper.findAll('.reference-item')).toHaveLength(2)
-    expect(wrapper.find('.reference-kinds').exists()).toBe(false)
-    expect(wrapper.find('.reference-context').exists()).toBe(false)
-    expect(wrapper.find('.aid-toolbar input').exists()).toBe(false)
+    expect(wrapper.findAll('.reference-item.is-current')).toHaveLength(2)
+    expect(wrapper.find('.reference-details').exists()).toBe(false)
+    await wrapper.get('.reference-open').trigger('click')
+    expect(wrapper.emitted('jump')).toEqual([['multi']])
     await wrapper.get('.aid-scope-toggle').trigger('click')
     expect(wrapper.findAll('.reference-item')).toHaveLength(3)
-    await wrapper.get('.aid-scope-toggle').trigger('click')
-    await wrapper.findAll('.reference-open')[0]!.trigger('click')
-    expect(wrapper.emitted('jump')).toEqual([['definition']])
-    await wrapper.setProps({ currentSection: 'b' })
-    expect(wrapper.text()).toContain('随机变量是样本空间上的实值函数')
-    expect(wrapper.text()).not.toContain('条件概率')
     await wrapper.get('.aid-search-toggle').trigger('click')
     await wrapper.get('input').setValue('不存在')
-    expect(wrapper.findAll('.reference-item')).toHaveLength(0)
     expect(wrapper.text()).toContain('没有匹配')
     await wrapper.get('input').setValue('')
-    await wrapper.setProps({ sections: [{ id: 'b', title: '修订后的讲义', blocks: [block('new', 'definition', '新版定义：$$x=2$$', '新概念')] }] })
-    expect(wrapper.text()).toContain('新概念')
-    expect(wrapper.text()).not.toContain('随机变量')
-    activeLocale.value = 'en'
-    await wrapper.vm.$nextTick()
+    await wrapper.setProps({currentSection:'b'})
+    activeLocale.value='en';await wrapper.vm.$nextTick()
     expect(wrapper.attributes('aria-label')).toBe('Quick reference')
-    expect(wrapper.get('.reference-open').attributes('aria-label')).toContain('Go to passage')
-    wrapper.unmount()
+    expect(wrapper.text()).toContain('not marked here')
+    expect(wrapper.text()).not.toContain('旧版长解释')
   })
-  it('shows each display formula once despite nested renderer wrappers', () => {
-    const items = buildHandoutReference([{ id: 's', title: '公式', blocks: [block('d', 'definition', '$$x=1$$\n\n$$x=1$$\n\n$$y=2$$')] }])[0]!.items
-    const root = document.createElement('div')
-    root.innerHTML = items.find(item => item.kind === 'formula')!.html!
-    expect(root.querySelectorAll('.reference-formula')).toHaveLength(2)
-    expect(root.querySelectorAll('.katex-display')).toHaveLength(2)
-  })
-  it('indexes text results, methods and pitfalls, but only canonical or boxed formulas', () => {
-    const items = buildHandoutReference([{ id: 's', title: 'Skills', blocks: [
-      block('r', 'result', '成立条件：$x>0$。\n\n$$y=x^2$$'),
-      block('m', 'method', '先确认问题，再选择方法。'),
-      block('w', 'misconception', '不要把相关性理解为因果。'),
-      block('v', 'definition', '变量 $x$ 是输入。'),
-      block('b', 'explanation', '$$\\boxed{a=b}$$\n\n$$temporary=9$$'),
-      block('d', 'definition', '公开定义。<details><summary>提示</summary>secret</details>'),
-    ] }])[0]!.items
-    expect(items.filter(i => i.kind === 'formula').map(i => i.blockId)).toEqual(['r', 'b'])
-    expect(items.find(i => i.blockId === 'b')?.html).not.toContain('temporary')
-    expect(items.find(i => i.blockId === 'm')?.kind).toBe('method')
-    expect(items.find(i => i.blockId === 'w')?.kind).toBe('warning')
-    expect(items.find(i => i.blockId === 'd')?.content).not.toContain('secret')
-  })
-
 })
-
-it('excludes inline boxed prose and whole nested folded subtrees like the reference reader', () => {
-  const result = buildHandoutReference([{ id: 'scope', title: '范围', blocks: [
-    block('inline', 'explanation', '正文行内 $\\boxed{x=1}$'),
-    block('display', 'explanation', '$$\\boxed{x=2}$$'),
-    block('nested', 'definition', '<details><summary>外层答案</summary><details>$$secret=1$$</details>$$secret=2$$</details>\n\n$$public=3$$'),
-    block('unfinished', 'definition', '<details>$$secret=4$$'),
-  ] }])[0]!.items.filter(item => item.kind === 'formula')
-  expect(result.map(item => item.blockId)).toEqual(['display', 'nested'])
-  expect(result.map(item => item.content).join(' ')).not.toContain('secret')
-  expect(result.find(item => item.blockId === 'nested')!.html).not.toContain('secret')
-})
-
-it('scrolls the reference results to the current lecture without scrolling the reading page', async () => {
-  const wrapper = mount(HandoutReferencePanel, { props: { sections: [
-    { id: 'a', title: '第一讲', blocks: [block('one', 'definition', '$$x=1$$')] },
-    { id: 'b', title: '第二讲', blocks: [block('two', 'definition', '$$x=2$$')] },
-  ], currentSection: 'a' } })
-  await wrapper.get('.aid-scope-toggle').trigger('click')
-  const results = wrapper.get('.reference-results').element as HTMLElement
-  vi.spyOn(results, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
-  vi.spyOn(wrapper.get('[data-reference-section="b"]').element, 'getBoundingClientRect').mockReturnValue({ top: 380 } as DOMRect)
-  await wrapper.setProps({ currentSection: 'b' })
-  await Promise.resolve()
-  expect(results.scrollTop).toBe(280)
-  wrapper.unmount()
-})
-
-
-it('shows programming methods directly from the body while keeping exercises and answers out', () => {
-  const wrapper = mount(HandoutReferencePanel, { props: { currentSection: 's', sections: [{ id: 's', title: '编程', blocks: [
-    block('method', 'method', '输入必须非空。\n\n1. 初始化累加值。\n2. 逐项累加。\n\n```python\ntotal += value\n```', '累加算法'),
-    block('exercise', 'exercise', '请实现快速排序', '练习'),
-    block('answer', 'answer', '答案内容', '参考答案'),
-  ] }] } })
-  expect(wrapper.findAll('.reference-item')).toHaveLength(1)
-  expect(wrapper.text()).toContain('输入必须非空')
-  expect(wrapper.text()).toContain('逐项累加')
-  expect(wrapper.text()).not.toContain('答案内容')
-  expect(wrapper.find('code').text()).toContain('total += value')
-  wrapper.unmount()
-})
-
- it('retains formula conditions and folds long prose only between complete blocks', () => {
-   const content = '首段完整说明。'.repeat(60) + '\n\n- 参数：接收实际值。\n- 返回值：输出结果。'
-   const data = [{ id: 'long', title: '长内容', blocks: [block('long', 'definition', content)] }]
-   const item = buildHandoutReference(data)[0]!.items[0]!
-   expect(item.previewHtml).toContain('首段完整说明。'.repeat(60))
-   expect(item.remainderHtml).toContain('<ul>')
-   const wrapper = mount(HandoutReferencePanel, { props: { sections: data, currentSection: 'long' } })
-   expect(wrapper.findAll('.reference-item')).toHaveLength(1)
-   expect(wrapper.find('details summary').text()).toContain('展开完整条目')
-   const conditions = mount(HandoutReferencePanel, { props: { sections, currentSection: 'a' } })
-   expect(conditions.find('.reference-excerpt').text()).toContain('在')
-   expect(conditions.find('.reference-excerpt').html()).toContain('katex')
- })

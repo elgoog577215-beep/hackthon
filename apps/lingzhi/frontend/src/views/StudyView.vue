@@ -132,7 +132,7 @@
                 <ElButton v-if="!isGenerating && ['completed', 'failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : 'completeConcepts') }}</ElButton>
               </div>
               <KeepAlive :key="`${user.id}:${material.id}:${currentRevision?.id}`" :max="3">
-                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" @jump="jumpToReference" />
+                <HandoutReferencePanel v-if="toolTab === 'reference'" :sections="currentRevision?.sections || []" :current-section="activeChapter" :current-block="activeBlock" @jump="jumpToReference" />
                 <HandoutConceptMap v-else-if="toolTab === 'paths' && hasReasoning" :sections="conceptSections" :target="readingTarget" :navigate="jumpToAnchor" :origin-label="c('conceptOrigin')" />
               </KeepAlive>
             </aside>
@@ -963,7 +963,7 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 /* Like the reference reader, concurrent aids share one rail rather than taking
    a second column away from the textbook. Each panel keeps its own switch. */
 @media(min-width:761px) and (min-height:521px), (min-width:1025px) {
-  .is-tools-open .study-reading-body:has(.study-reasoning-panel) { display:grid; grid-template-columns:minmax(0,1fr) var(--column-right-width); grid-template-rows:minmax(0, .55fr) minmax(0, .45fr); }
+  .is-tools-open .study-reading-body:has(.study-reasoning-panel) { display:grid; grid-template-columns:minmax(0,1fr) max(var(--column-right-width), min(40vw, 470px)); grid-template-rows:minmax(0, .55fr) minmax(0, .45fr); }
   .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-reading-pane,
   .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-reading-with-reasoning { display:contents; }
   .is-tools-open .study-reading-body:has(.study-reasoning-panel) .study-document-scroll { grid-column:1; grid-row:1 / 3; }

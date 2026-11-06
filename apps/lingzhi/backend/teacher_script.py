@@ -15,6 +15,7 @@ from typing import Any
 
 from course_pedagogy import MODULES, module_block_role
 from handout_content import HANDOUT_CONTENT_TYPES, HANDOUT_CONTENT_ALIASES
+from handout_reference import parse_reference_ranges
 from teacher_visible_language import has_unnatural_system_language
 
 
@@ -23,13 +24,13 @@ SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
 SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v9"
 SCRIPT_QUALITY_VERSION = "teacher_script_quality_v13"
 
-HANDOUT_CONTRACT_VERSION = "handout_lecture_v3"
+HANDOUT_CONTRACT_VERSION = "handout_lecture_v4"
 
 def handout_visible_draft(text: str) -> str:
     """Hide protocol metadata while retaining prose and literal code samples."""
     lines, fence = [], ""
     for line in text.splitlines(keepends=True):
-        if not fence and re.match(r"^\s*<!--\s*(?:section|handout|block):", line):
+        if not fence and re.match(r"^\s*<!--\s*(?:section|handout|block|reference):", line):
             continue
         match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
         if match:
@@ -108,11 +109,15 @@ def parse_handout_blocks(content: str, section_id: str, *, identity: str = "",
         if key in keys:
             error = "block_key_duplicate"
         keys.add(key)
+        reference = parse_reference_ranges(text)
+        if not closed:
+            reference["reference_issues"] = [issue for issue in reference["reference_issues"] if issue != "unfinished_range"]
         blocks.append({
+            **reference,
             "block_id": _stable_block_id(section_id, f"{identity}:{key}", 0),
             "module_id": "handout_content", "role": role,
             "content_type": kind, "type_label": label,
-            "title": meta["title"], "content": text,
+            "title": meta["title"], "content": reference["content"],
             "knowledge_names": list(meta.get("knowledge") or []),
             "answer_to": meta.get("answer_to") or "",
             "local_key": key, "generation_source": "model",
@@ -863,7 +868,7 @@ def parse_teacher_script_markdown(
             matches = [item for item in expected if item.get("title") == title]
             module = matches[0] if len(matches) == 1 else {}
         blocks.append({
-            **{key: deepcopy(module[key]) for key in ("content_type", "type_label", "answer_to") if key in module},
+            **{key: deepcopy(module[key]) for key in ("content_type", "type_label", "answer_to", "references", "reference_schema_version", "reference_issues") if key in module},
             "block_id": _text(module.get("block_id")) or _stable_block_id(
                 _text(contract.get("section_node_id")),
                 _text(module.get("module_id")) or "extra",
@@ -907,7 +912,7 @@ def normalize_teacher_script_section(
             if role not in _ALLOWED_ROLES:
                 role = "concept"
             blocks.append({
-                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to",
+                **{key: deepcopy(raw.get(key, module.get(key))) for key in ("content_type", "type_label", "answer_to", "references", "reference_schema_version", "reference_issues",
                     "knowledge_refs", "source_knowledge_revision", "source_terminology_revision", "answer_refs",
                     "source_context_revision", "source_evidence_package_revision", "source_scope_revision") if key in raw or key in module},
                 "block_id": _text(raw.get("block_id") or module.get("block_id"))

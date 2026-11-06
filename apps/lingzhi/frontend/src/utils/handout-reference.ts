@@ -1,88 +1,83 @@
 import { renderMarkdown } from './markdown'
 import { handoutContentType } from './handout-content'
 
+export type ReferenceKind = 'definition' | 'theorem' | 'result' | 'formula' | 'rule' | 'method'
+export interface ReferenceRange { id: string; title: string; kind: ReferenceKind; start: number; end: number; content: string }
 export interface ReferenceSection {
   id: string
   title: string
-  blocks: { block_id: string; content_type: string; title: string; content: string; answer_to?: string }[]
+  blocks: { block_id: string; content_type: string; title: string; content: string; answer_to?: string;
+    references?: ReferenceRange[]; reference_schema_version?: string; reference_issues?: string[] }[]
 }
-export type ReferenceKind = 'definition' | 'theorem' | 'result' | 'formula' | 'method' | 'warning'
 export interface HandoutReference {
-  id: string; blockId: string; title: string; kind: ReferenceKind; content: string
-  previewHtml?: string
-  remainderHtml?: string
-  html?: string
-  includedInStatement: boolean
+  id: string; blockId: string; title: string; kind: ReferenceKind; content: string; html: string
+  mode: 'range' | 'formula' | 'source'
 }
-const statementKinds: Record<string, Exclude<ReferenceKind, 'formula'>> = {
-  definition: 'definition', theorem: 'theorem', rule: 'theorem', result: 'result', summary: 'result',
-  method: 'method', checklist: 'method', warning: 'warning', misconception: 'warning', counterexample: 'warning',
-}
+const kinds = new Set(['definition', 'theorem', 'result', 'formula', 'rule', 'method'])
+const legacyKinds: Record<string, ReferenceKind> = { definition: 'definition', theorem: 'theorem', rule: 'rule', result: 'result', method: 'method', checklist: 'method' }
+const excluded = new Set(['answer', 'exercise', 'question', 'review_question', 'guiding_question', 'example'])
 
-/** Remove whole folded subtrees, including nested and unfinished legacy details. */
+/** Never expose folded answers, including nested and unfinished legacy details. */
 function withoutFoldedContent(content: string): string {
   let depth = 0, end = 0, visible = ''
   for (const match of content.matchAll(/<\/?details\b[^>]*>/gi)) {
     if (!depth) visible += content.slice(end, match.index)
-    if (/^<\//.test(match[0])) depth = Math.max(0, depth - 1)
-    else depth++
+    depth = /^<\//.test(match[0]) ? Math.max(0, depth - 1) : depth + 1
     end = match.index! + match[0].length
   }
   return (visible + (depth ? '' : content.slice(end))).trim()
 }
 
-/** Split only at complete top-level blocks; never cut sentences, lists or math. */
-function referencePreview(html: string) {
-  const template = document.createElement('template')
-  template.innerHTML = html
-  if ((template.content.textContent?.length || 0) <= 240 || template.content.querySelector('.katex-display, .math-fallback.is-display')) return { previewHtml: html, remainderHtml: '' }
-  const nodes = Array.from(template.content.children)
-  let length = 0, split = nodes.length
-  for (let i = 0; i < nodes.length; i++) {
-    length += nodes[i]!.textContent?.length || 0
-    if ((length >= 120 || nodes[i]!.tagName === 'P') && i < nodes.length - 1) { split = i + 1; break }
-  }
-  return { previewHtml: nodes.slice(0, split).map(node => node.outerHTML).join(''),
-    remainderHtml: nodes.slice(split).map(node => node.outerHTML).join('') }
-}
-
-/** Follow the reference reader's inclusion rules, while retaining text and conditions. */
+/** Projections contain source excerpts, never summaries or a second teaching body. */
 export function buildHandoutReference(sections: ReferenceSection[]) {
-  return sections.map(section => ({
-    id: section.id, title: section.title,
-    items: section.blocks.flatMap(block => {
+  return sections.map(section => ({ id: section.id, title: section.title,
+    items: section.blocks.flatMap((block): HandoutReference[] => {
       const type = handoutContentType(block.content_type)
-      if (type === 'answer' || block.answer_to) return []
-      // Folded answers are not part of the quick reference, even in legacy blocks.
+      if (block.answer_to || excluded.has(type)) return []
       const content = withoutFoldedContent(block.content)
       if (!content) return []
-      const kind = statementKinds[type]
-      const items: HandoutReference[] = []
-      if (kind) items.push({ id: `${block.block_id}:statement`, blockId: block.block_id,
-        title: block.title, kind, content, html: renderMarkdown(content), ...referencePreview(renderMarkdown(content)), includedInStatement: false })
+      // Python offsets count Unicode code points rather than UTF-16 code units.
+      const characters = Array.from(block.content)
+      const ranges = block.reference_schema_version === 'handout_reference_v1' ? (block.references || []).filter(ref =>
+        kinds.has(ref.kind) && Number.isInteger(ref.start) && Number.isInteger(ref.end) && ref.start >= 0 && ref.end > ref.start
+        && characters.slice(ref.start, ref.end).join('') === ref.content
+        && withoutFoldedContent(characters.slice(0, ref.end).join('')).includes(ref.content)
+        && withoutFoldedContent(ref.content) === ref.content,
+      ) : []
+      if (ranges.length) return ranges.map(ref => ({ id: `${block.block_id}:${ref.id}`, blockId: block.block_id,
+        title: ref.title, kind: ref.kind, content: ref.content, html: renderMarkdown(ref.content), mode: 'range' as const }))
+      // A marked revision with missing/invalid ranges must not silently invent an excerpt.
+      if (block.reference_schema_version && ((block.references?.length || 0) > 0 || (block.reference_issues?.length || 0) > 0)) return []
       const canonical = ['definition', 'theorem', 'rule', 'result'].includes(type)
-      const boxedProse = ['explanation', 'derivation', 'introduction'].includes(type) && content.includes('\\boxed')
-      if (!canonical && !boxedProse) return items
+      const boxed = ['explanation', 'derivation', 'introduction'].includes(type) && content.includes('\\boxed')
       const root = document.createElement('template')
       root.innerHTML = renderMarkdown(content)
-      // Markdown may wrap KaTeX's own display span; keep only the actual inner display.
       const displays = Array.from(root.content.querySelectorAll('.katex-display, .math-fallback.is-display'))
-        .filter(node => !node.querySelector('.katex-display, .math-fallback.is-display'))
-      const candidates = displays.length || boxedProse ? displays : Array.from(root.content.querySelectorAll('.katex, .math-fallback'))
-        .filter(node => node.textContent?.includes('=')).slice(0, 2)
+        .filter(node => !node.querySelector('.katex-display, .math-fallback.is-display') && !node.closest('pre, code, details'))
+      const candidates = canonical ? (displays.length ? displays : Array.from(root.content.querySelectorAll('.katex, .math-fallback'))
+        .filter(node => !node.closest('pre, code, details') && node.textContent?.includes('=')).slice(0, 2))
+        : boxed ? displays.filter(node => node.querySelector('.fbox, .boxpad')) : []
       const seen = new Set<string>(), formulas: string[] = []
       for (const formula of candidates) {
-        if (formula.closest('details')) continue
-        if (boxedProse && !formula.querySelector('.fbox, .boxpad')) continue
-        const html = formula.outerHTML
-        if (seen.has(html)) continue
-        seen.add(html)
-        // Only sanitized math from the existing renderer, never raw source HTML.
-        formulas.push(`<div class="reference-formula">${html}</div>`)
+        const source = formula.querySelector('annotation')?.textContent || formula.textContent || ''
+        if (seen.has(source)) continue
+        seen.add(source)
+        formulas.push(`<div class="reference-formula">${formula.outerHTML}</div>`)
       }
-      if (formulas.length) items.push({ id: `${block.block_id}:formulas`, blockId: block.block_id,
-        title: block.title, kind: 'formula', content, html: formulas.join(''), includedInStatement: Boolean(kind) })
-      return items
+      if (formulas.length) {
+        // Preserve adjacent, explicit conditions without copying the whole explanation.
+        const conditions = Array.from(root.content.children).filter(node => node.tagName === 'P'
+          && !node.querySelector('.katex-display, .math-fallback.is-display')
+          && (node.textContent?.length || 0) <= 300
+          && /^(?:成立条件|适用条件|条件[：:]|当|若|设|其中[，：:]|对于|where\b|provided\b|assuming\b|if\b)/i.test((node.textContent || '').trim()))
+          .map(node => node.outerHTML).join('')
+        return [{ id: `${block.block_id}:formulas`, blockId: block.block_id, title: block.title,
+          kind: 'formula' as const, content, html: formulas.join('') + conditions, mode: 'formula' as const }]
+      }
+      // Old prose remains accessible as an honest source index; no first-paragraph heuristic.
+      const kind = legacyKinds[type]
+      return kind ? [{ id: `${block.block_id}:source`, blockId: block.block_id, title: block.title,
+        kind, content, html: '', mode: 'source' as const }] : []
     }),
   }))
 }
