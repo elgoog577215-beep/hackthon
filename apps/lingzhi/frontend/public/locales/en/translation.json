@@ -8153,6 +8153,10 @@
     "dismiss": "Got it"
   },
   "handoutConcepts": {
+    "basis": "Basis",
+    "steps": "Derivation",
+    "sources": "Sources",
+
     "eyebrow": "CONCEPT CONNECTIONS",
     "title": "Concept connections",
     "hint": "Follow the connections. Select a concept to find it in the text.",

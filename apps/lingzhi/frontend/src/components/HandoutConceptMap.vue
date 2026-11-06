@@ -27,16 +27,21 @@
       </div>
       <div class="concept-relations">
         <div class="concept-relations-heading"><h4>{{ tr('relations') }}</h4><button v-if="selected" @click="selected = ''">{{ tr('showAll') }}</button></div>
-        <article v-for="edge in visibleRelations" :key="edge.id" :class="`is-${edge.type}`">
-          <div class="concept-pair"><MathText :content="conceptName(edge.source)" /><span>{{ symmetric(edge) ? '↔' : '→' }}</span><MathText :content="conceptName(edge.target)" /></div>
-          <span class="concept-relation-type">{{ relationLabel(edge.type) }}</span><MathText tag="p" :content="edge.reason" />
-          <p v-if="edge.conditions.length"><b>{{ tr('conditions') }}</b><MathText :content="edge.conditions.join('；')" /></p>
-          <p v-if="edge.groupId && ['AND', 'OR'].includes(edge.groupOperator)"><b>{{ tr(edge.groupOperator === 'OR' ? 'anyOf' : 'allOf') }}</b><MathText :content="groupNames(edge).join('、')" /></p>
-          <p v-if="edge.necessity === 'helpful'" class="concept-source">{{ tr('helpful') }}</p>
-          <p v-if="edge.distinction"><b>{{ tr('distinction') }}</b><MathText :content="edge.distinction" /></p>
-          <ol v-if="edge.steps.length"><li v-for="step in edge.steps" :key="step"><MathText :content="step" /></li></ol>
-          <p v-for="(source, index) in edge.sourceRefs" :key="index" class="concept-source"><MathText :content="sourceLabel(source)" /></p>
-        </article>
+        <details v-for="(edge, index) in visibleRelations" :key="edge.id" class="concept-relation" :class="`is-${edge.type}`" :open="index === 0">
+          <summary>
+            <span class="concept-pair"><MathText :content="conceptName(edge.source)" /><span>{{ symmetric(edge) ? '↔' : '→' }}</span><MathText :content="conceptName(edge.target)" /></span>
+            <span class="concept-relation-type">{{ relationLabel(edge.type) }}</span>
+          </summary>
+          <dl class="concept-relation-fields">
+            <div v-if="edge.reason"><dt>{{ tr('basis') }}</dt><dd><MathText :content="edge.reason" /></dd></div>
+            <div v-if="edge.conditions.length"><dt>{{ tr('conditions') }}</dt><dd><ul><li v-for="condition in edge.conditions" :key="condition"><MathText :content="condition" /></li></ul></dd></div>
+            <div v-if="edge.groupId && ['AND', 'OR'].includes(edge.groupOperator)"><dt>{{ tr(edge.groupOperator === 'OR' ? 'anyOf' : 'allOf') }}</dt><dd><MathText :content="groupNames(edge).join('、')" /></dd></div>
+            <div v-if="edge.distinction"><dt>{{ tr('distinction') }}</dt><dd><MathText :content="edge.distinction" /></dd></div>
+            <div v-if="edge.steps.length"><dt>{{ tr('steps') }}</dt><dd><ol><li v-for="(step, stepIndex) in edge.steps" :key="stepIndex"><MathText :content="step" /></li></ol></dd></div>
+            <div v-if="edge.sourceRefs.length"><dt>{{ tr('sources') }}</dt><dd><ul class="concept-sources"><li v-for="(source, sourceIndex) in edge.sourceRefs" :key="sourceIndex"><MathText :content="sourceLabel(source)" /></li></ul></dd></div>
+          </dl>
+          <p v-if="edge.necessity === 'helpful'" class="concept-relation-note">{{ tr('helpful') }}</p>
+        </details>
         <p v-if="!visibleRelations.length" class="concept-empty">{{ tr('noRelations') }}</p>
       </div>
     </template>
@@ -85,11 +90,12 @@ function sourceLabel(source: string | Record<string, unknown>) {
   let location = typeof locator === 'string' ? locator : ''
   if (locator && typeof locator === 'object' && !Array.isArray(locator)) {
     const value = locator as Record<string, unknown>
-    location = [Array.isArray(value.section_path) ? value.section_path.filter(item => typeof item === 'string').join(' › ') : '',
+    location = [Array.isArray(value.section_path) ? [...new Set(value.section_path.filter(item => typeof item === 'string'))].join(' › ') : '',
       typeof value.page === 'number' ? `${tr('page')} ${value.page}` : '',
       typeof value.slide === 'number' ? `${tr('slide')} ${value.slide}` : ''].filter(Boolean).join(' · ')
   }
-  return [source.filename || source.title || source.source_id || source.evidence_id, location].filter(Boolean).join(' · ')
+  const label = String(source.filename || source.title || source.source_id || source.evidence_id || '')
+  return location && (!label || location.startsWith(label)) ? location : [label, location].filter(Boolean).join(' · ')
 }
 function conceptName(id: string) { return current.value?.nodes.find(node => node.id === id)?.name || id }
 function coverageAnchor(id: string) { return current.value?.nodes.find(node => node.id === id)?.anchor || '' }
@@ -188,4 +194,24 @@ onBeforeUnmount(() => { panelObserver?.disconnect(); observer?.disconnect(); win
 .concept-coverage th{font-weight:500}.concept-coverage td{text-align:center}.concept-coverage small{display:block;color:#73526e;font-size:13px}.concept-coverage button{border:0;background:transparent;color:#654386;font:inherit;text-align:left;padding:0;cursor:pointer}
 .handout-concept-map:focus-visible,.handout-concept-map button:focus-visible,.concept-coverage summary:focus-visible{outline:3px solid #7953a0;outline-offset:3px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+.concept-relation { margin:8px 0; border:1px solid #e3dfeb; border-radius:8px; background:#fff; overflow:hidden; }
+.concept-relation > summary { display:flex; align-items:center; gap:8px; padding:11px 12px; cursor:pointer; list-style:none; }
+.concept-relation > summary::-webkit-details-marker { display:none; }
+.concept-relation > summary::before { content:'›'; flex:none; color:#78658e; font-size:20px; line-height:1; transition:transform .15s; }
+.concept-relation[open] > summary::before { transform:rotate(90deg); }
+.concept-relation > summary:hover { background:#f8f6fb; }
+.concept-relation > summary:focus-visible { outline:2px solid #7953a0; outline-offset:-2px; }
+.concept-relation .concept-pair { flex:1; min-width:0; gap:5px; font-size:14px; line-height:1.55; }
+.concept-relation .concept-relation-type { flex:none; margin:0; font-size:12px; color:#766187; }
+.concept-relation-fields { margin:0 12px 12px; padding-top:4px; border-top:1px solid #eeeaf3; }
+.concept-relation-fields > div { display:grid; grid-template-columns:4.5em minmax(0,1fr); gap:10px; padding:9px 0; border-bottom:1px solid #f0edf5; }
+.concept-relation-fields > div:last-child { border:0; padding-bottom:0; }
+.concept-relation-fields dt { font-size:13px; line-height:1.7; color:#766981; font-weight:600; }
+.concept-relation-fields dd { margin:0; min-width:0; overflow-wrap:anywhere; font-size:14px; line-height:1.7; color:#343c50; }
+.concept-relation-fields ol,.concept-relation-fields ul { margin:0; padding-left:18px; font-size:inherit; }
+.concept-relation-fields li + li { margin-top:6px; }
+.concept-relation-fields .concept-sources { list-style:none; padding:0; color:#697384; font-size:13px; }
+.concept-relation-note { padding:0 12px 10px; margin:0; font-size:13px; color:#766981; }
+@media(prefers-reduced-motion:reduce) { .concept-relation > summary::before { transition:none; } }
 </style>

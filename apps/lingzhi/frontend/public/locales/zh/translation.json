@@ -8153,6 +8153,10 @@
     "dismiss": "知道了"
   },
   "handoutConcepts": {
+    "basis": "关系依据",
+    "steps": "推导步骤",
+    "sources": "正文来源",
+
     "eyebrow": "CONCEPT CONNECTIONS",
     "title": "概念关系",
     "hint": "顺着关系理解知识，点击概念回到正文。",
