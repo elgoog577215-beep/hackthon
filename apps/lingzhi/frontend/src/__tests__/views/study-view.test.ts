@@ -55,43 +55,14 @@ describe('personal study handouts', () => {
     api.get.mockResolvedValue(material)
     const { wrapper } = await page('/study/material-a')
     expect(wrapper.get('.study-handout').text()).toContain('请在纸上计算结果')
-    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
     expect(wrapper.findComponent({ name: 'PersonalHandoutPractice' }).exists()).toBe(false)
     for (const locale of ['zh', 'en'] as const) {
       await setLocale(locale); await flushPromises()
-      expect(wrapper.findAll('[data-tool]').map(item => item.attributes('data-tool'))).toEqual(['note', 'assistant', 'reference', 'paths'])
+      expect(wrapper.findAll('[data-tool]').map(item => item.attributes('data-tool'))).toEqual(['assistant', 'reference', 'paths', 'note'])
     }
   })
 
-  it('restores an independent reasoning sidebar without replacing notes and remembers its switch', async () => {
-    const legacy = structuredClone(saved) as any
-    legacy.plans = [{ node_id: 's1', knowledge_structure: [{ knowledge_points: [
-      { knowledge_id: 'a', name: '向量', statement: '有大小与方向' }, { knowledge_id: 'b', name: '组合', statement: '向量的组合' },
-    ] }], knowledge_relations: [{ source_knowledge_id: 'a', target_knowledge_id: 'b', relation_type: 'derives', reason: '逐项相加', conditions: ['维度一致'], derivation_steps: ['先对齐分量', '再逐项相加'] }] }]
-    legacy.reading_tool_states = { s1: 'legacy' }
-    api.get.mockResolvedValue(legacy)
-    const { wrapper, router } = await page('/study/material-a')
-    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(true)
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(true)
-    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
-    await wrapper.get('[data-tool="paths"]').trigger('click')
-    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
-    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
-    await router.push('/study'); await flushPromises()
-    await router.push('/study/material-a'); await flushPromises()
-    expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
-    await wrapper.get('[data-tool="paths"]').trigger('click')
-    const map = wrapper.get('#study-reasoning-panel').findComponent({ name: 'HandoutConceptMap' })
-    expect(map.attributes('explanatory')).toBeUndefined()
-    expect(map.props('sections')[0].relations[0].steps).toEqual(['先对齐分量', '再逐项相加'])
-    await setLocale('en'); await flushPromises()
-    expect(wrapper.get('#study-reasoning-panel').attributes('aria-label')).toBe('Knowledge map')
-    const close = wrapper.get('#study-reasoning-panel button[aria-label="Close knowledge map"]')
-    ;(close.element as HTMLElement).focus()
-    await close.trigger('click'); await flushPromises()
-    expect(document.activeElement).toBe(wrapper.get('[data-tool="paths"]').element)
-  })
 
   it('does not interpret an unavailable auth configuration as disabled login, and reconnects', async () => {
     api.config.mockRejectedValueOnce(new Error('HTTP 500'))
@@ -314,50 +285,11 @@ describe('personal study handouts', () => {
     expect(wrapper.get('.study-block-tag').text()).toBe('Definition')
   })
 
-  it('filters the directory without changing the handout and keeps notes when the directory is hidden', async () => {
-    const material = structuredClone(saved)
-    material.revisions[0]!.sections.push({ ...material.revisions[0]!.sections[0]!, id: 's2', title: '第二章', blocks: [] })
-    api.get.mockResolvedValue(material)
-    const { wrapper } = await page('/study/material-a')
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    await wrapper.get('.study-note textarea').setValue('目录调整时保留的草稿')
-    await wrapper.get('.study-chapter-search input').setValue('第二章')
-    expect(wrapper.findAll('.study-chapter-list button')).toHaveLength(1)
-    expect(wrapper.get('.study-chapter-number').text()).toBe('02')
-    expect(wrapper.findAll('.study-handout-section')).toHaveLength(2)
-    await wrapper.get('.study-directory-heading button').trigger('click')
-    expect(wrapper.find('.study-navigation').exists()).toBe(false)
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '目录调整时保留的草稿')
-    await wrapper.get('button[aria-label="展开目录"]').trigger('click')
-    expect(wrapper.get('.study-chapter-search input').element).toHaveProperty('value', '第二章')
-    await wrapper.get('.study-chapter-search input').setValue('没有这个章节')
-    expect(wrapper.text()).toContain('没有匹配的章节')
-    expect(wrapper.findAll('.study-handout-section')).toHaveLength(2)
-    expect(api.note).not.toHaveBeenCalled()
-  })
 
-  it('keeps an unsaved note after save failure and saves it to its material revision on retry', async () => {
-    const { wrapper } = await page('/study/material-a')
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '已保存的理解')
-    await wrapper.get('.study-note textarea').setValue('新的理解与问题')
-    await wrapper.get('.study-tool-heading button').trigger('click')
-    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新的理解与问题')
-    api.note.mockRejectedValueOnce(new Error('保存失败')).mockResolvedValueOnce({})
-    await wrapper.get('.study-note button').trigger('click'); await flushPromises()
-    expect(wrapper.text()).toContain('保存失败')
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新的理解与问题')
-    expect(wrapper.text()).toContain('笔记尚未保存')
-    await wrapper.get('.study-note button').trigger('click'); await flushPromises()
-    expect(api.note).toHaveBeenLastCalledWith('material-a', 'revision-a', '新的理解与问题')
-    expect(wrapper.text()).toContain('笔记已保存')
-  })
 
   it('opens the assistant on demand and binds a real reading selection to the exact owned block', async () => {
     const { wrapper } = await page('/study/material-a')
-    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+    expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
     await wrapper.get('[data-tool="assistant"]').trigger('click')
     expect(wrapper.get('.study-reading-tools').isVisible()).toBe(true)
     const assistant = wrapper.getComponent({ name: 'PersonalHandoutAssistant' })
@@ -372,15 +304,6 @@ describe('personal study handouts', () => {
     selection.removeAllRanges()
   })
 
-  it('restores private note drafts without copying one student’s draft to another', async () => {
-    sessionStorage.setItem('lingzhi-study-note:student-a:material-a:revision-a', '未提交的草稿')
-    sessionStorage.setItem('lingzhi-study-note:student-b:material-a:revision-a', '另一人的笔记')
-    const { wrapper } = await page('/study/material-a')
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '未提交的草稿')
-    expect(wrapper.text()).not.toContain('另一人的笔记')
-    expect(api.note).not.toHaveBeenCalled()
-  })
 
   it('loads an interrupted job without automatically resuming it', async () => {
     api.get.mockResolvedValue({ ...structuredClone(saved), status: 'failed', task: { id: 'task-a', status: 'paused', progress: 50 } })
@@ -559,22 +482,6 @@ describe('personal study handouts', () => {
     expect(api.generate).not.toHaveBeenCalled()
   })
 
-  it('keeps visible reading and the current unsaved note while reconnecting the same material', async () => {
-    const { wrapper } = await page('/study/material-a')
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    await wrapper.get('.study-note textarea').setValue('重连时保留我的笔记')
-    api.note.mockRejectedValueOnce(new Error('笔记暂未保存'))
-    await wrapper.get('.study-note button').trigger('click'); await flushPromises()
-    let complete!: (value: unknown) => void
-    api.get.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
-    await wrapper.get('.study-error button').trigger('click'); await flushPromises()
-    expect(wrapper.text()).toContain('真实讲义正文')
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '重连时保留我的笔记')
-    complete(structuredClone(saved)); await flushPromises()
-    expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '重连时保留我的笔记')
-    expect(wrapper.text()).toContain('笔记尚未保存')
-    expect(api.note).toHaveBeenCalledTimes(1)
-  })
 
 })
 
@@ -582,6 +489,7 @@ describe('personal study handouts', () => {
 it.each(['direct', 'materials'])('offers the same concept recovery for %s handouts', async generation_mode => {
   api.get.mockResolvedValue({ ...structuredClone(saved), generation_mode, concepts_complete: false })
   const { wrapper } = await page('/study/material-a')
+  await wrapper.get('[data-tool="paths"]').trigger('click')
   expect(wrapper.text()).toContain('部分阅读辅助尚未整理或已过期')
   expect(wrapper.text()).not.toContain('当前没有资料来源关系图')
   const resume = wrapper.findAll('button').find(button => button.text() === '补齐缺失内容与阅读辅助')!
@@ -600,6 +508,7 @@ it('keeps a partial concept map visible during generation without offering a dup
   api.get.mockResolvedValue(partial)
   const { wrapper } = await page('/study/material-a')
   expect(wrapper.text()).not.toContain('正在整理思维链')
+  await wrapper.get('[data-tool="paths"]').trigger('click')
   expect(wrapper.find('.concept-map-stub').exists()).toBe(true)
   expect(wrapper.findAll('button').some(button => button.text() === '补齐缺失内容与阅读辅助')).toBe(false)
 })
@@ -619,40 +528,7 @@ it('continues the upload batch after a rejected file and identifies the failed f
   expect(wrapper.get('.study-error').text()).toContain('无法解析文件')
 })
 
-it('does not let unavailable browser draft storage block generation or note saving', async () => {
-  const { wrapper } = await page('/study?create=1')
-  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError') })
-  try {
-    await wrapper.get('input[placeholder="例如：C语言：面向图像项目"]').setValue('C语言')
-    api.generate.mockResolvedValueOnce(saved)
-    await wrapper.get('form.study-create').trigger('submit'); await flushPromises()
-    expect(api.generate).toHaveBeenCalledTimes(1)
-    await wrapper.get('[data-tool="note"]').trigger('click')
-    await wrapper.get('.study-note textarea').setValue('服务器仍可保存')
-    api.note.mockResolvedValueOnce({})
-    await wrapper.get('.study-note button').trigger('click'); await flushPromises()
-    expect(api.note).toHaveBeenCalledWith('material-a', 'revision-a', '服务器仍可保存')
-  } finally { storage.mockRestore() }
-})
 
-it('reads the latest revision and binds notes and the assistant to that same revision', async () => {
-  const latest = structuredClone(saved)
-  latest.revisions.push({ ...structuredClone(saved.revisions[0]!), id: 'revision-new',
-    sections: [{ ...structuredClone(saved.revisions[0]!.sections[0]!), title: '新版章节',
-      blocks: [{ ...saved.revisions[0]!.sections[0]!.blocks[0]!, content: '新版正文' }] }] })
-  api.get.mockResolvedValue(latest)
-  const { wrapper } = await page('/study/material-a')
-  expect(wrapper.text()).toContain('新版正文')
-  expect(wrapper.text()).not.toContain('真实讲义正文')
-  await wrapper.get('[data-tool="assistant"]').trigger('click')
-  expect(wrapper.getComponent({ name: 'PersonalHandoutAssistant' }).props('revisionId')).toBe('revision-new')
-  await wrapper.get('[data-tool="note"]').trigger('click')
-  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '')
-  await wrapper.get('.study-note textarea').setValue('新版笔记')
-  api.note.mockResolvedValueOnce({})
-  await wrapper.get('.study-note button').trigger('click'); await flushPromises()
-  expect(api.note).toHaveBeenCalledWith('material-a', 'revision-new', '新版笔记')
-})
 
 
 it('stops a batch immediately when the student session expires', async () => {
@@ -666,73 +542,10 @@ it('stops a batch immediately when the student session expires', async () => {
   expect(wrapper.find('form.study-create').exists()).toBe(false)
 })
 
-it('ignores a late note-save receipt after returning to a newer revision', async () => {
-  const { wrapper, router } = await page('/study/material-a')
-  await wrapper.get('[data-tool="note"]').trigger('click')
-  await wrapper.get('.study-note textarea').setValue('旧版提交')
-  let complete!: (result: unknown) => void
-  api.note.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
-  await wrapper.get('.study-note button').trigger('click')
-  await router.push('/study'); await flushPromises()
-  const latest = { ...structuredClone(saved), notes: { 'revision-new': { content: '新版已保存笔记', updated_at: '' } },
-    revisions: [{ ...structuredClone(saved.revisions[0]!), id: 'revision-new' }] }
-  api.get.mockResolvedValue(latest)
-  await router.push('/study/material-a'); await flushPromises()
-  if (!wrapper.get('.study-reading-tools').isVisible()) await wrapper.get('[data-tool="note"]').trigger('click')
-  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新版已保存笔记')
-  complete({}); await flushPromises()
-  expect(wrapper.get('.study-note textarea').element).toHaveProperty('value', '新版已保存笔记')
-  expect(wrapper.text()).not.toContain('笔记尚未保存')
-})
 
 
-it('coordinates mobile drawers and restores the desktop directory after resizing', async () => {
-  vi.stubGlobal('innerWidth', 390)
-  const { wrapper } = await page('/study/material-a')
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
-  expect(wrapper.find('.study-navigation').exists()).toBe(true)
-  await wrapper.get('[data-tool="note"]').trigger('click')
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-  await wrapper.get('.study-tool-heading button').trigger('click')
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-  await wrapper.get('[data-tool="assistant"]').trigger('click')
-  expect(wrapper.get('.learning-dock').isVisible()).toBe(false)
-  expect(wrapper.get('.study-reading-tools').attributes('role')).toBe('dialog')
-  await wrapper.get('.study-tool-heading button').trigger('click')
-  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
-  expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
-  expect(wrapper.find('.column-resize-handle').exists()).toBe(false)
-  vi.stubGlobal('innerWidth', 1440); window.dispatchEvent(new Event('resize')); await flushPromises()
-  expect(wrapper.find('.study-navigation').exists()).toBe(true)
-  await wrapper.get('.study-directory-heading button').trigger('click')
-  vi.stubGlobal('innerWidth', 390); window.dispatchEvent(new Event('resize')); await flushPromises()
-  vi.stubGlobal('innerWidth', 1440); window.dispatchEvent(new Event('resize')); await flushPromises()
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-})
 
-it('protects the reading width on medium screens without losing the preferred directory', async () => {
-  vi.stubGlobal('innerWidth', 900)
-  const { wrapper } = await page('/study/material-a')
-  await wrapper.get('[data-tool="note"]').trigger('click')
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-  await wrapper.get('.study-tool-heading button').trigger('click')
-  expect(wrapper.find('.study-navigation').exists()).toBe(true)
-})
 
-it('returns from mobile directory navigation to the passage without reopening a tool', async () => {
-  vi.stubGlobal('innerWidth', 390)
-  const { wrapper } = await page('/study/material-a')
-  expect(wrapper.findAll('.learning-dock__actions [data-tool]').map(b => b.attributes('data-tool'))).toEqual(['note', 'assistant', 'reference', 'paths'])
-  await wrapper.get('[data-tool="paths"]').trigger('click')
-  await wrapper.get('.study-tool-heading button').trigger('click')
-  await wrapper.get('button[aria-label="展开目录"]').trigger('click')
-  await wrapper.get('.study-chapter-list button').trigger('click')
-  await flushPromises()
-  expect(wrapper.get('.study-reading-tools').isVisible()).toBe(false)
-  expect(wrapper.find('.study-navigation').exists()).toBe(false)
-  expect(wrapper.find('.study-jump-target').exists()).toBe(true)
-})
 
 it('restores reading preferences for the current student', async () => {
   localStorage.setItem('lingzhi-study-reading:student-a', JSON.stringify({ size: 21, font: 'sans' }))
@@ -747,7 +560,6 @@ it('restores reading preferences for the current student', async () => {
 it('keeps reference filters and reading position across tools, but clears them for another material', async () => {
   const { wrapper, router } = await page('/study/material-a')
   await wrapper.get('[data-tool="reference"]').trigger('click')
-  await wrapper.get('.aid-scope-toggle').trigger('click')
   await wrapper.get('.aid-search-toggle').trigger('click')
   await wrapper.get('.handout-reference .aid-toolbar input').setValue('向量')
   const results = wrapper.get('.reference-results').element
@@ -766,7 +578,7 @@ it('keeps reference filters and reading position across tools, but clears them f
   await router.push('/study/material-b'); await flushPromises()
   await wrapper.get('[data-tool="reference"]').trigger('click')
   expect(wrapper.find('.aid-toolbar input').exists()).toBe(false)
-  expect(wrapper.get('.aid-scope-toggle').attributes('aria-pressed')).toBe('false')
+  expect(wrapper.find('.aid-scope-toggle').exists()).toBe(false)
 })
 
 it('renders formulas in reading titles and directory labels instead of exposing delimiters', async () => {
@@ -784,12 +596,19 @@ it('renders formulas in reading titles and directory labels instead of exposing 
 })
 
 
-it('keeps phone landscape tools full screen instead of splitting a short reading rail', async () => {
-  vi.stubGlobal('innerWidth', 844)
-  vi.stubGlobal('innerHeight', 390)
+
+
+it('unifies four sidebar tabs and keeps only notebook and actual location in the bottom bar', async () => {
   const { wrapper } = await page('/study/material-a')
-  await wrapper.get('[data-tool="reference"]').trigger('click')
-  expect(wrapper.get('.study-reading-tools').attributes('role')).toBe('dialog')
-  expect(wrapper.find('.study-reasoning-panel').exists()).toBe(false)
-  expect(wrapper.get('.learning-dock').isVisible()).toBe(false)
+  expect(wrapper.findAll('[role="tab"]').map(b=>b.attributes('data-tool'))).toEqual(['assistant','reference','paths','note'])
+  expect(wrapper.find('#study-reasoning-panel').exists()).toBe(false)
+  expect(wrapper.get('.study-bottom-bar').text()).toContain('第一章')
+  expect(wrapper.find('.study-note-add').exists()).toBe(false)
+  await wrapper.get('[data-tool="note"]').trigger('click'); await flushPromises()
+  expect(wrapper.findComponent({name:'ReadingNotesPanel'}).exists()).toBe(true)
+  expect(wrapper.find('.notes-legacy').exists()).toBe(false)
+  expect(wrapper.find('.study-note textarea').exists()).toBe(false)
+  await wrapper.get('[data-tool="reference"]').trigger('click'); await flushPromises()
+  expect(wrapper.find('.aid-scope-toggle').exists()).toBe(false)
+  expect(wrapper.get('[data-tool="reference"]').attributes('aria-selected')).toBe('true')
 })

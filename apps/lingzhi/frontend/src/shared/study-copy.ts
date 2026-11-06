@@ -1,6 +1,10 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  notesUnlocated: ['旧笔记 · 未定位', 'Older note · No passage'],
+  readingTools: ['阅读工具', 'Reading tools'],
+  conceptRelations: ['概念关系', 'Concepts'],
+  currentLocation: ['当前位置', 'Current location'],
   conceptsInterrupted: ['正文已完成；概念关系整理中断，可继续整理。', 'The handout is complete. Concept extraction stopped; you can continue it.'],
   reference: ['速览', 'Quick reference'],
   referenceHint: ['按正文类型汇总定义、定理、结论、方法与易错点；公式保留条件与上下文入口。', 'Definitions, theorems, results, methods and pitfalls from the handout. Formula entries retain their conditions and context.'],
@@ -49,7 +53,7 @@ const messages = {
   notesMyText: ['我的记录', 'My note'], notesTextPlaceholder: ['记下自己的理解、疑问或补充，也可以只标记原文。', 'Write your understanding, question or addition, or simply mark the passage.'],
   notesQuestionState: ['疑问状态', 'Question status'], notesNoQuestion: ['无疑问', 'No question'], notesDiscuss: ['与 AI 讨论', 'Discuss with AI'],
   notesMarked: ['已标记原文', 'Passage marked'], notesMyRecord: ['我的笔记', 'My note'], notesAIOrigin: ['AI 参与整理', 'Organized with AI'],
-  notesEmpty: ['选中正文标记或写批注，也可以随手记下本讲的想法。', 'Select a passage to mark or annotate it, or add a note for this lecture.'],
+  notesEmpty: ['选中正文中的文字，即可在对应位置标记或写批注。', 'Select a passage to mark or annotate it. Your note stays attached to that passage.'],
   notesHistorical: ['来自旧版正文，摘录与笔记仍保留。', 'From an earlier revision. Your passage and note are preserved.'],
   notesMissingSource: ['原位置已不可用，摘录与笔记仍保留。', 'The original location is unavailable. Your passage and note are preserved.'],
   notesChangedSource: ['原文已变化，请核对摘录后再使用。', 'The passage has changed. Check the saved excerpt before using it.'],

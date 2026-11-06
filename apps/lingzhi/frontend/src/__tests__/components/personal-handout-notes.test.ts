@@ -73,7 +73,7 @@ describe('personal notes', () => {
     await view.get('.note-editor header button').trigger('click')
     expect(view.get('input[type="search"]').element).toHaveProperty('value', '理解')
     expect(view.get('.notes-filters select').element).toHaveProperty('value', 'open')
-    expect(view.get('.notes-legacy').attributes('open')).toBeUndefined()
+    expect(view.find('.notes-legacy').exists()).toBe(false)
   })
   it('does not attach a newer unsaved note to the old save response', async () => {
     const view = page([])

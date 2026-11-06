@@ -1,18 +1,14 @@
 <template>
   <section class="personal-notes" :class="{ 'is-editing': !!editor }" :aria-label="c('note')">
     <div v-if="!editor" class="reading-aid-controls">
-      <div class="notes-heading"><strong>{{ c('notesNotebook') }}</strong><ElButton plain @click="create({})"><Plus :size="15" />{{ c('notesNew') }}</ElButton></div>
-      <template v-if="!editor">
-      <div class="reading-aid-scope" role="group" :aria-label="c('referenceScope')"><button v-for="s in ['current', 'all'] as const" :key="s" :aria-pressed="scope === s" @click="scope = s">{{ c(s === 'current' ? 'referenceCurrent' : 'referenceAllCourse') }}</button></div>
       <input v-model="query" type="search" :placeholder="c('notesSearch')" :aria-label="c('notesSearch')" />
       <div class="notes-filters"><select v-model="filter" :aria-label="c('notesFilter')"><option value="all">{{ c('referenceAll') }}</option><option value="important">{{ c('notesImportant') }}</option><option value="open">{{ c('notesOpen') }}</option><option value="answered">{{ c('notesAnswered') }}</option></select><select v-model="sourceType" :aria-label="c('notesSourceType')"><option value="">{{ c('notesAllTypes') }}</option><option v-for="type in sourceTypes" :key="type" :value="type">{{ typeLabel(type) }}</option></select></div>
-      </template>
     </div>
     <div ref="results" class="reading-aid-results">
       <p v-if="!draftStorageAvailable" role="alert">{{ c('notesDraftUnavailable') }}</p>
       <div v-if="editor" ref="editorRoot" class="note-editor">
         <header><ElButton text :disabled="saving" @click="closeEditor"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesBack') }}</ElButton><button class="note-important" :aria-pressed="editor.important" @click="editor.important = !editor.important"><Star :size="16" :fill="editor.important ? 'currentColor' : 'none'" />{{ c('notesImportant') }}</button></header>
-        <p class="note-location"><MathText :content="editor.section_title || c('notesCourseWide')" /><template v-if="editor.block_title"> · <MathText :content="editor.block_title" /></template></p>
+        <p class="note-location"><MathText :content="editor.section_title || c('notesUnlocated')" /><template v-if="editor.block_title"> · <MathText :content="editor.block_title" /></template></p>
         <blockquote v-if="editor.quote"><small>{{ c('notesSource') }}</small><MathText :content="editor.quote" /></blockquote>
         <p v-if="editor.location_status !== 'current'" class="notes-status">{{ locationLabel(editor.location_status) }}</p>
         <label class="note-input-label"><span class="note-input-caption">{{ c('notesMyText') }}</span><ElInput v-model="editor.content" type="textarea" :rows="10" :maxlength="20000" resize="none" :aria-label="c('notesMyText')" :placeholder="c('notesTextPlaceholder')" /></label>
@@ -26,14 +22,14 @@
       <p v-if="error && !editor" role="alert">{{ error }}</p>
       <p v-if="!visible.length && !editor" class="notes-empty">{{ c(query || filter !== 'all' || sourceType ? 'referenceNoMatches' : 'notesEmpty') }}</p>
       <article v-for="note in editor ? [] : visible" :key="note.id" class="personal-note-card" :class="{ selected: editor?.id === note.id }" :data-note-id="note.id">
-        <header><small><MathText :content="note.section_title || c('notesCourseWide')" /><span v-if="note.content_type" class="note-type">{{ typeLabel(note.content_type) }}</span></small><button :aria-label="c(note.important ? 'notesUnmark' : 'notesImportant')" :aria-pressed="note.important" :disabled="saving" @click="toggleImportant(note)"><Star :size="16" :fill="note.important ? 'currentColor' : 'none'" /></button></header>
+        <header><small><MathText :content="note.section_title || c('notesUnlocated')" /><span v-if="note.content_type" class="note-type">{{ typeLabel(note.content_type) }}</span></small><button :aria-label="c(note.important ? 'notesUnmark' : 'notesImportant')" :aria-pressed="note.important" :disabled="saving" @click="toggleImportant(note)"><Star :size="16" :fill="note.important ? 'currentColor' : 'none'" /></button></header>
         <div class="note-card-preview"><blockquote v-if="note.quote"><MathText :content="note.quote" /></blockquote><MarkdownRenderer v-if="note.content" :content="note.content" :enable-code-run="false" /><span v-else>{{ c('notesMarked') }}</span></div>
         <p v-if="note.location_status !== 'current'" class="notes-status">{{ locationLabel(note.location_status) }}</p>
         <footer><span v-if="note.question_state !== 'none' || note.source_type === 'ai'" class="note-state" :class="{ 'is-question': note.question_state === 'open' }">{{ c(note.question_state === 'open' ? 'notesOpen' : note.question_state === 'answered' ? 'notesAnswered' : note.source_type === 'ai' ? 'notesAIOrigin' : 'notesMyRecord') }}</span><button v-if="note.location_status === 'current' && (note.block_id || note.section_id)" @click="emit('locate', note)"><ArrowUpRight :size="14" aria-hidden="true" />{{ c('referenceJump') }}</button><button class="note-card-open" @click="open(note)"><Pencil :size="14" aria-hidden="true" />{{ c('notesEdit') }}</button></footer>
         <div v-if="deleting === note.id" class="note-delete-confirm"><span>{{ c('notesDeleteConfirm') }}</span><ElButton plain :disabled="saving" @click="remove(note)">{{ c('notesDelete') }}</ElButton><ElButton plain @click="deleting = ''">{{ c('notesCancel') }}</ElButton></div>
         <button v-else class="note-delete" :aria-label="c('notesDelete')" @click="deleting = note.id"><Trash2 :size="13" /></button>
       </article>
-      <details v-if="!editor" class="notes-legacy"><summary>{{ c('notesCourseWide') }}</summary><slot name="legacy" /></details>
+
     </div>
   </section>
 </template>
@@ -42,7 +38,7 @@
 import "../styles/study-tool-controls.css"
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElButton, ElInput } from 'element-plus'
-import { Plus, Star, Trash2, Save, MessageCircle, ArrowLeft, Pencil, ArrowUpRight } from 'lucide-vue-next'
+import { Star, Trash2, Save, MessageCircle, ArrowLeft, Pencil, ArrowUpRight } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { studyApi, StudyApiError, type StudyNote, type StudyNoteInput, type StudySection, type NoteDraftSuggestion } from '../api/study'
@@ -54,7 +50,7 @@ const props = defineProps<{ ownerId: string; materialId: string; revisionId: str
 const emit = defineEmits<{ saved: [note: StudyNote]; removed: [id: string]; locate: [note: StudyNote]; discuss: [payload: { note: StudyNote; draft: string }]; sessionExpired: [error: StudyApiError] }>()
 type Editor = StudyNote & { request_id: string; pending_ai_message_id?: string }
 type NoteContext = { section_id?: string; block_id?: string; quote?: string; anchor_prefix?: string; anchor_suffix?: string; content?: string; question_state?: StudyNote['question_state']; source_message_id?: string }
-const scope = ref<'current' | 'all'>('current'), query = ref(''), filter = ref('all'), sourceType = ref('')
+const scope = ref<'current' | 'all'>('all'), query = ref(''), filter = ref('all'), sourceType = ref('')
 const editor = ref<Editor | null>(null), results = ref<HTMLElement | null>(null), conflict = ref<StudyNote | null>(null)
 const editorRoot = ref<HTMLElement | null>(null)
 let editorGeneration = 0, disposed = false
@@ -182,7 +178,8 @@ try { const active = sessionStorage.getItem(key); if (active) { const draft = ca
 watch(() => props.notes, notes => { const current = notes.find(n => n.id === editor.value?.id); if (!current || !editor.value) return; editor.value.location_status = current.location_status; if (current.version !== editor.value.version) conflict.value = current }, { deep: true })
 onBeforeUnmount(() => { persist(); disposed = true; editorGeneration++ })
 function currentDraft(noteId: string) { return editor.value?.id === noteId ? editor.value.content : cached(noteId)?.content }
-defineExpose({ create, open, receiveSuggestion, save, currentDraft })
+const editing = computed(() => !!editor.value)
+defineExpose({ editing, create, open, receiveSuggestion, save, currentDraft })
 </script>
 
 <style scoped>

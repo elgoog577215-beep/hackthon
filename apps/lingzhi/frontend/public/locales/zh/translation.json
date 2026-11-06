@@ -3599,6 +3599,7 @@
     "noResults": "没有匹配的内容，试试其他关键词。"
   },
   "readingNotes": {
+    "selectionHint": "选中正文中的文字，笔记会贴在对应位置。",
     "tabs": "阅读侧栏",
     "title": "笔记",
     "following": "随正文滚动",

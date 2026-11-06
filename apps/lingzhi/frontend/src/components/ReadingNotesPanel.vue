@@ -4,9 +4,9 @@
       <button type="button" class="follow-toggle" :aria-pressed="following" @click="toggleFollowing">
         <Link2 :size="15" /><span>{{ following ? t('readingNotes.following', '随正文滚动') : t('readingNotes.resume', '恢复跟随正文') }}</span>
       </button>
-      <button type="button" class="quick-note-button" :disabled="!courseStore.currentNode" @click="emit('create', $event)"><Plus :size="15" />{{ t('quickNote.title', '随手记') }}</button>
+      <button v-if="!externalNotes" type="button" class="quick-note-button" :disabled="!courseStore.currentNode" @click="emit('create', $event)"><Plus :size="15" />{{ t('quickNote.title', '随手记') }}</button>
     </header>
-    <div class="reading-notes-location" data-companion-obstacle><MathText :content="courseStore.currentNode?.node_name || t('readingNotes.selectSection', '选择一讲开始阅读')" /></div>
+    <div class="reading-notes-location" data-companion-obstacle><MathText :content="locationTitle || courseStore.currentNode?.node_name || t('readingNotes.selectSection', '选择一讲开始阅读')" /></div>
     <details v-if="looseNotes.length" class="loose-notes" data-companion-obstacle>
       <summary>{{ t('readingNotes.sectionNotes', '本讲其他笔记') }} <span>{{ looseNotes.length }}</span></summary>
       <button v-for="note in looseNotes" :key="note.id" type="button" @click="openNote(note, $event)">
@@ -14,14 +14,15 @@
         <small>{{ note.quote ? t('readingNotes.unlocated', '原文待定位') : t('readingNotes.sectionOnly', '记录在本讲') }}</small>
       </button>
     </details>
-    <div ref="viewport" class="reading-notes-viewport" tabindex="0" @wheel.passive="following = false" @keydown="onScrollKey">
+    <div ref="viewport" class="reading-notes-viewport" tabindex="0" @scroll="scheduleRefresh" @wheel.passive="following = false" @keydown="onScrollKey">
       <div v-if="!positioned.length" class="reading-notes-empty" data-companion-obstacle>
         <NotebookPen :size="26" />
         <p>{{ t('readingNotes.empty', '读到哪里，笔记就跟到哪里') }}</p>
-        <span>{{ t('readingNotes.emptyHint', '选中正文记笔记，或用随手记记录想法。') }}</span>
-        <button type="button" @click="emit('notebook')">{{ t('readingNotes.allNotes', '查看全部笔记') }}</button>
+        <span>{{ externalNotes ? t('readingNotes.selectionHint', '选中正文中的文字，笔记会贴在对应位置。') : t('readingNotes.emptyHint', '选中正文记笔记，或用随手记记录想法。') }}</span>
+        <button v-if="!externalNotes" type="button" @click="emit('notebook')">{{ t('readingNotes.allNotes', '查看全部笔记') }}</button>
       </div>
-      <div v-else class="reading-notes-canvas" :style="{ height: `${canvasHeight}px` }">
+      <svg v-if="externalNotes" class="reading-note-connectors" aria-hidden="true"><path v-for="line in connectors" :key="line.id" :d="line.path" /></svg>
+      <div v-if="positioned.length" class="reading-notes-canvas" :style="{ height: `${canvasHeight}px` }">
         <article v-for="item in positioned" :key="item.note.id" class="reading-note-strip" :class="{ 'is-current': item.note.id === currentNoteId }" :data-note-id="item.note.id" :data-color="item.note.sourceType === 'ai' ? 'violet' : item.note.color" :style="{ top: `${item.top}px` }" data-companion-obstacle>
           <button type="button" class="reading-note-main" @click="openNote(item.note, $event)">
             <span class="reading-note-quote"><MathText :content="item.note.quote" /></span>
@@ -46,7 +47,7 @@ import type { Note } from '../stores/types'
 import { t } from '../shared/i18n'
 import MathText from './MathText.vue'
 
-const props = defineProps<{ visible: boolean }>()
+const props = defineProps<{ visible: boolean; externalNotes?: Note[]; readingRoot?: HTMLElement | null; locationTitle?: string; resolveRect?: (note: Note) => DOMRect | null }>()
 const emit = defineEmits<{
   open: [payload: { note: Note; x: number; y: number }]
   locate: [note: Note]
@@ -60,10 +61,11 @@ const following = ref(true)
 const positioned = ref<Array<{ note: Note; top: number }>>([])
 const canvasHeight = ref(0)
 const currentNoteId = ref('')
-const notes = computed(() => noteStore.notes.filter(note => (!note.recordType || note.recordType === 'note') && note.sourceType !== 'format' && note.sourceType !== 'wrong'))
+const connectors = ref<{id:string;path:string}[]>([])
+const notes = computed(() => (props.externalNotes || noteStore.notes).filter(note => (!note.recordType || note.recordType === 'note') && note.sourceType !== 'format' && note.sourceType !== 'wrong'))
 const looseNotes = computed(() => {
   const located = new Set(positioned.value.map(item => item.note.id))
-  return notes.value.filter(note => note.nodeId === courseStore.currentNode?.node_id && !located.has(note.id))
+  return notes.value.filter(note => (props.externalNotes || note.nodeId === courseStore.currentNode?.node_id) && !located.has(note.id))
 })
 let root: HTMLElement | null = null
 let observer: MutationObserver | undefined
@@ -78,6 +80,10 @@ async function refresh() {
   if (!root || !viewport.value) return
   const rootRect = root.getBoundingClientRect()
   const rows = notes.value.flatMap(note => {
+    if (props.resolveRect) {
+      const rect = props.resolveRect(note)
+      return rect ? [{ note, top: rect.top - rootRect.top + root!.scrollTop }] : []
+    }
     if (!note.highlightId) return []
     const anchor = document.getElementById(note.highlightId)
       || root!.querySelector<HTMLElement>(`[id^="${CSS.escape(note.highlightId)}-"]`)
@@ -97,6 +103,13 @@ async function refresh() {
   if (following.value && viewport.value) {
     viewport.value.scrollTop = Math.max(0, root.scrollTop + viewport.value.getBoundingClientRect().top - rootRect.top)
   }
+  const rail = viewport.value.getBoundingClientRect()
+  connectors.value = props.resolveRect ? positioned.value.flatMap(item => {
+    const rect = props.resolveRect!(item.note)
+    const y = rail.top + item.top - viewport.value!.scrollTop + 24
+    if (!rect || rect.bottom < rootRect.top || rect.top > rootRect.bottom || y < rail.top || y > rail.bottom) return []
+    return [{id:item.note.id,path:`M ${rect.right} ${rect.bottom} L ${rail.left + 12} ${y}`}]
+  }) : []
 }
 function scheduleRefresh() {
   if (frame !== null) return
@@ -113,7 +126,7 @@ function openNote(note: Note, event: MouseEvent) {
 watch(() => [props.visible, courseStore.currentNode?.node_id, notes.value.map(note => `${note.id}:${note.quote}:${note.content}:${note.syncState}`).join('|')], scheduleRefresh)
 watch(() => courseStore.currentCourseId, () => { following.value = true; positioned.value = []; currentNoteId.value = ''; scheduleRefresh() })
 onMounted(() => {
-  root = document.getElementById('content-scroll-container')
+  root = props.readingRoot || document.getElementById('content-scroll-container')
   root?.addEventListener('scroll', scheduleRefresh, { passive: true })
   root?.addEventListener('load', scheduleRefresh, true)
   window.addEventListener('resize', scheduleRefresh)
@@ -170,4 +183,5 @@ onBeforeUnmount(() => {
 .loose-notes > button { display:flex; flex-direction:column; gap:4px; width:100%; padding:8px 0; border:0; border-top:1px solid var(--lz-border); margin-top:8px; text-align:left; color:var(--lz-text); background:transparent; cursor:pointer; }
 .loose-notes > button > :first-child { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .loose-notes small { color:var(--lz-text-secondary); }
+.reading-note-connectors{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:8;overflow:visible}.reading-note-connectors path{stroke:#c9b778;stroke-width:1;fill:none}
 </style>

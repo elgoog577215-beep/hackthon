@@ -3599,6 +3599,7 @@
     "noResults": "No matches. Try another keyword."
   },
   "readingNotes": {
+    "selectionHint": "Select a passage. Your note stays attached to it.",
     "tabs": "Reading sidebar",
     "title": "Notes",
     "following": "Follow reading",
