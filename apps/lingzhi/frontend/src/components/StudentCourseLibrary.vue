@@ -74,24 +74,38 @@
             }}<ArrowRight :size="16" /></RouterLink
         ></template>
         <template #details>
-          <details
-            v-if="derivedFor(course.course_id).length"
-            class="course-resources personal-course-materials"
+          <nav
+            v-if="course.reading_available"
+            class="course-tools"
+            :aria-label="`${course.title} · ${t('studentWorkspace.courseTools')}`"
           >
-            <summary>
-              {{ t("workspaceUi.courseMaterials") }} ·
-              {{ derivedFor(course.course_id).length }}
-            </summary>
             <RouterLink
-              v-for="item in derivedFor(course.course_id)"
-              :key="item.id"
-              :to="`/study/${encodeURIComponent(item.id)}`"
-              >{{ item.title }}</RouterLink
+              v-for="tool in tools"
+              :key="tool"
+              :to="studentCourseLink(course.course_id, tool)"
+              :aria-label="t(`studentWorkspace.${tool}`)"
+              :title="t(`studentWorkspace.${tool}`)"
+              >{{ courseToolLabel(tool) }}</RouterLink
             >
-          </details>
+          </nav>
           <details class="course-resources">
-            <summary>{{ t("workspaceUi.courseDetails") }}</summary>
+            <summary>{{ copy("课程资料与沟通", "More course options") }}</summary>
             <template v-if="course.reading_available">
+              <section
+                v-if="derivedFor(course.course_id).length"
+                class="personal-course-materials"
+              >
+                <h3>
+                  {{ t("workspaceUi.courseMaterials") }} ·
+                  {{ derivedFor(course.course_id).length }}
+                </h3>
+                <RouterLink
+                  v-for="item in derivedFor(course.course_id)"
+                  :key="item.id"
+                  :to="`/study/${encodeURIComponent(item.id)}`"
+                  >{{ item.title }}</RouterLink
+                >
+              </section>
               <div class="course-card-actions">
                 <ElButton
                   native-type="button"
@@ -100,34 +114,23 @@
                 >
                   {{
                     copy(
-                      "生成个人复习讲义",
-                      "Create a personal revision handout",
+                      "生成复习讲义",
+                      "Create revision handout",
                     )
                   }}
                 </ElButton>
-              </div>
-              <nav
-                class="course-tools"
-                :aria-label="`${course.title} · ${t('studentWorkspace.courseTools')}`"
-              >
-                <RouterLink
-                  v-for="tool in tools"
-                  :key="tool"
-                  :to="studentCourseLink(course.course_id, tool)"
-                  >{{ t(`studentWorkspace.${tool}`) }}</RouterLink
+                <ElButton
+                  native-type="button"
+                  class="course-detail-toggle"
+                  :aria-expanded="detailCourseId === course.course_id"
+                  @click="
+                    detailCourseId =
+                      detailCourseId === course.course_id ? '' : course.course_id
+                  "
                 >
-              </nav>
-              <ElButton
-                native-type="button"
-                class="course-detail-toggle"
-                :aria-expanded="detailCourseId === course.course_id"
-                @click="
-                  detailCourseId =
-                    detailCourseId === course.course_id ? '' : course.course_id
-                "
-              >
-                {{ t("studentWorkspace.coursePath") }}
-              </ElButton>
+                  {{ t("studentWorkspace.coursePath") }}
+                </ElButton>
+              </div>
               <StudentLearningPath
                 compact
                 v-if="detailCourseId === course.course_id"
@@ -281,6 +284,16 @@ const tools: StudentWorkspaceTool[] = [
   "knowledge",
   "overview",
 ];
+function courseToolLabel(tool: StudentWorkspaceTool) {
+  if (activeLocale.value === "en") {
+    if (tool === "mistakes") return "Review";
+    if (tool === "knowledge") return "Map";
+    if (tool === "overview") return "Stats";
+  }
+  return tool === "overview"
+    ? copy("概况", "Stats")
+    : t(`studentWorkspace.${tool}`);
+}
 const courses = ref<StudyCourse[]>([]),
   reading = ref(false),
   acting = ref(false),
@@ -290,9 +303,21 @@ const filter = ref(props.initialFilter),
   materialsOwner = ref("");
 const loading = computed(() => reading.value || acting.value);
 const filters = computed(() => [
-  { value: "all" as const, label: t("workspaceUi.allCourses") },
-  { value: "teacher" as const, label: t("workspaceUi.teacherCourses") },
-  { value: "owned" as const, label: t("workspaceUi.ownedCourses") },
+  {
+    value: "all" as const,
+    label: activeLocale.value === "en" ? "All" : t("workspaceUi.allCourses"),
+    title: t("workspaceUi.allCourses"),
+  },
+  {
+    value: "teacher" as const,
+    label: activeLocale.value === "en" ? "Teacher" : t("workspaceUi.teacherCourses"),
+    title: t("workspaceUi.teacherCourses"),
+  },
+  {
+    value: "owned" as const,
+    label: activeLocale.value === "en" ? "Mine" : t("workspaceUi.ownedCourses"),
+    title: t("workspaceUi.ownedCourses"),
+  },
 ]);
 const matches = (title: string) =>
   title.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase());
@@ -508,40 +533,73 @@ p {
 .course-start {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  color: var(--lz-brand-strong);
-  font-weight: 600;
-  text-decoration: none;
+  gap: 7px;
 }
 .course-resources {
-  margin-top: 16px;
+  margin-top: 12px;
   border-top: 1px solid var(--lz-border);
-  padding-top: 14px;
+  padding-top: 10px;
 }
 .personal-course-materials a {
   display: block;
-  padding: 10px 0;
+  padding: 8px 0;
   color: var(--lz-brand-strong);
   text-decoration: none;
   font-size: 15px;
+}
+.personal-course-materials { margin-top: 14px; }
+.personal-course-materials h3 {
+  margin: 0;
+  color: var(--lz-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
 }
 .course-resources summary {
   cursor: pointer;
   font-size: 15px;
   color: var(--lz-text-secondary);
 }
-.course-card-actions,
-.course-tools {
+.course-card-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
 }
+.course-card-actions :deep(.el-button:not(.is-text):not(.is-link):not(.el-button--small)) {
+  min-height: 44px;
+  height: auto;
+  max-width: 100%;
+  line-height: 1.3;
+  white-space: normal;
+}
+.course-card-actions .course-detail-toggle { margin-top: 0; }
+.course-tools {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid var(--lz-border);
+  border-radius: 12px;
+  background: #f7f8fb;
+}
 .course-tools a {
-  color: var(--lz-brand-strong);
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 4px;
+  border-radius: 8px;
+  color: var(--lz-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
   text-decoration: none;
 }
+.course-tools a:hover { color: var(--lz-brand-strong); background: #fff; }
+.course-tools a:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 1px; }
 .course-detail-toggle,
 .feedback-button {
   margin-top: 14px;
@@ -593,4 +651,8 @@ summary:focus-visible {
 .library-search { flex: 0 1 330px; min-width: 240px; }
 .library-filter-tabs { --ui-segment-font-size: 15px; }
 .student-courses :deep(.el-button + .el-button) { margin-left: 0; }
+@media (max-width: 380px) {
+  .student-courses { padding: 16px; }
+  .course-tools a { padding-inline: 2px; font-size: 13px; }
+}
 </style>

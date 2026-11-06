@@ -76,7 +76,7 @@ describe('authorized student course library', () => {
     const source = { id: 'source-a', filename: '线性代数.md', sections: [] }
     api.courseSource.mockResolvedValue(source)
     const view = await page()
-    await view.findAll('button').find(b => b.text() === '生成个人复习讲义')!.trigger('click')
+    await view.findAll('button').find(b => b.text() === '生成复习讲义')!.trigger('click')
     await flushPromises()
     expect(api.courseSource).toHaveBeenCalledExactlyOnceWith('course-a', 'revision-a')
     expect(view.emitted('source')).toEqual([[source]])
@@ -84,7 +84,7 @@ describe('authorized student course library', () => {
   it('keeps a stale-revision error visible without emitting a source or starting generation', async () => {
     api.courseSource.mockRejectedValue(new Error('教师讲义已更新'))
     const view = await page()
-    await view.findAll('button').find(b => b.text() === '生成个人复习讲义')!.trigger('click')
+    await view.findAll('button').find(b => b.text() === '生成复习讲义')!.trigger('click')
     await flushPromises()
     expect(view.get('[role="alert"]').text()).toBe('教师讲义已更新')
     expect(view.emitted('source')).toBeUndefined()
@@ -93,7 +93,7 @@ describe('authorized student course library', () => {
     await setLocale('en')
     const view = await page()
     expect(view.text()).toContain('Authorized courses')
-    expect(view.text()).toContain('Create a personal revision handout')
+    expect(view.text()).toContain('Create revision handout')
     await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
     expect(view.text()).toContain('Continue unfinished practice')
   })
@@ -129,7 +129,7 @@ describe('authorized student course library', () => {
     let finish: (value: unknown) => void = () => {}
     api.courseSource.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     const view = await page()
-    await view.findAll('button').find(button => button.text() === '生成个人复习讲义')!.trigger('click')
+    await view.findAll('button').find(button => button.text() === '生成复习讲义')!.trigger('click')
     await view.setProps({ userId: 'student-b' }); await flushPromises()
     finish({ id: 'private-source', filename: '原账号资料' }); await flushPromises()
     expect(view.emitted('source')).toBeUndefined()
