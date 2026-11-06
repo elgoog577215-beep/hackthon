@@ -47,13 +47,7 @@
         :course-id="course.course_id"
         :title="course.title"
       >
-        <template #title
-          ><RouterLink
-            v-if="course.reading_available"
-            :to="studentCourseLink(course.course_id)"
-            >{{ course.title }}</RouterLink
-          ><span v-else>{{ course.title }}</span></template
-        >
+        <template #title><span>{{ course.title }}</span></template>
         <p v-if="course.update_available" class="update-hint">
           {{ copy("教师发布了新版本", "Your teacher published an update") }}
         </p>
@@ -65,138 +59,105 @@
             )
           }}
         </p>
-        <template #actions
-          ><RouterLink
+        <template #actions>
+          <RouterLink
             v-if="course.reading_available"
             class="course-start"
             :to="studentCourseLink(course.course_id)"
-            >{{ t("workspaceUi.readCourse")
-            }}<ArrowRight :size="16" /></RouterLink
-        ></template>
-        <template #details>
-          <nav
-            v-if="course.reading_available"
-            class="course-tools"
-            :aria-label="`${course.title} · ${t('studentWorkspace.courseTools')}`"
           >
-            <RouterLink
-              v-for="tool in tools"
-              :key="tool"
-              :to="studentCourseLink(course.course_id, tool)"
-              :aria-label="t(`studentWorkspace.${tool}`)"
-              :title="t(`studentWorkspace.${tool}`)"
-              >{{ courseToolLabel(tool) }}</RouterLink
-            >
-          </nav>
-          <details class="course-resources">
-            <summary>{{ copy("课程资料与沟通", "More course options") }}</summary>
-            <template v-if="course.reading_available">
-              <section
+            {{ t("workspaceUi.readCourse") }}<ArrowRight :size="15" />
+          </RouterLink>
+        </template>
+        <template #menu>
+          <details
+            v-if="hasCourseOptions(course)"
+            class="course-actions-menu"
+            @keydown.esc="closeMenu"
+          >
+            <summary :aria-label="copy('更多课程选项', 'More course options')">
+              <MoreHorizontal :size="18" />
+            </summary>
+            <div class="course-actions-menu__panel">
+              <button
+                v-if="course.reading_available"
+                type="button"
+                :aria-expanded="detailCourseId === course.course_id"
+                @click="chooseMenuAction($event, () => toggleCoursePath(course.course_id))"
+              >
+                {{ t("studentWorkspace.coursePath") }}
+              </button>
+              <button
+                v-if="course.reading_available"
+                type="button"
+                :disabled="acting || loading"
+                @click="chooseMenuAction($event, () => derive(course))"
+              >
+                {{ copy("生成复习讲义", "Create revision handout") }}
+              </button>
+              <button
                 v-if="derivedFor(course.course_id).length"
-                class="personal-course-materials"
+                type="button"
+                data-testid="student-course-materials-toggle"
+                @click="chooseMenuAction($event, () => toggleCourseMaterials(course.course_id))"
               >
-                <h3>
-                  {{ t("workspaceUi.courseMaterials") }} ·
-                  {{ derivedFor(course.course_id).length }}
-                </h3>
-                <RouterLink
-                  v-for="item in derivedFor(course.course_id)"
-                  :key="item.id"
-                  :to="`/study/${encodeURIComponent(item.id)}`"
-                  >{{ item.title }}</RouterLink
-                >
-              </section>
-              <div class="course-card-actions">
-                <ElButton
-                  native-type="button"
-                  :disabled="loading"
-                  @click="derive(course)"
-                >
-                  {{
-                    copy(
-                      "生成复习讲义",
-                      "Create revision handout",
-                    )
-                  }}
-                </ElButton>
-                <ElButton
-                  native-type="button"
-                  class="course-detail-toggle"
-                  :aria-expanded="detailCourseId === course.course_id"
-                  @click="
-                    detailCourseId =
-                      detailCourseId === course.course_id ? '' : course.course_id
-                  "
-                >
-                  {{ t("studentWorkspace.coursePath") }}
-                </ElButton>
-              </div>
-              <StudentLearningPath
-                compact
-                v-if="detailCourseId === course.course_id"
-                :key="`${course.course_id}:${course.revision_id}:${pathGeneration}`"
-                :course-id="course.course_id"
-                :title="course.title"
-              />
-            </template>
-            <p v-else>
-              {{
-                copy(
-                  "教师尚未提供讲义",
-                  "The teacher has not provided a handout yet",
-                )
-              }}
-            </p>
-            <div v-if="course.update_available" class="course-update">
-              <strong>{{
-                copy("教师发布了新版本", "Your teacher published an update")
-              }}</strong>
-              <p>
-                {{
-                  copy(
-                    "更新后继续学习，原作答与笔记保留。",
-                    "Continue with the new version; previous attempts and notes are retained.",
-                  )
-                }}
-              </p>
-              <ElButton :disabled="loading" @click="update(course)">
+                {{ t("workspaceUi.courseMaterials") }} ·
+                {{ derivedFor(course.course_id).length }}
+              </button>
+              <button
+                v-if="course.update_available"
+                type="button"
+                :disabled="acting || loading"
+                @click="chooseMenuAction($event, () => update(course))"
+              >
                 {{ copy("使用新版本", "Use new version") }}
-              </ElButton>
-            </div>
-            <section
-              v-if="course.published_ppts?.length"
-              class="published-ppts"
-            >
-              <h3>{{ copy("教师发布的 PPT", "Published PPTs") }}</h3>
-              <ElButton
-                v-for="ppt in course.published_ppts"
+              </button>
+              <button
+                v-for="ppt in course.published_ppts || []"
                 :key="ppt.asset_id"
-                :disabled="loading"
-                @click="downloadPpt(course, ppt.asset_id, ppt.filename)"
+                type="button"
+                :disabled="acting || loading"
+                @click="chooseMenuAction($event, () => downloadPpt(course, ppt.asset_id, ppt.filename))"
               >
-                {{ copy("下载", "Download") }} {{ ppt.filename }}
-              </ElButton>
-            </section>
-            <ElButton
-              v-if="course.exchange_origin"
-              class="feedback-button"
-              :aria-expanded="feedbackCourse === course.course_id"
-              @click="
-                feedbackCourse =
-                  feedbackCourse === course.course_id ? '' : course.course_id
-              "
-            >
-              {{
-                copy("课程提问与教师回复", "Questions & teacher replies")
-              }}</ElButton
-            ><StudentCourseFeedback
-              v-if="
-                course.exchange_origin && feedbackCourse === course.course_id
-              "
-              :course-id="course.course_id"
-              :revision-id="course.revision_id"
-            /></details
-        ></template>
+                {{ copy("下载", "Download") }} · {{ ppt.filename }}
+              </button>
+              <button
+                v-if="course.exchange_origin"
+                type="button"
+                :aria-expanded="feedbackCourse === course.course_id"
+                @click="chooseMenuAction($event, () => toggleCourseFeedback(course.course_id))"
+              >
+                {{ copy("课程提问与教师回复", "Questions & teacher replies") }}
+              </button>
+            </div>
+          </details>
+        </template>
+        <template #details>
+          <section
+            v-if="materialsCourseId === course.course_id"
+            class="course-card-panel personal-course-materials"
+          >
+            <h3>{{ t("workspaceUi.courseMaterials") }}</h3>
+            <RouterLink
+              v-for="item in derivedFor(course.course_id)"
+              :key="item.id"
+              :to="`/study/${encodeURIComponent(item.id)}`"
+            >{{ item.title }}</RouterLink>
+          </section>
+          <StudentLearningPath
+            v-if="detailCourseId === course.course_id"
+            compact
+            class="course-card-panel"
+            :key="`${course.course_id}:${course.revision_id}:${pathGeneration}`"
+            :course-id="course.course_id"
+            :title="course.title"
+          />
+          <StudentCourseFeedback
+            v-if="course.exchange_origin && feedbackCourse === course.course_id"
+            class="course-card-panel"
+            :course-id="course.course_id"
+            :revision-id="course.revision_id"
+          />
+        </template>
       </CourseLibraryCard>
       <CourseLibraryCard
         v-for="item in visibleMaterials"
@@ -210,13 +171,31 @@
           }}</RouterLink></template
         >
         <p v-if="item.status !== 'completed'" role="status">{{ statusLabel(item.status) }}</p>
-        <template #actions
-          ><RouterLink
+        <template #actions>
+          <RouterLink
             class="course-start"
             :to="`/study/${encodeURIComponent(item.id)}`"
-            >{{ t("workspaceUi.readCourse")
-            }}<ArrowRight :size="16" /></RouterLink
-        ></template>
+          >
+            {{ t("workspaceUi.readCourse") }}<ArrowRight :size="15" />
+          </RouterLink>
+        </template>
+        <template #menu>
+          <details class="course-actions-menu">
+            <summary :aria-label="copy('更多课程选项', 'More course options')">
+              <MoreHorizontal :size="18" />
+            </summary>
+            <div class="course-actions-menu__panel">
+              <button
+                type="button"
+                :disabled="item.status !== 'completed' || acting || loading"
+                :title="item.status === 'completed' ? undefined : copy('讲义完成后可下载', 'Available after the handout is complete')"
+                @click="chooseMenuAction($event, () => exportHandout(item))"
+              >
+                {{ copy("下载讲义", "Download handout") }}
+              </button>
+            </div>
+          </details>
+        </template>
       </CourseLibraryCard>
     </div>
     <p
@@ -240,7 +219,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElButton, ElInput } from "element-plus";
 import UiSegmentedControl from "./UiSegmentedControl.vue";
-import { ArrowRight, Plus, Search } from "lucide-vue-next";
+import { ArrowRight, MoreHorizontal, Plus, Search } from "lucide-vue-next";
 import {
   studyApi,
   type StudyCourse,
@@ -252,10 +231,7 @@ import { activeLocale, t } from "../shared/i18n";
 import { studyCopy as c, type StudyCopyKey } from "../shared/study-copy";
 import StudentLearningPath from "./StudentLearningPath.vue";
 import CourseLibraryCard from "./CourseLibraryCard.vue";
-import {
-  studentCourseLink,
-  type StudentWorkspaceTool,
-} from "../shared/student-workspace";
+import { studentCourseLink } from "../shared/student-workspace";
 import StudentCourseFeedback from "./StudentCourseFeedback.vue";
 
 const props = withDefaults(
@@ -276,24 +252,9 @@ const emit = defineEmits<{
 const copy = (zh: string, en: string) =>
   activeLocale.value === "en" ? en : zh;
 const detailCourseId = ref(""),
+  materialsCourseId = ref(""),
   feedbackCourse = ref(""),
   pathGeneration = ref(0);
-const tools: StudentWorkspaceTool[] = [
-  "practice",
-  "mistakes",
-  "knowledge",
-  "overview",
-];
-function courseToolLabel(tool: StudentWorkspaceTool) {
-  if (activeLocale.value === "en") {
-    if (tool === "mistakes") return "Review";
-    if (tool === "knowledge") return "Map";
-    if (tool === "overview") return "Stats";
-  }
-  return tool === "overview"
-    ? copy("概况", "Stats")
-    : t(`studentWorkspace.${tool}`);
-}
 const courses = ref<StudyCourse[]>([]),
   reading = ref(false),
   acting = ref(false),
@@ -400,6 +361,8 @@ async function load() {
       courses.value = result;
       if (!result.some((course) => course.course_id === detailCourseId.value))
         detailCourseId.value = "";
+      if (!result.some((course) => course.course_id === materialsCourseId.value))
+        materialsCourseId.value = "";
       pathGeneration.value++;
     }
   } catch (cause) {
@@ -420,6 +383,7 @@ watch(
     controller?.abort();
     courses.value = [];
     detailCourseId.value = "";
+    materialsCourseId.value = "";
     feedbackCourse.value = "";
     error.value = "";
     acting.value = false;
@@ -446,6 +410,33 @@ async function runAction(operation: (valid: () => boolean) => Promise<void>) {
     if (valid()) acting.value = false;
   }
 }
+function chooseMenuAction(event: Event, action: () => unknown) {
+  const menu = (event.currentTarget as HTMLElement).closest<HTMLDetailsElement>(
+    ".course-actions-menu",
+  );
+  if (menu) menu.open = false;
+  void action();
+}
+function closeMenu(event: KeyboardEvent) {
+  (event.currentTarget as HTMLDetailsElement).open = false;
+}
+function hasCourseOptions(course: StudyCourse) {
+  return Boolean(
+    course.reading_available ||
+      course.update_available ||
+      course.published_ppts?.length ||
+      course.exchange_origin,
+  );
+}
+function toggleCoursePath(courseId: string) {
+  detailCourseId.value = detailCourseId.value === courseId ? "" : courseId;
+}
+function toggleCourseMaterials(courseId: string) {
+  materialsCourseId.value = materialsCourseId.value === courseId ? "" : courseId;
+}
+function toggleCourseFeedback(courseId: string) {
+  feedbackCourse.value = feedbackCourse.value === courseId ? "" : courseId;
+}
 function derive(course: StudyCourse) {
   return runAction(async (valid) => {
     const source = await studyApi.courseSource(
@@ -459,6 +450,21 @@ function update(course: StudyCourse) {
   return runAction(async (valid) => {
     await studyApi.updateCourse(course.course_id, course.revision_id);
     if (valid()) await load();
+  });
+}
+function exportHandout(item: StudySummary) {
+  return runAction(async (valid) => {
+    const blob = await studyApi.export(item.id);
+    if (!valid()) return;
+    const url = URL.createObjectURL(blob),
+      link = document.createElement("a");
+    try {
+      link.href = url;
+      link.download = `${item.title}.md`;
+      link.click();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   });
 }
 function downloadPpt(course: StudyCourse, assetId: string, filename: string) {
@@ -528,94 +534,37 @@ p {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
+}
+.course-library-card__meta :deep(p) {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .course-start {
   display: inline-flex;
   align-items: center;
   gap: 7px;
 }
-.course-resources {
-  margin-top: 12px;
-  border-top: 1px solid var(--lz-border);
-  padding-top: 10px;
+.course-card-panel {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
 }
 .personal-course-materials a {
   display: block;
-  padding: 8px 0;
+  padding: 6px 0;
   color: var(--lz-brand-strong);
   text-decoration: none;
-  font-size: 15px;
+  font-size: 14px;
 }
-.personal-course-materials { margin-top: 14px; }
+.personal-course-materials { display: grid; gap: 2px; }
 .personal-course-materials h3 {
-  margin: 0;
+  margin: 0 0 4px;
   color: var(--lz-text-secondary);
   font-size: 14px;
   font-weight: 600;
-}
-.course-resources summary {
-  cursor: pointer;
-  font-size: 15px;
-  color: var(--lz-text-secondary);
-}
-.course-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
-}
-.course-card-actions :deep(.el-button:not(.is-text):not(.is-link):not(.el-button--small)) {
-  min-height: 44px;
-  height: auto;
-  max-width: 100%;
-  line-height: 1.3;
-  white-space: normal;
-}
-.course-card-actions .course-detail-toggle { margin-top: 0; }
-.course-tools {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 3px;
-  margin-top: 14px;
-  padding: 4px;
-  border: 1px solid var(--lz-border);
-  border-radius: 12px;
-  background: #f7f8fb;
-}
-.course-tools a {
-  min-width: 0;
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 4px;
-  border-radius: 8px;
-  color: var(--lz-text-secondary);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-align: center;
-  text-decoration: none;
-}
-.course-tools a:hover { color: var(--lz-brand-strong); background: #fff; }
-.course-tools a:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 1px; }
-.course-detail-toggle,
-.feedback-button {
-  margin-top: 14px;
-}
-.course-update,
-.published-ppts {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--lz-border);
-}
-.published-ppts h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-.course-update button {
-  margin-top: 10px;
 }
 .update-hint {
   color: var(--lz-brand-strong);
@@ -653,6 +602,5 @@ summary:focus-visible {
 .student-courses :deep(.el-button + .el-button) { margin-left: 0; }
 @media (max-width: 380px) {
   .student-courses { padding: 16px; }
-  .course-tools a { padding-inline: 2px; font-size: 13px; }
 }
 </style>
