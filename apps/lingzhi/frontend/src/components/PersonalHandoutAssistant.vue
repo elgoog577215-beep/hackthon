@@ -43,7 +43,7 @@ import { studyApi, StudyApiError, type AssistantContext, type AssistantConversat
 import { activeLocale, t } from '../shared/i18n'
 import { studyCopy as c } from '../shared/study-copy'
 import { useFollowingScroll } from '../composables/useFollowingScroll'
-const props = defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext; note?: StudyNote; noteDraft?: string }>()
+const props = withDefaults(defineProps<{ ownerId: string; materialId: string; revisionId: string; context: AssistantContext; note?: StudyNote; noteDraft?: string; visible?: boolean }>(), { visible: true })
 const emit = defineEmits<{ clearQuote: []; sessionExpired: [error: StudyApiError]; saveReply: [message: AssistantMessage]; noteDraft: [value: NoteDraftSuggestion]; returnNote: []; clearNote: [] }>()
 const promptIcons = { aiExplain: BookOpen, aiExample: Lightbulb, aiDiagram: Network }
 const prompts = ['aiExplain','aiExample','aiDiagram'] as const
@@ -54,7 +54,7 @@ const historyLoading = ref(false), historyReady = ref(false)
 const threadContent = ref<HTMLElement | null>(null)
 const visibleMessages = computed(() => (conversation.value?.messages || []).filter(m => props.note ? m.context_ref.note_id === props.note.id : !m.context_ref.note_id))
 const { followingLatest, handleMessageScroll, scrollToBottom } = useFollowingScroll(thread,
-  () => [visibleMessages.value.length, visibleMessages.value.at(-1)?.content], () => true, threadContent)
+  () => [visibleMessages.value.length, visibleMessages.value.at(-1)?.content], () => props.visible !== false, threadContent)
 const newMessageIds = ref(new Set<string>())
 let knownMessages: Set<string> | undefined
 const sentDrafts = new Set<string>()

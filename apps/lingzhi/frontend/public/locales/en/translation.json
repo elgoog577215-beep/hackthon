@@ -8154,6 +8154,8 @@
     "dismiss": "Got it"
   },
   "handoutConcepts": {
+    "nearby": "Current connections",
+    "wholeSection": "Whole lecture",
     "basis": "Basis",
     "steps": "Derivation",
     "sources": "Sources",

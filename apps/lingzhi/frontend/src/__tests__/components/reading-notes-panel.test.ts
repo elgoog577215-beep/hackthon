@@ -46,3 +46,21 @@ describe('ReadingNotesPanel', () => {
     wrapper.unmount()
   })
 })
+
+
+it('binds the reading root when a saved notes tab mounts before the parent document ref is ready', async () => {
+  const callbacks: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => {callbacks.push(fn);return callbacks.length})
+  vi.stubGlobal('cancelAnimationFrame',vi.fn())
+  const root=document.createElement('div');document.body.append(root)
+  root.getBoundingClientRect=()=>({top:100,bottom:900} as DOMRect)
+  Object.defineProperty(root,'scrollHeight',{value:2000})
+  const pinia=createPinia()
+  const wrapper=mount(ReadingNotesPanel,{props:{visible:true,readingRoot:null,externalNotes:[note('a')],resolveRect:()=>({top:300,bottom:320,right:600} as DOMRect)},global:{plugins:[pinia]}})
+  callbacks.splice(0).forEach(fn=>fn(0));await flushPromises()
+  expect(wrapper.find('.reading-note-strip').exists()).toBe(false)
+  await wrapper.setProps({readingRoot:root})
+  callbacks.splice(0).forEach(fn=>fn(0));await flushPromises()
+  expect(wrapper.find('.reading-note-strip').exists()).toBe(true)
+  wrapper.unmount()
+})

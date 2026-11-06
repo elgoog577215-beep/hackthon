@@ -32,7 +32,7 @@ from teaching_diagrams import teaching_diagram_prompt
 from handout_content import handout_writing_guide
 from handout_reference import reference_writing_guide
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v47"
+PROMPT_CONTRACT_VERSION = "course_prompt_v48"
 
 
 def handout_source_projection(lesson: dict[str, Any]) -> dict[str, Any]:
@@ -138,7 +138,6 @@ def build_handout_prompt(
         "每个内容块先输出独占行 <!-- block:{\"type\":\"类型\",\"title\":\"具体标题\",\"key\":\"本节内唯一键\"} -->，随后写该块 Markdown 正文。"
         "下一块标记、小节标记或响应结束即结束当前块，不另写块结束标记。"
         + handout_writing_guide()
-        + reference_writing_guide()
         + "例子、图表、代码和公式服务当前块的教学目的，不把表达形式当作新的教学类型。"
         "正文是速览的唯一来源，不另输出速览、公式清单或重复摘要。定义、定理、结论分别使用 definition、theorem、result 教学块，标题写具体名称，成立条件和完整解释留在同一正文块。"
         "核心公式用独立行的 $$...$$ 数学格式；适合行内书写的短等式可用 $...$。正文推导中需突出最终结论时可用行间 \\boxed{...}，不为速览捏造公式，不把代码或纯文字定义强改为等式。编程课程的变量、语法和数据结构定义使用 definition 块，算法或操作流程使用 method 块，原样保留必要条件、步骤和代码，不硬凑数学公式。例题、练习和答案保持各自类型，不混入定义或定理块。"
@@ -164,7 +163,7 @@ def build_handout_prompt(
         "围绕一个问题连贯展开概念、依据、推导和应用，让读者不依赖课堂口述也能学会；不以引用教材或‘显然’省略关键步骤。"
         "重点以准确的内容类型和简洁具体的标题表达；适量加粗关键条件与结论，不整段加粗，不靠大量提示框取代正文。"
         "普通解释与推导保持连续，定理和结论必须说明适用条件，易错点交代错误原因与正确判断，自测题应能检验本讲目标。"
-        "正文只写内容，视觉呈现由页面承担；不输出 HTML、CSS、::: 样式指令或字体颜色命令。"
+        "正文只写内容，视觉呈现由页面承担；除规定的 section、block、reference 元数据注释外，不输出 HTML、CSS、::: 样式指令或字体颜色命令。"
         "自定义块也必须服务学习目标；典故有可靠依据才作史实引用，否则明确为假设情境，不能编造出处。"
         "事实、题设、假设与推论分清：材料未说明不等于事实不存在，相关不等于因果，例子不能偷换输入或补造前提。"
         "沿原题设核对推导与操作的每一步；只输出核对后的结论，不混入相互矛盾的试算。对比时区分抽象概念、实现与应用条件，不把常见做法写成唯一可能。"
@@ -176,6 +175,7 @@ def build_handout_prompt(
         "全部小节及内容块写完、代码与公式闭合后正常结束响应：\n"
         + layout
         + teaching_diagram_prompt()
+        + reference_writing_guide()
         + "\n\n提交前检查输出协议：所有小节及内容块均已输出；块标记中的 JSON 在一行内闭合。"
         "本次必须完成全部请求小节，正文完整后正常结束响应。"
     )

@@ -21,3 +21,13 @@ describe('personal note source anchors', () => {
     expect(resolvePersonalAnchor(root, { quote: 'deleted source' })).toBeNull()
   })
 })
+
+
+it('can recover legacy localized-label context only for a verified unchanged and unique quote', () => {
+  const root = document.createElement('div'); root.innerHTML = '<p>这是一条原文。</p>'
+  const legacy = {quote:'这是一条原文。',anchor_prefix:'ExplanationIntroduction'}
+  expect(resolvePersonalAnchor(root,legacy)).toBeNull()
+  expect(resolvePersonalAnchor(root,legacy,{allowUniqueQuote:true})?.toString()).toBe(legacy.quote)
+  root.innerHTML += '<p>这是一条原文。</p>'
+  expect(resolvePersonalAnchor(root,legacy,{allowUniqueQuote:true})).toBeNull()
+})

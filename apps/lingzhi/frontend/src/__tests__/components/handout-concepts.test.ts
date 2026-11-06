@@ -228,3 +228,16 @@ it('clears a removed map focus when the available knowledge changes', async () =
   expect(wrapper.get('.map-lecture button').text()).toContain('新概念')
   wrapper.unmount()
 })
+
+
+it('uses the parent reading position and defaults to direct connections without losing the whole lecture', async () => {
+  const section = buildHandoutConceptSections(plans, reading)[0]!
+  section.nodes.push({id:'unrelated',name:'无关概念',statement:'',anchor:'b9',external:false})
+  const wrapper = mount(HandoutConceptMap, {props:{sections:[section],currentSection:'s1',currentBlockAnchor:'b2'}})
+  expect(wrapper.find('[data-concept-id="unrelated"]').exists()).toBe(false)
+  expect(wrapper.get('.concept-view-switch button').attributes('aria-pressed')).toBe('true')
+  await wrapper.findAll('.concept-view-switch button')[1]!.trigger('click')
+  expect(wrapper.find('[data-concept-id="unrelated"]').exists()).toBe(true)
+  expect(wrapper.find('.concept-sections').exists()).toBe(false)
+  wrapper.unmount()
+})

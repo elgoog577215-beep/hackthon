@@ -32,11 +32,15 @@ export function capturePersonalAnchor(root: HTMLElement, range: Range) {
   return { quote, anchor_prefix: at === undefined ? '' : data.text.slice(Math.max(0, at - 60), at),
     anchor_suffix: at === undefined ? '' : data.text.slice(at + quote.length, at + quote.length + 60) }
 }
-export function resolvePersonalAnchor(root: HTMLElement, anchor: { quote: string; anchor_prefix?: string; anchor_suffix?: string }): Range | null {
+export function resolvePersonalAnchor(root: HTMLElement, anchor: { quote: string; anchor_prefix?: string; anchor_suffix?: string }, options: { allowUniqueQuote?: boolean } = {}): Range | null {
   const data = index(root), quote = normalize(anchor.quote)
-  const matches = occurrences(data.text, quote).filter(start =>
+  const allMatches = occurrences(data.text, quote)
+  let matches = allMatches.filter(start =>
     (!anchor.anchor_prefix || data.text.slice(0, start).trimEnd().endsWith(normalize(anchor.anchor_prefix)))
     && (!anchor.anchor_suffix || data.text.slice(start + quote.length).trimStart().startsWith(normalize(anchor.anchor_suffix))))
+  // Legacy anchors included localized UI labels. Only a caller that verified
+  // the unchanged source revision may accept a unique quote without that context.
+  if (!matches.length && options.allowUniqueQuote && allMatches.length === 1) matches = allMatches
   if (matches.length !== 1) return null
   const first = data.position[matches[0]!]!, last = data.position[matches[0]! + quote.length - 1]!
   if (!first || !last) return null

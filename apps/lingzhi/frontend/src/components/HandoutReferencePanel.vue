@@ -2,10 +2,10 @@
   <section class="handout-reference" :aria-label="c('reference')">
     <ReadingAidToolbar :hide-scope="true" v-model:scope="scope" v-model:query="query" :placeholder="c('referenceSearch')" :current-title="sections.find(section => section.id === currentSection)?.title" />
     <p v-if="hasUnavailableReferences" class="reference-source-note" role="status">{{ c('referenceUnavailable') }}</p>
-    <div ref="results" class="reference-results" @scroll="onReferenceScroll" @wheel.passive="markUserScroll" @pointerdown="markUserScroll" @keydown="markUserScroll" tabindex="0" :aria-label="c('reference')">
+    <div ref="results" class="reference-results" @scroll="onReferenceScroll" @wheel.passive="claim" @pointerdown="claimScrollbar" @keydown="claimKeys" tabindex="0" :aria-label="c('reference')">
       <section v-for="section in visible" :key="section.id" class="reference-section" :class="{ 'is-current': section.id === currentSection }" :data-reference-section="section.id">
         <h3><MathText :content="section.title" /></h3>
-        <article v-for="item in section.items" :key="item.id" class="reference-item" :data-reference-kind="item.kind" :data-reference-block="item.blockId" :class="{ 'is-current': item.blockId === currentBlock }"><button type="button" class="reference-open" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId)">
+        <article v-for="item in section.items" :key="item.id" class="reference-item" :data-reference-kind="item.kind" :data-reference-block="item.blockId" :data-reference-id="item.id" :class="{ 'is-current': item.id === activeReferenceId }"><button type="button" class="reference-open" :aria-label="`${c('referenceJump')}：${item.title}`" @click="emit('jump', item.blockId, item.id)">
           <span class="reference-item-heading">
             <span class="reference-item-title"><MathText :content="item.title" /></span>
             <span class="reference-jump">{{ c('referenceJump') }} <ArrowUpRight :size="14" aria-hidden="true" /></span>
@@ -21,22 +21,31 @@
 </template>
 
 <script setup lang="ts">
+import { readingScrollKeys, type ReadingOwner } from '../composables/useReadingNavigation'
 import ReadingAidToolbar from './ReadingAidToolbar.vue'
 import { computed, nextTick, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowUpRight } from 'lucide-vue-next'
 import MathText from './MathText.vue'
 import { studyCopy as c } from '../shared/study-copy'
 import { buildHandoutReference, type ReferenceSection } from '../utils/handout-reference'
-const props = defineProps<{ sections: ReferenceSection[]; currentSection: string; currentBlock?: string }>()
-const emit = defineEmits<{ jump: [blockId: string] }>()
-const scope = ref<'all' | 'current'>('all'), query = ref('')
-const index = computed(() => buildHandoutReference(props.sections).map((section, index) => ({ ...section, number: index + 1 })))
+const props = defineProps<{ sections: ReferenceSection[]; currentSection: string; currentBlock?: string; navigationOwner?: ReadingOwner; currentReference?: string }>()
+const emit = defineEmits<{ jump: [blockId: string, referenceId?: string]; follow: [blockId: string, referenceId: string]; claim: [] }>()
+const query = ref('')
+const scope = ref<'all' | 'current'>('all')
+const index = computed(() => buildHandoutReference(props.sections))
 const visible = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return index.value.filter(section => scope.value === 'all' || section.id === (props.currentSection || props.sections[0]?.id))
-    .map(section => ({ ...section, items: section.items.filter(item =>
-      (!needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)),
-    ) })).filter(section => section.items.length)
+  return index.value.map(section => ({ ...section, items: section.items.filter(item => !needle || `${section.title} ${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) })).filter(s => s.items.length)
+})
+const activeReferenceId = computed(() => {
+  if (props.currentReference) return props.currentReference
+  const section = index.value.find(s => s.id === props.currentSection)
+  const blocks = props.sections.find(s => s.id === props.currentSection)?.blocks || []
+  const position = blocks.findIndex(b => b.block_id === props.currentBlock)
+  const exactBlock = section?.items.find(item => item.blockId === props.currentBlock)
+  if (exactBlock) return exactBlock.id
+  const preceding = section?.items.filter(item => blocks.findIndex(b => b.block_id === item.blockId) <= position) || []
+  return preceding.at(-1)?.id || section?.items[0]?.id || ''
 })
 const hasUnavailableReferences = computed(() => props.sections.some(section => section.blocks.some(block =>
   (block.reference_issues?.length || 0) > 0 || block.reference_schema_version && (block.references?.length || 0)
@@ -44,48 +53,41 @@ const hasUnavailableReferences = computed(() => props.sections.some(section => s
 )))
 const count = computed(() => visible.value.reduce((sum, section) => sum + section.items.length, 0))
 const results = ref<HTMLElement | null>(null)
-let savedScrollTop = 0, deactivated = false, userScrolling = false
-let scrollTimer: ReturnType<typeof setTimeout> | undefined
-function markUserScroll() { userScrolling = true; clearTimeout(scrollTimer); scrollTimer = setTimeout(() => { userScrolling = false }, 1200) }
+let savedScrollTop = 0, deactivated = false, userIntent = false, frame = 0
+function claim() { userIntent = true; emit('claim'); void nextTick(onReferenceScroll) }
+function claimKeys(event: KeyboardEvent) { if (readingScrollKeys.has(event.key)) claim() }
+function claimScrollbar(event: PointerEvent) { if (event.target === results.value) claim() }
+function rememberPosition() { if (!deactivated && results.value) savedScrollTop = results.value.scrollTop }
 function onReferenceScroll() {
   rememberPosition()
-  if (!userScrolling || !results.value || query.value.trim()) return
-  clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(() => {
+  if (!userIntent || props.navigationOwner !== 'reference' || query.value.trim() || deactivated) return
+  cancelAnimationFrame(frame)
+  frame = requestAnimationFrame(() => {
     const root = results.value
-    if (!root) return
+    if (!root || deactivated || props.navigationOwner !== 'reference') return
     const top = root.getBoundingClientRect().top
     const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-block]'))
-    const active = items.find(item => item.getBoundingClientRect().bottom > top + 24)
-    if (active?.dataset.referenceBlock && active.dataset.referenceBlock !== props.currentBlock) emit('jump', active.dataset.referenceBlock)
-    userScrolling = false
-  }, 140)
+    const atBottom = root.scrollHeight > root.clientHeight && root.scrollHeight - root.scrollTop - root.clientHeight <= 2
+    const active = atBottom ? items.at(-1) : items.find(item => item.getBoundingClientRect().bottom > top + 12)
+    if (active?.dataset.referenceBlock && active.dataset.referenceId && active.dataset.referenceId !== props.currentReference) emit('follow', active.dataset.referenceBlock, active.dataset.referenceId)
+  })
 }
-function rememberPosition() { if (!deactivated && results.value) savedScrollTop = results.value.scrollTop }
-onBeforeUnmount(() => clearTimeout(scrollTimer))
-onDeactivated(() => { deactivated = true; userScrolling = false; clearTimeout(scrollTimer) })
-onActivated(() => { deactivated = false; void nextTick(() => { if (results.value) results.value.scrollTop = savedScrollTop }) })
-async function revealCurrentSection() {
+async function followDocument() {
   await nextTick()
   const root = results.value
-  if (!root || deactivated || query.value.trim()) return
-  const section = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-section]')).find(node => node.dataset.referenceSection === props.currentSection)
-  if (section && !userScrolling) root.scrollTop += section.getBoundingClientRect().top - root.getBoundingClientRect().top
+  if (!root || deactivated || props.navigationOwner === 'reference' || query.value.trim()) return
+  userIntent = false
+  const item = Array.from(root.querySelectorAll<HTMLElement>('[data-reference-id]')).find(node => node.dataset.referenceId === activeReferenceId.value)
+  if (!item) return
+  const rect = item.getBoundingClientRect(), bounds = root.getBoundingClientRect()
+  // Reveal only when outside the viewport. Never reset to the lecture header.
+  if (rect.top < bounds.top || rect.bottom > bounds.bottom) root.scrollTop += rect.top - bounds.top - 8
 }
-watch(() => props.currentBlock, async () => {
-  await nextTick()
-  const root = results.value
-  const item = Array.from(root?.querySelectorAll<HTMLElement>('[data-reference-block]') || []).find(n => n.dataset.referenceBlock === props.currentBlock)
-  if (!root || !item || deactivated || userScrolling || query.value.trim()) return
-  const r = item.getBoundingClientRect(), box = root.getBoundingClientRect()
-  if (r.top < box.top || r.bottom > box.bottom) root.scrollTop += r.top - box.top - 8
-})
-watch(() => props.currentSection, () => { if (scope.value === 'all') void revealCurrentSection() })
-watch(scope, () => { if (scope.value === 'all') void revealCurrentSection() })
-watch([scope, query, () => scope.value === 'current' ? props.currentSection : ''], () => {
-  savedScrollTop = 0
-  if (results.value) results.value.scrollTop = 0
-})
+watch(() => [activeReferenceId.value, props.navigationOwner], followDocument, { flush: 'post' })
+watch(query, () => { userIntent = false; if (results.value) results.value.scrollTop = 0 })
+onBeforeUnmount(() => cancelAnimationFrame(frame))
+onDeactivated(() => { deactivated = true; userIntent = false; cancelAnimationFrame(frame) })
+onActivated(async () => { deactivated = false; userIntent = false; await nextTick(); if (results.value) results.value.scrollTop = savedScrollTop; await followDocument() })
 </script>
 
 <style scoped>
@@ -99,7 +101,7 @@ watch([scope, query, () => scope.value === 'current' ? props.currentSection : ''
 .reference-item { display:block; width:100%; min-width:0; margin:6px 0; padding:10px 12px; border:1px solid #e9e5ef; border-radius:8px; background:#fff; color:inherit; text-align:left; font:inherit; overflow-wrap:anywhere; }
 .reference-open:hover .reference-item-title { color:#513279; }
 .reference-item-heading { display:flex; align-items:center; gap:6px; }
-.reference-item-title { flex:1; min-width:0; font-size:14px; line-height:1.5; color:#6e4a9c; font-weight:600; }
+.reference-item-title { flex:1; min-width:0; font-size:15px; line-height:1.5; color:#6e4a9c; font-weight:600; }
 .reference-jump { display:inline-flex; align-items:center; gap:3px; flex:none; color:#69587f; font-size:12px; font-weight:400; }
 .reference-math { display:block; max-width:100%; overflow-x:auto; padding:2px 0; text-align:center; font-size:17px; }
 .reference-math :deep(.reference-formula) { padding:5px 0; }
@@ -109,7 +111,7 @@ watch([scope, query, () => scope.value === 'current' ? props.currentSection : ''
 .reference-expression { color:#343c50; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
 .reference-expression :deep(p) { margin:6px 0; }
 .reference-expression :deep(ol),.reference-expression :deep(ul) { margin:6px 0; padding-left:22px; }
-.reference-expression :deep(pre) { max-width:100%; overflow-x:auto; font-size:12px; line-height:1.6; padding:10px; border-radius:6px; box-shadow:none; }
+.reference-expression :deep(pre) { max-width:100%; overflow-x:auto; font-size:13px; line-height:1.6; padding:10px; border-radius:6px; box-shadow:none; }
 .reference-expression :deep(.katex-display) { margin:8px 0; }
 .reference-source-note { margin:6px 16px; color:#687287; font-size:13px; line-height:1.6; }
 .reference-item .reference-source-note { margin:4px 0; }

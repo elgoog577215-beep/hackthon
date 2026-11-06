@@ -51,6 +51,7 @@ const tone = computed(() => presentation.value.tone)
 const isContinuous = computed(() => tone.value === 'prose' || normalizedType.value === 'derivation')
 const displayLabel = computed(() => {
   const label = definition.value?.label[activeLocale.value] || (normalizedType.value ? t(`courseWorkbench.scriptDocument.contentTypes.${normalizedType.value}`, props.label || props.contentType) : props.label)
+  if (!definition.value && /^[a-zA-Z][\w.-]*$/.test(label)) return ''
   return group.value && label === t(`courseWorkbench.scriptDocument.contentGroups.${group.value}`) ? '' : label
 })
 const displayTitle = computed(() => {

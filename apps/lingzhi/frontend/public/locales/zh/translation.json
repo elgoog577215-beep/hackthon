@@ -8154,6 +8154,8 @@
     "dismiss": "知道了"
   },
   "handoutConcepts": {
+    "nearby": "当前关联",
+    "wholeSection": "本讲全图",
     "basis": "关系依据",
     "steps": "推导步骤",
     "sources": "正文来源",

@@ -272,17 +272,19 @@ describe('personal study handouts', () => {
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('labels directory entries from teaching metadata and localizes the label', async () => {
+  it('keeps directory titles clean while allowing search by localized teaching type', async () => {
     const material = structuredClone(saved)
     material.revisions[0]!.sections[0]!.blocks[0]!.title = '练习中的概念'
     api.get.mockResolvedValue(material)
     const { wrapper } = await page('/study/material-a')
-    expect(wrapper.get('.study-block-tag').text()).toBe('定义')
+    expect(wrapper.find('.study-block-tag').exists()).toBe(false)
+    expect(wrapper.get('.study-block-list').text()).toBe('练习中的概念')
     await wrapper.get('.study-chapter-search input').setValue('定义')
     expect(wrapper.find('.study-block-list').exists()).toBe(true)
     await wrapper.get('.study-chapter-search input').setValue('')
     await setLocale('en'); await flushPromises()
-    expect(wrapper.get('.study-block-tag').text()).toBe('Definition')
+    expect(wrapper.find('.study-block-tag').exists()).toBe(false)
+    expect(wrapper.get('.study-block-list').text()).toBe('练习中的概念')
   })
 
 

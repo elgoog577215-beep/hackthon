@@ -125,22 +125,32 @@ function openNote(note: Note, event: MouseEvent) {
 }
 watch(() => [props.visible, courseStore.currentNode?.node_id, notes.value.map(note => `${note.id}:${note.quote}:${note.content}:${note.syncState}`).join('|')], scheduleRefresh)
 watch(() => courseStore.currentCourseId, () => { following.value = true; positioned.value = []; currentNoteId.value = ''; scheduleRefresh() })
-onMounted(() => {
-  root = props.readingRoot || document.getElementById('content-scroll-container')
+function bindReadingRoot(next: HTMLElement | null) {
+  if (root === next) { scheduleRefresh(); return }
+  root?.removeEventListener('scroll', scheduleRefresh)
+  root?.removeEventListener('load', scheduleRefresh, true)
+  if (root) resizeObserver?.unobserve?.(root)
+  observer?.disconnect()
+  root = next
   root?.addEventListener('scroll', scheduleRefresh, { passive: true })
   root?.addEventListener('load', scheduleRefresh, true)
-  window.addEventListener('resize', scheduleRefresh)
   if (root) {
     observer = new MutationObserver(scheduleRefresh)
-    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'open'] })
+    resizeObserver?.observe(root)
   }
+  scheduleRefresh()
+}
+watch(() => props.readingRoot, node => bindReadingRoot(node || document.getElementById('content-scroll-container')), { flush: 'post' })
+onMounted(() => {
+  window.addEventListener('resize', scheduleRefresh)
   if (typeof ResizeObserver !== 'undefined' && viewport.value) {
     resizeObserver = new ResizeObserver(scheduleRefresh)
     resizeObserver.observe(viewport.value)
-    if (root) resizeObserver.observe(root)
   }
-  scheduleRefresh()
+  bindReadingRoot(props.readingRoot || document.getElementById('content-scroll-container'))
 })
+
 onBeforeUnmount(() => {
   root?.removeEventListener('scroll', scheduleRefresh)
   root?.removeEventListener('load', scheduleRefresh, true)

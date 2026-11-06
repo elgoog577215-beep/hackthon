@@ -24,3 +24,14 @@ describe('diagram reading dialog', () => {
     wrapper.unmount()
   })
 })
+
+
+it('keeps the graph and caption visible while collecting labels and source data in one closed detail', () => {
+  const wrapper = mount(TeachingDiagram, {props:{raw:JSON.stringify(teachingDiagramSamples[0])}})
+  const detail = wrapper.get('details.diagram-data')
+  expect(detail.attributes('open')).toBeUndefined()
+  expect(detail.find('.diagram-labels').exists()).toBe(true)
+  expect(wrapper.find('.teaching-diagram > .diagram-scroll').exists()).toBe(true)
+  expect(wrapper.find('figcaption').exists()).toBe(true)
+  wrapper.unmount()
+})

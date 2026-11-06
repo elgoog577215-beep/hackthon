@@ -31,8 +31,18 @@
             "The diagram cannot be drawn. Text and original data are preserved.",
           )
         }}
-        <span>{{ error }}</span>
+
       </p>
+      <figcaption>
+        <p>{{ spec?.summary || fallback.summary }}</p>
+        <p v-if="spec?.source || fallback.source" class="diagram-source">
+          {{ tr("来源：", "Source: ") }}{{ spec?.source || fallback.source }}
+        </p>
+      </figcaption>
+      <details class="diagram-data">
+        <summary>
+          {{ tr("图例、数据与关系", "Labels, data and relationships") }}
+        </summary>
       <section
         v-if="svg && readingRows.length"
         class="diagram-labels"
@@ -46,16 +56,6 @@
           </div>
         </dl>
       </section>
-      <figcaption>
-        <p>{{ spec?.summary || fallback.summary }}</p>
-        <p v-if="spec?.source || fallback.source" class="diagram-source">
-          {{ tr("来源：", "Source: ") }}{{ spec?.source || fallback.source }}
-        </p>
-      </figcaption>
-      <details class="diagram-data">
-        <summary>
-          {{ tr("查看完整数据与关系", "Read complete data and relationships") }}
-        </summary>
         <table v-if="spec?.nodes.length">
           <thead>
             <tr>
@@ -102,7 +102,8 @@
             </tr>
           </tbody>
         </table>
-        <pre>{{ raw }}</pre>
+        <p v-if="error" class="diagram-error">{{ error }}</p>
+        <details class="diagram-raw"><summary>{{ tr('原始数据', 'Original data') }}</summary><pre>{{ raw }}</pre></details>
       </details>
       <dialog
         ref="largeDialog"
@@ -290,7 +291,7 @@ summary:focus-visible,
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  max-height: 700px;
+
   padding: 12px;
   overscroll-behavior: contain;
 }
@@ -302,8 +303,8 @@ summary:focus-visible,
   flex: none;
 }
 .diagram-labels {
-  display: none;
-  padding: 10px 16px;
+  display: block;
+  padding: 10px 0;
   border-top: 1px solid #e2e8f0;
   font-size: 15px;
   line-height: 1.6;
@@ -316,8 +317,7 @@ summary:focus-visible,
 }
 .diagram-labels dl {
   margin: 0;
-  max-height: 240px;
-  overflow: auto;
+
 }
 .diagram-labels dl > div {
   padding: 6px 0;
@@ -357,8 +357,7 @@ figcaption p {
   word-break: break-word;
   background: #f8fafc;
   padding: 10px;
-  max-height: 420px;
-  overflow: auto;
+
   font-size: 14px;
 }
 .diagram-data table {

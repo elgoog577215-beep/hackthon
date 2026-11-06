@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HandoutReferencePanel from '@/components/HandoutReferencePanel.vue'
 import { buildHandoutReference, type ReferenceSection, type ReferenceRange } from '@/utils/handout-reference'
 import { activeLocale } from '@/shared/i18n'
@@ -60,13 +60,13 @@ describe('Source-bound handout reference', () => {
     expect(items.map(i=>i.blockId)).toEqual(['folded'])
     expect(items[0]!.html).not.toContain('secret')
   })
-  it('supports current/all scopes, search, localization and stable source jumps without inner scroll', async () => {
+  it('shows all lectures, highlights one exact reference, and supports search and source jumps', async () => {
     const wrapper = mount(HandoutReferencePanel, {props:{sections,currentSection:'a',currentBlock:'multi'}})
     expect(wrapper.findAll('.reference-item')).toHaveLength(3)
-    expect(wrapper.findAll('.reference-item.is-current')).toHaveLength(2)
+    expect(wrapper.findAll('.reference-item.is-current')).toHaveLength(1)
     expect(wrapper.find('.reference-details').exists()).toBe(false)
     await wrapper.get('.reference-open').trigger('click')
-    expect(wrapper.emitted('jump')).toEqual([['multi']])
+    expect(wrapper.emitted('jump')).toEqual([['multi', 'multi:r1']])
     expect(wrapper.find('.aid-scope-toggle').exists()).toBe(false)
     expect(wrapper.findAll('.reference-item')).toHaveLength(3)
     await wrapper.get('.aid-search-toggle').trigger('click')
@@ -79,4 +79,21 @@ describe('Source-bound handout reference', () => {
     expect(wrapper.text()).toContain('not marked here')
     expect(wrapper.text()).not.toContain('旧版长解释')
   })
+})
+
+
+it('follows only a user-controlled reference scroll, including a gesture at the bottom boundary', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  const wrapper = mount(HandoutReferencePanel, { props: { sections, currentSection:'a', navigationOwner:'body' } })
+  const root = wrapper.get('.reference-results').element as HTMLElement
+  Object.defineProperties(root, { clientHeight:{value:200}, scrollHeight:{value:600} })
+  root.scrollTop = 400
+  await wrapper.get('.reference-results').trigger('scroll')
+  expect(wrapper.emitted('follow')).toBeUndefined()
+  await wrapper.setProps({navigationOwner:'reference'})
+  await wrapper.get('.reference-results').trigger('wheel')
+  await wrapper.vm.$nextTick()
+  expect(wrapper.emitted('follow')?.at(-1)).toEqual(['legacy','legacy:source'])
+  wrapper.unmount(); vi.unstubAllGlobals()
 })
