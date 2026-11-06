@@ -65,12 +65,24 @@ export function buildHandoutReference(sections: ReferenceSection[]) {
         formulas.push(`<div class="reference-formula">${formula.outerHTML}</div>`)
       }
       if (formulas.length) {
-        // Preserve adjacent, explicit conditions without copying the whole explanation.
-        const conditions = Array.from(root.content.children).filter(node => node.tagName === 'P'
-          && !node.querySelector('.katex-display, .math-fallback.is-display')
-          && (node.textContent?.length || 0) <= 300
-          && /^(?:成立条件|适用条件|条件[：:]|当|若|设|其中[，：:]|对于|where\b|provided\b|assuming\b|if\b)/i.test((node.textContent || '').trim()))
-          .map(node => node.outerHTML).join('')
+        // Legacy prose has no semantic ranges. Keep only adjacent context;
+        // distant “设/当” paragraphs belong to other definitions in the block.
+        const context = new Set<Element>()
+        for (const formula of candidates) {
+          let unit: Element = formula
+          while (unit.parentElement) unit = unit.parentElement
+          const previous = unit.previousElementSibling
+          if (previous?.tagName === 'P' && !previous.querySelector('.katex-display, .math-fallback.is-display')
+            && (previous.textContent?.length || 0) <= 300
+            && /^(?:成立条件|适用条件|条件[：:]|当|若|设|对于|provided\b|assuming\b|if\b)/i.test((previous.textContent || '').trim())) context.add(previous)
+          const next = unit.nextElementSibling
+          if (next?.tagName !== 'P' || !/^(?:其中[，：:]|where\b)/i.test((next.textContent || '').trim())) continue
+          if (/^(?:其中|where)[：:]?$/i.test((next.textContent || '').trim())) {
+            const definitions = next.nextElementSibling
+            if (definitions && ['UL', 'OL', 'DL'].includes(definitions.tagName)) { context.add(next); context.add(definitions) }
+          } else if ((next.textContent?.length || 0) <= 300) context.add(next)
+        }
+        const conditions = [...context].map(node => node.outerHTML).join('')
         return [{ id: `${block.block_id}:formulas`, blockId: block.block_id, title: block.title,
           kind: 'formula' as const, content, html: formulas.join('') + conditions, mode: 'formula' as const }]
       }

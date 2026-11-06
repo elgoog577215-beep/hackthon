@@ -97,3 +97,15 @@ it('follows only a user-controlled reference scroll, including a gesture at the 
   expect(wrapper.emitted('follow')?.at(-1)).toEqual(['legacy','legacy:source'])
   wrapper.unmount(); vi.unstubAllGlobals()
 })
+
+
+it('keeps adjacent legacy formula conditions and complete variable definitions without distant prose or orphan labels', () => {
+  const content = '设另一个不相关的概念。\n\n## 条件概率\n\n当 $P(B)>0$ 时，\n\n$$P(A|B)=1$$\n\n其中：\n\n- $A$ 是事件。\n- $B$ 是条件事件。'
+  const item=buildHandoutReference([{id:'s',title:'s',blocks:[block('b','definition',content)]}])[0]!.items[0]!
+  expect(item.html).toContain('其中')
+  expect(item.html).toContain('<ul>')
+  expect(item.html).toContain('条件事件')
+  expect(item.html).not.toContain('不相关')
+  const orphan=buildHandoutReference([{id:'s',title:'s',blocks:[block('b','definition','$$x=1$$\n\n其中：\n\n## 下一节')]}])[0]!.items[0]!
+  expect(orphan.html).not.toContain('其中')
+})
