@@ -54,7 +54,7 @@ async def test_assistant_private_context_idempotent_stream_and_reopen(setup_stud
     assert calls[0][0]['block']['title'] == '向量'
     assert calls[0][0]['learner_request']['starting_level'] == before['request']['level']
     assert calls[0][0]['learner_request']['total_study_minutes'] == before['request']['time_minutes']
-    assert calls[0][0]['prompt_version'] == 'personal_study_v2'
+    assert calls[0][0]['prompt_version'] == 'personal_study_v3'
     assert calls[0][0]['source']['source_sha256'] == before['request']['source_sections'][0]['source_sha256']
     assert 'vector_plot' in calls[0][1] and calls[0][2]['max_attempts'] == 1
     assert repo.get(owner, material['id']) == before

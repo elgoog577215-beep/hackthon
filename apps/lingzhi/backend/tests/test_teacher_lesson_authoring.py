@@ -4059,7 +4059,7 @@ def test_script_generation_edit_candidate_and_ppt_share_one_asset_chain(tmp_path
             requirements="不应继续读取的旧顶层要求",
             material_asset_ids=["material-2"],
             request_snapshot={
-                "generation_contract_version": "handout_lecture_v3",
+                "generation_contract_version": "handout_lecture_v4",
                 "source_lesson_plan_revision_id": plan_revision,
                 "requirements": "增加案例",
                 "material_asset_ids": ["material-1"],
@@ -5440,7 +5440,7 @@ def test_generate_all_scripts_retries_only_ready_lesson_with_failed_attempt(
         "course-1",
         failed["id"],
         status="failed",
-        request_snapshot={"generation_contract_version": "handout_lecture_v3"},
+        request_snapshot={"generation_contract_version": "handout_lecture_v4"},
         source_lesson_plan_revision_id=str(
             repository.lesson("course-1", "L1-1")["working_revision_id"]
         ),

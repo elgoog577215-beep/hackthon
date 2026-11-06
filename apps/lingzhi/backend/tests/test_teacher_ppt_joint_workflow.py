@@ -102,7 +102,7 @@ def generate(client, *, complete_ppt=True):
             break
         time.sleep(.01)
     assert job["status"] == "completed", job.get("error")
-    assert job["request_snapshot"]["generation_contract_version"] == "handout_lecture_v3"
+    assert job["request_snapshot"]["generation_contract_version"] == "handout_lecture_v4"
     assert not job.get("bundle_blocks")
     if not complete_ppt:
         return job
