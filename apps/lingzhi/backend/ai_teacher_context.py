@@ -348,6 +348,7 @@ def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
         }
         nodes = [{
             "knowledge_id": point_id,
+            "knowledge_revision_id": points[point_id].get("revision_id"),
             "name": points[point_id].get("name"),
             "node_type": "knowledge_point",
             "statement": points[point_id].get("statement"),

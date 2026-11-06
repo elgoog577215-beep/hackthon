@@ -55,14 +55,12 @@
       </footer>
     </section>
     <StudentOwnedCourseList v-if="studentOwnerId && !productionMode" :user-id="studentOwnerId" />
-    <footer v-if="studentOwnerId && !productionMode" class="navigator-create-course"><StudentCreateCourseLink /></footer>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import StudentOwnedCourseList from './StudentOwnedCourseList.vue'
-import StudentCreateCourseLink from './StudentCreateCourseLink.vue'
 import { ArrowLeft, CirclePause, ListTree, LoaderCircle, PanelLeftClose, Search, TriangleAlert } from 'lucide-vue-next'
 import CourseNavigatorNode from './CourseNavigatorNode.vue'
 import { useCourseStore } from '../stores/course'
@@ -141,8 +139,4 @@ const navigatorHelp = computed(() => {
 @keyframes navigator-production-spin { to { transform:rotate(360deg); } }
 @keyframes navigator-production-shimmer { to { background-position:-220% 0; } }
 @media (prefers-reduced-motion:reduce) { .navigator-production-empty svg,.navigator-production-skeleton b { animation:none!important; } }
-</style>
-
-<style scoped>
-.navigator-create-course { flex:none; padding:12px; border-top:1px solid var(--lz-border); }
 </style>

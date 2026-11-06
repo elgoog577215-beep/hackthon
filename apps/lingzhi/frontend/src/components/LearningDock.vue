@@ -48,11 +48,11 @@
           data-domain="overview"
           :class="{ 'is-active': activeDomain === 'overview' }"
           :aria-current="activeDomain === 'overview' ? 'page' : undefined"
-          :title="t('learningDock.statsHint', '查看阅读、掌握与正式学习证据')"
+          :title="t('learningDock.statsHint', '查看知识点红绿痕迹与正式学习证据')"
           @click="emit('stats')"
         >
           <ChartNoAxesCombined :size="16" />
-          <span>{{ t('learningDock.stats', '学习概况') }}</span>
+          <span>{{ t('learningDock.stats', '学习画像') }}</span>
         </button>
         <span class="learning-dock__divider" aria-hidden="true"></span>
         <button
@@ -61,11 +61,11 @@
           data-domain="knowledge-library"
           :class="{ 'is-active': activeDomain === 'knowledge-library' }"
           :aria-current="activeDomain === 'knowledge-library' ? 'page' : undefined"
-          :title="t('learningDock.knowledgeLibraryHint', '查看学科知识与本课覆盖')"
+          :title="t('learningDock.knowledgeLibraryHint', '查看本课知识内容、例题与课程覆盖')"
           @click="emit('knowledge-library')"
         >
           <Library :size="16" />
-          <span>{{ t('learningDock.knowledgeLibrary', '知识树') }}</span>
+          <span>{{ t('learningDock.knowledgeLibrary', '本课知识') }}</span>
         </button>
         <button
           type="button"

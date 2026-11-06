@@ -42,6 +42,23 @@ def test_multiple_choice_contract_requires_at_least_one_selected_option():
     ) == []
 
 
+def test_graded_attempt_event_freezes_knowledge_revision_refs(monkeypatch):
+    saved = []
+    monkeypatch.setattr(practice_router, "record_learning_event", lambda **payload: saved.append(payload))
+    practice_router._record_attempt_event(
+        "practice_attempt_graded",
+        {
+            "attempt_id": "attempt-1", "revision": 3, "course_id": "c1",
+            "course_version_id": "cv1", "concept_ids": ["k1"],
+            "knowledge_revision_refs": {"k1": "kr1"}, "solution_revealed": False,
+        },
+        user_id="u1",
+        result={"passed": True, "grading_confidence": .95},
+    )
+    assert saved[0]["metadata"]["knowledge_revision_refs"] == {"k1": "kr1"}
+    assert saved[0]["metadata"]["solution_revealed"] is False
+
+
 def _course():
     question = {
         "asset_id": "q1",

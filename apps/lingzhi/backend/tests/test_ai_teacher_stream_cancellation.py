@@ -273,6 +273,83 @@ async def test_metadata_block_is_still_stripped_from_the_visible_answer(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_same_response_learning_signal_is_hidden_validated_and_recorded(monkeypatch, tmp_path):
+    recorded: list[dict] = []
+
+    class _WithLearningSignal(AIQAService):
+        async def _stream_llm(self, *_a, **_k):
+            yield "线性相关需要存在不全为零的系数。"
+            yield "\n---METADATA---\n"
+            yield json.dumps({"learning_signals": [{
+                "knowledge_id": "k-linear",
+                "signal": "red",
+                "student_evidence": "线性相关就是任意系数都是零",
+                "reason": "把非零系数组合的条件记反。",
+            }]}, ensure_ascii=False)
+
+    repository = _wire(monkeypatch, tmp_path, _WithLearningSignal())
+    monkeypatch.setattr(
+        assistant_router,
+        "build_ai_teacher_context",
+        lambda *_a, **_k: {
+            "conversation": {"recent_messages": []},
+            "knowledge_context": {
+                "mapping_status": "active",
+                "knowledge_nodes": [{"knowledge_id": "k-linear", "knowledge_revision_id": "kr-1"}],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        assistant_router,
+        "record_learning_event",
+        lambda **payload: recorded.append(payload),
+    )
+    stream = await _request(
+        repository,
+        question="线性相关就是任意系数都是零，这个理解对吗？",
+        request_id="learning-signal-1",
+    )
+    blocks = [block async for block in stream]
+    events = _events(blocks)
+    visible = "".join(payload.get("chunk", "") for name, payload in events if name == "answer")
+    answer = next(message for message in repository.list_conversations("u1", "course-1")[0]["messages"] if message["role"] == "assistant")
+
+    assert "METADATA" not in visible and "learning_signals" not in visible
+    assert answer["content"] == "线性相关需要存在不全为零的系数。"
+    signal = next(event for event in recorded if event["event_type"] == "knowledge_learning_signal")
+    assert signal["concept_ids"] == ["k-linear"]
+    assert signal["result"] == {"signal": "red"}
+    assert signal["metadata"]["knowledge_revision_refs"] == {"k-linear": "kr-1"}
+    assert signal["idempotency_key"].endswith(":k-linear")
+    assert ":red" not in signal["idempotency_key"]
+
+
+def test_learning_signal_requires_exact_current_quote_and_formal_knowledge_id():
+    valid = assistant_router._validated_learning_signals({"learning_signals": [
+        {"knowledge_id": "k1", "signal": "green", "student_evidence": "线性相关是存在非零系数", "reason": "明确表述正确条件。"},
+        {"knowledge_id": "invented", "signal": "red", "student_evidence": "线性相关是存在非零系数"},
+        {"knowledge_id": "k1", "signal": "red", "student_evidence": "我觉得线性相关就是零向量"},
+    ]}, {"mapping_status": "active", "knowledge_nodes": [
+        {"knowledge_id": "k1", "knowledge_revision_id": "r1"},
+    ]}, "线性相关是存在非零系数，这个说法对吗？")
+
+    assert valid == [{
+        "knowledge_id": "k1", "knowledge_revision_id": "r1", "signal": "green",
+        "student_evidence": "线性相关是存在非零系数", "reason": "明确表述正确条件。",
+    }]
+
+    assert assistant_router._validated_learning_signals(
+        {"learning_signals": [{
+            "knowledge_id": "k1", "signal": "red", "student_evidence": "線性相關是存在非零系數",
+        }]},
+        {"mapping_status": "degraded", "knowledge_nodes": [
+            {"knowledge_id": "k1", "knowledge_revision_id": "r1"},
+        ]},
+        "線性相關是存在非零系數",
+    ) == []
+
+
+@pytest.mark.asyncio
 async def test_cancelling_a_direct_action_does_not_leave_a_dangling_proposal(
     monkeypatch,
     tmp_path,

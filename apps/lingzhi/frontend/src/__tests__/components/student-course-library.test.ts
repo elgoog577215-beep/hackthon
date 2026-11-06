@@ -6,7 +6,7 @@ import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
 import StudentCourseLibrary from '@/components/StudentCourseLibrary.vue'
 
-const api = vi.hoisted(() => ({ courses: vi.fn(), courseSource: vi.fn(), path: vi.fn(), updateCourse: vi.fn() }))
+const api = vi.hoisted(() => ({ courses: vi.fn(), courseSource: vi.fn(), path: vi.fn(), updateCourse: vi.fn(), export: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api }))
 const course = { course_id: 'course-a', title: '线性代数', revision_id: 'revision-a', section_count: 2, reading_available: true }
 let wrapper: ReturnType<typeof mount> | undefined
@@ -35,25 +35,27 @@ describe('authorized student course library', () => {
     expect(view.find('[role="alert"]').exists()).toBe(false)
     expect(view.text()).toContain('线性代数')
   })
-  it('exposes course tools on the formal learner route and hides them when reading is unavailable', async () => {
+  it('opens the course main view from its card and keeps tools inside the course workspace', async () => {
     const view = await page()
-    const tools = view.findAll('.course-tools a').map(link => link.attributes('href'))
-    expect(tools).toHaveLength(4)
-    expect(tools.every(link => link?.startsWith('/course/course-a/learn?') && !link.includes('teacherPreview'))).toBe(true)
-    expect(tools.some(link => link?.includes('tool=mistakes'))).toBe(true)
-    expect(tools.some(link => link?.includes('tool=overview'))).toBe(true)
+    expect(view.find('.course-tools').exists()).toBe(false)
+    expect(view.findAll('.course-library-card a')).toHaveLength(1)
+    expect(view.get('.course-start').attributes('href')).toContain('/course/course-a/learn?returnTo=')
+    expect(view.get('.course-start').attributes('href')).not.toContain('tool=')
     api.courses.mockResolvedValue([{ ...course, reading_available: false }])
     await view.findAll('button').find(button => button.text() === '刷新')!.trigger('click')
     await flushPromises()
     expect(view.find('.course-tools').exists()).toBe(false)
     expect(view.find('.course-start').exists()).toBe(false)
+    expect(view.find('.course-actions-menu').exists()).toBe(false)
   })
   it('adopts a teacher update only after the student chooses it, then refreshes paths', async () => {
     api.courses.mockResolvedValue([{ ...course, exchange_origin: { node_id: 'publisher' }, update_available: true, question_count: 3 }])
     api.updateCourse.mockResolvedValue({ release_id: 'revision-b' })
     const view = await page()
     expect(api.updateCourse).not.toHaveBeenCalled()
-    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
+    await view.get('.course-actions-menu > summary').trigger('click')
+    await view.get('.course-actions-menu button[aria-expanded]').trigger('click'); await flushPromises()
+    await view.get('.course-actions-menu > summary').trigger('click')
     api.courses.mockResolvedValue([{ ...course, revision_id: 'revision-b', exchange_origin: { node_id: 'publisher' }, update_available: false }])
     await view.findAll('button').find(b => b.text() === '使用新版本')!.trigger('click')
     await flushPromises()
@@ -63,7 +65,8 @@ describe('authorized student course library', () => {
   })
   it('opens formal learning without preview and carries a practice continuation intent', async () => {
     const view = await page()
-    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
+    await view.get('.course-actions-menu > summary').trigger('click')
+    await view.get('.course-actions-menu button[aria-expanded]').trigger('click'); await flushPromises()
     expect(view.text()).toContain('线性代数')
     expect(view.text()).not.toContain('local-student:a')
     expect(view.text()).not.toContain('我的学生身份')
@@ -76,7 +79,8 @@ describe('authorized student course library', () => {
     const source = { id: 'source-a', filename: '线性代数.md', sections: [] }
     api.courseSource.mockResolvedValue(source)
     const view = await page()
-    await view.findAll('button').find(b => b.text() === '生成复习讲义')!.trigger('click')
+    await view.get('.course-actions-menu > summary').trigger('click')
+    await view.findAll('.course-actions-menu__panel button').find(b => b.text().includes('生成复习讲义'))!.trigger('click')
     await flushPromises()
     expect(api.courseSource).toHaveBeenCalledExactlyOnceWith('course-a', 'revision-a')
     expect(view.emitted('source')).toEqual([[source]])
@@ -84,7 +88,8 @@ describe('authorized student course library', () => {
   it('keeps a stale-revision error visible without emitting a source or starting generation', async () => {
     api.courseSource.mockRejectedValue(new Error('教师讲义已更新'))
     const view = await page()
-    await view.findAll('button').find(b => b.text() === '生成复习讲义')!.trigger('click')
+    await view.get('.course-actions-menu > summary').trigger('click')
+    await view.findAll('.course-actions-menu__panel button').find(b => b.text().includes('生成复习讲义'))!.trigger('click')
     await flushPromises()
     expect(view.get('[role="alert"]').text()).toBe('教师讲义已更新')
     expect(view.emitted('source')).toBeUndefined()
@@ -94,7 +99,8 @@ describe('authorized student course library', () => {
     const view = await page()
     expect(view.text()).toContain('Authorized courses')
     expect(view.text()).toContain('Create revision handout')
-    await view.get('.course-detail-toggle').trigger('click'); await flushPromises()
+    await view.get('.course-actions-menu > summary').trigger('click')
+    await view.get('.course-actions-menu button[aria-expanded]').trigger('click'); await flushPromises()
     expect(view.text()).toContain('Continue unfinished practice')
   })
   it('combines course sources without duplicating derived personal material cards', async () => {
@@ -104,6 +110,10 @@ describe('authorized student course library', () => {
       { id: 'review-a', title: '线性代数复习', purpose: 'exam_prep', status: 'completed', source_course_ids: ['course-a'] },
     ] })
     expect(view.findAll('.course-library-card')).toHaveLength(2)
+    expect(view.findAll('.course-actions-menu > summary')).toHaveLength(2)
+    expect(view.findAll('.course-actions-menu > summary').every(summary => summary.attributes('aria-label') === '更多课程选项')).toBe(true)
+    await view.find('.course-actions-menu > summary').trigger('click')
+    await view.get('[data-testid="student-course-materials-toggle"]').trigger('click')
     expect(view.find('.personal-course-materials').text()).toContain('线性代数复习')
     await view.findAll('.library-filter-tabs button')[2]!.trigger('click')
     expect(view.findAll('.course-library-card')).toHaveLength(2)
@@ -111,6 +121,38 @@ describe('authorized student course library', () => {
     await view.get('input[type="search"]').setValue('微积分')
     expect(view.findAll('.course-library-card')).toHaveLength(1)
     expect(view.text()).toContain('我的微积分')
+  })
+  it('gives personal handouts the same course-options control and an export action', async () => {
+    const view = await page()
+    await view.setProps({ unified: true, materials: [
+      { id: 'own-a', title: '我的微积分', purpose: 'systematic', status: 'completed' },
+      { id: 'own-b', title: '生成中的复习讲义', purpose: 'exam_prep', status: 'generating' },
+    ] })
+    const cards = view.findAll('.course-library-card')
+    expect(cards).toHaveLength(3)
+    expect(view.findAll('.course-actions-menu > summary')).toHaveLength(3)
+    expect(cards[1]!.find('.course-actions-menu__panel button').text()).toBe('下载讲义')
+    expect(cards[1]!.find('.course-actions-menu__panel button').attributes('disabled')).toBeUndefined()
+    expect(cards[2]!.find('.course-actions-menu__panel button').attributes('disabled')).toBeDefined()
+  })
+  it('downloads a completed personal handout through the shared course-options menu', async () => {
+    const view = await page()
+    await view.setProps({ unified: true, materials: [
+      { id: 'own-a', title: '我的微积分', purpose: 'systematic', status: 'completed' },
+    ] })
+    const createObjectURL = vi.fn(() => 'blob:handout')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    api.export.mockResolvedValue(new Blob(['handout']))
+    const handoutCard = view.findAll('.course-library-card')[1]!
+    await handoutCard.find('.course-actions-menu > summary').trigger('click')
+    await handoutCard.find('.course-actions-menu__panel button').trigger('click')
+    await flushPromises()
+    expect(api.export).toHaveBeenCalledExactlyOnceWith('own-a')
+    expect(createObjectURL).toHaveBeenCalledExactlyOnceWith(expect.any(Blob))
+    expect(click).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:handout')
   })
   it('rejects a previous account list response and clears private personal cards on owner changes', async () => {
     let finish: (value: unknown) => void = () => {}

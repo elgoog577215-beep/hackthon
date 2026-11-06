@@ -38,6 +38,7 @@ def public_document(raw: dict) -> dict:
                         "content_type",
                         "type_label",
                         "answer_to",
+                        "knowledge_markers",
                         "knowledge_refs",
                         "source_knowledge_revision",
                         "source_terminology_revision",

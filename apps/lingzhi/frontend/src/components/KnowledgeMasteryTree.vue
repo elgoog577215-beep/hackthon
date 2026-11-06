@@ -26,13 +26,19 @@
             <button v-else type="button" class="tree-leaf" :class="[showMastery ? node.status : '', { selected: selectedId === node.sourceId }]" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" :aria-haspopup="showMastery ? 'dialog' : undefined" :aria-current="selectedId === node.sourceId ? 'true' : undefined"
               :aria-label="showMastery ? `${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}` : node.label" @click="select(node.sourceId, $event)">
               <span class="mastery-orb" :style="showMastery ? { '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` } : undefined"><span class="orb-core"><template v-if="showMastery"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></template><Leaf v-else :size="27" aria-hidden="true" /></span></span>
-              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small></span>
+              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small>
+                <span v-if="showMastery" class="tree-leaf-signals" :aria-label="t('knowledgeProfile.signalCounts', '学习信号')">
+                  <span v-if="node.learningSignals?.red_count" class="tree-leaf-signal is-red" :aria-label="`${t('knowledgeProfile.redSignal', '待巩固')} ${node.learningSignals.red_count}`"><i aria-hidden="true" />{{ node.learningSignals.red_count }}</span>
+                  <span v-if="node.learningSignals?.green_count" class="tree-leaf-signal is-green" :aria-label="`${t('knowledgeProfile.greenSignal', '已理解')} ${node.learningSignals.green_count}`"><i aria-hidden="true" />{{ node.learningSignals.green_count }}</span>
+                  <span v-if="!node.learningSignals?.red_count && !node.learningSignals?.green_count" class="tree-leaf-signal-empty">{{ t('knowledgeProfile.noSignals', '暂无红绿记录') }}</span>
+                </span>
+              </span>
             </button>
           </template>
         </div>
       </div>
     </div>
-    <footer class="tree-help"><MousePointer2 :size="14" /><span>{{ t('knowledgeProfile.treeView.help', '点击分支展开 · 点击圆球查看详情 · 拖动空白处移动视图') }}</span><span v-if="query">{{ t('knowledgeProfile.treeView.searchHint', '搜索不会改变全课统计') }}</span></footer>
+    <footer class="tree-help"><MousePointer2 :size="14" /><span>{{ t('knowledgeProfile.treeView.help', '点击分支展开 · 点击圆球查看详情 · 拖动空白处移动视图') }}</span><span class="tree-signal-legend"><i class="is-red" />{{ t('knowledgeProfile.redSignal', '待巩固') }} <i class="is-green" />{{ t('knowledgeProfile.greenSignal', '已理解') }}</span><span v-if="query">{{ t('knowledgeProfile.treeView.searchHint', '搜索不会改变全课统计') }}</span></footer>
   </div>
 </template>
 
@@ -179,7 +185,14 @@ function endPan() {
 .mastery-orb { display:grid; place-items:center; flex:none; width:80px; height:80px; border-radius:50%; padding:3px; background:conic-gradient(var(--orb-color) var(--mastery-angle),#eae4f1 0); box-shadow:0 6px 16px #76559612; transition:transform 160ms ease,box-shadow 160ms ease; }.orb-core { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; width:100%; height:100%; border:3px solid #fff; border-radius:50%; background:radial-gradient(circle at 32% 24%,#fff,var(--orb-light) 65%,#ede7f530); }.orb-core strong { font-size:23px; color:var(--orb-dark); font-weight:650; letter-spacing:-.8px; font-variant-numeric:tabular-nums; }.orb-core strong small { font-size:11px; margin-left:1px; font-weight:500; }.orb-core>span { font-size:10px; color:#a295ac; }
 .tree-leaf.unassessed .mastery-orb { background:#fff; border:1px dashed #c6bbd0; box-shadow:none; padding:3px; }.tree-leaf.unassessed .orb-core { background:#f7f5fa; }.tree-leaf.unassessed .orb-core strong { font-size:21px; color:#afa3b9; }
 .tree-leaf-copy { display:flex; flex-direction:column; gap:7px; min-width:0; }.tree-leaf-copy strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:14px; font-weight:500; line-height:1.65; color:#6c5e7d; }.tree-leaf-copy>small { display:flex; gap:4px; align-items:center; color:#a290b0; font-size:11px; }.tree-leaf:hover .mastery-orb { transform:translateY(-2px); box-shadow:0 9px 20px #75539020; }.tree-leaf:hover .tree-leaf-copy strong { color:#745695; }
+.tree-leaf-signals { display:flex; align-items:center; gap:9px; min-height:12px; color:#8990a0; font-size:10px; line-height:1; }
+.tree-leaf-signal { display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums; }
+.tree-leaf-signal i,.tree-signal-legend i { width:7px; height:7px; flex:none; border-radius:50%; background:#c86f70; }
+.tree-leaf-signal.is-red { color:#a45b60; }.tree-leaf-signal.is-green { color:#47836f; }
+.tree-leaf-signal.is-green i,.tree-signal-legend i.is-green { background:#5a9b7c; }
+.tree-leaf-signal-empty { color:#a3a7b2; }
 .tree-help { display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:11px 16px; border-top:1px solid #ece7f2; background:#fff; color:#a18db0; font-size:12px; }.tree-help span:last-child:not(:nth-child(2)) { margin-left:auto; }.tree-no-results { display:grid; place-items:center; height:280px; color:#a593b3; font-size:14px; }
+.tree-help .tree-signal-legend { display:inline-flex; align-items:center; gap:5px; margin-left:auto; color:#7f8798; font-size:11px; }.tree-help .tree-signal-legend i { width:7px; height:7px; border-radius:50%; background:#c86f70; }.tree-help .tree-signal-legend i.is-green { background:#5a9b7c; }
 button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:2px solid #9376be; outline-offset:3px; }.tree-leaf:focus-visible { outline-offset:5px; border-radius:12px; }
 @media(max-width:900px) { .tree-toolbar { flex-wrap:wrap; }.tree-search { max-width:none; flex:1; }.tree-viewport { height:500px; } }
 @media(prefers-reduced-motion:reduce) { .mastery-orb { transition:none; }.tree-leaf:hover .mastery-orb { transform:none; } }

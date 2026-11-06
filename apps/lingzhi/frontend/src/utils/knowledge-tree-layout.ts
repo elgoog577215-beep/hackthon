@@ -3,6 +3,7 @@ import type { KnowledgeProfile } from '../types/knowledge-profile'
 export interface ProfileTreeItem {
   id: string; sourceId: string; kind: 'course' | 'branch' | 'knowledge'
   label: string; progress: number | null; count: number; status?: string; pending?: boolean
+  learningSignals?: { red_count: number; green_count: number; status: string }
   children: ProfileTreeItem[]
   searchText?: string
 }
@@ -65,7 +66,13 @@ export function createKnowledgeTree(profile: KnowledgeProfile, title: string, qu
     if (placed.has(p.knowledge_id) || (search && !`${p.name} ${p.statement}`.toLocaleLowerCase().includes(search))) return null
     placed.add(p.knowledge_id)
     return { id: `knowledge:${p.knowledge_id}`, sourceId: p.knowledge_id, kind: 'knowledge', label: p.name,
-      progress: p.mastery, status: p.status, count: 1, children: [] }
+      progress: p.mastery, status: p.status, count: 1,
+      learningSignals: p.learning_signals ? {
+        red_count: p.learning_signals.red_count,
+        green_count: p.learning_signals.green_count,
+        status: p.learning_signals.status,
+      } : undefined,
+      children: [] }
   }
   const branch = (id: string, seen: Set<string>): ProfileTreeItem | null => {
     const current = groups.get(id)

@@ -36,6 +36,83 @@ TYPE_TITLES.update({
     "custom": "内容",
 })
 
+_KNOWLEDGE_MARKER_KINDS = {"definition", "formula", "law", "theorem"}
+_DISPLAY_MATH_PATTERNS = (
+    re.compile(r"\$\$([\s\S]+?)\$\$"),
+    re.compile(r"\\\[([\s\S]+?)\\\]"),
+    re.compile(r"\\begin\{(equation\*?|align\*?|gather\*?|multline\*?)\}([\s\S]+?)\\end\{\1\}"),
+)
+
+
+def knowledge_markers_for_block(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project only explicitly named knowledge forms and display equations.
+
+    This is a deterministic reading index, not a quality check. It adds no
+    model call and never affects whether the body block is accepted.
+    """
+    block_id = str(block.get("block_id") or "")
+    title = _normalize_heading(str(block.get("title") or ""))
+    content = str(block.get("content") or "")
+    markers: list[dict[str, Any]] = []
+
+    named_kinds = (
+        ("definition", r"definition|定义"),
+        ("law", r"\blaw\b|定律|法则"),
+        ("theorem", r"\btheorem\b|\blemma\b|\bproposition\b|定理|引理|命题"),
+    )
+    headings = [title] if title else []
+    headings.extend(re.findall(r"(?m)^#{1,6}\s+(.+?)\s*$", content))
+    formula_headings = [
+        heading for heading in headings
+        if re.search(r"formula|公式", heading, flags=re.IGNORECASE)
+    ]
+    seen_named: set[tuple[str, str]] = set()
+    for heading_index, heading in enumerate(headings, start=1):
+        for kind, pattern in named_kinds:
+            if not re.search(pattern, heading, flags=re.IGNORECASE):
+                continue
+            key = (kind, heading)
+            if key in seen_named:
+                continue
+            seen_named.add(key)
+            markers.append({
+                "marker_id": f"{block_id}:{kind}:{heading_index}",
+                "kind": kind,
+                "source": "explicit_title",
+                "heading": heading,
+            })
+
+    formula_index = 0
+    seen_formulas: set[str] = set()
+    for pattern in _DISPLAY_MATH_PATTERNS:
+        for match in pattern.finditer(content):
+            expression = str(match.group(match.lastindex or 1) or "").strip()
+            # The environment pattern has the environment name in group 1.
+            if pattern is _DISPLAY_MATH_PATTERNS[2]:
+                expression = str(match.group(2) or "").strip()
+            if not expression or expression in seen_formulas:
+                continue
+            seen_formulas.add(expression)
+            formula_index += 1
+            markers.append({
+                "marker_id": f"{block_id}:formula:{formula_index}",
+                "kind": "formula",
+                "source": "display_math",
+                "expression": expression[:1200],
+                **({"heading": formula_headings[0]} if formula_headings else {}),
+            })
+
+    if formula_headings and not any(
+        marker["kind"] == "formula" for marker in markers
+    ):
+        markers.append({
+            "marker_id": f"{block_id}:formula:title:1",
+            "kind": "formula",
+            "source": "explicit_title",
+            "heading": formula_headings[0],
+        })
+    return markers
+
 
 def block_type_from_title(title: str, order: int = 0, content: str = "") -> str:
     """Resolve a pedagogical role without using block order as hidden meaning.
@@ -166,6 +243,11 @@ def normalize_blocks(
             "status": str(raw.get("status") or "final"),
             "metadata": deepcopy(raw.get("metadata") or {}),
         }
+        markers = knowledge_markers_for_block(block)
+        if markers:
+            block["metadata"]["knowledge_markers"] = markers
+        else:
+            block["metadata"].pop("knowledge_markers", None)
         enriched = with_block_revision_metadata(block)
         supplied_fingerprint = str(raw.get("content_fingerprint") or "")
         supplied_revision = str(raw.get("block_revision_id") or "")
@@ -213,7 +295,7 @@ def blocks_from_markdown(node_id: str, markdown: str, *, node_title: str = "") -
     blocks: list[dict[str, Any]] = []
     for idx, (title, content) in enumerate(meaningful_parts):
         block_type = block_type_from_title(title, idx, content)
-        blocks.append(with_block_revision_metadata({
+        block = {
             "block_id": make_block_id(node_id, idx, block_type),
             "parent_block_id": None,
             "type": block_type,
@@ -222,7 +304,12 @@ def blocks_from_markdown(node_id: str, markdown: str, *, node_title: str = "") -
             "summary": summarize_text(content),
             "order": idx,
             "status": "final",
-        }))
+            "metadata": {},
+        }
+        markers = knowledge_markers_for_block(block)
+        if markers:
+            block["metadata"]["knowledge_markers"] = markers
+        blocks.append(with_block_revision_metadata(block))
     return blocks
 
 

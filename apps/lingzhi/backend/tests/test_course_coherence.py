@@ -433,6 +433,8 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
     assert len(system_prompts) == 1
     system_prompt = system_prompts.pop()
     assert len(system_prompt) > 1200
+    assert "计划级软提示" in system_prompt
+    assert "仅在相关时参考骨架" in system_prompt
 
     # 全课共享块留在 system。
     for heading in (
@@ -452,7 +454,7 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
         "## 总体教案对本节的引领",
         "## 本节学科课型",
         "## 当前节点契约",
-        "## 当前课程知识库契约",
+        "## 当前课程相关知识提示（软参考）",
         "## 全课总编契约",
         "## 当前节点难度契约",
         "## 当前节点证据契约",

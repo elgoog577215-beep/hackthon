@@ -42,6 +42,8 @@ def _summary(nodes: list[dict]) -> dict:
         "assessed_average": round(value / len(assessed), 1) if assessed else None,
         "mastered_count": sum(p["status"] == "supported_mastery" for p in nodes),
         "attention_count": sum(p["status"] == "needs_review" for p in nodes),
+        "red_signal_count": sum(int((p.get("learning_signals") or {}).get("red_count") or 0) for p in nodes),
+        "green_signal_count": sum(int((p.get("learning_signals") or {}).get("green_count") or 0) for p in nodes),
     }
 
 
@@ -177,12 +179,58 @@ def build_knowledge_profile(base: dict, *, course_id: str, course_version_id: st
                                 and (a.get("knowledge_revision_refs") or {}).get(kid) == point["revision_id"] for a in anchors)
             if kid in (event.get("concept_ids") or []) or exact_context or (block and block in block_ids):
                 activities.add(str(event.get("record_id") or event["event_id"]))
+        signals = []
+        for event in current_events:
+            if kid not in (event.get("concept_ids") or []):
+                continue
+            metadata = event.get("metadata") or {}
+            if (metadata.get("knowledge_revision_refs") or {}).get(kid) != point["revision_id"]:
+                continue
+            result = event.get("result") or {}
+            if event.get("event_type") == "knowledge_learning_signal" and event.get("source") == "ai_teacher.learning_signal":
+                color = str(result.get("signal") or "")
+                if color not in {"red", "green"}:
+                    continue
+                signals.append({
+                    "source_id": str(event.get("event_id") or ""),
+                    "color": color,
+                    "source": "assistant",
+                    "student_statement": str((event.get("evidence") or {}).get("student_statement") or ""),
+                    "reason": str((event.get("evidence") or {}).get("assistant_reason") or ""),
+                    "observed_at": event.get("created_at"),
+                })
+                continue
+            if event.get("event_type") != "practice_attempt_graded" or event.get("source") != "practice.attempts":
+                continue
+            passed = result.get("passed")
+            if (not isinstance(passed, bool) or result.get("historical_only")
+                    or result.get("evidence_strength") == "invalid"
+                    or _number(result.get("grading_confidence")) < .72
+                    or metadata.get("solution_revealed")):
+                continue
+            signals.append({
+                "source_id": str(event.get("event_id") or event.get("attempt_id") or ""),
+                "color": "green" if passed else "red",
+                "source": "practice",
+                "student_statement": "正式作答通过" if passed else "正式作答未通过",
+                "reason": "",
+                "observed_at": event.get("created_at"),
+            })
+        signals.sort(key=lambda item: (str(item.get("observed_at") or ""), item["source_id"]))
+        red_count = sum(item["color"] == "red" for item in signals)
+        green_count = sum(item["color"] == "green" for item in signals)
+        signal_status = (
+            "unobserved" if not signals else "needs_reinforcement" if red_count > green_count
+            else "improving" if green_count > red_count else "balanced"
+        )
         nodes.append({"knowledge_id": kid, "knowledge_revision_id": point["revision_id"],
                       "name": str(point.get("name") or ""), "statement": str(point.get("statement") or ""),
                       "parent_id": str(point.get("parent_id") or point.get("primary_concept_group_id") or "ungrouped"),
                       "section_refs": list(point.get("section_refs") or []), "mastery": mastery, "confidence": confidence,
                       "status": status, "assessment_count": count, "independent_count": independent_count,
                       "activity_count": len(activities), "historical_count": len(historical), "pending_attribution_count": len(pending),
+                      "learning_signals": {"red_count": red_count, "green_count": green_count,
+                                           "status": signal_status, "evidence": signals[-8:]},
                       "evidence": evidence, "next_action": "verify" if mastery is None else "review" if status == "needs_review" else "transfer" if status == "supported_mastery" else "variant"})
     # Group ancestors aggregate unique leaves, never child percentages or relation strengths.
     branch_members: dict[str, dict[str, dict]] = {}

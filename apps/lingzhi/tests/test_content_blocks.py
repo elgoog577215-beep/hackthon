@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../backend")))
 
-from content_blocks import blocks_from_markdown, blocks_to_markdown
+from content_blocks import blocks_from_markdown, blocks_to_markdown, normalize_blocks
 
 
 def test_blocks_from_markdown_uses_teaching_headings():
@@ -83,3 +83,27 @@ def test_unknown_heading_does_not_inherit_meaning_from_its_position():
     blocks = blocks_from_markdown("L2-1-1", "## 五个观察\n\n这里记录观察结果。")
 
     assert blocks[0]["type"] == "custom"
+
+
+def test_knowledge_markers_index_explicit_types_and_display_formulas_without_gating():
+    blocks = blocks_from_markdown("L2-1-1", """## 定理：秩—零度定理
+
+若线性映射满足条件，则：
+
+$$\\dim V = \\dim \\ker(T) + \\dim \\operatorname{im}(T)$$
+
+内联变量 $x$ 不单独进入速览。""")
+
+    markers = blocks[0]["metadata"]["knowledge_markers"]
+    assert [marker["kind"] for marker in markers] == ["theorem", "formula"]
+    assert markers[1]["source"] == "display_math"
+    assert "operatorname{im}" in markers[1]["expression"]
+    assert blocks[0]["content"].startswith("若线性映射")
+
+
+def test_knowledge_markers_recompute_from_saved_blocks_and_absence_stays_valid():
+    marked = normalize_blocks("n", [{"block_id": "b", "title": "定义：极限", "content": "称……"}])[0]
+    plain = normalize_blocks("n", [{"block_id": "b2", "title": "引入问题", "content": "为什么？"}])[0]
+
+    assert marked["metadata"]["knowledge_markers"][0]["kind"] == "definition"
+    assert "knowledge_markers" not in plain["metadata"]

@@ -10,7 +10,7 @@
       :aria-modal="props.embedded || props.docked ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
-      <CompanionPanelHeader v-if="learningAssistant && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
+      <CompanionPanelHeader v-if="learningAssistant && !isTeacherMode" :floating="floating" :history="conversationOpen" :busy="aiStore.loading || aiStore.loadingConversations" :show-mode-switch="props.allowModeSwitch" @new="createConversation" @history="conversationOpen = !conversationOpen" @mode="emit('toggleMode')" @close="emit('close')" />
       <div v-if="knowledgeContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('companionWorkspace.current', '当前知识点') }} · <strong>{{ knowledgeContext.name }}</strong></span><button type="button" :aria-label="t('companionWorkspace.clearContext', '移除知识点引用')" @click="emit('clearKnowledge')"><X :size="14" /></button></div>
       <div v-if="learningAssistant && !knowledgeContext && readingContext && !isTeacherMode && !aiStore.currentConversation?.study_workspace" class="knowledge-chat-context"><BookOpenText :size="15" /><span>{{ t('readingNotes.readingAt', '正在阅读') }} · {{ readingContext.nodeName }}<small v-if="readingContext.blockTitle"> · {{ readingContext.blockTitle }}</small></span></div>
       <header v-if="!learningAssistant || isTeacherMode" class="ai-teacher-header">
@@ -804,6 +804,7 @@ const props = withDefaults(defineProps<{
   studyRequest?: StudyRequest
   learningAssistant?: boolean
   floating?: boolean
+  allowModeSwitch?: boolean
   knowledgeContext?: KnowledgeProfileNode | null
   mode?: 'learner' | 'teacher'
   identityScope?: RequestIdentityScope
@@ -826,6 +827,7 @@ const props = withDefaults(defineProps<{
   docked: false,
   courseBaselineDraftEnabled: false,
   courseBaselineDraftBusy: false,
+  allowModeSwitch: true,
 })
 
 const emit = defineEmits<{

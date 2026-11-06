@@ -1,6 +1,6 @@
 <template>
   <section ref="learningLayoutRoot" class="learning-view" :style="columnLayoutStyle" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
-  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && !courseStore.isFocusMode" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
+  <CompanionFloatingWindow window-id="course-companion-window" :visible="aiFloating && aiVisible && Boolean(selectedKnowledge) && !courseStore.isFocusMode && (statsOpen || courseStore.showKnowledgeLibrary)" :detail="Boolean(selectedKnowledge) && (statsOpen || courseStore.showKnowledgeLibrary)" @close="closeAi" />
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -124,44 +124,79 @@
 
     <ColumnResizeHandle v-if="dockedSidePanelVisible" v-bind="rightColumnHandle" />
     <Transition name="side-panel">
-      <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow, 'is-companion-floating': aiFloating && !notesVisible && !notebookOpen && !isNarrow }">
-        <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="!aiVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && !aiVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
-        <aside id="all-notes-panel" v-show="notebookOpen && !aiVisible" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
+      <div v-show="sidePanelVisible" class="learning-side-panel" :class="{ 'is-docked': !isNarrow, 'is-notes-mode': notesVisible || notebookOpen }">
+        <ReadingNotesPanel v-if="!isNarrow && !isGenerationPreview" v-show="notesVisible && !notebookOpen" :key="courseStore.currentCourseId" :visible="sidePanelVisible && notesVisible && !notebookOpen && !taskOpen && !statsOpen" @open="openReadingNote" @create="createReadingNote" @locate="locateRecord" @notebook="openNotebook" />
+        <aside id="all-notes-panel" v-show="notebookOpen" v-if="!isNarrow" role="region" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')" data-companion-obstacle>
           <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="record => openStudyRecord(record.id)" @close="closeNotebook" />
         </aside>
-        <Teleport to="#course-companion-window-chat" :disabled="!aiFloating">
-        <SideAIPanel
-          data-companion-obstacle
-          id="reading-assistant-panel"
-          role="region"
-          :aria-label="t('companionWorkspace.title')"
-          v-if="!isGenerationPreview"
-          v-show="aiVisible && !courseStore.isFocusMode"
-          :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
-          :docked="!isNarrow"
-          :visible="aiVisible && !courseStore.isFocusMode"
-          learning-assistant
-          :floating="aiFloating"
-          :knowledge-context="selectedKnowledge"
-          @toggle-mode="aiFloating = !aiFloating"
-          @clear-knowledge="selectedKnowledge = null"
-          :reading-context="isNarrow ? undefined : readingContext"
-          :quote-text="aiQuote"
-          :quote-node-id="aiNodeId"
-          :quote-anchor="aiAnchor"
-          :prefill="aiPrefill"
-          :study-request="studyRequest"
-          @open-study-record="openStudyRecord"
-          :entrypoint="aiEntrypoint"
-          :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
-          :block-target="aiBlockTarget"
-          @close="closeAi"
-          @clear-block-target="clearBlockImprovement"
-          @block-applied="handleBlockApplied"
-          @course-applied="handleCourseGrowthApplied"
-          @open-course-adjustment="openCourseAdjustment"
-        />
-        </Teleport>
+        <div v-show="!notesVisible && !notebookOpen" class="learning-sidebar-views" data-companion-obstacle>
+          <nav class="learning-sidebar-tabs" role="tablist" :aria-label="t('learningViews.sidebarTitle')">
+            <button type="button" role="tab" :aria-selected="rightSidebarView === 'assistant'" :class="{ 'is-active': rightSidebarView === 'assistant' }" @click="selectRightSidebarView('assistant')">
+              <Sparkles :size="15" /><span>{{ t('learningViews.assistant') }}</span>
+            </button>
+            <button type="button" role="tab" :aria-selected="rightSidebarView === 'quick-reference'" :class="{ 'is-active': rightSidebarView === 'quick-reference' }" @click="selectRightSidebarView('quick-reference')">
+              <BookMarked :size="15" /><span>{{ t('learningViews.quickReference') }}</span>
+              <span v-if="quickReferenceItems.length" class="learning-sidebar-tabs__count">{{ quickReferenceItems.length }}</span>
+            </button>
+            <button type="button" role="tab" :aria-selected="rightSidebarView === 'thinking-chain'" :class="{ 'is-active': rightSidebarView === 'thinking-chain' }" @click="selectRightSidebarView('thinking-chain')">
+              <GitBranch :size="15" /><span>{{ t('learningViews.thinkingChain') }}</span>
+            </button>
+          </nav>
+          <div class="learning-sidebar-content">
+            <SideAIPanel
+              data-companion-obstacle
+              id="reading-assistant-panel"
+              role="region"
+              :aria-label="t('companionWorkspace.title')"
+              v-if="!isGenerationPreview"
+              v-show="rightSidebarView === 'assistant' && !courseStore.isFocusMode"
+              :key="`${courseStore.currentCourseId}:${isTeacherPreview}`"
+              :docked="!isNarrow"
+              :visible="rightSidebarView === 'assistant' && !courseStore.isFocusMode"
+              learning-assistant
+              :floating="false"
+              :allow-mode-switch="false"
+              :knowledge-context="selectedKnowledge"
+              @clear-knowledge="selectedKnowledge = null"
+              :reading-context="isNarrow ? undefined : readingContext"
+              :quote-text="aiQuote"
+              :quote-node-id="aiNodeId"
+              :quote-anchor="aiAnchor"
+              :prefill="aiPrefill"
+              :study-request="studyRequest"
+              @open-study-record="openStudyRecord"
+              :entrypoint="aiEntrypoint"
+              :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
+              :block-target="aiBlockTarget"
+              @close="closeAi"
+              @clear-block-target="clearBlockImprovement"
+              @block-applied="handleBlockApplied"
+              @course-applied="handleCourseGrowthApplied"
+              @open-course-adjustment="openCourseAdjustment"
+            />
+            <CourseQuickReferencePanel v-show="rightSidebarView === 'quick-reference'" :items="quickReferenceItems" @locate="locateQuickReference" />
+            <section v-if="rightSidebarView === 'thinking-chain'" class="learning-thinking-chain" :aria-label="t('learningViews.thinkingChain')">
+              <header class="learning-thinking-chain__header">
+                <div><span>{{ t('learningViews.courseRelations') }}</span><h2>{{ t('learningViews.thinkingChain') }}</h2></div>
+                <span v-if="acceptedKnowledgeRelations.length" class="learning-thinking-chain__count">{{ acceptedKnowledgeRelations.length }} {{ t('learningViews.relationCount') }}</span>
+              </header>
+              <KnowledgeRelationGraph
+                v-if="acceptedKnowledgeLibrary && acceptedKnowledgeNodes.length && acceptedKnowledgeRelations.length"
+                class="learning-thinking-chain__graph"
+                compact
+                :nodes="acceptedKnowledgeNodes"
+                :relations="acceptedKnowledgeRelations"
+              :selected-id="graphSelectedKnowledgeId"
+                @select="selectKnowledgeGraphNode"
+              />
+              <div v-else class="learning-thinking-chain__empty" role="status">
+                <GitBranch :size="23" aria-hidden="true" />
+                <strong>{{ t('learningViews.noRelations') }}</strong>
+                <span>{{ t('learningViews.noRelationsHint') }}</span>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </Transition>
 
@@ -189,8 +224,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
-import { History, LoaderCircle } from 'lucide-vue-next'
+import { BookMarked, GitBranch, History, LoaderCircle, Sparkles } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
+import type { KnowledgeLibraryView, KnowledgeNode } from '../types/knowledge-library'
 import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
 import CourseKnowledgeStudy from '../components/CourseKnowledgeStudy.vue'
 import ContentArea from '../components/ContentArea.vue'
@@ -200,6 +236,8 @@ import LearningDock from '../components/LearningDock.vue'
 import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import { isPublishedExchangeCourse, studentWorkspaceTool, type StudentWorkspaceTool } from '../shared/student-workspace'
 import LearningStats from '../components/LearningStats.vue'
+import CourseQuickReferencePanel from '../components/CourseQuickReferencePanel.vue'
+import KnowledgeRelationGraph from '../components/KnowledgeRelationGraph.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import ReadingNotesPanel from '../components/ReadingNotesPanel.vue'
@@ -225,6 +263,7 @@ import { t, activeLocale } from '../shared/i18n'
 import type { StudyRequest } from '../types/study-dialogue'
 import { useCompanionLayout } from '../composables/useCompanionLayout'
 import { getStudyIdentity } from '../utils/study-identity'
+import { collectCourseQuickReferences, type CourseQuickReferenceItem } from '../utils/course-quick-reference'
 
 const route = useRoute()
 const isExchangeCourse = computed(() => isPublishedExchangeCourse(String(route.params.courseId || route.params.id || '')))
@@ -240,21 +279,47 @@ const changeProposalsStore = useChangeProposalsStore()
 const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const knowledgeStudyRef = ref<InstanceType<typeof CourseKnowledgeStudy> | null>(null)
+const quickReferenceItems = computed(() => collectCourseQuickReferences(courseStore.nodes))
+const acceptedKnowledgeLibrary = computed(() => {
+  const library = workspaceStore.assets?.assets?.knowledge_library?.[0] as unknown as KnowledgeLibraryView | undefined
+  return library?.lifecycle_status === 'accepted' ? library : undefined
+})
+const acceptedKnowledgeNodes = computed(() => acceptedKnowledgeLibrary.value?.nodes.filter(node => node.status !== 'retired') || [])
+const acceptedKnowledgeRelations = computed(() => acceptedKnowledgeLibrary.value?.relations.filter(relation => relation.status === 'accepted') || [])
+const graphSelectedKnowledgeId = ref('')
 
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
+type RightSidebarView = 'assistant' | 'quick-reference' | 'thinking-chain'
+const rightSidebarView = ref<RightSidebarView>('assistant')
+const rightSidebarOpen = ref(window.innerWidth >= 1024)
 const aiFloating = useCompanionLayout()
 const selectedKnowledge = ref<KnowledgeProfileNode | null>(null)
+function selectRightSidebarView(view: RightSidebarView) {
+  rightSidebarView.value = view
+  rightSidebarOpen.value = true
+  notesVisible.value = false
+  notebookOpen.value = false
+  if (view === 'assistant') showAssistant()
+  else aiVisible.value = false
+}
+function selectKnowledgeGraphNode(node: KnowledgeNode) {
+  graphSelectedKnowledgeId.value = node.knowledge_id
+}
+async function locateQuickReference(item: CourseQuickReferenceItem) {
+  const node = courseStore.nodes.find(candidate => candidate.node_id === item.nodeId)
+  if (node) await selectCourseBlock({ node, blockId: item.blockId })
+}
 function selectKnowledge(point: KnowledgeProfileNode | null) {
   studyRequest.value = undefined
   selectedKnowledge.value = point
-  if (point) { aiVisible.value = true; aiQuote.value = ''; aiAnchor.value = undefined; aiPrefill.value = ''; aiBlockTarget.value = undefined }
+  if (point) { selectRightSidebarView('assistant'); aiQuote.value = ''; aiAnchor.value = undefined; aiPrefill.value = ''; aiBlockTarget.value = undefined }
 }
 function askKnowledge(point: KnowledgeProfileNode) {
   studyRequest.value = undefined
   selectedKnowledge.value = point
-  aiVisible.value = true
+  selectRightSidebarView('assistant')
 }
 function discussEvidence(point: KnowledgeProfileNode, evidence: KnowledgeProfileNode['evidence'][number]) {
   askKnowledge(point)
@@ -351,7 +416,7 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
-const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (aiVisible.value || (!isNarrow.value && (notesVisible.value || notebookOpen.value))))
+const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (rightSidebarOpen.value || notesVisible.value || notebookOpen.value))
 const dockActiveDomain = computed(() => mistakesOpen.value ? 'mistakes' : taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
   : courseStore.showKnowledgeLibrary ? 'knowledge-library'
@@ -373,7 +438,7 @@ const navigatorVisible = computed(() => (
   && (!isGenerationPreview.value || courseStore.courseTree.length > 0)
 ))
 const learningLayoutRoot = ref<HTMLElement | null>(null)
-const dockedSidePanelVisible = computed(() => !isNarrow.value && sidePanelVisible.value && !(aiFloating.value && !notesVisible.value && !notebookOpen.value))
+const dockedSidePanelVisible = computed(() => !isNarrow.value && sidePanelVisible.value)
 const { layoutStyle: columnLayoutStyle, leftHandle: leftColumnHandle, rightHandle: rightColumnHandle } = useResizableColumns(learningLayoutRoot, {
   storageKey: 'lingzhi:course-reading:columns', left: 292, right: 360, leftMin: 200, rightMin: 280,
   enabled: () => !isNarrow.value,
@@ -457,6 +522,9 @@ async function loadLearningCourse(courseId: string) {
   aiPrefill.value = ''
   aiBlockTarget.value = undefined
   aiVisible.value = false
+  rightSidebarView.value = 'assistant'
+  rightSidebarOpen.value = window.innerWidth >= 1024
+  graphSelectedKnowledgeId.value = ''
   courseAdjustmentOpen.value = false
   courseAdjustmentFocusPlanId.value = ''
   courseAdjustmentSectionId.value = ''
@@ -635,7 +703,7 @@ onUnmounted(() => {
 function handleResize() {
   const wasNarrow = windowWidth.value < 1024
   windowWidth.value = window.innerWidth
-  if (windowWidth.value >= 1024) navigatorOpen.value = true
+  if (windowWidth.value >= 1024) { navigatorOpen.value = true; rightSidebarOpen.value = true }
   if (windowWidth.value < 1024 && (!wasNarrow || aiVisible.value)) navigatorOpen.value = false
 }
 
@@ -709,6 +777,8 @@ function showAssistant() {
   void contentAreaRef.value?.closeInlineRecord?.()
   notesVisible.value = false
   notebookOpen.value = false
+  rightSidebarView.value = 'assistant'
+  rightSidebarOpen.value = true
   aiVisible.value = true
 }
 function openReadingNote(payload: { note: Note; x: number; y: number }) {
@@ -740,6 +810,8 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   aiAnchor.value = payload?.anchor
   aiPrefill.value = ''
   aiEntrypoint.value = payload?.text ? 'selection' : 'global'
+  rightSidebarView.value = 'assistant'
+  rightSidebarOpen.value = true
   aiVisible.value = true
   if (isNarrow.value) navigatorOpen.value = false
 }
@@ -785,6 +857,8 @@ function openBlockImprovement(target: CourseBlockEditTarget) {
   }
   aiPrefill.value = ''
   aiEntrypoint.value = 'selection'
+  rightSidebarView.value = 'assistant'
+  rightSidebarOpen.value = true
   aiVisible.value = true
   if (isNarrow.value) navigatorOpen.value = false
 }
@@ -837,6 +911,8 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
   aiAnchor.value = undefined
   aiPrefill.value = t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。')
   aiEntrypoint.value = 'practice'
+  rightSidebarView.value = 'assistant'
+  rightSidebarOpen.value = true
   aiVisible.value = true
 }
 
@@ -844,6 +920,7 @@ function openNotebook() {
   if (notebookOpen.value) { closeNotebook(); return }
   notebookOpen.value = true
   aiVisible.value = false
+  rightSidebarOpen.value = true
   if (isNarrow.value) navigatorOpen.value = false
 }
 
@@ -930,7 +1007,7 @@ function closeStats() {
 }
 
 function toggleAi() {
-  if (aiVisible.value) { closeAi(); return }
+  if (aiVisible.value && rightSidebarView.value === 'assistant') { closeAi(); return }
   showAssistant()
   if (isNarrow.value) navigatorOpen.value = false
 }
@@ -939,8 +1016,10 @@ function closeAi() {
   notesVisible.value = false
   if (aiFloating.value && courseStore.showKnowledgeLibrary) knowledgeStudyRef.value?.closePoint()
   aiVisible.value = false
+  if (!isNarrow.value && rightSidebarView.value === 'assistant') rightSidebarView.value = 'quick-reference'
+  if (isNarrow.value) rightSidebarOpen.value = false
   if (!isNarrow.value && !courseStore.isFocusMode) {
-    nextTick(() => learningLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-domain="assistant"]')?.focus())
+    nextTick(() => learningLayoutRoot.value?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus())
   }
 }
 
@@ -1067,6 +1146,28 @@ function closeMobileSurfaces() {
 .learning-side-panel { min-width:0; min-height:0; }
 .learning-side-panel.is-docked { display:flex; flex-direction:column; background:#fff; border:1px solid var(--lz-border); --side-width:clamp(320px,25vw,380px); width:var(--side-width); flex:0 0 var(--side-width); overflow:hidden; border-radius:var(--lz-radius-surface); }
 .learning-side-panel.is-docked > .ai-teacher-panel,.learning-side-panel.is-docked > .reading-notes { width:100%; flex:1; min-height:0; height:auto; }
+.learning-sidebar-views { min-width:0; min-height:0; height:100%; display:flex; flex:1; flex-direction:column; overflow:hidden; background:#fff; }
+.learning-sidebar-tabs { z-index:2; flex:none; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:8px 9px 0; border-bottom:1px solid #e8eaf2; background:linear-gradient(180deg,#fff,#fdfcff); }
+.learning-sidebar-tabs button { position:relative; min-width:0; min-height:48px; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px 3px 9px; border:0; border-radius:9px 9px 0 0; color:#777d92; background:transparent; font:inherit; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; }
+.learning-sidebar-tabs button::after { position:absolute; right:12px; bottom:-1px; left:12px; height:2px; border-radius:2px 2px 0 0; background:transparent; content:""; }
+.learning-sidebar-tabs button:hover { color:#6452ba; background:#f8f6fe; }
+.learning-sidebar-tabs button.is-active { color:#5847b4; background:#f7f5fd; }
+.learning-sidebar-tabs button.is-active::after { background:#7664d6; }
+.learning-sidebar-tabs button:focus-visible { outline:2px solid #8b7ad9; outline-offset:-3px; }
+.learning-sidebar-tabs__count { min-width:17px; padding:1px 4px; border-radius:8px; color:#70639f; background:#eeebfa; font-size:10px; font-variant-numeric:tabular-nums; }
+.learning-sidebar-content { position:relative; min-width:0; min-height:0; flex:1; overflow:hidden; }
+.learning-sidebar-content > :deep(.ai-teacher-panel),.learning-sidebar-content > :deep(.course-quick-reference),.learning-sidebar-content > .learning-thinking-chain { width:100%; height:100%; min-height:0; }
+.learning-sidebar-content > :deep(.ai-teacher-panel.is-docked) { border:0; border-radius:0; box-shadow:none; }
+.learning-thinking-chain { display:flex; flex-direction:column; overflow:hidden; color:#34394e; background:#fff; }
+.learning-thinking-chain__header { flex:none; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 15px 11px; border-bottom:1px solid #ececf3; }
+.learning-thinking-chain__header > div > span { color:#7c719d; font-size:11px; font-weight:700; }
+.learning-thinking-chain__header h2 { margin:3px 0 0; color:#34394e; font-size:16px; line-height:1.35; }
+.learning-thinking-chain__count { flex:none; color:#7d8293; font-size:11px; font-variant-numeric:tabular-nums; }
+.learning-thinking-chain__graph { flex:1; min-height:0; }
+.learning-thinking-chain__empty { min-height:220px; display:flex; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:22px; color:#8d8fa0; text-align:center; }
+.learning-thinking-chain__empty svg { color:#7867c5; }
+.learning-thinking-chain__empty strong { color:#4d5267; font-size:14px; }
+.learning-thinking-chain__empty span { max-width:270px; color:#83889a; font-size:12px; line-height:1.7; }
 .learning-stage { position:relative; flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; }
 .exchange-course-notice{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 18px;background:#f6f3fc;color:#66548a;font-size:15px;border-bottom:1px solid #e4dff0}.exchange-course-notice a{color:#6551c7;white-space:nowrap}.exchange-course-notice a:focus-visible{outline:3px solid #9385ed;outline-offset:3px}
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }

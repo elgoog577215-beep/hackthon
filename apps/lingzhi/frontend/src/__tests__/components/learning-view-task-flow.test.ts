@@ -202,7 +202,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await wrapper.get('.back-reading').trigger('click');await flushPromises()
     expect(content.scrollTop).toBe(315)
     expect(useCourseStore().currentNode?.node_id).toBe('n1')
-    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(false)
+    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(true)
     expect(wrapper.find('.reading-side-tabs').exists()).toBe(false)
     content.scrollTop=510
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
@@ -259,16 +259,16 @@ describe('LearningView 正文任务覆盖层', () => {
       },
     })
     await flushPromises()
-    expect(wrapper.find('.reading-side-tabs').exists()).toBe(false)
-    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    expect(wrapper.find('.learning-sidebar-tabs').exists()).toBe(true)
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
     expect(document.querySelector('.learning-companion')).toBeNull()
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(true)
     await wrapper.get('.ai-panel-stub textarea').setValue('保留这段草稿')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
-    expect(document.activeElement).toBe(wrapper.get('[data-domain="assistant"]').element)
-    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(false)
+    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(true)
+    expect(wrapper.find('[role="tab"][aria-selected="true"]').exists()).toBe(true)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     await wrapper.get('[data-domain="notebook"]').trigger('click')
@@ -278,24 +278,15 @@ describe('LearningView 正文任务覆盖层', () => {
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     const originalComposer = wrapper.get('.ai-panel-stub textarea').element
     const assistant = wrapper.findComponent(StatefulAssistant)
-    assistant.vm.$emit('toggleMode')
-    await flushPromises()
-    const floatingPanel = new DOMWrapper(document.querySelector('.companion-modal-window') as HTMLElement)
-    expect(floatingPanel.isVisible()).toBe(true)
-    expect((floatingPanel.get('textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
-    expect(wrapper.attributes('inert')).toBeUndefined()
-    // Closing must leave the same input in the hidden floating host, without a docked frame.
+    expect(assistant.exists()).toBe(true)
+    expect(wrapper.find('.companion-modal-window').exists()).toBe(false)
+    expect(localStorage.getItem('lingzhi-companion-layout')).toBeNull()
     assistant.vm.$emit('close')
     await flushPromises()
-    expect(floatingPanel.isVisible()).toBe(false)
-    expect(floatingPanel.get('textarea').element).toBe(originalComposer)
-    expect(wrapper.find('.ai-panel-stub').exists()).toBe(false)
-    expect(localStorage.getItem('lingzhi-companion-layout')).toBe('floating')
+    expect(wrapper.get('.ai-panel-stub').isVisible()).toBe(false)
+    expect(wrapper.find('.learning-sidebar-tabs [role="tab"][aria-selected="true"]').exists()).toBe(true)
+    expect(wrapper.get('.learning-side-panel').isVisible()).toBe(true)
     await wrapper.get('[data-domain="assistant"]').trigger('click')
-    expect(floatingPanel.isVisible()).toBe(true)
-    expect((floatingPanel.get('textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
-    assistant.vm.$emit('toggleMode')
-    await flushPromises()
     expect(wrapper.get('.ai-panel-stub textarea').element).toBe(originalComposer)
     expect((wrapper.get('.ai-panel-stub textarea').element as HTMLTextAreaElement).value).toBe('保留这段草稿')
     await wrapper.get('[data-domain="question-book"]').trigger('click')
@@ -317,7 +308,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it.each(['floating', 'docked'])('restores the %s layout on remount and preserves it across course changes', async layout => {
+  it.each(['floating', 'docked'])('keeps the assistant in the tabbed right rail when the saved layout is %s', async layout => {
     localStorage.setItem('lingzhi-companion-layout', layout)
     const Assistant = defineComponent({
       props: ['floating'],
@@ -335,10 +326,10 @@ describe('LearningView 正文任务覆盖层', () => {
       await wrapper.get('[data-domain="assistant"]').trigger('click')
       const panel = new DOMWrapper(document.querySelector('.layout-assistant') as HTMLElement)
       expect(panel.isVisible()).toBe(true)
-      expect(panel.attributes('data-floating')).toBe(String(layout === 'floating'))
+      expect(panel.attributes('data-floating')).toBe('false')
       useCourseStore().currentCourseId = `c${attempt + 2}`
       await flushPromises()
-      expect(wrapper.findComponent(Assistant).props('floating')).toBe(layout === 'floating')
+      expect(wrapper.findComponent(Assistant).props('floating')).toBe(false)
       wrapper.unmount()
     }
   })
@@ -785,6 +776,44 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.find('.formation-recovery').exists()).toBe(false)
     expect(wrapper.find('.generation-gate').exists()).toBe(false)
     expect(wrapper.find('#content-scroll-container').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the three learning views in the right rail and browsing references does not move the lesson', async () => {
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: LearningStatsStub,
+          NotesPanel: NotesPanelStub,
+          SideAIPanel: { template: '<aside class="assistant-view-stub" />' },
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    const content = wrapper.get('#content-scroll-container').element as HTMLElement
+    content.scrollTop = 147
+    expect(wrapper.findAll('.learning-sidebar-tabs [role="tab"]')).toHaveLength(3)
+    expect(wrapper.find('.learning-side-panel').exists()).toBe(true)
+
+    await wrapper.get('.learning-sidebar-tabs [role="tab"]:nth-child(2)').trigger('click')
+    expect(wrapper.get('.learning-sidebar-tabs [role="tab"]:nth-child(2)').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('.course-quick-reference').isVisible()).toBe(true)
+    expect(content.scrollTop).toBe(147)
+
+    await wrapper.get('.learning-sidebar-tabs [role="tab"]:nth-child(3)').trigger('click')
+    expect(wrapper.get('.learning-thinking-chain').isVisible()).toBe(true)
+    expect(wrapper.get('.learning-thinking-chain__empty').isVisible()).toBe(true)
+    expect(content.scrollTop).toBe(147)
+
+    await wrapper.get('.learning-sidebar-tabs [role="tab"]:first-child').trigger('click')
+    expect(wrapper.get('.assistant-view-stub').isVisible()).toBe(true)
+    expect(content.scrollTop).toBe(147)
     wrapper.unmount()
   })
 

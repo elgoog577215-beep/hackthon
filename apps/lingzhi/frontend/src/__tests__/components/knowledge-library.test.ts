@@ -541,6 +541,10 @@ describe('Course knowledge library', () => {
     expect(legendItems[0]!.text()).toContain('前置知识')
     expect(legendItems[0]!.text()).toContain('1')
 
+    await edges[0]!.trigger('click')
+    expect(wrapper.get('.knowledge-relation-graph__inspector').text())
+      .toContain('先确定允许使用的标量域，才能正确解释线性组合的形式定义')
+
     // 选中知识点后，侧栏要能回答「学会后能做到什么」「来源可不可信」，
     // 而不是只列关系——只给关系的话，图看得见结构却看不见教学内容。
     await wrapper.get('[data-knowledge-id="coefficient-domain-boundary"]').trigger('click')

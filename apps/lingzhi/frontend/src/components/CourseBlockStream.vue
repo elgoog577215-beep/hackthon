@@ -208,6 +208,9 @@ const sameSourcePulse = ref(false)
 let sameSourcePulseTimer: number | undefined
 const liveRecordIds = reactive(new Set<string>())
 const regenerationRequests = reactive<Record<string, { token: number; prompt: string; action?: 'explain' | 'example' | 'simplify' | 'ask' }>>({})
+const legacyMarkersById = computed(() => new Map(
+  (props.node.content_blocks || []).map(block => [block.block_id, block.metadata?.knowledge_markers]),
+))
 const blocks = computed(() => (props.node.course_blocks?.length
   ? props.node.course_blocks.map(block => ({
       block_id: block.block_id,
@@ -232,6 +235,7 @@ const blocks = computed(() => (props.node.course_blocks?.length
         concept_refs: block.concept_refs,
         knowledge_refs: block.payload.knowledge_refs,
         source_knowledge_revision: block.payload.source_knowledge_revision,
+        knowledge_markers: block.payload.knowledge_markers || legacyMarkersById.value.get(block.block_id),
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))

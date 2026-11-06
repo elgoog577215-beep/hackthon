@@ -163,6 +163,15 @@ class AIQAService(AIBase):
         **_: Any,
     ):
         system_prompt = format_ai_teacher_context_prompt(context_package)
+        if (context_package.get("request") or {}).get("perspective") != "teacher":
+            system_prompt += """
+
+## 学习画像信号（仅同次回答的隐藏尾部）
+你不能修改掌握度、学习画像或课程数据。仅当用户当前这条消息明确陈述了一个关于课程知识点的理解时，才可在回答末尾附加学习信号；单纯提问、请求解释、复述题目、接受你的解释、感谢、笔记操作、含糊表达都不记录。
+只记录这条用户消息中的原句，不根据你自己的解释或历史对话补造证据。必须引用用户当前消息里的连续原文，并且只使用“结构化同源知识切片”中明确提供的 knowledge_id；一条理解无法对应到具体知识点时不记录。
+用户明确表达错误理解时 signal 为 red；用户明确展示正确理解时 signal 为 green。猜测、部分理解、尚未判断或只有提问时不产生信号。每个知识点每轮最多一条。
+若有信号，在完整自然语言回答之后另起一行输出 `---METADATA---`，随后输出合法 JSON：{"learning_signals":[{"knowledge_id":"原有ID","signal":"red或green","student_evidence":"用户当前消息中的连续原文","reason":"不超过80字的归因说明"}]}。若没有信号，不输出 metadata 尾部。该尾部只供系统读取，不能在自然语言回答中提及或展示。
+"""
         web_sources = [
             item
             for item in context_package.get("sources") or []
@@ -178,7 +187,7 @@ class AIQAService(AIBase):
         # Conversation history and the bounded course context are already in
         # the system prompt. Repeating them here wastes context and can make
         # stale turns look more important than the user's current question.
-        prompt = f"""用户当前问题：{question}
+        prompt = f"""用户当前问题（唯一可用于学习信号归因的本轮原文）：{question}
 
 请严格执行上面的视角、文件范围、回答策略和披露边界。不要假装已经写入笔记、错题、复习任务或课程内容；需要改变系统状态时，只能说明建议动作。"""
         emitted = ""
