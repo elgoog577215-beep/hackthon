@@ -142,9 +142,9 @@ def _source(material: dict, payload: dict) -> dict:
 
 def _ai_source(owner: str, material: dict, payload: dict, *, note_id: str | None = None,
                expected_note_version: int | None = None) -> dict:
-    # Import the same repository instance the personal assistant uses. A
-    # message from another user/material/revision cannot be looked up here.
-    from study.assistant import ai_teacher_repository
+    # Read the shared repository directly, without depending on the assistant.
+    # A message from another user/material/revision cannot be looked up here.
+    from ai_teacher_state import ai_teacher_repository
     conversation = ai_teacher_repository.material_conversation(owner, material["id"], payload["revision_id"])
     message = next((m for m in conversation["messages"] if m["message_id"] == payload["source_message_id"]), None)
     if not message or message.get("role") != "assistant" or message.get("status") != "complete":

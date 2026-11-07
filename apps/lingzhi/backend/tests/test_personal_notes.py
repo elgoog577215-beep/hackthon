@@ -21,6 +21,7 @@ def env(tmp_path, monkeypatch):
     import learning_events
     chats = AITeacherRepository(tmp_path / "chats")
     monkeypatch.setattr(assistant, "ai_teacher_repository", chats)
+    monkeypatch.setattr("ai_teacher_state.ai_teacher_repository", chats)
     events = []
     monkeypatch.setattr(learning_events, "record_learning_event", lambda **kw: events.append(kw))
     repo = StudyRepository(Storage(str(tmp_path / "data")))

@@ -62,7 +62,9 @@ def setup_study(tmp_path, monkeypatch):
     import learning_events
     import study.assistant as personal_assistant
     from ai_teacher_state import AITeacherRepository
-    monkeypatch.setattr(personal_assistant, 'ai_teacher_repository', AITeacherRepository(tmp_path / 'ai_teacher'))
+    chats = AITeacherRepository(tmp_path / 'ai_teacher')
+    monkeypatch.setattr(personal_assistant, 'ai_teacher_repository', chats)
+    monkeypatch.setattr('ai_teacher_state.ai_teacher_repository', chats)
     monkeypatch.setenv('LINGZHI_LOCAL_STUDY_AUTH', 'true')
     monkeypatch.delenv('QIZHI_AUTH_VERIFY_URL', raising=False)
     monkeypatch.setenv('GIT_AUTO_SYNC_ENABLED', 'false')
