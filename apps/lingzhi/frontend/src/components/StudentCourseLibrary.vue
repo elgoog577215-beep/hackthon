@@ -21,7 +21,7 @@
         @update:model-value="selectFilter"
       />
       <div class="library-heading-actions">
-        <ElButton class="library-refresh" native-type="button" :disabled="loading" :aria-label="copy('刷新', 'Refresh')" :title="copy('刷新', 'Refresh')" @click="load">
+        <ElButton class="library-refresh" native-type="button" :disabled="loading" :aria-label="copy('刷新', 'Refresh')" :title="copy('刷新', 'Refresh')" @click="unified ? emit('refresh') : load()">
           <RefreshCw :size="16" aria-hidden="true" /><span class="library-refresh-label">{{ copy("刷新", "Refresh") }}</span></ElButton
         ><ElButton
           v-if="unified"
@@ -261,6 +261,7 @@ import StudentCourseFeedback from "./StudentCourseFeedback.vue";
 const props = withDefaults(
   defineProps<{
     userId: string;
+    refreshing?: boolean;
     compact?: boolean;
     unified?: boolean;
     materials?: StudySummary[];
@@ -271,6 +272,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   source: [source: StudySource];
   create: [purpose: StudyPurpose];
+  refresh: [];
   filter: [value: "all" | "teacher" | "owned"];
 }>();
 const copy = (zh: string, en: string) =>
@@ -291,7 +293,7 @@ const courses = ref<StudyCourse[]>([]),
   query = ref("");
 const filter = ref(props.initialFilter),
   materialsOwner = ref("");
-const loading = computed(() => reading.value || acting.value);
+const loading = computed(() => reading.value || acting.value || props.refreshing);
 const filters = computed(() => [
   { value: "all" as const, label: t("workspaceUi.allCourses") },
   { value: "teacher" as const, label: t("workspaceUi.teacherCourses") },

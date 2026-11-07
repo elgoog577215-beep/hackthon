@@ -3,12 +3,13 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ courses: vi.fn(), path: vi.fn(), config: vi.fn(), guest: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
+const api = vi.hoisted(() => ({ saveReadingPosition: vi.fn(), courses: vi.fn(), path: vi.fn(), config: vi.fn(), guest: vi.fn(), me: vi.fn(), list: vi.fn(), sources: vi.fn(), generate: vi.fn(), get: vi.fn(), note: vi.fn(), resume: vi.fn(), logout: vi.fn(), login: vi.fn(), addText: vi.fn(), upload: vi.fn() }))
 vi.mock('@/api/study', () => ({ studyApi: api, STUDY_UPLOAD_ACCEPT: '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff', studySession: { get: () => 'local-session', set: vi.fn(), clear: vi.fn() }, StudyApiError: class extends Error { constructor(public status: number, message: string) { super(message) } } }))
 vi.mock('@/utils/http', () => ({ isQizhiAuthRequired: () => false, redirectToQizhiLogin: vi.fn() }))
 import zh from '../../../public/locales/zh/translation.json'
 import en from '../../../public/locales/en/translation.json'
 import StudyView from '@/views/StudyView.vue'
+import { StudyApiError } from '@/api/study'
 import { activeLocale, setLocale } from '@/shared/i18n'
 
 const user = { id: 'student-a', username: 'student_a', role: 'student' }
@@ -29,6 +30,7 @@ beforeEach(async () => {
   HTMLElement.prototype.scrollTo = vi.fn(function (this: HTMLElement, options?: ScrollToOptions | number) { if (typeof options === 'object') this.scrollTop = options.top || 0 })
   localStorage.clear()
   vi.clearAllMocks(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/en/') ? en : zh }))); await setLocale('zh')
+  api.saveReadingPosition.mockImplementation(async (_id, body) => ({ position: body.position, version: body.expected_version + 1, request_id: body.request_id, updated_at: '' }))
   api.config.mockResolvedValue({ local_login_enabled: true }); api.me.mockResolvedValue(user)
   api.courses.mockResolvedValue([]); api.list.mockResolvedValue([]); api.sources.mockResolvedValue([source]); api.get.mockResolvedValue(structuredClone(saved)); api.logout.mockResolvedValue({})
 })
@@ -250,7 +252,7 @@ describe('personal study handouts', () => {
     expect(scrollTo).toHaveBeenCalledWith({ top: 376, behavior: 'instant' })
     expect(outer.scrollTop).toBe(0)
     expect(answer.open).toBe(false)
-    expect(JSON.parse(sessionStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')!)).toMatchObject({ sectionId: 's1' })
+    expect(JSON.parse(localStorage.getItem('lingzhi-study-position:student-a:material-a:revision-a')!).position).toMatchObject({ sectionId: 's1' })
   })
 
   it('expands and collapses directory details without moving the reading position', async () => {
@@ -635,4 +637,61 @@ it('keeps notes in the four-tool tab bar without a duplicate bottom shortcut', a
   await wrapper.get('[data-tool="reference"]').trigger('click'); await flushPromises()
   expect(wrapper.find('.aid-scope-toggle').exists()).toBe(false)
   expect(wrapper.get('[data-tool="reference"]').attributes('aria-selected')).toBe('true')
+})
+
+it('refreshes both visible libraries and preserves personal cards when teachers are unavailable', async () => {
+  api.list.mockResolvedValue([{ id: 'material-a', title: '已有个人讲义', purpose: 'systematic', status: 'running' }])
+  const { wrapper } = await page()
+  api.list.mockResolvedValue([{ id: 'material-a', title: '已完成个人讲义', purpose: 'systematic', status: 'completed' }])
+  api.courses.mockRejectedValueOnce(new Error('教师课程暂时不可用'))
+  await wrapper.get('.library-refresh').trigger('click'); await flushPromises()
+  expect(api.list).toHaveBeenCalledTimes(2)
+  expect(api.courses).toHaveBeenCalledTimes(2)
+  expect(wrapper.text()).toContain('已完成个人讲义')
+  expect(wrapper.text()).toContain('教师课程暂时不可用')
+  expect(wrapper.get('.library-refresh').attributes('disabled')).toBeUndefined()
+})
+
+it('reconnects observation after transient failure without submitting or resuming generation', async () => {
+  vi.useFakeTimers()
+  api.get.mockResolvedValueOnce({ ...structuredClone(saved), status: 'running', task: { ...saved.task, status: 'running' } })
+    .mockRejectedValueOnce(new StudyApiError(503, 'temporary outage'))
+    .mockResolvedValue(structuredClone(saved))
+  const { wrapper } = await page('/study/material-a')
+  await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+  expect(wrapper.text()).toContain('正在重新连接')
+  expect(wrapper.find('.study-progress').exists()).toBe(false)
+  expect(wrapper.get('.study-handout').text()).toContain('真实讲义正文')
+  await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+  expect(api.get).toHaveBeenCalledTimes(3)
+  expect(wrapper.text()).not.toContain('正在重新连接')
+  expect(api.resume).not.toHaveBeenCalled()
+  expect(api.generate).not.toHaveBeenCalled()
+})
+
+it('does not retry authorization failures or poll a paused task', async () => {
+  vi.useFakeTimers()
+  api.get.mockRejectedValueOnce(new StudyApiError(403, '权限已撤销'))
+  await page('/study/material-a')
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(api.get).toHaveBeenCalledTimes(1)
+  wrapper?.unmount()
+  api.get.mockResolvedValue({ ...structuredClone(saved), task: { ...saved.task, status: 'paused' } })
+  await page('/study/material-a')
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(api.get).toHaveBeenCalledTimes(2)
+  expect(api.resume).not.toHaveBeenCalled()
+})
+
+it('honors a closed sidebar after a fresh session and offers a visible reopen control', async () => {
+  const first = await page('/study/material-a')
+  await first.wrapper.get('.study-close-tools').trigger('click')
+  expect(first.wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+  first.wrapper.unmount(); sessionStorage.clear()
+  const second = await page('/study/material-a')
+  expect(second.wrapper.get('.study-reading-tools').isVisible()).toBe(false)
+  await second.wrapper.get('[data-tool="reopen"]').trigger('click')
+  expect(second.wrapper.get('.study-reading-tools').isVisible()).toBe(true)
+  await setLocale('en'); await flushPromises()
+  expect(second.wrapper.get('.study-close-tools').attributes('aria-label')).toBe('Hide reading tools')
 })

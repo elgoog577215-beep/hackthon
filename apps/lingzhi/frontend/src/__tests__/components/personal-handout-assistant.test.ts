@@ -215,3 +215,17 @@ it('renders math in the chapter context and selected quotation without changing 
   await view.get('textarea').setValue('解释 $h=0$')
   expect(view.get('textarea').element).toHaveProperty('value', '解释 $h=0$')
 })
+
+it('recovers interrupted observation without resending the question', async () => {
+  vi.useFakeTimers()
+  api.assistant.mockResolvedValueOnce(conversation('running', '已保存片段')).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(conversation('complete', '完整回复'))
+  const view = page(); await flushPromises()
+  await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+  expect(view.text()).toContain('正在重新连接')
+  expect(view.text()).toContain('已保存片段')
+  await vi.advanceTimersByTimeAsync(1500); await flushPromises()
+  expect(view.text()).toContain('完整回复')
+  expect(view.text()).not.toContain('正在重新连接')
+  expect(api.ask).not.toHaveBeenCalled()
+  expect(api.continueAnswer).not.toHaveBeenCalled()
+})

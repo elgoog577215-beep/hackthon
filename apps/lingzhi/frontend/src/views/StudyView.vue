@@ -70,7 +70,7 @@
 
       <ColumnResizeHandle v-if="materialId && directoryOpen && !mobileViewport" v-bind="leftColumnHandle" />
       <section v-if="!materialId" class="study-main-scroll">
-        <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
+        <StudentLearningHome v-if="!creating" ref="authorizedCourses" :key="user.id" :class="{ 'study-library': route.query.view === 'materials' }" :user-id="user.id" :materials="library" :refreshing="refreshingLibrary" @refresh="refreshLibrary" :initial-filter="route.query.view === 'courses' ? 'teacher' : route.query.view === 'materials' ? 'owned' : 'all'" @create="startNew" @source="createFromCourse" @filter="setCourseFilter" />
         <form v-else class="study-create" @submit.prevent="generate">
           <div class="study-page-heading"><button type="button" class="study-create-back" :aria-label="t('workspaceUi.backToCourses')" @click="goLibrary"><ArrowLeft :size="18" /><span>{{ t('workspaceUi.backToCourses') }}</span></button><h1>{{ c('create') }}</h1></div>
           <section id="study-create-purpose" class="study-form-section"><h2>{{ c('purposeHeading') }}</h2><div class="study-purpose-options"><button v-for="purpose in purposes" :key="purpose" type="button" :class="{ selected: form.purpose === purpose }" :aria-pressed="form.purpose === purpose" @click="form.purpose = purpose"><Target v-if="purpose === 'exam_prep'" :size="25" /><BookOpen v-else :size="25" /><strong>{{ c(purpose) }}</strong><span>{{ c(purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</span><Check v-if="form.purpose === purpose" class="purpose-check" :size="19" /></button></div><p class="study-purpose-mobile-hint" aria-live="polite">{{ c(form.purpose === 'exam_prep' ? 'examHint' : 'understandingHint') }}</p></section>
@@ -91,10 +91,12 @@
         <div class="study-reading-workspace">
           <div class="study-reading-body">
             <div class="study-reading-pane" :inert="mobileViewport && (toolsOpen || directoryOpen)">
+              <p v-if="material && readingConnection === 'reconnecting'" class="study-connection" role="status">{{ c('readingReconnecting') }}</p>
+              <p v-if="!material && ['loading', 'reconnecting'].includes(readingConnection)" class="study-connection" role="status">{{ c(readingConnection === 'loading' ? 'readingLoading' : 'readingReconnecting') }}</p>
               <div class="study-reading-with-reasoning">
               <div v-if="material" ref="readingTarget" class="study-document-scroll" @wheel.passive="navigation.interact" @pointerdown="navigation.interact" @keydown="navigation.interact" @scroll="followChapter" @toggle.capture="followChapter" @pointerup="selectPassage" @keyup="selectPassage">
                 <article class="study-handout handout-document" :style="readingStyle">
-                  <div v-if="materialStatus !== 'completed'" class="study-progress" role="status"><span>{{ budgetBlocked ? c('generationBudgetExceeded') : ['failed', 'paused'].includes(materialStatus) ? c(material.task?.phase === 'study_concepts' ? 'conceptsInterrupted' : 'interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : material.task?.phase === 'study_concepts' ? 'completeConcepts' : 'continue') }}</button></div>
+                  <div v-if="materialStatus !== 'completed' && readingConnection === 'connected'" class="study-progress" role="status"><span>{{ budgetBlocked ? c('generationBudgetExceeded') : ['failed', 'paused'].includes(materialStatus) ? c(material.task?.phase === 'study_concepts' ? 'conceptsInterrupted' : 'interrupted') : c('running') }}</span><progress v-if="isGenerating" :value="material.task?.phase_progress ?? material.task?.progress ?? 0" max="100" /><button v-if="['failed', 'paused'].includes(materialStatus)" :disabled="busy" @click="resume">{{ c(budgetBlocked ? 'recheckGeneration' : material.task?.phase === 'study_concepts' ? 'completeConcepts' : 'continue') }}</button></div>
                   <HandoutReadingGuide compact v-if="currentRevision?.sections.length" :target="readingTarget" :title="material.title" />
 
                   <section v-for="section in currentRevision?.sections || []" :id="sectionAnchor(section.id)" :data-section-id="section.id" :key="section.id" class="study-handout-section">
@@ -119,7 +121,7 @@
             <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note' }">
               <header class="study-tool-heading study-tool-tabs" role="tablist" :aria-label="c('readingTools')">
                 <button v-for="tab in sideTools" :id="`study-tab-${tab}`" :key="tab" :data-tool="tab" type="button" role="tab" :aria-selected="toolTab === tab" :aria-controls="`study-panel-${tab}`" :tabindex="toolTab === tab ? 0 : -1" @click="openTool(tab)" @keydown="moveToolTab($event, tab)"><component :is="toolIcons[tab]" :size="16" />{{ c(tab === 'paths' ? 'conceptRelations' : tab) }}</button>
-                <ElButton v-if="mobileViewport" text circle :aria-label="c('backToReading')" @click="closeTool"><ArrowLeft :size="20" /></ElButton>
+                <ElButton text circle class="study-close-tools" :aria-label="c('closeTools')" :title="c('closeTools')" @click="closeTool"><PanelRightClose :size="18" /></ElButton>
               </header>
               <div :id="`study-panel-${toolTab}`" class="study-tool-panel" :role="toolTab === 'note' ? 'region' : 'tabpanel'" :aria-labelledby="toolTab === 'note' ? undefined : `study-tab-${toolTab}`" :aria-label="toolTab === 'note' ? c('note') : undefined">
 
@@ -141,6 +143,7 @@
           </div>
           <footer v-if="material" class="study-bottom-bar">
             <div class="study-reading-location" :title="readingLocation"><span>{{ c('currentLocation') }}</span><MathText :content="readingLocation" /></div>
+            <span v-if="bookmark.status.value !== 'saved'" class="study-bookmark-status" role="status">{{ c(bookmark.status.value === 'conflict' ? 'bookmarkConflict' : bookmark.status.value === 'unavailable' ? 'bookmarkUnavailable' : bookmark.status.value === 'saving' ? 'bookmarkSaving' : 'bookmarkLocal') }}</span>
             <button v-if="!toolsOpen" type="button" data-tool="reopen" @click="openTool(toolTab)"><PanelRightOpen :size="17" />{{ c('readingTools') }}</button>
           </footer>
           <Teleport to="body">
@@ -168,13 +171,15 @@
 </template>
 
 <script setup lang="ts">
+import { useStudyBookmark } from '../composables/useStudyBookmark'
+import { readRecoveryDelay } from '../utils/read-recovery'
 import { useReadingNavigation } from '../composables/useReadingNavigation'
 import { captureReadingPosition, restoreReadingPosition } from '../utils/reading-position'
 import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, BookOpen, Bookmark, Check, CircleHelp, ClipboardPaste, Download, FileText, MessageCircle, NotebookPen, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Route, Search, Settings2, Sigma, Target, Upload, UserRound, X, ChevronRight } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, Bookmark, Check, CircleHelp, ClipboardPaste, Download, FileText, MessageCircle, NotebookPen, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Route, Search, Settings2, Sigma, Target, Upload, UserRound, X, ChevronRight } from 'lucide-vue-next'
 import { handoutPresentation, handoutContentType } from '../utils/handout-content'
 import HandoutContentBlock from '../components/HandoutContentBlock.vue'
 import HandoutReadingGuide from '../components/HandoutReadingGuide.vue'
@@ -206,6 +211,8 @@ const developmentMode = ref(false)
 const guestMode = ref(false), connecting = ref(true), authConfigLoaded = ref(false)
 const user = ref<StudyUser | null>(null), localLoginEnabled = ref(false), qizhiAuth = isQizhiAuthRequired()
 const username = ref(''), password = ref(''), registerMode = ref(false), busy = ref(false), sourceBusy = ref(false), error = ref('')
+const bookmark = useStudyBookmark()
+const refreshingLibrary = ref(false), readingConnection = ref<'loading' | 'connected' | 'reconnecting' | 'unavailable'>('loading')
 const library = ref<StudySummary[]>([]), sources = ref<StudySource[]>([]), material = ref<StudyMaterial | null>(null)
 const currentRevision = computed(() => material.value?.revisions.at(-1))
 const draftStorageAvailable = ref(true)
@@ -230,7 +237,7 @@ const toolIcons = { assistant: MessageCircle, note: NotebookPen, reference: Sigm
 const sideTools = ['assistant', 'reference', 'paths', 'note'] as const
 function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${materialId.value}` }
 function rememberTool() {
-  try { sessionStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
+  try { localStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
 }
 function openTool(tab: StudyTool) { mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool() }
 function closeTool() { toolsOpen.value = false; rememberTool(); void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-tool="reopen"]')?.focus()) }
@@ -244,8 +251,8 @@ function moveToolTab(event: KeyboardEvent, tab: typeof sideTools[number]) {
 function restoreTool() {
   toolTab.value = 'assistant'; toolsOpen.value = !mobileViewport.value
   try {
-    const stored = JSON.parse(sessionStorage.getItem(toolPreferenceKey()) || 'null')
-    if (stored && toolTabs.includes(stored.tab)) { toolTab.value = stored.tab; toolsOpen.value = !mobileViewport.value }
+    const stored = JSON.parse(localStorage.getItem(toolPreferenceKey()) || sessionStorage.getItem(toolPreferenceKey()) || 'null')
+    if (stored && toolTabs.includes(stored.tab)) { toolTab.value = stored.tab; toolsOpen.value = !mobileViewport.value && stored.open !== false }
   } catch { /* A damaged preference never blocks reading. */ }
 }
 const activeChapter = ref(''), activeBlock = ref(''), selectedPassage = ref<{ section_id: string; section_title: string; block_id: string; block_title: string; quote: string; anchor_prefix?: string; anchor_suffix?: string } | null>(null)
@@ -281,14 +288,15 @@ function followChapter() {
     const preceding = references.filter(ref => { const rect = referenceRect(position.blockId, `${position.blockId}:${ref.id}`); return rect && rect.top <= root.getBoundingClientRect().top + 40 })
     navigation.referenceId.value = preceding.length ? `${position.blockId}:${preceding.at(-1)!.id}` : ''
   }
-  try { sessionStorage.setItem(readingPositionKey(), JSON.stringify(position)) } catch { /* Reading works without storage. */ }
+  bookmark.capture(position)
 }
 function restorePosition() {
   const root = readingTarget.value
   if (!root) return
   try {
-    const saved = sessionStorage.getItem(readingPositionKey())
-    if (saved) restoreReadingPosition(root, saved)
+    const saved = bookmark.open(user.value!.id, material.value!.id, currentRevision.value!.id,
+      material.value?.reading_positions?.[currentRevision.value!.id])
+    if (saved) restoreReadingPosition(root, JSON.stringify(saved))
   } catch { /* Invalid or unavailable storage never prevents reading. */ }
   followChapter()
 }
@@ -552,7 +560,7 @@ function showError(cause: unknown) {
   error.value = cause instanceof Error ? cause.message : c('requestFailure')
   if (cause instanceof StudyApiError && cause.status === 401) { persistDraft(); epoch++; user.value = null; clearPrivateUi(); clearTimeout(timer) }
 }
-function clearPrivateUi() { librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
+function clearPrivateUi() { bookmark.close(); librarySequence++; material.value = null; library.value = []; sources.value = []; selectedRanges.value = []; sourceText.value = ''; sourceTitle.value = ''; noteText.value = ''; savedNote.value = ''; creating.value = false; pasting.value = false; sourceBusy.value = false; selectedPassage.value = null; activeChapter.value = ''; Object.assign(form, { title: '', purpose: 'systematic', level: 'beginner', time_minutes: 60, requirements: '' }) }
 const sameOwner = (owner: string | undefined) => !disposed && user.value?.id === owner
 async function action(operation: () => Promise<void>) { const owner = user.value?.id, sequence = ++actionSequence; busy.value = true; error.value = ''; try { await operation() } catch (cause) { if (!disposed && (!owner || sameOwner(owner))) showError(cause) } finally { if (sequence === actionSequence) busy.value = false } }
 function saveBrowserDraft(key: string, value: string) {
@@ -603,6 +611,12 @@ async function connect() {
 async function authenticate() { if (busy.value) return; await action(async () => { const result = await studyApi.login(username.value, password.value, registerMode.value); studySession.set(result.token); setStudyIdentity(result.user); password.value = ''; epoch++; user.value = result.user; restoreDraft(); creating.value = !materialId.value && route.query.create === '1'; await Promise.all([loadLibrary(), openMaterial()]); const returnTo = String(route.query.returnTo || ''); if (returnTo.startsWith('/course/') && !returnTo.startsWith('//')) await router.push(returnTo); else creating.value = !materialId.value && route.query.create === '1' }) }
 async function logout() { persistDraft(); await action(async () => { await studyApi.logout(); epoch++; studySession.clear(); if (qizhiAuth) clearQizhiAccessToken(); clearTimeout(timer); user.value = null; clearPrivateUi(); await router.push('/study') }) }
 const authorizedCourses = ref<InstanceType<typeof StudentLearningHome> | null>(null)
+async function refreshLibrary() {
+  if (refreshingLibrary.value) return
+  refreshingLibrary.value = true
+  try { await action(async () => { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]) }) }
+  finally { refreshingLibrary.value = false }
+}
 function reconnect() { void action(async () => { if (!user.value) await connect(); else { await Promise.all([loadLibrary(), authorizedCourses.value?.reload()]); await openMaterial() } }) }
 async function openStudySection(view: 'home' | 'courses' | 'materials') { creating.value = false; await router.push({ path: '/study', query: view === 'home' ? {} : { view } }); await action(loadLibrary) }
 async function goLibrary() { await openStudySection('home') }
@@ -654,9 +668,11 @@ async function generate() {
 const newBlockIds = ref(new Set<string>())
 async function openMaterial() {
   clearTimeout(timer); const id = materialId.value, current = ++epoch
+  let failures = 0
+  readingConnection.value = 'loading'
   const retainedRevision = material.value?.id === id ? currentRevision.value?.id : undefined
   if (!retainedRevision) {
-    newBlockIds.value.clear(); material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
+    bookmark.close(); newBlockIds.value.clear(); material.value = null; noteText.value = ''; savedNote.value = ''; noteSaved.value = false
     activeChapter.value = ''; selectedPassage.value = null; restoreTool()
   }
   if (!id || !user.value) return
@@ -666,12 +682,14 @@ async function openMaterial() {
       if (disposed || current !== epoch || materialId.value !== id || !user.value) return
       const previousRevision = currentRevision.value?.id
       const previousBlocks = new Set(currentRevision.value?.sections.flatMap(section => section.blocks.map(block => block.block_id)) || [])
+      if (previousRevision && previousRevision !== result.revisions.at(-1)?.id) bookmark.close()
       material.value = result
+      readingConnection.value = 'connected'; failures = 0
       if (previousRevision !== currentRevision.value?.id) newBlockIds.value.clear()
       else if (!first) for (const section of currentRevision.value?.sections || []) {
         for (const block of section.blocks) if (!previousBlocks.has(block.block_id)) newBlockIds.value.add(block.block_id)
       }
-      if (first && !retainedRevision) {
+      if ((!retainedRevision && !previousRevision) || (previousRevision && previousRevision !== currentRevision.value?.id)) {
         await nextTick()
         if (disposed || current !== epoch || materialId.value !== id) return
         restorePosition()
@@ -687,7 +705,16 @@ async function openMaterial() {
       const summary = library.value.find(item => item.id === id)
       if (summary) summary.status = materialStatus.value
       if (isGenerating.value) timer = setTimeout(() => { void refresh() }, 1500)
-    } catch (cause) { if (current === epoch) showError(cause) }
+    } catch (cause) {
+      if (disposed || current !== epoch) return
+      const delay = readRecoveryDelay(cause, failures++)
+      readingConnection.value = delay === null ? 'unavailable' : 'reconnecting'
+      if (delay === null) {
+        if (cause instanceof StudyApiError && [403, 404].includes(cause.status)) { bookmark.close(); material.value = null }
+        showError(cause)
+      }
+      else timer = setTimeout(() => { void refresh(first) }, delay)
+    }
   }
   await refresh(true)
 }
@@ -696,10 +723,12 @@ watch(() => route.query.create, value => { creating.value = value === '1' && !ma
 async function resume() { await action(async () => { const owner = user.value?.id, id = materialId.value; await studyApi.resume(id); if (sameOwner(owner) && materialId.value === id) await openMaterial() }) }
 function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
 async function exportHandout() { await action(async () => { const owner = user.value?.id, title = material.value!.title, blob = await studyApi.export(materialId.value); if (sameOwner(owner)) download(blob, `${title}.md`) }) }
-onBeforeRouteUpdate(() => { followChapter() })
-onBeforeRouteLeave(() => { followChapter(); persistDraft() })
-onMounted(() => { window.addEventListener('resize', updateViewport); window.addEventListener('resize', positionSelectionActions); window.addEventListener('scroll', positionSelectionActions, true); document.addEventListener('pointerdown', dismissSelectionActionsOutside, true); window.addEventListener('keydown', closePanels); void action(connect) })
-onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', updateViewport); window.removeEventListener('resize', positionSelectionActions); window.removeEventListener('scroll', positionSelectionActions, true); document.removeEventListener('pointerdown', dismissSelectionActionsOutside, true); window.removeEventListener('keydown', closePanels); disposed = true; epoch++; clearTimeout(timer); persistDraft() })
+onBeforeRouteUpdate(() => { followChapter(); void bookmark.flush() })
+onBeforeRouteLeave(() => { followChapter(); bookmark.close(); persistDraft() })
+function recoverReadingConnection() { if (readingConnection.value === 'reconnecting') void openMaterial(); void bookmark.flush() }
+function saveReadingBeforeHide(event: Event) { if (event.type === 'pagehide' || document.visibilityState === 'hidden') { followChapter(); void bookmark.flush() } }
+onMounted(() => { window.addEventListener('online', recoverReadingConnection); window.addEventListener('pagehide', saveReadingBeforeHide); document.addEventListener('visibilitychange', saveReadingBeforeHide); window.addEventListener('resize', updateViewport); window.addEventListener('resize', positionSelectionActions); window.addEventListener('scroll', positionSelectionActions, true); document.addEventListener('pointerdown', dismissSelectionActionsOutside, true); window.addEventListener('keydown', closePanels); void action(connect) })
+onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventListener('online', recoverReadingConnection); window.removeEventListener('pagehide', saveReadingBeforeHide); document.removeEventListener('visibilitychange', saveReadingBeforeHide); window.removeEventListener('resize', updateViewport); window.removeEventListener('resize', positionSelectionActions); window.removeEventListener('scroll', positionSelectionActions, true); document.removeEventListener('pointerdown', dismissSelectionActionsOutside, true); window.removeEventListener('keydown', closePanels); disposed = true; epoch++; clearTimeout(timer); persistDraft() })
 </script>
 
 <style scoped>
@@ -1040,4 +1069,8 @@ onBeforeUnmount(() => { followChapter(); window.removeEventListener('resize', up
 .study-reading-location > :last-child { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media(max-width:760px) { .study-bottom-bar { gap:6px; padding:6px 8px; } .study-reading-location > span:first-child { display:none; } .study-tool-tabs { padding-top:calc(6px + env(safe-area-inset-top)); } }
 @media(min-width:1025px){.study-reading-tools{width:max(var(--column-right-width),min(35vw,470px));}}
+.study-connection { padding:12px 18px; color:var(--lz-text); font-size:15px; }
+.study-bookmark-status { font-size:13px; color:var(--lz-text); max-width:360px; }
+.study-tool-heading .study-close-tools { flex:none; margin-left:auto; }
+@media(max-width:760px) { .study-bottom-bar { flex-wrap:wrap; } .study-bookmark-status { order:3; flex-basis:100%; max-width:none; } }
 </style>

@@ -3,6 +3,8 @@
     ref="library"
     :user-id="userId"
     :materials="materials"
+    :refreshing="refreshing"
+    @refresh="emit('refresh')"
     :initial-filter="initialFilter"
     unified
     @source="emit('source', $event)"
@@ -16,11 +18,13 @@ import type { StudyPurpose, StudySource, StudySummary } from "../api/study";
 import StudentCourseLibrary from "./StudentCourseLibrary.vue";
 defineProps<{
   userId: string;
+  refreshing?: boolean;
   materials: StudySummary[];
   initialFilter?: "all" | "teacher" | "owned";
 }>();
 const emit = defineEmits<{
   create: [purpose: StudyPurpose];
+  refresh: [];
   source: [source: StudySource];
   filter: [value: "all" | "teacher" | "owned"];
 }>();

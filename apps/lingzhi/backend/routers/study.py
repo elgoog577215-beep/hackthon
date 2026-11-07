@@ -52,6 +52,23 @@ class NoteRequest(BaseModel):
     content: str = Field(max_length=20000)
 
 
+class ReadingPosition(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    sectionId: str = Field(min_length=1, max_length=160)
+    blockId: str = Field(default="", max_length=160)
+    offset: float = Field(ge=-100000, le=1000000)
+    atTop: bool
+    expandedAnswers: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class ReadingPositionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision_id: str = Field(min_length=1, max_length=80)
+    expected_version: int = Field(ge=0)
+    request_id: str = Field(min_length=16, max_length=80)
+    position: ReadingPosition
+
+
 class AssistantRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{16,64}$")
@@ -237,6 +254,18 @@ def material(material_id: str, user=Depends(study_identity), repo=Depends(reposi
     # Never return global task snapshots or server/provider details to this UI.
     result["task"] = {key: task.get(key) for key in ("id", "status", "progress", "completed_nodes", "total_nodes", "phase", "phase_progress", "message", "error_code")} if task else None
     return result
+
+
+@router.put("/materials/{material_id}/reading-position")
+def save_reading_position(material_id: str, request: ReadingPositionRequest,
+                         user=Depends(study_identity), repo=Depends(repository)):
+    try:
+        return repo.save_reading_position(user["id"], material_id, request.revision_id,
+                                         request.position.model_dump(), request.expected_version, request.request_id)
+    except KeyError:
+        raise HTTPException(404, "学习材料不存在") from None
+    except StudyConflict as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 @router.post("/materials/{material_id}/continue")

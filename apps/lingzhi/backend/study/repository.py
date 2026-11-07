@@ -120,6 +120,42 @@ class StudyRepository:
         )
         return saved
 
+    def save_reading_position(self, owner: str, material_id: str, revision_id: str,
+                              position: dict, expected_version: int, request_id: str) -> dict:
+        """A private bookmark, serialized with existing material records; no mastery event."""
+        self.get(owner, material_id)  # Includes source authorization, even for cached text.
+
+        def update(current):
+            material = (current or {}).get(material_id)
+            if not material or material["owner_id"] != owner:
+                raise KeyError(material_id)
+            revision = next((r for r in material["revisions"] if r["id"] == revision_id), None)
+            if not revision:
+                raise StudyConflict("讲义版本已不存在，请重新打开讲义")
+            section = next((s for s in revision["sections"] if s["id"] == position["sectionId"]), None)
+            if not section or (position["blockId"] and not any(
+                    b["block_id"] == position["blockId"] for b in section["blocks"])):
+                raise StudyConflict("阅读位置已失效，请重新打开讲义")
+            answers = {b["block_id"] for s in revision["sections"] for b in s["blocks"]
+                       if b.get("answer_to") or b.get("content_type") == "answer"}
+            if not set(position.get("expandedAnswers", [])).issubset(answers):
+                raise StudyConflict("解答位置已失效，请重新打开讲义")
+            positions = material.setdefault("reading_positions", {})
+            previous = positions.get(revision_id, {})
+            if previous.get("request_id") == request_id:
+                if previous["position"] != position:
+                    raise StudyConflict("阅读位置请求已使用")
+                return current
+            if previous.get("version", 0) != expected_version:
+                raise StudyConflict("其他窗口已更新阅读位置，请重新打开讲义")
+            positions[revision_id] = {"position": deepcopy(position), "version": expected_version + 1,
+                                      "request_id": request_id, "updated_at": now()}
+            # Reading must not masquerade as a content edit or reorder the material by updated_at.
+            return current
+
+        saved = self.storage.update_data("study_materials.json", update)[material_id]
+        return deepcopy(saved["reading_positions"][revision_id])
+
     def mutate_notes(self, owner: str, material_id: str, change) -> dict:
         """Serialize notes with the material's existing authoritative ledger."""
         self.get(owner, material_id)  # Also checks any revoked source access.

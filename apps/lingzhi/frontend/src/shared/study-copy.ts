@@ -1,6 +1,14 @@
 import { activeLocale } from './i18n'
 
 const messages = {
+  closeTools: ['收起阅读工具', 'Hide reading tools'],
+  assistantReconnecting: ['暂时无法获取最新回复，正在重新连接；已保存的对话仍保留。', 'Reconnecting to retrieve the latest reply. Saved messages are retained.'],
+  readingLoading: ['正在读取讲义…', 'Loading handout…'],
+  readingReconnecting: ['暂时无法获取最新状态，正在重新连接；已保存正文仍可阅读。', 'Reconnecting to check the latest status. Saved text is still available.'],
+  bookmarkSaving: ['正在保存阅读位置…', 'Saving reading position…'],
+  bookmarkLocal: ['阅读位置已暂存本机，等待同步', 'Reading position saved on this device; awaiting sync'],
+  bookmarkConflict: ['其他窗口已更新阅读位置；重新打开讲义将使用最新位置。', 'Another window updated your position. Reopen the handout to use the latest position.'],
+  bookmarkUnavailable: ['无法保存本机位置，请保持页面打开并检查连接。', 'Local position could not be saved. Keep this page open and check your connection.'],
   notesUnlocated: ['旧笔记 · 未定位', 'Older note · No passage'],
   readingTools: ['阅读工具', 'Reading tools'],
   selectionActions: ['选中文字操作', 'Selected text actions'],

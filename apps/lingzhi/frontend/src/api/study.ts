@@ -12,6 +12,7 @@ export interface StudyBlock { block_id: string; content_type: string; type_label
 export interface StudySection { id: string; title: string; blocks: StudyBlock[]; complete: boolean; fragment: string; source?: { kind?: 'uploaded' | 'ai_generated'; filename?: string; asset_id?: string; source_sha256?: string } }
 export interface StudySummary { id: string; title: string; purpose: StudyPurpose; generation_mode?: StudyGenerationMode; status: string; task_id: string; updated_at: string; source_course_ids?: string[] }
 export interface StudyMaterial extends StudySummary {
+  reading_positions?: Record<string, StudyReadingBookmark>
   sources: { node_id: string; title: string; filename: string; asset_id: string; source_sha256: string; characters: number }[]
   concepts_complete?: boolean
   reading_tools_complete?: boolean
@@ -47,6 +48,12 @@ export const studySession = {
 }
 export class StudyApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
+}
+export interface StudyReadingBookmark {
+  position: import('../utils/reading-position').ReadingPosition
+  version: number
+  updated_at: string
+  request_id: string
 }
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
@@ -103,6 +110,7 @@ export const studyApi = {
   list: (signal?: AbortSignal) => request<StudySummary[]>('/materials', { signal }),
   generate: (body: StudyGenerationRequest) => request<StudyMaterial>('/materials', json(body)),
   get: (id: string) => request<StudyMaterial>(`/materials/${encodeURIComponent(id)}`),
+  saveReadingPosition: (id: string, body: { revision_id: string; expected_version: number; request_id: string; position: import('../utils/reading-position').ReadingPosition }) => request<StudyReadingBookmark>(`/materials/${encodeURIComponent(id)}/reading-position`, { ...json(body), method: 'PUT', keepalive: true }),
   resume: (id: string) => request(`/materials/${encodeURIComponent(id)}/continue`, { method: 'POST' }),
   note: (id: string, revision_id: string, content: string) => request<{ content: string; updated_at: string }>(`/materials/${encodeURIComponent(id)}/note`, { ...json({ revision_id, content }), method: 'PUT' }),
   listNotes: (id: string, revisionId?: string) => request<{ entries: StudyNote[] }>(`/materials/${encodeURIComponent(id)}/notes${revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : ''}`),

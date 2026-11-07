@@ -5,13 +5,14 @@
     <div class="assistant-conversation">
     <div ref="thread" class="assistant-thread" tabindex="0" :aria-label="c('assistant')" @scroll="handleMessageScroll">
       <div ref="threadContent">
-      <p v-if="historyLoading" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
+      <p v-if="reconnecting" role="status">{{ c('assistantReconnecting') }}</p>
+      <p v-if="historyLoading && !reconnecting" class="assistant-empty" role="status">{{ c('aiLoading') }}</p>
       <article v-for="message in visibleMessages" :key="message.message_id" :class="['assistant-message', message.role]">
         <small v-if="message.role === 'user' && (message.context_ref.section_id !== context.section_id || message.context_ref.block_title)"><MathText :content="message.context_ref.section_title" /><template v-if="message.context_ref.block_title && message.context_ref.block_title !== message.context_ref.section_title"> · <MathText :content="message.context_ref.block_title" /></template></small>
         <blockquote v-if="message.role === 'user' && message.context_ref.quote"><MathText :content="message.context_ref.quote" /></blockquote>
         <MarkdownRenderer :content="message.content" :smooth-stream="message.role === 'assistant'" :animate-initial="newMessageIds.has(message.message_id)" :enable-code-run="false" />
         <div v-if="message.role === 'assistant' && message.status === 'complete' && message.content" class="assistant-note-actions"><ElButton v-if="!note" plain class="assistant-action" @click="emit('saveReply', message)"><NotebookPen :size="16" aria-hidden="true" />{{ c('notesSaveReply') }}</ElButton><template v-else-if="message.note_draft !== undefined"><span>{{ c('notesDraftUpdated') }}</span><ElButton plain class="assistant-action" @click="emit('returnNote')"><ArrowLeft :size="16" aria-hidden="true" />{{ c('notesReturn') }}</ElButton></template></div>
-        <p v-if="['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
+        <p v-if="!reconnecting && ['pending','running'].includes(message.status)" role="status">{{ c('aiWaiting') }}</p>
         <template v-else-if="['failed','paused','error'].includes(message.status)"><p>{{ c('aiInterrupted') }}</p><ElButton :disabled="busy || active || !historyReady" @click="resume(message)">{{ c('aiContinue') }}</ElButton></template>
       </article>
       </div>
@@ -33,6 +34,7 @@
 
 <script setup lang="ts">
 import "../styles/study-tool-controls.css"
+import { readRecoveryDelay } from '../utils/read-recovery'
 import { createUuid } from '../utils/client-id'
 import { ElButton, ElInput } from 'element-plus'
 import { ArrowDown, ArrowUp, BookOpen, Lightbulb, Network, NotebookPen, ArrowLeft, MessageCircle } from 'lucide-vue-next'
@@ -50,6 +52,8 @@ const prompts = ['aiExplain','aiExample','aiDiagram'] as const
 const promptShortLabels = { aiExplain: ['讲解', 'Explain'], aiExample: ['举例', 'Example'], aiDiagram: ['图解', 'Diagram'] } as const
 const promptText = (key: typeof prompts[number]) => c(key === 'aiExplain' ? props.note ? 'aiExplainNote' : props.context.quote ? 'aiExplainQuote' : key : key)
 const conversation = ref<AssistantConversation | null>(null), input = ref(''), error = ref(''), busy = ref(false), thread = ref<HTMLElement | null>(null)
+const reconnecting = ref(false)
+let failures = 0
 const historyLoading = ref(false), historyReady = ref(false)
 const threadContent = ref<HTMLElement | null>(null)
 const visibleMessages = computed(() => (conversation.value?.messages || []).filter(m => props.note ? m.context_ref.note_id === props.note.id : !m.context_ref.note_id))
@@ -81,7 +85,7 @@ watch(input, () => keepDraft())
 watch(key, (_next, previous) => {
   keepDraft(previous); observation++; scopeGeneration++; clearTimeout(timer)
   conversation.value = null; knownMessages = undefined; newMessageIds.value = new Set(); sentDrafts.clear()
-  busy.value = false; historyReady.value = false; error.value = ''
+  busy.value = false; historyReady.value = false; reconnecting.value = false; failures = 0; error.value = ''
   restoreDraft(); scrollToBottom(); void load()
 })
 watch(() => props.context.quote, quote => { if (quote && !input.value.trim()) input.value = c('aiSelectedPrompt') })
@@ -90,8 +94,16 @@ async function load() {
   clearTimeout(timer)
   const current = ++observation
   if (!historyReady.value) historyLoading.value = true
-  try { const result = await studyApi.assistant(props.materialId); if (disposed || current !== observation) return; acceptConversation(result); historyReady.value = true; error.value = ''; if (active.value) timer = setTimeout(() => { void load() }, 1500) }
-  catch (cause) { if (!disposed && current === observation) { historyReady.value = false; fail(cause) } }
+  try { const result = await studyApi.assistant(props.materialId); if (disposed || current !== observation) return; acceptConversation(result); historyReady.value = true; error.value = ''; reconnecting.value = false; failures = 0; if (active.value) timer = setTimeout(() => { void load() }, 1500) }
+  catch (cause) {
+    if (!disposed && current === observation) {
+      historyReady.value = false
+      const delay = readRecoveryDelay(cause, failures++)
+      reconnecting.value = delay !== null
+      if (delay === null) fail(cause)
+      else timer = setTimeout(() => { void load() }, delay)
+    }
+  }
   finally { if (!disposed && current === observation) historyLoading.value = false }
 }
 async function send(prompt?: string) {
@@ -107,8 +119,9 @@ async function send(prompt?: string) {
   finally { if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) busy.value = false }
 }
 async function resume(message: AssistantMessage) { if (busy.value || active.value || !message.task_ref) return; const submittedKey = key.value, submittedGeneration = scopeGeneration; busy.value = true; try { await studyApi.continueAnswer(props.materialId, message.task_ref.task_id); if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) await load() } catch (cause) { if (submittedKey === key.value && submittedGeneration === scopeGeneration) fail(cause) } finally { if (!disposed && submittedKey === key.value && submittedGeneration === scopeGeneration) busy.value = false } }
-onMounted(() => { void load() })
-onBeforeUnmount(() => { disposed = true; clearTimeout(timer); keepDraft() })
+function reconnect() { if (reconnecting.value) void load() }
+onMounted(() => { window.addEventListener('online', reconnect); void load() })
+onBeforeUnmount(() => { window.removeEventListener('online', reconnect); disposed = true; clearTimeout(timer); keepDraft() })
 </script>
 
 <style scoped>
