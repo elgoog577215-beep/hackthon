@@ -370,22 +370,28 @@ export const useNoteStore = defineStore('notes', {
     },
 
     // ========== Tag & Category Management ==========
-    async updateNoteTags(id: string, tags: string[]) {
+    async updateNoteTags(id: string, tags: string[]): Promise<boolean> {
       const note = this.notes.find(n => n.id === id)
-      if (note) {
-        note.tags = tags
-        if (isTeacherPreviewCourse()) return
-        try {
-          const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
-            expected_revision: note.revision,
-            tags,
-          })
-          Object.assign(note, recordToNote(res.data))
-          await refreshLearningRuntime(this.courseId, note.nodeId)
-        } catch (e) {
-          logger.error('Failed to update note tags', e)
-        }
+      if (!note) return false
+      const previousTags = [...(note.tags || [])]
+      note.tags = tags
+      if (isTeacherPreviewCourse()) return true
+      let updated: Note
+      try {
+        const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
+          expected_revision: note.revision,
+          tags,
+        })
+        updated = recordToNote(res.data)
+      } catch (e) {
+        note.tags = previousTags
+        logger.error('Failed to update note tags', e)
+        return false
       }
+      Object.assign(note, updated)
+      try { await refreshLearningRuntime(this.courseId, note.nodeId) }
+      catch (e) { logger.warn('Failed to refresh learning runtime after tag update', e) }
+      return true
     },
 
     async updateNoteCategory(id: string, category: string) {
@@ -406,22 +412,28 @@ export const useNoteStore = defineStore('notes', {
       }
     },
 
-    async updateNotePriority(id: string, priority: 'low' | 'medium' | 'high') {
+    async updateNotePriority(id: string, priority: 'low' | 'medium' | 'high'): Promise<boolean> {
       const note = this.notes.find(n => n.id === id)
-      if (note) {
-        note.priority = priority
-        if (isTeacherPreviewCourse()) return
-        try {
-          const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
-            expected_revision: note.revision,
-            priority,
-          })
-          Object.assign(note, recordToNote(res.data))
-          await refreshLearningRuntime(this.courseId, note.nodeId)
-        } catch (e) {
-          logger.error('Failed to update note priority', e)
-        }
+      if (!note) return false
+      const previousPriority = note.priority
+      note.priority = priority
+      if (isTeacherPreviewCourse()) return true
+      let updated: Note
+      try {
+        const res = await http.patch(`/api/courses/${this.courseId}/learning-records/${id}`, {
+          expected_revision: note.revision,
+          priority,
+        })
+        updated = recordToNote(res.data)
+      } catch (e) {
+        note.priority = previousPriority
+        logger.error('Failed to update note priority', e)
+        return false
       }
+      Object.assign(note, updated)
+      try { await refreshLearningRuntime(this.courseId, note.nodeId) }
+      catch (e) { logger.warn('Failed to refresh learning runtime after priority update', e) }
+      return true
     },
 
     getAllTags(): string[] {

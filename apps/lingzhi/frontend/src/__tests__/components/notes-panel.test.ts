@@ -86,6 +86,55 @@ describe('NotesPanel quick note', () => {
     expect(wrapper.text()).toContain('线性组合')
   })
 
+  it('按课程树顺序分组，并能在笔记本里管理优先级和标签', async () => {
+    const courseStore = useCourseStore()
+    courseStore.nodes = [currentNode(), { ...currentNode(), node_id: 'n2', node_name: '图论' }]
+    vi.spyOn(courseStore, 'getLinearNodes').mockReturnValue([
+      { ...currentNode(), node_id: 'n2', node_name: '图论' },
+      currentNode(),
+    ] as any)
+    const noteStore = useNoteStore()
+    noteStore.notes = [
+      { id:'note-vector', nodeId:'n1', recordType:'note', content:'向量记录', summary:'向量记录', createdAt:2, priority:'medium', tags:['线性代数'] },
+      { id:'note-graph', nodeId:'n2', recordType:'note', content:'路径记录', summary:'路径记录', createdAt:1, priority:'low', tags:['旧标签'] },
+    ] as any
+    const updatePriority = vi.spyOn(noteStore, 'updateNotePriority').mockResolvedValue(true)
+    const updateTags = vi.spyOn(noteStore, 'updateNoteTags').mockResolvedValue(true)
+    const wrapper = mount(NotesPanel)
+
+    await wrapper.findAll('.records-tools button')[0]!.trigger('click')
+    expect(wrapper.findAll('.record-group-heading').map(heading => heading.text())).toEqual(['图论1', '向量空间1'])
+    expect(wrapper.get('[data-record-id="note-graph"]').text()).toContain('旧标签')
+
+    const graphRow = wrapper.get('[data-record-id="note-graph"]')
+    await graphRow.get('.record-priority select').setValue('high')
+    expect(updatePriority).toHaveBeenCalledWith('note-graph', 'high')
+    await graphRow.get('.record-tags-edit').trigger('click')
+    await graphRow.get('.record-tag-form input').setValue('图论，最短路径')
+    await graphRow.get('.record-tag-form').trigger('submit')
+    expect(updateTags).toHaveBeenCalledWith('note-graph', ['图论', '最短路径'])
+  })
+
+  it('标签保存失败时保留编辑内容并给出重试提示', async () => {
+    const noteStore = useNoteStore()
+    noteStore.notes = [{ id:'note-1', nodeId:'n1', recordType:'note', content:'待分类笔记', createdAt:1, tags:['旧标签'] }] as any
+    vi.spyOn(noteStore, 'updateNotePriority').mockResolvedValue(false)
+    vi.spyOn(noteStore, 'updateNoteTags').mockResolvedValue(false)
+    const wrapper = mount(NotesPanel)
+    const row = wrapper.get('[data-record-id="note-1"]')
+
+    await row.get('.record-priority select').setValue('high')
+    await flushPromises()
+    expect((row.get('.record-priority select').element as HTMLSelectElement).value).toBe('medium')
+    expect(row.get('.record-priority-error').text()).toContain('优先级保存失败')
+    await row.get('.record-tags-edit').trigger('click')
+    await row.get('.record-tag-form input').setValue('新标签')
+    await row.get('.record-tag-form').trigger('submit')
+
+    expect(row.get('.record-tag-form input').element).toHaveProperty('value', '新标签')
+    expect(row.get('.record-tag-error').text()).toContain('保存失败')
+  })
+
   it('moves keyboard focus to the quick note input when opening the composer', async () => {
     const wrapper = mount(NotesPanel, { attachTo:document.body })
     await wrapper.get('.quick-note-trigger').trigger('click')

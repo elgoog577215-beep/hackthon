@@ -89,32 +89,61 @@
         <span>{{ search.trim() ? t('notebook.noResults', '没有找到相关内容') : activeTab !== 'all' ? t('notebook.emptyCategory', '这个分类还没有记录') : t('notebook.empty', '笔记本还是空的') }}</span>
         <button v-if="search.trim()" type="button" @click="search = ''">{{ t('notebook.clearSearch', '清除搜索') }}</button>
       </div>
-      <article v-for="record in filteredRecords" :key="record.id" class="record-row">
-        <button class="record-main" @click="emit('viewDetail', record)">
-          <span class="record-type" :data-type="recordType(record)">{{ typeLabel(recordType(record)) }}</span>
-          <strong><MathText :content="record.summary || record.quote || record.content || typeLabel(recordType(record))" /></strong>
-          <MathText v-if="record.quote && record.quote !== record.summary" tag="p" :content="record.quote" />
-          <small><MathText :content="recordNodeName(record) || t('courseWorkspace.records.unknownNode', '课程位置')" /> · {{ formatTime(record.createdAt) }}</small>
-        </button>
-        <div class="record-actions">
-          <span class="record-status">{{ statusLabel(record.status || '') }}</span>
-          <button v-if="record.nodeId" :aria-label="t('courseWorkspace.records.locate', '定位原文')" :title="t('courseWorkspace.records.locate', '定位原文')" @click="emit('locate', record)">
-            <LocateFixed :size="15" />
+      <section v-for="group in recordGroups" :key="group.id" class="record-group">
+        <h4 v-if="sortMode === 'chapter'" class="record-group-heading">
+          <MathText :content="group.nodeName || t('courseWorkspace.records.unknownNode', '未知章节')" />
+          <span>{{ group.records.length }}</span>
+        </h4>
+        <article v-for="record in group.records" :key="record.id" class="record-row" :data-record-id="record.id">
+          <button class="record-main" @click="emit('viewDetail', record)">
+            <span class="record-type" :data-type="recordType(record)">{{ typeLabel(recordType(record)) }}</span>
+            <strong><MathText :content="record.summary || record.quote || record.content || typeLabel(recordType(record))" /></strong>
+            <MathText v-if="record.quote && record.quote !== record.summary" tag="p" :content="record.quote" />
+            <small><MathText :content="recordNodeName(record) || t('courseWorkspace.records.unknownNode', '课程位置')" /> · {{ formatTime(record.createdAt) }}</small>
           </button>
-          <button v-if="recordType(record) === 'issue' && record.status !== 'resolved'" @click="updateStatus(record, 'resolved')">
-            {{ t('courseWorkspace.records.resolve', '标记解决') }}
-          </button>
-          <button v-else-if="recordType(record) === 'issue' && record.status === 'resolved'" @click="updateStatus(record, 'reopened')">
-            {{ t('courseWorkspace.records.reopen', '重新打开') }}
-          </button>
-          <button v-if="recordType(record) === 'review_task' && record.status !== 'completed'" @click="updateStatus(record, 'completed')">
-            {{ t('courseWorkspace.records.completeReview', '完成复习') }}
-          </button>
-          <button v-else-if="recordType(record) === 'review_task' && record.status === 'completed'" @click="updateStatus(record, 'pending')">
-            {{ t('courseWorkspace.records.reviewAgain', '再次复习') }}
-          </button>
-        </div>
-      </article>
+          <div class="record-actions">
+            <span class="record-status">{{ statusLabel(record.status || '') }}</span>
+            <button v-if="record.nodeId" :aria-label="t('courseWorkspace.records.locate', '定位原文')" :title="t('courseWorkspace.records.locate', '定位原文')" @click="emit('locate', record)">
+              <LocateFixed :size="15" />
+            </button>
+            <button v-if="recordType(record) === 'issue' && record.status !== 'resolved'" @click="updateStatus(record, 'resolved')">
+              {{ t('courseWorkspace.records.resolve', '标记解决') }}
+            </button>
+            <button v-else-if="recordType(record) === 'issue' && record.status === 'resolved'" @click="updateStatus(record, 'reopened')">
+              {{ t('courseWorkspace.records.reopen', '重新打开') }}
+            </button>
+            <button v-if="recordType(record) === 'review_task' && record.status !== 'completed'" @click="updateStatus(record, 'completed')">
+              {{ t('courseWorkspace.records.completeReview', '完成复习') }}
+            </button>
+            <button v-else-if="recordType(record) === 'review_task' && record.status === 'completed'" @click="updateStatus(record, 'pending')">
+              {{ t('courseWorkspace.records.reviewAgain', '再次复习') }}
+            </button>
+          </div>
+          <div class="record-metadata">
+            <label class="record-priority">
+              <span>{{ copy('优先级', 'Priority') }}</span>
+              <select :aria-label="`${copy('优先级', 'Priority')}：${record.summary || record.content || typeLabel(recordType(record))}`" :value="record.priority || 'medium'" @change="updatePriority(record, $event)">
+                <option value="low">{{ copy('低', 'Low') }}</option>
+                <option value="medium">{{ copy('中', 'Medium') }}</option>
+                <option value="high">{{ copy('高', 'High') }}</option>
+              </select>
+            </label>
+            <span v-if="prioritySaveFailedFor === record.id" class="record-priority-error" role="status">{{ copy('优先级保存失败，请重试。', 'Could not save priority. Please try again.') }}</span>
+            <div class="record-tags">
+              <span v-for="tag in record.tags || []" :key="tag" class="record-tag">{{ tag }}</span>
+              <button type="button" class="record-tags-edit" :aria-expanded="editingTagsFor === record.id" @click="beginTagEdit(record)">
+                {{ editingTagsFor === record.id ? copy('正在编辑', 'Editing tags') : copy('编辑标签', 'Edit tags') }}
+              </button>
+            </div>
+            <form v-if="editingTagsFor === record.id" class="record-tag-form" @submit.prevent="saveTags(record)">
+              <input v-model="tagDraft" :aria-label="copy('标签，使用逗号分隔', 'Tags, separated by commas')" :placeholder="copy('输入标签，用逗号分隔', 'Enter tags separated by commas')" maxlength="240" />
+              <span v-if="tagSaveFailed" class="record-tag-error" role="status">{{ copy('保存失败，请重试。', 'Could not save. Please try again.') }}</span>
+              <button type="submit">{{ copy('保存', 'Save') }}</button>
+              <button type="button" @click="cancelTagEdit">{{ copy('取消', 'Cancel') }}</button>
+            </form>
+          </div>
+        </article>
+      </section>
     </div>
   </section>
 </template>
@@ -125,9 +154,10 @@ import dayjs from 'dayjs'
 import { ArrowDownUp, Download, LoaderCircle, LocateFixed, Notebook, NotebookPen, Plus, Save, X } from 'lucide-vue-next'
 import { useNoteStore } from '../stores/notes'
 import { useCourseStore } from '../stores/course'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 import { createUuid } from '../utils/client-id'
 import MathText from './MathText.vue'
+import type { Note } from '../stores/types'
 
 type RecordTab = 'all' | 'note' | 'issue' | 'review_task' | 'bookmark'
 const emit = defineEmits<{
@@ -143,6 +173,11 @@ const search = ref('')
 const sortMode = ref<'time' | 'chapter'>('time')
 const quickNoteOpen = ref(false)
 const quickNoteInput = ref<HTMLTextAreaElement | null>(null)
+const editingTagsFor = ref('')
+const tagDraft = ref('')
+const tagSaveFailed = ref(false)
+const prioritySaveFailedFor = ref('')
+const copy = (zh: string, en: string) => activeLocale.value === 'en' ? en : zh
 
 async function openQuickNote() {
   quickNoteOpen.value = true
@@ -153,7 +188,7 @@ const quickNoteContent = ref('')
 const quickNoteSaving = ref(false)
 
 const officialRecords = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong'))
-const recordType = (record: any) => (record.recordType || 'note') as Exclude<RecordTab, 'all'>
+const recordType = (record: Note) => (record.recordType || 'note') as Exclude<RecordTab, 'all'>
 const count = (type: Exclude<RecordTab, 'all'>) => officialRecords.value.filter(item => recordType(item) === type).length
 const tabs = computed(() => [
   { key: 'all' as const, label: t('courseWorkspace.records.tabs.all', '全部'), count: officialRecords.value.length },
@@ -162,6 +197,11 @@ const tabs = computed(() => [
   { key: 'review_task' as const, label: t('notebook.categories.review', '复习'), count: count('review_task') },
   { key: 'bookmark' as const, label: t('notebook.categories.bookmark', '书签'), count: count('bookmark') },
 ])
+const chapterOrder = computed(() => {
+  const linearNodes = courseStore.getLinearNodes(courseStore.courseTree)
+  const orderedNodes = linearNodes.length ? linearNodes : courseStore.nodes
+  return new Map(orderedNodes.map((node, index) => [node.node_id, index]))
+})
 const filteredRecords = computed(() => {
   const query = search.value.trim().toLowerCase()
   const values = officialRecords.value.filter(item => {
@@ -171,9 +211,22 @@ const filteredRecords = computed(() => {
       .some(value => String(value || '').toLowerCase().includes(query))
   })
   return [...values].sort((left, right) => {
-    if (sortMode.value === 'chapter') return recordNodeName(left).localeCompare(recordNodeName(right), 'zh-CN')
+    if (sortMode.value === 'chapter') {
+      const order = (chapterOrder.value.get(left.nodeId) ?? Number.MAX_SAFE_INTEGER) - (chapterOrder.value.get(right.nodeId) ?? Number.MAX_SAFE_INTEGER)
+      return order || recordNodeName(left).localeCompare(recordNodeName(right), 'zh-CN') || Number(right.createdAt || 0) - Number(left.createdAt || 0)
+    }
     return Number(right.createdAt || 0) - Number(left.createdAt || 0)
   })
+})
+const recordGroups = computed(() => {
+  if (sortMode.value === 'time') return [{ id: 'recent', nodeName: '', records: filteredRecords.value }]
+  const groups = new Map<string, Note[]>()
+  filteredRecords.value.forEach(record => {
+    const key = record.nodeId || ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(record)
+  })
+  return Array.from(groups.entries()).map(([id, records]) => ({ id: id || 'unknown', nodeName: recordNodeName(records[0]!), records }))
 })
 
 function toggleSortMode() {
@@ -190,6 +243,36 @@ function statusLabel(status: string) {
 
 async function updateStatus(record: any, status: string) {
   await noteStore.updateRecordStatus(record.id, status)
+}
+
+async function updatePriority(record: Note, event: Event) {
+  const value = (event.currentTarget as HTMLSelectElement).value
+  if (value !== 'low' && value !== 'medium' && value !== 'high') return
+  prioritySaveFailedFor.value = ''
+  if (!(await noteStore.updateNotePriority(record.id, value))) prioritySaveFailedFor.value = record.id
+}
+
+function beginTagEdit(record: Note) {
+  if (editingTagsFor.value === record.id) {
+    cancelTagEdit()
+    return
+  }
+  editingTagsFor.value = record.id
+  tagDraft.value = (record.tags || []).join(', ')
+  tagSaveFailed.value = false
+}
+
+function cancelTagEdit() {
+  editingTagsFor.value = ''
+  tagDraft.value = ''
+  tagSaveFailed.value = false
+}
+
+async function saveTags(record: Note) {
+  const tags = [...new Set(tagDraft.value.split(/[，,\n]/).map(tag => tag.trim()).filter(Boolean))]
+  tagSaveFailed.value = !(await noteStore.updateNoteTags(record.id, tags))
+  if (tagSaveFailed.value) return
+  cancelTagEdit()
 }
 
 function cancelQuickNote() {
@@ -268,8 +351,8 @@ defineExpose({ setTab })
 .records-panel input::placeholder,.records-panel textarea::placeholder { color:var(--lz-text-secondary); opacity:1; }
 .records-tools button,.records-close,.record-actions button,.records-empty button { flex:0 0 auto; min-width:34px; min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 9px; border:1px solid var(--lz-border); border-radius:var(--radius-sm); color:var(--lz-text-secondary); background:var(--bg-secondary); cursor:pointer; font-size:var(--text-xs); }
 .records-tools button:hover,.records-close:hover,.record-actions button:hover,.records-empty button:hover { color:var(--lz-brand-strong); border-color:var(--lz-brand); background:var(--lz-brand-soft); }
-.records-panel :is(button,input,textarea):focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .records-panel button:active:not(:disabled) { background:var(--lz-brand-soft); }
+.records-panel :is(button,input,textarea,select):focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .quick-note { flex:0 0 auto; padding:16px 20px 4px; }
 .quick-note-trigger { width:100%; display:grid; grid-template-columns:20px minmax(0,1fr) 18px; align-items:center; gap:10px; padding:12px; border:1px solid var(--lz-border); border-radius:var(--lz-radius-control); color:var(--lz-brand-strong); background:var(--lz-brand-soft); text-align:left; cursor:pointer; transition:border-color var(--duration-fast); }
 .quick-note-trigger:hover:not(:disabled) { border-color:var(--lz-brand); }
@@ -295,6 +378,9 @@ defineExpose({ setTab })
 .record-tabs button.active { color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-weight:600; }
 .record-tabs span { font-size:var(--text-xs); font-variant-numeric:tabular-nums; }
 .records-list { flex:1; min-height:0; overflow:auto; scrollbar-gutter:stable; display:flex; flex-direction:column; gap:12px; padding:16px 20px 24px; }
+.record-group { display:flex; flex-direction:column; gap:12px; }
+.record-group-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 0; color:var(--lz-text-secondary); font-size:var(--text-xs); font-weight:600; }
+.record-group-heading span { color:var(--lz-text-secondary); font-size:11px; font-variant-numeric:tabular-nums; }
 .records-empty { flex:1; min-height:180px; display:flex; flex-direction:column; gap:12px; align-items:center; justify-content:center; color:var(--lz-text-secondary); text-align:center; }
 .records-empty svg { color:var(--lz-brand); }
 .records-empty span { font-size:var(--text-sm); }
@@ -309,6 +395,18 @@ defineExpose({ setTab })
 .record-type[data-type="review_task"] { color:var(--lz-warning); background:var(--lz-warning-soft); }
 .record-type[data-type="bookmark"] { color:var(--lz-success); background:var(--lz-success-soft); }
 .record-actions { display:flex; gap:8px; align-items:center; }
+.record-metadata { grid-column:1/-1; min-width:0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; padding-top:10px; border-top:1px solid var(--lz-border); }
+.record-priority { display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:var(--text-xs); }
+.record-priority select { min-height:30px; padding:4px 24px 4px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:var(--bg-secondary); font-size:var(--text-xs); }
+.record-priority-error { color:var(--lz-danger); font-size:var(--text-xs); }
+.record-tags { min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+.record-tag { max-width:18ch; overflow:hidden; padding:3px 7px; border-radius:5px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.record-tags-edit { min-height:28px !important; padding:4px 8px !important; border-style:dashed !important; font-size:11px !important; }
+.record-tag-form { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:7px; }
+.record-tag-form input { flex:1 1 180px; min-width:0; min-height:34px; padding:6px 9px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:var(--bg-secondary); font-size:var(--text-sm); }
+.record-tag-form button { min-height:34px; padding:6px 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:var(--bg-secondary); cursor:pointer; font-size:var(--text-xs); }
+.record-tag-form button[type="submit"] { color:var(--lz-action-text); border-color:var(--lz-action-border); background:var(--lz-action-bg); font-weight:600; }
+.record-tag-error { flex:1 1 100%; color:var(--lz-danger); font-size:var(--text-xs); }
 .record-status { color:var(--lz-text-secondary); font-size:var(--text-xs); }
 .records-panel.is-sidebar { height:100%; min-height:0; }
 .records-panel.is-sidebar .records-header { padding:16px; }
@@ -334,5 +432,6 @@ defineExpose({ setTab })
   .records-list { padding:12px 14px 18px; }
   .record-row { grid-template-columns:1fr; }
   .record-actions { justify-content:flex-end; flex-wrap:wrap; }
+  .record-metadata { align-items:flex-start; flex-direction:column; }
 }
 </style>

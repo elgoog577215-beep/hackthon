@@ -110,6 +110,35 @@ describe('learning records through notes store', () => {
     expect(store.notes[0]?.revision).toBe(2)
   })
 
+  it('标签和优先级使用修订号保存；失败时回滚本地显示', async () => {
+    const store = useNoteStore()
+    store.courseId = 'c1'
+    store.notes = [{
+      id: 'lr-1', nodeId: 'n1', highlightId: '', quote: '原文', content: '笔记', color: 'amber',
+      createdAt: Date.now(), sourceType: 'user', recordType: 'note', status: 'active',
+      tags: ['原标签'], priority: 'medium', revision: 1,
+    }]
+    httpMock.patch.mockResolvedValueOnce({ data: record({ tags: ['图论'], revision: 2 }) })
+
+    expect(await store.updateNoteTags('lr-1', ['图论'])).toBe(true)
+    expect(httpMock.patch).toHaveBeenLastCalledWith('/api/courses/c1/learning-records/lr-1', {
+      expected_revision: 1, tags: ['图论'],
+    })
+    expect(store.notes[0]?.tags).toEqual(['图论'])
+    expect(store.notes[0]?.revision).toBe(2)
+
+    httpMock.patch.mockResolvedValueOnce({ data: record({ tags: ['图论'], priority: 'high', revision: 3 }) })
+    expect(await store.updateNotePriority('lr-1', 'high')).toBe(true)
+    expect(httpMock.patch).toHaveBeenLastCalledWith('/api/courses/c1/learning-records/lr-1', {
+      expected_revision: 2, priority: 'high',
+    })
+    expect(store.notes[0]?.priority).toBe('high')
+
+    httpMock.patch.mockRejectedValueOnce(new Error('offline'))
+    expect(await store.updateNotePriority('lr-1', 'low')).toBe(false)
+    expect(store.notes[0]?.priority).toBe('high')
+  })
+
   it('格式高亮只保留在本地，不写入正式记录', async () => {
     const store = useNoteStore()
     await store.createNote({

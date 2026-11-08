@@ -15,7 +15,7 @@
 .handout-block .markdown-renderer p { margin: .7em 0; }
 .handout-document .markdown-renderer strong { color: inherit; font-weight: 700; }
 .handout-document .markdown-renderer :is(h2,h3,h4) { color: #242a35; font-family: var(--handout-serif); line-height: 1.6; }
-.handout-document .handout-block .markdown-renderer :is(h4,h5,h6) { margin: 1.4em 0 .55em; color: #435066; font: 650 .94em/1.7 var(--handout-sans); }
+.handout-document .handout-block .markdown-renderer :is(h4,h5,h6) { margin: 1.4em 0 .55em; color: #435066; font: 650 .94em/1.7 var(--handout-serif); }
 .handout-document .handout-block .markdown-renderer :is(h4,h5,h6):first-child { margin-top: 0; }
 .handout-document .markdown-renderer :is(ul,ol) { margin: 1em 0; padding-left: 25px; }
 .handout-document .markdown-renderer li { margin: 10px 0; }
