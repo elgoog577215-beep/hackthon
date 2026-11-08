@@ -275,19 +275,19 @@ describe('personal study handouts', () => {
     expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('keeps directory titles clean while allowing search by localized teaching type', async () => {
+  it('shows teaching type tags in the directory and supports localized search', async () => {
     const material = structuredClone(saved)
-    material.revisions[0]!.sections[0]!.blocks[0]!.title = '练习中的概念'
+    material.revisions[0]!.sections[0]!.blocks[0]!.title = '向量概念'
     api.get.mockResolvedValue(material)
     const { wrapper } = await page('/study/material-a')
-    expect(wrapper.find('.study-block-tag').exists()).toBe(false)
-    expect(wrapper.get('.study-block-list').text()).toBe('练习中的概念')
+    expect(wrapper.get('.study-block-list .study-block-title').text()).toBe('向量概念')
+    expect(wrapper.get('.study-block-tag').text()).toBe('定义')
     await wrapper.get('.study-chapter-search input').setValue('定义')
-    expect(wrapper.find('.study-block-list').exists()).toBe(true)
+    expect(wrapper.get('.study-block-tag').text()).toBe('定义')
     await wrapper.get('.study-chapter-search input').setValue('')
     await setLocale('en'); await flushPromises()
-    expect(wrapper.find('.study-block-tag').exists()).toBe(false)
-    expect(wrapper.get('.study-block-list').text()).toBe('练习中的概念')
+    expect(wrapper.get('.study-block-list .study-block-title').text()).toBe('向量概念')
+    expect(wrapper.get('.study-block-tag').text()).toBe('Definition')
   })
 
 

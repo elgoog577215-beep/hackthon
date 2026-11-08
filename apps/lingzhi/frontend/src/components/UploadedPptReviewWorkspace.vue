@@ -1,6 +1,6 @@
 <template>
   <section class="ppt-review" :aria-busy="busy">
-    <input ref="fileInput" class="sr-only" type="file" accept=".pptx" :disabled="busy || uploadBlocked" @change="handleFile" />
+    <input ref="fileInput" class="sr-only" type="file" accept=".ppt,.pptx" :disabled="busy || uploadBlocked" @change="handleFile" />
 
     <div v-if="loading && !review" class="ppt-review-state">
       <LoaderCircle :size="22" class="spin" />
@@ -295,7 +295,7 @@ async function handleFile(event: Event) {
   if (!file) return
   if (props.uploadBlocked) { error.value = t('pptWorkspace.flow.uploadBlocked'); return }
   if (!await prepareToLeave() || props.uploadBlocked) return
-  if (!file.name.toLowerCase().endsWith('.pptx')) { error.value = t('courseWorkbench.pptReview.pptxOnly', '请选择 .pptx 文件。'); return }
+  if (!/\.pptx?$/i.test(file.name)) { error.value = t('courseWorkbench.pptReview.pptOnly', '请选择 .ppt 或 .pptx 文件。'); return }
   busy.value = true
   error.value = ''
   try {
@@ -375,7 +375,7 @@ async function downloadRevision() {
   try {
     const response = await http.get(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/${review.value.review_id}/export.pptx`, teacherRequestConfig({ responseType: 'blob', silentError: true }))
     const url = URL.createObjectURL(response.data); const anchor = document.createElement('a')
-    anchor.href = url; anchor.download = `${review.value.source_filename.replace(/\.pptx$/i, '')}-已审阅.pptx`; anchor.click(); URL.revokeObjectURL(url)
+    anchor.href = url; anchor.download = `${review.value.source_filename.replace(/\.pptx?$/i, '')}-已审阅.pptx`; anchor.click(); URL.revokeObjectURL(url)
   } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.downloadFailed', '修订稿下载失败。')) }
   finally { busy.value = false }
 }

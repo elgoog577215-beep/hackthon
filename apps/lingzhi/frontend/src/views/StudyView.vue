@@ -61,7 +61,7 @@
                 <button v-if="section.blocks.length" type="button" class="study-chapter-toggle" :aria-label="`${activeLocale === 'zh' ? (sectionExpanded(section.id) ? '收起' : '展开') : (sectionExpanded(section.id) ? 'Collapse' : 'Expand')} ${section.title}`" :aria-expanded="sectionExpanded(section.id)" :aria-controls="`study-directory-${section.id}`" @click="toggleSection(section.id)"><ChevronRight :size="16" :class="{ 'is-open': sectionExpanded(section.id) }" /></button>
               </div>
               <div v-if="sectionExpanded(section.id)" :id="`study-directory-${section.id}`" class="study-block-list">
-                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><MathText :content="block.title" /></button>
+                <button v-for="block in section.blocks" :key="block.id" type="button" :class="{ active: activeBlock === block.id }" :aria-current="activeBlock === block.id ? 'location' : undefined" @click="jumpToAnchor(block.anchor)"><MathText class="study-block-title" :content="block.title" /><span v-if="block.presentation.label" class="study-block-tag" :title="block.presentation.label" :style="block.presentation.style">{{ block.presentation.label }}</span></button>
               </div>
             </div>
           </nav>
@@ -792,8 +792,9 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
 .study-chapter-toggle svg.is-open { transform: rotate(90deg); }
 
 .study-block-list { margin: 6px 5px 12px 25px; padding-left: 12px; border-left: 1px dashed #d8dcea; }
-.study-space .study-block-list button { position: relative; display:grid; grid-template-columns:minmax(0,1fr); align-items:start; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
-.study-block-list button > :last-child { min-width:0; }
+.study-space .study-block-list button { position: relative; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:8px; width: 100%; min-height: 38px; border: 0; border-radius: 7px; padding: 8px 9px; background: transparent; text-align: left; color: #788196; font-size: 14px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; }
+.study-block-list .study-block-title { min-width:0; }
+.study-block-tag { max-width:7em; overflow:hidden; border:1px solid var(--handout-edge, #e1e5ec); border-radius:6px; padding:2px 6px; color:var(--handout-accent, #657080); background:var(--handout-tint, #f0f2f6); font-size:11px; font-weight:600; line-height:1.3; text-overflow:ellipsis; white-space:nowrap; }
 .study-space .study-block-list button:hover { background: #f0f1f7; color: #4d5267; }
 .study-space .study-block-list button.active { color: #6254a7; background: #efedf7; font-weight: 550; }
 .study-nav-hint { color: #8890a1; padding: 0 10px; font-size: 15px; }

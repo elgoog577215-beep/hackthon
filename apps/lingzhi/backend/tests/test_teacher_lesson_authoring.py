@@ -3,15 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
 import threading
 import time
 from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import teacher_script as teacher_script_module
+import teacher_lesson_authoring as teacher_lesson_authoring_module
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_generation_budget import TeacherScriptGenerationTimeout
 
@@ -1775,6 +1779,49 @@ def test_uploaded_pptx_review_indexes_editable_blocks_and_keeps_original(tmp_pat
     assert all("shape_index" in block for block in parsed["slides"][0]["blocks"])
     assert any(block["editable"] for block in parsed["slides"][0]["blocks"])
     assert source.read_bytes() == original
+
+
+def test_legacy_ppt_review_converts_temporarily_and_preserves_original(monkeypatch, tmp_path):
+    from pptx import Presentation
+
+    source = tmp_path / "老师原稿.ppt"
+    original = b"legacy PPT source remains unchanged"
+    source.write_bytes(original)
+    converted_template = tmp_path / "converted-template.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "旧版课件标题"
+    slide.placeholders[1].text = "转换后保留的正文"
+    presentation.save(converted_template)
+    conversion_calls = []
+
+    monkeypatch.setattr(teacher_lesson_authoring_module.shutil, "which", lambda _name: "/usr/bin/soffice")
+
+    def fake_convert(arguments, **_kwargs):
+        conversion_calls.append(arguments)
+        output_dir = Path(arguments[arguments.index("--outdir") + 1])
+        shutil.copyfile(converted_template, output_dir / "source.pptx")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(teacher_lesson_authoring_module.subprocess, "run", fake_convert)
+
+    review = extract_uploaded_pptx_review(source, asset_id="legacy-asset", filename=source.name)
+    evidence = extract_uploaded_pptx_evidence(source, asset_id="legacy-asset")
+
+    assert review["source_filename"] == source.name
+    assert review["slides"][0]["title"] == "旧版课件标题"
+    assert "转换后保留的正文" in evidence[0]["source_text"]
+    assert all(arguments[arguments.index("--convert-to") + 1] == "pptx" for arguments in conversion_calls)
+    assert source.read_bytes() == original
+
+
+def test_legacy_ppt_without_converter_returns_an_actionable_error(monkeypatch, tmp_path):
+    source = tmp_path / "老师原稿.ppt"
+    source.write_bytes(b"legacy PPT")
+    monkeypatch.setattr(teacher_lesson_authoring_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(TeacherLessonAuthoringError, match=r"另存为 \.pptx"):
+        extract_uploaded_pptx_review(source, asset_id="legacy-asset", filename=source.name)
 
 
 def test_uploaded_ppt_review_report_names_sources_without_fake_score():

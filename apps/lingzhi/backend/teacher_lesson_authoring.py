@@ -17,11 +17,15 @@ import logging
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
 import uuid
 import hashlib
+from contextlib import contextmanager
+from typing import Iterator
 from collections import OrderedDict
 from copy import deepcopy
 from ai_capacity import provider_request_schedule
@@ -1183,17 +1187,79 @@ def validate_teacher_lesson_plan(
     }
 
 
+@contextmanager
+def _pptx_review_source(path: Path) -> Iterator[Path]:
+    """Yield a readable PPTX, converting legacy PPT files in an isolated temp dir."""
+    extension = path.suffix.lower()
+    if extension == ".pptx":
+        yield path
+        return
+    if extension != ".ppt":
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_format_unsupported",
+            "PPT 审阅支持 .ppt 和 .pptx 文件。",
+        )
+
+    executable = shutil.which("soffice") or shutil.which("libreoffice")
+    if not executable:
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_conversion_unavailable",
+            "当前环境无法转换旧版 PPT，请将文件另存为 .pptx 后再上传。",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="lingzhi-ppt-review-") as temp_value:
+        temp_dir = Path(temp_value)
+        input_path = temp_dir / "source.ppt"
+        output_dir = temp_dir / "converted"
+        output_dir.mkdir()
+        shutil.copyfile(path, input_path)
+        profile_dir = temp_dir / "profile"
+        try:
+            result = subprocess.run(
+                [
+                    executable,
+                    "--headless",
+                    f"-env:UserInstallation={profile_dir.as_uri()}",
+                    "--convert-to",
+                    "pptx",
+                    "--outdir",
+                    str(output_dir),
+                    str(input_path),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise TeacherLessonAuthoringError(
+                "uploaded_ppt_conversion_failed",
+                "旧版 PPT 转换失败或超时，请检查原文件后重试。",
+            ) from exc
+        converted_path = output_dir / "source.pptx"
+        if result.returncode != 0 or not converted_path.is_file():
+            raise TeacherLessonAuthoringError(
+                "uploaded_ppt_conversion_failed",
+                "旧版 PPT 无法转换，请确认文件未损坏后重试。",
+            )
+        yield converted_path
+
+
 def extract_uploaded_pptx_evidence(
     path: Path,
     *,
     asset_id: str,
 ) -> list[dict[str, Any]]:
     """Extract visible slide text without mutating the teacher's source deck."""
-    if path.suffix.lower() != ".pptx":
-        raise TeacherLessonAuthoringError(
-            "uploaded_ppt_format_unsupported",
-            "旧课件同源解析目前仅支持 PPTX 文件。",
-        )
+    with _pptx_review_source(path) as readable_path:
+        return _extract_uploaded_pptx_evidence(readable_path, asset_id=asset_id)
+
+
+def _extract_uploaded_pptx_evidence(
+    path: Path,
+    *,
+    asset_id: str,
+) -> list[dict[str, Any]]:
     try:
         from pptx import Presentation
 
@@ -1245,12 +1311,21 @@ def extract_uploaded_pptx_review(
     asset_id: str,
     filename: str = "",
 ) -> dict[str, Any]:
-    """Build an editable text index while keeping the uploaded PPTX immutable."""
-    if path.suffix.lower() != ".pptx":
-        raise TeacherLessonAuthoringError(
-            "uploaded_ppt_format_unsupported",
-            "PPT 审阅目前仅支持 PPTX 文件。",
+    """Build an editable text index while keeping the uploaded source immutable."""
+    with _pptx_review_source(path) as readable_path:
+        return _extract_uploaded_pptx_review(
+            readable_path,
+            asset_id=asset_id,
+            filename=filename or path.name,
         )
+
+
+def _extract_uploaded_pptx_review(
+    path: Path,
+    *,
+    asset_id: str,
+    filename: str = "",
+) -> dict[str, Any]:
     try:
         from pptx import Presentation
 

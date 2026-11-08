@@ -531,13 +531,20 @@ def _normalized_ocr_text(value: object) -> str:
 
 @lru_cache(maxsize=1)
 def _rapidocr_engine() -> Any:
-    from rapidocr_onnxruntime import RapidOCR
+    try:
+        from rapidocr import RapidOCR
+    except ImportError:
+        from rapidocr_onnxruntime import RapidOCR
 
     return RapidOCR()
 
 
 def _rapidocr_page_text(path: Path) -> str:
-    result, _ = _rapidocr_engine()(str(path))
+    output = _rapidocr_engine()(str(path))
+    if hasattr(output, "txts"):
+        recognized = getattr(output, "txts", None) or []
+        return " ".join(str(text) for text in recognized if str(text).strip())
+    result = output[0] if isinstance(output, tuple) and output else output
     return " ".join(
         str(item[1])
         for item in result or []

@@ -4743,14 +4743,14 @@ async def generate_lesson_plan(
             ).lower()
             if not extension.startswith(".") and extension:
                 extension = f".{extension}"
-            if extension == ".pptx":
+            if extension in {".ppt", ".pptx"}:
                 primary_source_kind = "uploaded_ppt"
                 source_evidence = await run_in_threadpool(
                     extract_uploaded_pptx_evidence,
                     source_path,
                     asset_id=effective_source_asset_id,
                 )
-            elif extension in {".docx", ".pdf", ".md", ".markdown", ".txt"}:
+            elif extension in {".doc", ".docx", ".pdf", ".md", ".markdown", ".txt"}:
                 primary_source_kind = "uploaded_lesson_plan"
                 primary_material_asset_id = str(
                     source_asset.get("material_asset_id") or ""
@@ -4789,7 +4789,7 @@ async def generate_lesson_plan(
             else:
                 raise TeacherLessonAuthoringError(
                     "lesson_primary_source_unsupported",
-                    "主来源暂时支持 DOCX、PDF、Markdown、TXT 或 PPTX。",
+                    "主来源暂时支持 DOC、DOCX、PDF、Markdown、TXT、PPT 或 PPTX。",
                 )
         selected_material_ids, selected_evidence = _course_material_evidence(
             course_id, actor, effective_material_asset_ids

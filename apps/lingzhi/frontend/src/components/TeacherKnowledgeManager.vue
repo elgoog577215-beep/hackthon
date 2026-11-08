@@ -23,9 +23,9 @@
             <label>{{ t('knowledgeFirst.courseGoals') }}<textarea v-model="inputs.requirements" rows="3" maxlength="5000" required :disabled="busy || !!activeJob" @input="inputDirty = true" /></label>
             <div class="input-row"><label>{{ t('knowledgeFirst.audience') }}<input v-model="inputs.target_audience" maxlength="500" :disabled="busy || !!activeJob" @input="inputDirty = true" /></label>
               <label>{{ t('knowledgeFirst.lessonCount') }}<input v-model.number="inputs.lesson_count" type="number" min="1" max="12" :disabled="busy || !!activeJob" @input="inputDirty = true" /></label></div>
-            <label class="upload-label">{{ t('knowledgeFirst.uploadMaterials') }}<input type="file" multiple accept=".pdf,.docx,.pptx,.md,.txt" :disabled="busy || !!activeJob" @change="uploadMaterials" /></label>
+            <label class="upload-label">{{ t('knowledgeFirst.uploadMaterials') }}<input type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.txt" :disabled="busy || !!activeJob" @change="uploadMaterials" /></label>
             <p v-if="!materials.length">{{ t('knowledgeFirst.materialRequired') }}</p>
-            <label v-for="asset in materials" :key="asset.material_asset_id" class="material-choice"><input v-model="inputs.material_asset_ids" type="checkbox" :value="asset.material_asset_id" :disabled="busy || !!activeJob || asset.parse_status !== 'parsed'" @change="inputDirty = true" />{{ asset.filename }} · {{ t(asset.parse_status === 'parsed' ? 'knowledgeFirst.materialReady' : 'knowledgeFirst.materialFailed') }}</label>
+            <label v-for="asset in materials" :key="asset.material_asset_id" class="material-choice"><input v-model="inputs.material_asset_ids" type="checkbox" :value="asset.material_asset_id" :disabled="busy || !!activeJob || !materialUsable(asset)" @change="inputDirty = true" />{{ asset.filename }} · {{ t(materialStatusKey(asset)) }}</label>
             <button type="submit" class="primary" :disabled="busy || !!activeJob || !inputs.requirements.trim() || !inputs.material_asset_ids.length">{{ t('knowledgeFirst.saveInputs') }}</button>
             <span v-if="!inputDirty && data.inputs?.material_asset_ids?.length" class="saved-inputs" role="status">{{ t('knowledgeFirst.inputsSaved') }}</span>
           </form>
@@ -339,6 +339,15 @@ async function loadMaterials() {
   try { materials.value = (await http.get('/api/materials', { params: { course_id: courseId.value } })).data.assets || [] }
   catch (e) { error.value = message(e) }
 }
+function materialUsable(asset: any) {
+  return asset.parse_status === 'parsed'
+    || (asset.parse_status === 'degraded' && Number(asset.parse_quality?.block_count || 0) > 0)
+}
+function materialStatusKey(asset: any) {
+  if (asset.parse_status === 'parsed') return 'knowledgeFirst.materialReady'
+  if (materialUsable(asset)) return 'knowledgeFirst.materialReview'
+  return 'knowledgeFirst.materialFailed'
+}
 async function saveInputs() { await mutate('inputs', { ...inputs, input_revision: data.value?.input_revision || '' }); if (!error.value) inputDirty.value = false }
 async function uploadMaterials(event: Event) {
   const files = Array.from((event.target as HTMLInputElement).files || [])
@@ -348,7 +357,10 @@ async function uploadMaterials(event: Event) {
     for (const file of files) {
       const form = new FormData(); form.append('file', file); form.append('course_id', courseId.value); form.append('upload_batch_id', batch)
       const result = (await http.post('/api/materials', form)).data
-      if (result.parse_status === 'parsed') inputs.material_asset_ids = [...new Set([...inputs.material_asset_ids, result.asset_id])]
+      if (result.parse_status === 'parsed'
+        || (result.parse_status === 'degraded' && Number(result.parse_quality?.block_count || 0) > 0)) {
+        inputs.material_asset_ids = [...new Set([...inputs.material_asset_ids, result.asset_id])]
+      }
     }
     inputDirty.value = true; await loadMaterials()
   } catch (e) { error.value = message(e) }

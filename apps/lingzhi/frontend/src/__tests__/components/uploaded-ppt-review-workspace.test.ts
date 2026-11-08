@@ -117,6 +117,36 @@ describe('uploaded PPT review workspace', () => {
     expect(wrapper.text()).toContain('PPT 服务暂时不可用')
     expect(wrapper.text()).not.toContain('Request failed with status code 502')
   })
+
+  it('允许上传旧版 .ppt 并将原扩展名保留在文件来源中', async () => {
+    vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/ppt-import/reviews/current')) return { data: { review: null } }
+      if (String(url) === '/api/teacher-course-spaces') return { data: [{ package_id: 'package-1' }] }
+      return { data: {} }
+    })
+    const post = vi.spyOn(http, 'post').mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/imports')) return { data: { outcomes: [{ relative_path: '资料库/第一讲/PPT/老师原稿.ppt', asset_id: 'legacy-ppt-1', outcome: 'imported' }] } }
+      return { data: { review: { ...review, source_filename: '老师原稿.ppt' } } }
+    })
+    const wrapper = mount(UploadedPptReviewWorkspace, {
+      props: { courseId: 'course-1', courseTitle: '课程', lessonId: 'L1-1', lessonTitle: '第一讲', canGenerate: true },
+    })
+    await flushPromises()
+
+    const input = wrapper.get('input[type="file"]')
+    expect(input.attributes('accept')).toContain('.ppt')
+    Object.defineProperty(input.element, 'files', { value: [new File(['legacy'], '老师原稿.ppt')] })
+    input.element.dispatchEvent(new Event('change'))
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledWith('/api/teacher-course-spaces/package-1/imports', expect.any(FormData), expect.any(Object))
+    expect(post).toHaveBeenCalledWith('/api/teacher/courses/course-1/lessons/L1-1/ppt-import/reviews', {
+      package_id: 'package-1', asset_id: 'legacy-ppt-1',
+    }, expect.any(Object))
+    expect(wrapper.get('.ppt-review-toolbar strong').text()).toBe('老师原稿.ppt')
+    wrapper.unmount()
+  })
+
   it('saves original-PPT edits before leaving and keeps failed edits for retry', async () => {
     vi.spyOn(http, 'get').mockResolvedValue({ data: { review } })
     const patch = vi.spyOn(http, 'patch').mockRejectedValueOnce(new Error('保存失败'))

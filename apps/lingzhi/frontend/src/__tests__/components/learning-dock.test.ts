@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import LearningDock from '@/components/LearningDock.vue'
 
 describe('LearningDock', () => {
-  it('底栏以题库本统一承载出题、练习与巩固，并保留其他独立入口', () => {
+  it('底栏集中展示课程学习入口，不把新建课程放在阅读页', () => {
     const wrapper = mount(LearningDock, {
       props: {
         location: '第一章 · 当前目标',
@@ -18,11 +18,12 @@ describe('LearningDock', () => {
     expect(domainButtons).toHaveLength(5)
     expect(domainButtons.map(button => button.text())).toEqual([
       '题库本2',
-      '学习概况',
-      '知识树',
+      '学习画像',
+      '本课知识',
       '笔记本3',
       'AI 助手',
     ])
+    expect(wrapper.text()).not.toContain('新建课程')
     expect(wrapper.find('[data-domain="learning"]').exists()).toBe(false)
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })

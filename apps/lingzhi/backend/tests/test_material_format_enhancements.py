@@ -153,15 +153,16 @@ def test_scanned_pdf_ocr_keeps_page_locator_and_confidence(monkeypatch, tmp_path
     assert parsed.quality["source_page_count"] == 2
 
 
-def test_legacy_conversion_is_temporary_and_reuses_existing_parser(monkeypatch, tmp_path):
-    source = tmp_path / "source.doc"
+@pytest.mark.parametrize(("extension", "target"), [(".doc", ".docx"), (".ppt", ".pptx"), (".xls", ".xlsx")])
+def test_legacy_conversion_is_temporary_and_reuses_existing_parser(monkeypatch, tmp_path, extension, target):
+    source = tmp_path / f"source{extension}"
     original = b"legacy-source"
     source.write_bytes(original)
     monkeypatch.setattr(material_parser.shutil, "which", lambda _name: "/usr/bin/soffice")
 
     def fake_run(arguments, **_kwargs):
         output_dir = Path(arguments[arguments.index("--outdir") + 1])
-        (output_dir / "source.docx").write_bytes(b"converted")
+        (output_dir / f"source{target}").write_bytes(b"converted")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(material_parser.subprocess, "run", fake_run)
@@ -180,11 +181,12 @@ def test_legacy_conversion_is_temporary_and_reuses_existing_parser(monkeypatch, 
         ),
     )
 
-    parsed = LegacyOfficeConversionParser().parse(asset(".doc"), source)
+    parsed = LegacyOfficeConversionParser().parse(asset(extension), source)
 
     assert source.read_bytes() == original
     assert parsed.parser_name == "libreoffice_legacy+docling"
     assert "临时目录转换" in parsed.warnings[0]
+    assert parsed.parse_status == ("degraded" if extension == ".ppt" else "parsed")
 
 
 def test_docx_structure_keeps_heading_list_table_and_review_boundaries(tmp_path):

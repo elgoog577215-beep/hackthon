@@ -110,6 +110,7 @@ async def upload_material(
             "parse_status": parsed_document.parse_status,
             "parse_error": str(parsed_document.error or ""),
             "parse_warnings": list(parsed_document.warnings or []),
+            "parse_quality": dict(parsed_document.quality or {}),
         })
     reference = _register_in_course_space(
         _optional_owner(x_user_id),
@@ -203,6 +204,7 @@ def list_materials(
                 "parse_status": str(getattr(parsed, "parse_status", "") or item.get("parse_status") or ""),
                 "parse_error": str(getattr(parsed, "error", "") or item.get("parse_error") or getattr(material, "error", "") or ""),
                 "parse_warnings": list(getattr(parsed, "warnings", None) or item.get("parse_warnings") or getattr(material, "warnings", None) or []),
+                "parse_quality": dict(getattr(parsed, "quality", None) or item.get("parse_quality") or {}),
                 "usages": teacher_course_space_repository.relationships_for_source(
                     package, str(item.get("asset_id") or "")
                 ),

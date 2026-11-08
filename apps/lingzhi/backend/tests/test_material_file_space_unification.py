@@ -391,6 +391,7 @@ async def test_uploading_the_same_file_twice_yields_one_entry(stores, monkeypatc
     )
 
     assert first["asset_id"] == second["asset_id"]  # 底层全局去重
+    assert first["parse_quality"]["block_count"] > 0
     assert first["course_space"]["registered"] is True
     assert second["course_space"]["registered"] is True
     assert len(_references(space, "teacher-a")) == 1, "重复上传不得产生第二条引用"

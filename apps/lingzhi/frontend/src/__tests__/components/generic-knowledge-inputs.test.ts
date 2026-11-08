@@ -29,3 +29,36 @@ it('requires saved owned materials, persists course scope, and never presents a 
   expect(api.post).toHaveBeenCalledTimes(1)
   wrapper.unmount()
 })
+
+it('accepts legacy Office materials and allows text-extracted PPT after flagging it for review', async () => {
+  const state: any = { enabled: true, workflow: 'knowledge_first_generic_v1', can_edit: true, title: '课程',
+    document_revision: 'd', knowledge_revision: '', jobs: [], history: [], handouts: [], tree: null,
+    inputs: { requirements: '课程目标', target_audience: '', lesson_count: 1, material_asset_ids: [] } }
+  const assets: any[] = [{ material_asset_id: 'empty-ppt', filename: '没有文字.ppt', parse_status: 'degraded', parse_quality: { block_count: 0 } }]
+  api.get.mockImplementation(async (url: string) => ({ data: url === '/api/materials' ? { assets } : state }))
+  api.post.mockImplementation(async (url: string) => {
+    if (url === '/api/materials') {
+      const asset = { asset_id: 'legacy-ppt', material_asset_id: 'legacy-ppt', filename: '旧版课件.ppt', parse_status: 'degraded', parse_quality: { block_count: 2 } }
+      assets.push(asset)
+      return { data: asset }
+    }
+    return { data: {} }
+  })
+  const wrapper = mount(View, { props: { courseId: 'c' } }); await flushPromises()
+  const fileInput = wrapper.get('input[type="file"]')
+  expect(fileInput.attributes('accept')).toContain('.ppt')
+  expect(fileInput.attributes('accept')).toContain('.doc')
+  expect(fileInput.attributes('accept')).toContain('.xls')
+  Object.defineProperty(fileInput.element, 'files', { value: [new File(['legacy'], '旧版课件.ppt')] })
+  fileInput.element.dispatchEvent(new Event('change'))
+  await flushPromises()
+
+  const choices = wrapper.findAll('input[type="checkbox"]')
+  const legacyChoice = choices.find(choice => (choice.element as HTMLInputElement).value === 'legacy-ppt')!
+  const emptyChoice = choices.find(choice => (choice.element as HTMLInputElement).value === 'empty-ppt')!
+  expect((legacyChoice.element as HTMLInputElement).checked).toBe(true)
+  expect(legacyChoice.attributes('disabled')).toBeUndefined()
+  expect(emptyChoice.attributes('disabled')).toBeDefined()
+  expect(wrapper.text()).toContain('已提取，建议复核')
+  wrapper.unmount()
+})
