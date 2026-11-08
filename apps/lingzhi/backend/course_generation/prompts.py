@@ -1465,14 +1465,14 @@ class CoursePromptComposer:
             node_brief = f"""## 当前小节
 - 节点：{node_name}
 - 目标：{objective}
-- 知识：{key_points or '按当前知识库契约'}
+- 知识：{key_points or '按本讲目标与教案完整展开'}
 - 范围：{scope or '只完成当前小节责任'}
 - 验收：{assessments or '给出可检查的学习任务'}
 
 ## 总体教案对本节的引领
 {teaching_guidance}
 
-## 当前课程知识库（当前节点切片）
+## 当前课程相关知识提示（当前节点切片，仅作软参考）
 {course_knowledge_context}
 
 ## 教学模块
@@ -1548,14 +1548,15 @@ class CoursePromptComposer:
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
-9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
+9. 当前课程知识骨架是计划级软提示，不是封闭清单或内容门槛。正文以本讲目标、教案和来源材料为主；仅在相关时参考骨架，缺少知识点、能力、易错或掌握标准时仍正常完成正文，不为凑清单而扩写。
 10. 当前节点名称已经由页面显示，正文不得把本节标题重复写成二级标题，也不得输出只有标题没有正文的空模块。
-11. 每个 `##` 教学环节必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文与知识点的精确联系。
+11. 在适合的语境中明确说出概念名称，避免连续使用“本概念”“上述方法”等代词；不要为了引用知识骨架而给每个教学环节强行贴知识点标签。骨架中的名称只作参考，不能限制正文完整讲解目标所需的内容。
 12. `## 课堂评价与反馈` 是供师生使用的静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。Markdown 表格的每一行必须在同一行内完成，表头与数据行的列数必须一致。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、函数调用、命令或程序片段，完整代码使用带语言标记的代码块；不得用反引号书写幂、上下标、分式、复杂度或数学关系，也不得使用 LaTeX 的 `\\texttt`、`\\verb` 或 `\\mathtt` 表示代码。
 15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
 16. 下方“本节学科课型”规定当前小节特有的学习行为和成果证据。必须体现该课型与前后小节的差异，不能机械复用同一学科的固定段落套路。
+17. 本讲确实出现可复用的定义、定律或定理时，在所属教学模块内用准确的小标题命名（如“### 定义：……”或“### 定理：……”），便于学生集中速查；不要为速览虚构或拆出没有教学依据的知识。公式按正文需要正常使用展示公式。
 
 ## 课程
 - 名称：{course_name}
@@ -1594,7 +1595,7 @@ class CoursePromptComposer:
 - 验收标准：{'；'.join(assessment)}
 - 范围边界：{scope_boundary}
 
-## 当前课程知识库契约
+## 当前课程相关知识提示（软参考）
 {course_knowledge_context}
 
 ## 全课总编契约
@@ -1644,6 +1645,28 @@ class CoursePromptComposer:
             f"{content[-tail_budget:]}"
         )
 
+    def _soft_course_knowledge_context(
+        self,
+        course_knowledge_base: dict[str, Any],
+        node_id: str,
+    ) -> str:
+        context = course_knowledge_base_prompt_context(course_knowledge_base, node_id)
+        if "尚未形成课程知识契约" in context:
+            return (
+                "当前讲次没有可用的计划级知识提示。请以本讲教学目标、教案和来源材料为主，"
+                "正常完成正文；知识提示缺失不构成生成阻塞。"
+            )
+        context = context.replace(
+            "本节必须围绕以下课程内知识能力包生成正文、课件、练习和反馈：",
+            "以下是与本讲相关的计划级知识提示，仅供辅助参考，不是正文的封闭清单或验收门槛。",
+            1,
+        )
+        return (
+            "正文以本讲教学目标、教案和来源材料为主。知识骨架由计划编译而来，"
+            "可能尚未细化或不完整；仅在确与本讲相关时参考，不要为凑齐清单而展开，"
+            "也不要因知识骨架缺项而删减目标要求。\n" + context
+        )
+
     def _node_knowledge_context(
         self,
         course_data: dict[str, Any],
@@ -1653,10 +1676,10 @@ class CoursePromptComposer:
         course_knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
             course_data
         )
-        local_context = course_knowledge_base_prompt_context(course_knowledge_base, node_id)
+        local_context = self._soft_course_knowledge_context(course_knowledge_base, node_id)
         return (
-            "只允许使用当前课程知识点 ID；禁止读取或映射其他课程知识。",
-            "能力、易错与掌握标准均以当前课程知识库为唯一依据。",
+            "当前课程知识骨架只提供相关概念提示；不要把它当作唯一知识来源或正文硬约束。",
+            "以本讲目标、教案和来源材料组织解释、例子与练习；知识骨架缺失或不完整时仍正常完成正文。",
             local_context,
         )
 
@@ -1696,7 +1719,7 @@ class CoursePromptComposer:
         course_knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
             course_data
         )
-        course_knowledge_text = course_knowledge_base_prompt_context(
+        course_knowledge_text = self._soft_course_knowledge_context(
             course_knowledge_base,
             str(node.get("node_id") or ""),
         )
@@ -1734,7 +1757,7 @@ class CoursePromptComposer:
 - 可用证据原文：
 {evidence_text}
 
-## 当前课程知识库契约
+## 当前课程相关知识提示（软参考）
 {course_knowledge_text}
 
 ## 全课总编契约

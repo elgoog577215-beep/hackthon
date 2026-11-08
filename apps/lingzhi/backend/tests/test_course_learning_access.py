@@ -309,6 +309,28 @@ def test_public_projection_removes_teacher_metadata_and_private_blocks(setup_acc
     assert view["current_course_version_id"] == course["current_course_version_id"]
 
 
+def test_public_document_keeps_only_the_explicit_knowledge_marker_index(setup_access):
+    from course_learning_projection import public_document
+
+    _, _, course, _, _ = setup_access
+    raw = deepcopy(course)
+    document = CourseDocument.model_validate(raw["course_document"])
+    markers = [{
+        "marker_id": "formula-1",
+        "kind": "formula",
+        "heading": "线性变换公式",
+        "expression": "T(u+v)=T(u)+T(v)",
+    }]
+    document.blocks[0].payload["knowledge_markers"] = markers
+    raw["course_document"] = refresh_document_revision(document).model_dump(mode="json")
+
+    projected = public_document(raw)
+
+    assert projected["blocks"][0]["payload"]["knowledge_markers"] == markers
+    assert "private_note" not in projected["blocks"][0]["payload"]
+    assert all(block["block_id"] != "private" for block in projected["blocks"])
+
+
 def test_authenticated_practice_wrong_retry_reopen_and_learning_path(setup_access, monkeypatch):
     """Real durable attempts and exact grader; diagnosis is explicitly unavailable."""
     client, store, course, first, second = setup_access

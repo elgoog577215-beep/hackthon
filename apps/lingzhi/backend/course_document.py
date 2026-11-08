@@ -211,6 +211,8 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
             ):
                 if metadata.get(trace_key) not in (None, "", {}, []):
                     payload[trace_key] = deepcopy(metadata.get(trace_key))
+            if metadata.get("knowledge_markers"):
+                payload["knowledge_markers"] = deepcopy(metadata["knowledge_markers"])
             if role == "feedback":
                 payload = enrich_feedback_payload(payload)
             block = CourseBlock(

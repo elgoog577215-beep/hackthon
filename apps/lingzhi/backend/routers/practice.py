@@ -1398,6 +1398,8 @@ def _record_attempt_event(
             "attempt_number": attempt.get("attempt_number"),
             "task_revision_id": attempt.get("task_revision_id"),
             "task_purpose": attempt.get("task_purpose"),
+            "knowledge_revision_refs": deepcopy(attempt.get("knowledge_revision_refs") or {}),
+            "solution_revealed": bool(attempt.get("solution_revealed")),
             "diagnostic_case_id": attempt.get("diagnostic_case_id"),
             "remediation_session_id": attempt.get("remediation_session_id"),
             "origin_attempt_id": attempt.get("origin_attempt_id"),

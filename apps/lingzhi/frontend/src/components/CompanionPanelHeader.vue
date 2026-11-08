@@ -6,14 +6,14 @@
     <div class="companion-header-actions">
       <button type="button" :disabled="busy" @click="emit('new')"><Plus :size="15" />{{ t('companionWorkspace.new', '新对话') }}</button>
       <button type="button" :aria-expanded="history" @click="emit('history')"><History :size="15" />{{ t('companionWorkspace.history', '历史') }}</button>
-      <button type="button" @click="emit('mode')"><PanelRight :size="15" />{{ floating ? t('companionWorkspace.dock', '停靠右栏') : t('companionWorkspace.float', '切为浮窗') }}</button>
+      <button v-if="showModeSwitch" type="button" @click="emit('mode')"><PanelRight :size="15" />{{ floating ? t('companionWorkspace.dock', '停靠右栏') : t('companionWorkspace.float', '切为浮窗') }}</button>
     </div>
   </header>
 </template>
 <script setup lang="ts">
 import { History, Minus, PanelRight, Plus } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-defineProps<{ floating?: boolean; history?: boolean; busy?: boolean }>()
+withDefaults(defineProps<{ floating?: boolean; history?: boolean; busy?: boolean; showModeSwitch?: boolean }>(), { showModeSwitch: true })
 const emit = defineEmits<{ (e:'new'):void; (e:'history'):void; (e:'mode'):void; (e:'close'):void }>()
 </script>
 <style scoped>

@@ -2,6 +2,15 @@ export interface KnowledgeProfileSummary {
   total_count: number; assessed_count: number; unknown_count: number
   verified_progress: number; coverage: number; assessed_average: number | null
   mastered_count: number; attention_count: number
+  red_signal_count?: number; green_signal_count?: number
+}
+export interface KnowledgeLearningSignals {
+  red_count: number; green_count: number
+  status: 'unobserved' | 'needs_reinforcement' | 'improving' | 'balanced'
+  evidence: Array<{
+    source_id: string; color: 'red' | 'green'; source?: 'assistant' | 'practice'
+    student_statement: string; reason?: string; observed_at: string | null
+  }>
 }
 export interface KnowledgeProfileNode {
   links?: Array<{ relation_id:string; knowledge_id:string; name:string; direction:'incoming'|'outgoing'; type:string; reason:string; conditions:string[]; lecture_names:string[] }>
@@ -11,6 +20,7 @@ export interface KnowledgeProfileNode {
   status: 'unassessed' | 'supported_mastery' | 'needs_review' | 'checking'
   assessment_count: number; independent_count: number; activity_count: number
   historical_count: number; pending_attribution_count: number
+  learning_signals?: KnowledgeLearningSignals
   next_action: 'verify' | 'review' | 'transfer' | 'variant'
   evidence: Array<{ source_id: string; question_revision_id: string; outcome: 'passed' | 'not_passed'; support: 'independent' | 'assisted' | 'solution_seen' | 'practice_only' | 'invalid'; counted: boolean; weight: number; observed_at: string | null }>
 }

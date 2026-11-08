@@ -25,6 +25,22 @@ describe('knowledge mastery profile', () => {
     expect(wrapper.find('.profile-metrics').exists()).toBe(false)
     wrapper.unmount()
   })
+  it('shows separate red and green learning traces on each knowledge leaf', () => {
+    const profile = structuredClone(demo.cases[0]!.profile) as KnowledgeProfile
+    profile.nodes[0]!.learning_signals = {
+      red_count: 2,
+      green_count: 3,
+      status: 'balanced',
+      evidence: [],
+    }
+    const wrapper = mount(KnowledgeMasteryProfile, { props: { profile } })
+    const leaf = wrapper.get(`[data-knowledge-id="${profile.nodes[0]!.knowledge_id}"]`)
+    expect(leaf.find('.tree-leaf-signal.is-red').text()).toBe('2')
+    expect(leaf.find('.tree-leaf-signal.is-green').text()).toBe('3')
+    expect(wrapper.find('.tree-signal-legend').text()).toContain('待巩固')
+    expect(wrapper.find('.tree-signal-legend').text()).toContain('已理解')
+    wrapper.unmount()
+  })
   it('follows the relation from either endpoint while retaining the directed meaning',async()=>{
     const profile=structuredClone(demo.cases[0]!.profile) as KnowledgeProfile
     const a=profile.nodes[0]!,b=profile.nodes[1]!

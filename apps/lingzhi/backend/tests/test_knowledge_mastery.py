@@ -113,6 +113,67 @@ def test_bound_note_and_ai_events_count_activity_not_mastery():
     assert node["mastery"] is None
 
 
+def test_red_green_learning_signals_are_equal_weight_and_do_not_change_mastery():
+    common = {"user_id": "u", "course_id": "c", "course_version_id": "cv1",
+              "event_type": "knowledge_learning_signal", "source": "ai_teacher.learning_signal",
+              "concept_ids": ["k1"]}
+    rows = [
+        {**common, "event_id": "red-1", "result": {"signal": "red"},
+         "metadata": {"knowledge_revision_refs": {"k1": "r1"}}},
+        {**common, "event_id": "green-1", "result": {"signal": "green"},
+         "metadata": {"knowledge_revision_refs": {"k1": "r1"}}},
+        {**common, "event_id": "old", "course_version_id": "old", "result": {"signal": "red"},
+         "metadata": {"knowledge_revision_refs": {"k1": "r1"}}},
+        {**common, "event_id": "stale", "result": {"signal": "red"},
+         "metadata": {"knowledge_revision_refs": {"k1": "old-revision"}}},
+    ]
+    without_signals = project([attempt()])["nodes"][0]
+    with_signals = project([attempt()], events=rows)["nodes"][0]
+    assert with_signals["learning_signals"]["red_count"] == 1
+    assert with_signals["learning_signals"]["green_count"] == 1
+    assert {item["source_id"] for item in with_signals["learning_signals"]["evidence"]} == {"red-1", "green-1"}
+    assert with_signals["mastery"] == without_signals["mastery"]
+    assert with_signals["learning_signals"]["status"] == "balanced"
+
+
+def test_red_dominated_and_green_dominated_signals_project_separate_from_mastery():
+    common = {"user_id": "u", "course_id": "c", "course_version_id": "cv1",
+              "event_type": "knowledge_learning_signal", "source": "ai_teacher.learning_signal",
+              "concept_ids": ["k1"], "metadata": {"knowledge_revision_refs": {"k1": "r1"}}}
+    red_dominated = project(events=[
+        {**common, "event_id": "r1", "result": {"signal": "red"}},
+        {**common, "event_id": "r2", "result": {"signal": "red"}},
+        {**common, "event_id": "g1", "result": {"signal": "green"}},
+    ])["nodes"][0]
+    green_dominated = project(events=[
+        {**common, "event_id": "g1", "result": {"signal": "green"}},
+    ])["nodes"][0]
+    assert red_dominated["learning_signals"]["status"] == "needs_reinforcement"
+    assert green_dominated["learning_signals"]["status"] == "improving"
+    assert red_dominated["mastery"] is None
+
+
+def test_bound_formal_answers_add_equal_weight_signals_without_changing_mastery():
+    common = {
+        "user_id": "u", "course_id": "c", "course_version_id": "cv1",
+        "source": "practice.attempts", "event_type": "practice_attempt_graded",
+        "concept_ids": ["k1"], "metadata": {"knowledge_revision_refs": {"k1": "r1"}},
+    }
+    rows = [
+        {**common, "event_id": "pass", "result": {"passed": True, "grading_confidence": .95}},
+        {**common, "event_id": "fail", "result": {"passed": False, "grading_confidence": .95}},
+        {**common, "event_id": "unreliable", "result": {"passed": True, "grading_confidence": .2}},
+        {**common, "event_id": "revealed", "metadata": {"knowledge_revision_refs": {"k1": "r1"}, "solution_revealed": True}, "result": {"passed": True, "grading_confidence": .99}},
+        {**common, "event_id": "stale", "metadata": {"knowledge_revision_refs": {"k1": "old"}}, "result": {"passed": False, "grading_confidence": .99}},
+    ]
+    baseline = project()["nodes"][0]
+    node = project(events=rows)["nodes"][0]
+    assert node["learning_signals"]["red_count"] == 1
+    assert node["learning_signals"]["green_count"] == 1
+    assert {item["source_id"] for item in node["learning_signals"]["evidence"]} == {"pass", "fail"}
+    assert node["mastery"] == baseline["mastery"] is None
+
+
 def test_frozen_knowledge_revision_survives_attempt_storage(tmp_path):
     from practice_attempts import PracticeAttemptRepository
     repository = PracticeAttemptRepository(tmp_path)

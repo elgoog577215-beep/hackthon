@@ -1,6 +1,7 @@
 <template>
   <section
     class="knowledge-relation-graph"
+    :class="{ 'is-compact': compact }"
     data-testid="knowledge-relation-graph"
     :aria-label="t('knowledgeLibrary.graphTitle', '知识关系图')"
   >
@@ -80,12 +81,20 @@
               class="knowledge-relation-graph__edge"
               :class="[
                 `is-${edge.relation.relation_type}`,
-                { 'is-muted': selectedGraphNode && !edgeTouchesSelected(edge.relation) },
+                { 'is-muted': selectedGraphNode && !edgeTouchesSelected(edge.relation), 'is-selected': selectedRelationId === edge.relation.relation_id },
               ]"
               data-testid="knowledge-graph-edge"
               :data-relation-id="edge.relation.relation_id"
+              role="button"
+              tabindex="0"
+              :aria-label="relationAccessibleName(edge.relation)"
+              :aria-pressed="selectedRelationId === edge.relation.relation_id"
+              @click.stop="selectRelation(edge.relation)"
+              @keydown.enter.prevent.stop="selectRelation(edge.relation)"
+              @keydown.space.prevent.stop="selectRelation(edge.relation)"
             >
               <title>{{ edge.relation.reason || relationTypeLabel(edge.relation.relation_type) }}</title>
+              <path class="knowledge-relation-graph__edge-hit" :d="edge.path" />
               <path :d="edge.path" marker-end="url(#knowledge-graph-arrow)" />
               <text :x="edge.labelX" :y="edge.labelY">
                 {{ relationTypeLabel(edge.relation.relation_type) }}
@@ -107,9 +116,9 @@
               :aria-label="`${nodeTypeLabel(item.node.node_type)}：${item.node.name}`"
               :aria-pressed="selectedId === item.node.knowledge_id"
               :data-knowledge-id="item.node.knowledge_id"
-              @click="emit('select', item.node)"
-              @keydown.enter.prevent="emit('select', item.node)"
-              @keydown.space.prevent="emit('select', item.node)"
+              @click="selectNode(item.node)"
+              @keydown.enter.prevent="selectNode(item.node)"
+              @keydown.space.prevent="selectNode(item.node)"
             >
               <title>{{ item.node.name }}</title>
               <rect :width="NODE_WIDTH" :height="NODE_HEIGHT" rx="12" />
@@ -133,7 +142,27 @@
       </div>
 
       <aside class="knowledge-relation-graph__inspector" aria-live="polite">
-        <template v-if="selectedGraphNode">
+        <template v-if="selectedGraphRelation">
+          <span class="knowledge-relation-graph__eyebrow">{{ relationTypeLabel(selectedGraphRelation.relation_type) }}</span>
+          <h2><MathText :content="relationNodeName(selectedGraphRelation.source_knowledge_id)" /> → <MathText :content="relationNodeName(selectedGraphRelation.target_knowledge_id)" /></h2>
+          <span class="knowledge-relation-graph__source" :data-source="selectedGraphRelation.source_status">{{ knowledgeSourceLabel(selectedGraphRelation.source_status) }}</span>
+          <h3>{{ t('knowledgeLibrary.relationExplanation', '关系说明') }}</h3>
+          <MathText tag="p" :content="selectedGraphRelation.reason" />
+          <template v-if="selectedGraphRelation.conditions?.length">
+            <h3>{{ t('knowledgeLibrary.relationConditions', '成立条件') }}</h3>
+            <ul class="knowledge-relation-graph__points"><li v-for="condition in selectedGraphRelation.conditions" :key="condition"><MathText :content="condition" /></li></ul>
+          </template>
+          <template v-if="selectedGraphRelation.distinction">
+            <h3>{{ t('knowledgeLibrary.relationDistinction', '辨析要点') }}</h3>
+            <MathText tag="p" :content="selectedGraphRelation.distinction" />
+          </template>
+          <template v-if="selectedGraphRelation.derivation_steps?.length">
+            <h3>{{ t('knowledgeLibrary.relationDerivation', '推导过程') }}</h3>
+            <ol class="knowledge-relation-graph__points"><li v-for="step in selectedGraphRelation.derivation_steps" :key="step"><MathText :content="step" /></li></ol>
+          </template>
+          <button type="button" class="knowledge-relation-graph__clear-selection" @click="selectedRelationId = ''">{{ t('knowledgeLibrary.relationShowPoint', '返回知识点') }}</button>
+        </template>
+        <template v-else-if="selectedGraphNode">
           <span class="knowledge-relation-graph__eyebrow">
             {{ nodeTypeLabel(selectedGraphNode.node_type) }}
           </span>
@@ -208,10 +237,12 @@ const props = defineProps<{
   nodes: KnowledgeNode[]
   relations: KnowledgeRelation[]
   selectedId?: string | null
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [node: KnowledgeNode]
+  selectRelation: [relation: KnowledgeRelation]
 }>()
 
 const CANVAS_WIDTH = 1000
@@ -223,6 +254,7 @@ const canvasRef = ref<HTMLElement | null>(null)
 const zoom = ref(1)
 const pan = ref({ x: 0, y: 0 })
 const dragging = ref(false)
+const selectedRelationId = ref('')
 const dragOrigin = ref({ x: 0, y: 0, panX: 0, panY: 0 })
 
 const nodeById = computed(() => new Map(
@@ -317,6 +349,7 @@ const positionedRelations = computed(() => validRelations.value.flatMap(relation
 const selectedGraphNode = computed(() => (
   props.selectedId ? graphNodeById.value.get(props.selectedId) || null : null
 ))
+const selectedGraphRelation = computed(() => validRelations.value.find(relation => relation.relation_id === selectedRelationId.value) || null)
 
 const selectedConnections = computed(() => {
   if (!selectedGraphNode.value) return []
@@ -367,10 +400,28 @@ function handleWheel(event: WheelEvent) {
 }
 
 function startDrag(event: PointerEvent) {
-  if ((event.target as Element)?.closest('.knowledge-relation-graph__node')) return
+  if ((event.target as Element)?.closest('.knowledge-relation-graph__node, [data-relation-id]')) return
   dragging.value = true
   dragOrigin.value = { x: event.clientX, y: event.clientY, panX: pan.value.x, panY: pan.value.y }
   canvasRef.value?.setPointerCapture(event.pointerId)
+}
+
+function selectNode(node: KnowledgeNode) {
+  selectedRelationId.value = ''
+  emit('select', node)
+}
+
+function selectRelation(relation: KnowledgeRelation) {
+  selectedRelationId.value = relation.relation_id
+  emit('selectRelation', relation)
+}
+
+function relationNodeName(id: string) {
+  return nodeById.value.get(id)?.name || id
+}
+
+function relationAccessibleName(relation: KnowledgeRelation) {
+  return `${relationNodeName(relation.source_knowledge_id)}，${relationTypeLabel(relation.relation_type)}，${relationNodeName(relation.target_knowledge_id)}`
 }
 
 function moveDrag(event: PointerEvent) {
@@ -440,6 +491,9 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__edge { transition:opacity .16s ease; }
 .knowledge-relation-graph__edge.is-muted { opacity:.14; }
 .knowledge-relation-graph__edge path { fill:none; stroke:#9b90d8; stroke-width:2; }
+.knowledge-relation-graph__edge .knowledge-relation-graph__edge-hit { stroke:transparent; stroke-width:16px; pointer-events:stroke; cursor:pointer; }
+.knowledge-relation-graph__edge:hover path:not(.knowledge-relation-graph__edge-hit),
+.knowledge-relation-graph__edge:focus-visible path:not(.knowledge-relation-graph__edge-hit) { stroke-width:3; }
 .knowledge-relation-graph__edge text { fill:#7c729f; paint-order:stroke; stroke:#fafbfe; stroke-width:7px; stroke-linejoin:round; font-size:12px; font-weight:700; text-anchor:middle; }
 .knowledge-relation-graph__arrow { fill:#8c80ce; stroke:none; }
 /* 六类关系各有独立线型：颜色 + 虚线样式双重区分，
@@ -497,6 +551,41 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__selection-hint span, .knowledge-relation-graph__empty span { max-width:360px; color:#9298ab; font-size:10.5px; line-height:1.6; }
 .knowledge-relation-graph__empty { flex:1; padding:32px; }
 .knowledge-relation-graph__empty svg { color:#7962df; }
+
+/* The course sidebar stacks the map and its explanation so neither gets
+   squeezed into a narrow side-by-side inspector. */
+.knowledge-relation-graph.is-compact { min-width:0; min-height:0; display:flex; flex-direction:column; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__header { grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:8px 11px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__header > div { min-width:0; gap:6px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__header > div strong { font-size:12px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__header > div span { font-size:9px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__readonly { display:none; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__controls { justify-self:end; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__controls button { width:25px; height:25px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__legend { gap:5px 9px; padding:7px 11px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__legend li { gap:4px; font-size:10px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__legend svg { width:16px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__body { display:flex; flex:1; flex-direction:column; overflow:hidden; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__canvas { flex:0 0 232px; min-height:232px; overflow:auto; padding:8px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__viewport { width:560px; min-width:560px; min-height:216px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__viewport svg { width:560px; min-height:0; height:auto; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector { min-height:0; flex:1; overflow:auto; padding:13px 14px 18px; border-top:1px solid #e7e9f2; border-left:0; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__eyebrow { font-size:12px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector h2 { font-size:17px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector h3 { margin:17px 0 8px; padding-top:12px; border-top:1px solid #efedf4; color:#41475d; font-size:13px; line-height:1.45; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector > p { font-size:14px; line-height:1.7; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__points { font-size:13px; line-height:1.65; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__points li { margin:5px 0; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__source { font-size:11px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__connections span { font-size:12px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__connections strong { font-size:14px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__connections p { font-size:13px; line-height:1.65; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__no-connections { font-size:13px !important; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector h3 { margin:15px 0 7px; font-size:11px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__inspector > p { font-size:12px; line-height:1.7; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__points { font-size:11px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__selection-hint { min-height:105px; }
+.knowledge-relation-graph.is-compact .knowledge-relation-graph__empty { padding:24px 16px; }
 
 @media (max-width:900px) {
   .knowledge-relation-graph__body { grid-template-columns:minmax(0,1fr) 240px; }

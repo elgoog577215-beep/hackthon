@@ -415,19 +415,28 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                 "emit_error_event": True,
             }
         finally:
-            answer = fallback_notice + _extract_sse_answer(full_text)
+            # The model places its private metadata on the next line. That
+            # protocol separator must not leave a trailing line break in the
+            # learner's saved answer.
+            answer = fallback_notice + _extract_sse_answer(full_text).rstrip("\r\n")
             await _persist_answer_turn(
                 outcome,
                 user_id=user_id,
                 course=course,
                 req=req,
                 conversation_id=conversation_id,
+                user_message_id=str(user_message.get("message_id") or ""),
                 assistant_message_id=assistant_message_id,
                 answer=answer,
                 scene=public_context.get("scene") or {},
                 sources=answer_public.get("sources") or [],
                 retrieval_receipt=retrieval_receipt,
                 failure=failure,
+                learning_signals=_validated_learning_signals(
+                    _extract_sse_metadata(full_text),
+                    context_package.get("knowledge_context") or {},
+                    req.question,
+                ) if outcome == "completed" and req.perspective != "teacher" else [],
             )
 
         if outcome == "failed":
@@ -497,12 +506,14 @@ async def _persist_answer_turn(
     course: dict,
     req: AskQuestionRequest,
     conversation_id: str,
+    user_message_id: str,
     assistant_message_id: str,
     answer: str,
     scene: dict,
     sources: list,
     retrieval_receipt: dict,
     failure: dict,
+    learning_signals: list[dict[str, str]],
 ) -> None:
     """Record one assistant turn, whichever way the answer stream ended.
 
@@ -558,6 +569,33 @@ async def _persist_answer_turn(
                 "metadata_emitted": True,
             },
         )
+        for signal in learning_signals:
+            knowledge_id = signal["knowledge_id"]
+            color = signal["signal"]
+            revision_id = signal["knowledge_revision_id"]
+            record_learning_event(
+                event_type="knowledge_learning_signal",
+                actor="assistant",
+                source="ai_teacher.learning_signal",
+                user_id=user_id,
+                course_id=req.course_id,
+                course_version_id=course.get("current_course_version_id"),
+                node_id=req.node_id,
+                node_name=req.node_name,
+                concept_ids=[knowledge_id],
+                idempotency_key=f"ai:{user_message_id or assistant_message_id}:{knowledge_id}",
+                evidence={
+                    "student_statement": signal["student_evidence"],
+                    "question": summarize_text(req.question),
+                    "assistant_reason": signal["reason"],
+                },
+                result={"signal": color},
+                metadata={
+                    "knowledge_revision_refs": {knowledge_id: revision_id},
+                    "assistant_message_id": assistant_message_id,
+                    "signal_contract": "explicit_current_turn_v1",
+                },
+            )
         return
     record_learning_event(
         event_type=(
@@ -674,6 +712,53 @@ def _extract_sse_error(text: str) -> dict | None:
         if event_name == "error":
             return payload
     return None
+
+
+def _extract_sse_metadata(text: str) -> dict[str, Any]:
+    for event_name, payload in _iter_sse_events(text):
+        if event_name == "metadata":
+            return payload
+    return {}
+
+
+def _validated_learning_signals(
+    metadata: dict[str, Any], knowledge_context: dict[str, Any], question: str,
+) -> list[dict[str, str]]:
+    """Accept only exact, current knowledge references and quoted user evidence."""
+    nodes = {
+        str(item.get("knowledge_id") or ""): item
+        for item in knowledge_context.get("knowledge_nodes") or []
+        if isinstance(item, dict) and item.get("knowledge_id") and item.get("knowledge_revision_id")
+    }
+    if not nodes or knowledge_context.get("mapping_status") not in {"active", "accepted", "ready"}:
+        return []
+
+    def compact(value: str) -> str:
+        return " ".join(str(value or "").split())
+
+    source = compact(question)
+    accepted: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in metadata.get("learning_signals") or []:
+        if not isinstance(item, dict):
+            continue
+        knowledge_id = str(item.get("knowledge_id") or "").strip()
+        signal = str(item.get("signal") or "").strip().lower()
+        evidence = compact(str(item.get("student_evidence") or ""))
+        if (knowledge_id not in nodes or signal not in {"red", "green"}
+                or len(evidence) < 4 or evidence not in source or knowledge_id in seen):
+            continue
+        seen.add(knowledge_id)
+        accepted.append({
+            "knowledge_id": knowledge_id,
+            "knowledge_revision_id": str(nodes[knowledge_id]["knowledge_revision_id"]),
+            "signal": signal,
+            "student_evidence": evidence[:320],
+            "reason": compact(str(item.get("reason") or ""))[:240],
+        })
+        if len(accepted) >= 12:
+            break
+    return accepted
 
 
 def _iter_sse_events(text: str):
