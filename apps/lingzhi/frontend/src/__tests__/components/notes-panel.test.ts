@@ -135,6 +135,83 @@ describe('NotesPanel quick note', () => {
     expect(row.get('.record-tag-error').text()).toContain('保存失败')
   })
 
+  it('用学习者看得懂的状态文案，并为已归档记录提供可用的恢复动作', async () => {
+    const noteStore = useNoteStore()
+    noteStore.notes = [
+      { id:'note-1', nodeId:'n1', recordType:'note', content:'随手记', createdAt:4, status:'active' },
+      { id:'issue-1', nodeId:'n1', recordType:'issue', content:'这里有个疑问', createdAt:3, status:'awaiting_verification' },
+      { id:'archived-issue', nodeId:'n1', recordType:'issue', content:'旧问题', createdAt:2, status:'archived' },
+      { id:'archived-review', nodeId:'n1', recordType:'review_task', content:'复习定义', createdAt:1, status:'archived' },
+    ] as any
+    const updateStatus = vi.spyOn(noteStore, 'updateRecordStatus').mockResolvedValue({ id:'updated' } as any)
+    const wrapper = mount(NotesPanel)
+
+    expect(wrapper.findAll('.record-status').map(status => status.text())).toEqual(['已记录', '待验证', '已归档', '已归档'])
+    expect(wrapper.findAll('.record-type').map(type => type.text())).toEqual(['笔记', '问题', '问题', '复习'])
+    expect(wrapper.text()).not.toContain('active')
+    await wrapper.get('[data-record-id="archived-issue"] .record-actions button:last-child').trigger('click')
+    await wrapper.get('[data-record-id="archived-review"] .record-actions button:last-child').trigger('click')
+    expect(updateStatus).toHaveBeenNthCalledWith(1, 'archived-issue', 'reopened')
+    expect(updateStatus).toHaveBeenNthCalledWith(2, 'archived-review', 'pending')
+  })
+
+  it('状态更新失败时说明失败原因，并允许直接重试', async () => {
+    const noteStore = useNoteStore()
+    noteStore.notes = [{ id:'issue-1', nodeId:'n1', recordType:'issue', content:'待解决的问题', createdAt:1, status:'open' }] as any
+    const updateStatus = vi.spyOn(noteStore, 'updateRecordStatus')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id:'issue-1' } as any)
+    const wrapper = mount(NotesPanel)
+    const row = wrapper.get('[data-record-id="issue-1"]')
+
+    await row.get('.record-actions button:last-child').trigger('click')
+    await flushPromises()
+    expect(row.get('[role="alert"]').text()).toContain('状态没有保存')
+    expect(row.get('.record-actions button:last-child').text()).toContain('重试')
+    await row.get('.record-actions button:last-child').trigger('click')
+    await flushPromises()
+    expect(updateStatus).toHaveBeenCalledTimes(2)
+    expect(row.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('状态保存等待中会显示进度并阻止重复提交', async () => {
+    const noteStore = useNoteStore()
+    noteStore.notes = [{ id:'issue-1', nodeId:'n1', recordType:'issue', content:'待解决的问题', createdAt:1, status:'open' }] as any
+    let finishUpdate!: (value: any) => void
+    const pending = new Promise<any>(resolve => { finishUpdate = resolve })
+    vi.spyOn(noteStore, 'updateRecordStatus').mockReturnValue(pending)
+    const wrapper = mount(NotesPanel)
+    const row = wrapper.get('[data-record-id="issue-1"]')
+    const action = row.get('.record-actions button:last-child')
+
+    await action.trigger('click')
+    expect(action.attributes('disabled')).toBeDefined()
+    expect(action.attributes('aria-busy')).toBe('true')
+    expect(action.text()).toContain('正在更新')
+    finishUpdate({ id:'issue-1' })
+    await flushPromises()
+    expect(row.get('.record-actions button:last-child').attributes('disabled')).toBeUndefined()
+  })
+
+  it('快速笔记保存失败后保留正文并展示保存成功状态', async () => {
+    const noteStore = useNoteStore()
+    vi.spyOn(noteStore, 'createNote')
+      .mockResolvedValueOnce(null as any)
+      .mockResolvedValueOnce({ id:'quick-note-retry', nodeId:'n1', recordType:'note', content:'保留的笔记', status:'active' } as any)
+    const wrapper = mount(NotesPanel)
+    await wrapper.get('.quick-note-trigger').trigger('click')
+    await wrapper.get('.quick-note-composer textarea').setValue('保留的笔记')
+    await wrapper.get('.quick-note-composer').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('.quick-note-composer textarea').element).toHaveProperty('value', '保留的笔记')
+    expect(wrapper.get('.quick-note-error').text()).toContain('保存失败')
+    await wrapper.get('.quick-note-composer').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.quick-note-composer').exists()).toBe(false)
+    expect(wrapper.get('.quick-note-saved').text()).toContain('已保存')
+  })
+
   it('moves keyboard focus to the quick note input when opening the composer', async () => {
     const wrapper = mount(NotesPanel, { attachTo:document.body })
     await wrapper.get('.quick-note-trigger').trigger('click')

@@ -29,7 +29,10 @@
             <span class="reading-note-copy"><MathText :content="item.note.content || item.note.summary || t('inlineRecords.empty', '这条记录还没有正文')" /></span>
           </button>
           <footer>
-            <span>{{ item.note.syncState === 'local_only' ? t('inlineRecords.localOnly', '仅保存在本机') : item.note.sourceType === 'ai' ? t('readingNotes.aiNote', 'AI 笔记') : t('readingNotes.myNote', '我的笔记') }}</span>
+            <span class="reading-note-state" :data-state="item.note.syncState || 'saved'">
+              <LoaderCircle v-if="item.note.syncState === 'saving'" :size="12" class="reading-note-saving" />
+              {{ noteStateLabel(item.note) }}
+            </span>
             <button type="button" :title="t('courseWorkspace.records.locate', '定位原文')" :aria-label="t('courseWorkspace.records.locate', '定位原文')" @click="emit('locate', item.note)"><LocateFixed :size="14" /></button>
           </footer>
         </article>
@@ -40,7 +43,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Link2, LocateFixed, NotebookPen, Plus } from 'lucide-vue-next'
+import { Link2, LoaderCircle, LocateFixed, NotebookPen, Plus } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import type { Note } from '../stores/types'
@@ -67,6 +70,11 @@ const looseNotes = computed(() => {
   const located = new Set(positioned.value.map(item => item.note.id))
   return notes.value.filter(note => (props.externalNotes || note.nodeId === courseStore.currentNode?.node_id) && !located.has(note.id))
 })
+function noteStateLabel(note: Note) {
+  if (note.syncState === 'saving') return t('inlineRecords.saving', '正在保存')
+  if (note.syncState === 'local_only') return t('inlineRecords.localOnly', '仅保存在本机')
+  return note.sourceType === 'ai' ? t('readingNotes.aiNote', 'AI 笔记') : t('readingNotes.myNote', '我的笔记')
+}
 let root: HTMLElement | null = null
 let observer: MutationObserver | undefined
 let resizeObserver: ResizeObserver | undefined
@@ -172,7 +180,7 @@ onBeforeUnmount(() => {
 .reading-notes-location { padding:0 22px 10px; font-size:14px; line-height:1.6; color:var(--lz-text-secondary); overflow-wrap:anywhere; }
 .reading-notes-viewport { position:relative; flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .reading-notes-canvas { position:relative; margin:0 12px; }
-.reading-note-strip { --note-accent:#c18a22; position:absolute; left:0; right:0; height:96px; display:flex; flex-direction:column; padding:8px 11px 4px; border:1px solid var(--lz-border); border-left:2px solid var(--note-accent); border-radius:8px; background:#fffefb; box-shadow:0 1px 3px rgba(15,23,42,.025); }
+.reading-note-strip { --note-accent:#c18a22; position:absolute; left:0; right:0; height:96px; display:flex; flex-direction:column; padding:8px 11px 4px; border:1px solid var(--lz-border); border-left:1px solid var(--note-accent); border-radius:8px; background:#fffefb; box-shadow:0 1px 3px rgba(15,23,42,.025); }
 .reading-note-strip[data-color="violet"],.reading-note-strip[data-color="purple"] { --note-accent:#8b76bf; background:#fdfbff; }
 .reading-note-strip[data-color="emerald"],.reading-note-strip[data-color="green"] { --note-accent:#5d9c8a; background:#fbfefd; }
 .reading-note-strip[data-color="sky"],.reading-note-strip[data-color="blue"] { --note-accent:#6a99bb; background:#fbfdff; }
@@ -182,6 +190,12 @@ onBeforeUnmount(() => {
 .reading-note-quote { display:block; margin-bottom:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--lz-text-secondary); font-size:12px; line-height:1.5; }
 .reading-note-copy { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; color:var(--lz-text-strong); font-size:14px; line-height:1.5; overflow-wrap:anywhere; }
 .reading-note-strip footer { display:flex; align-items:center; justify-content:space-between; height:23px; flex:none; font-size:11px; color:var(--lz-text-secondary); }
+.reading-note-state { display:inline-flex; align-items:center; gap:4px; }
+.reading-note-state[data-state="saving"] { color:var(--lz-brand-strong); }
+.reading-note-state[data-state="local_only"] { color:var(--lz-warning); }
+.reading-note-saving { animation:reading-note-spin .8s linear infinite; }
+@keyframes reading-note-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reading-note-saving { animation:none; } }
 .reading-note-strip footer button { display:grid; place-items:center; width:24px; height:23px; padding:0; border:0; border-radius:4px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .reading-notes-empty { padding:42px 24px; display:flex; flex-direction:column; align-items:center; gap:12px; text-align:center; color:var(--lz-text-secondary); font-size:14px; line-height:1.7; }
 .reading-notes-empty > svg { color:var(--lz-brand); }

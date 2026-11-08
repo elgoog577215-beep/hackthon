@@ -45,6 +45,35 @@ describe('ReadingNotesPanel', () => {
     expect((wrapper.emitted('open')![0]![0] as any).note.id).toBe('a')
     wrapper.unmount()
   })
+
+  it('在阅读边栏区分正在保存与仅保存在本机的笔记', async () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => { callbacks.push(fn); return callbacks.length })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const root = document.createElement('div')
+    root.getBoundingClientRect = () => ({ top:100, bottom:900 } as DOMRect)
+    Object.defineProperty(root, 'scrollHeight', { value:1200 })
+    document.body.append(root)
+    const pinia = createPinia()
+    const wrapper = mount(ReadingNotesPanel, {
+      props: {
+        visible: true,
+        readingRoot: root,
+        externalNotes: [
+          { ...note('saving'), syncState:'saving' },
+          { ...note('local'), syncState:'local_only' },
+        ],
+        resolveRect: current => ({ top:current.id === 'saving' ? 320 : 460, bottom:340, right:600 } as DOMRect),
+      },
+      global: { plugins:[pinia] },
+    })
+    callbacks.splice(0).forEach(fn => fn(0))
+    await flushPromises()
+
+    expect(wrapper.findAll('.reading-note-state').map(state => state.text())).toEqual(['正在保存', '仅保存在本机'])
+    expect(wrapper.find('.reading-note-saving').exists()).toBe(true)
+    wrapper.unmount()
+  })
 })
 
 
