@@ -59,6 +59,9 @@
         <p v-if="course.update_available" class="update-hint">
           {{ copy("教师发布了新版本", "Your teacher published an update") }}
         </p>
+        <p v-if="course.update_available" class="update-hint-detail">
+          {{ copy("更新后继续学习，原作答与笔记保留。", "Continue with the new version; previous attempts and notes are retained.") }}
+        </p>
         <p v-if="!course.reading_available">
           {{
             copy(
@@ -74,6 +77,13 @@
             :to="studentCourseLink(course.course_id)"
             >{{ t("workspaceUi.readCourse")
             }}<ArrowRight :size="16" /></RouterLink
+          ><ElButton
+            v-if="course.update_available"
+            native-type="button"
+            class="course-update-action"
+            :disabled="loading"
+            @click="update(course)"
+            >{{ copy("使用新版本", "Use new version") }}</ElButton
         ></template>
         <template #details>
           <details
@@ -83,6 +93,7 @@
             <summary>
               {{ t("workspaceUi.courseMaterials") }} ·
               {{ derivedFor(course.course_id).length }}
+              <ChevronDown class="course-disclosure-icon" :size="16" aria-hidden="true" />
             </summary>
             <RouterLink
               v-for="item in derivedFor(course.course_id)"
@@ -92,7 +103,7 @@
             >
           </details>
           <details class="course-resources">
-            <summary>{{ t("workspaceUi.courseDetails") }}</summary>
+            <summary>{{ t("workspaceUi.courseDetails") }}<ChevronDown class="course-disclosure-icon" :size="16" aria-hidden="true" /></summary>
             <template v-if="course.reading_available">
               <div class="course-card-actions">
                 <ElButton
@@ -146,22 +157,6 @@
                 )
               }}
             </p>
-            <div v-if="course.update_available" class="course-update">
-              <strong>{{
-                copy("教师发布了新版本", "Your teacher published an update")
-              }}</strong>
-              <p>
-                {{
-                  copy(
-                    "更新后继续学习，原作答与笔记保留。",
-                    "Continue with the new version; previous attempts and notes are retained.",
-                  )
-                }}
-              </p>
-              <ElButton :disabled="loading" @click="update(course)">
-                {{ copy("使用新版本", "Use new version") }}
-              </ElButton>
-            </div>
             <section
               v-if="course.published_ppts?.length"
               class="published-ppts"
@@ -240,7 +235,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElButton, ElInput } from "element-plus";
 import UiSelectMenu from "./UiSelectMenu.vue";
-import { ArrowRight, Plus, RefreshCw, Search } from "lucide-vue-next";
+import { ArrowRight, ChevronDown, Plus, RefreshCw, Search } from "lucide-vue-next";
 import {
   studyApi,
   type StudyCourse,
@@ -546,9 +541,18 @@ p {
 }
 .course-resources summary {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
   font-size: 15px;
   color: var(--lz-text-secondary);
+  list-style: none;
 }
+.course-resources summary::-webkit-details-marker { display: none; }
+.course-disclosure-icon { flex: none; color: var(--lz-text-secondary); transition: transform .16s ease; }
+.course-resources[open] > summary .course-disclosure-icon { transform: rotate(180deg); }
 .course-card-actions,
 .course-tools {
   display: flex;
@@ -577,9 +581,11 @@ p {
 .course-update button {
   margin-top: 10px;
 }
+.course-update-action { min-height: 40px; white-space: nowrap; }
 .update-hint {
   color: var(--lz-brand-strong);
 }
+.update-hint-detail { font-size: 14px; line-height: 1.5; }
 .course-empty {
   min-height: 300px;
   display: grid;
@@ -635,10 +641,17 @@ summary:focus-visible {
   }
   .course-tools a {
     min-height: 44px;
+    min-width: 44px;
     display: inline-flex;
+    justify-content: center;
     align-items: center;
     padding-inline: 6px;
   }
+  .student-courses :deep(.course-library-card__actions .el-button:not(.is-text):not(.is-link):not(.el-button--small)),
+  .student-courses :deep(.course-library-card__details .el-button:not(.is-text):not(.is-link):not(.el-button--small)) {
+    min-height: 44px;
+  }
+  .student-courses :deep(.course-library-card__actions .course-update-action) { min-height: 46px; }
 }
 .library-search { flex: 1 1 360px; min-width: 240px; }
 .library-search :deep(.el-input__wrapper) { min-height: 40px; box-sizing: border-box; background: var(--lz-surface); border-radius: 9px; box-shadow: 0 0 0 1px var(--lz-border) inset; }
@@ -657,16 +670,19 @@ summary:focus-visible {
   .library-search :deep(.el-input__wrapper),
   .library-filter-tabs :deep(.ui-select-menu__trigger),
   .student-courses .library-heading-actions :deep(.el-button) { height: 44px; min-height: 44px; }
+  .library-search :deep(.el-input__inner) { font-size: 16px; }
+  .library-search :deep(input::placeholder) { color: #64748b; opacity: 1; }
   .library-filter-tabs { flex: 1; min-width: 100px; }
   .library-heading-actions { gap: 8px; }
   .library-heading-actions .library-refresh { width: 44px; padding-inline: 0; }
   .library-refresh-label { display: none; }
 }
-@media (max-width: 480px) {
-  .course-grid :deep(.course-library-card__heading),
-  .course-grid :deep(.course-library-card__summary),
-  .course-grid :deep(.course-library-card__actions) { grid-column: 1 / -1; }
-  .course-grid :deep(.course-library-card__actions) { grid-row: auto; }
+@media (max-width: 360px) {
+  .library-filter-tabs { width: 100%; flex: 1 1 100%; }
+  .library-heading-actions { width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr); margin-left: 0; }
+  .library-heading-actions :deep(.el-button) { width: 100%; min-width: 0; padding-inline: 8px; }
+  .library-heading-actions .library-refresh { width: 44px; }
+  .student-courses { padding-inline: 12px; }
 }
 .student-courses :deep(.el-button + .el-button) { margin-left: 0; }
 </style>

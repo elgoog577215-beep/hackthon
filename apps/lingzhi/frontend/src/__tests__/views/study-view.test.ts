@@ -695,3 +695,16 @@ it('honors a closed sidebar after a fresh session and offers a visible reopen co
   await setLocale('en'); await flushPromises()
   expect(second.wrapper.get('.study-close-tools').attributes('aria-label')).toBe('Hide reading tools')
 })
+
+it('moves focus into the mobile reading dialog and returns it to the opener', async () => {
+  vi.stubGlobal('innerWidth', 390)
+  const { wrapper } = await page('/study/material-a')
+  const reopen = wrapper.get('[data-tool="reopen"]')
+  await reopen.trigger('click')
+  await flushPromises()
+  const activeTab = wrapper.get('.study-reading-tools [role="tab"][aria-selected="true"]')
+  expect(document.activeElement).toBe(activeTab.element)
+  await wrapper.get('.study-close-tools').trigger('click')
+  await flushPromises()
+  expect(document.activeElement).toBe(wrapper.find('[data-tool="reopen"]').element)
+})

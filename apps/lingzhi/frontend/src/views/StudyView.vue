@@ -1,5 +1,5 @@
 <template>
-  <div class="study-space" :class="{ 'is-reading-page': !!materialId, 'is-creating-page': creating }">
+  <div class="study-space" :class="{ 'is-reading-page': !!materialId, 'is-creating-page': creating, 'is-keyboard-open': keyboardOpen && mobileViewport }">
     <ApplicationHeader :inert="mobileViewport && toolsOpen" surface="student" :show-brand="!materialId" :centered="!materialId && !creating" :library="!materialId" :compact-actions="!!materialId && mobileViewport">
       <template v-if="materialId" #context>
         <div class="study-course-context">
@@ -118,7 +118,7 @@
             </div>
             <ColumnResizeHandle v-if="material && toolsOpen && !mobileViewport" v-bind="rightColumnHandle" />
             <button v-if="material && toolsOpen" type="button" class="study-mobile-backdrop study-tools-backdrop" :aria-label="t('common.close')" @click="closeTool" />
-            <aside v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note' }">
+            <aside ref="studyToolsPanel" v-if="material" v-show="toolsOpen" :role="mobileViewport ? 'dialog' : undefined" :aria-modal="mobileViewport ? true : undefined" :aria-label="c(toolTab)" :tabindex="mobileViewport ? -1 : undefined" class="study-reading-tools" :class="{ 'is-notes': toolTab === 'note' }">
               <header class="study-tool-heading study-tool-tabs" role="tablist" :aria-label="c('readingTools')">
                 <button v-for="tab in sideTools" :id="`study-tab-${tab}`" :key="tab" :data-tool="tab" type="button" role="tab" :aria-selected="toolTab === tab" :aria-controls="`study-panel-${tab}`" :tabindex="toolTab === tab ? 0 : -1" @click="openTool(tab)" @keydown="moveToolTab($event, tab)"><component :is="toolIcons[tab]" :size="16" />{{ c(tab === 'paths' ? 'conceptRelations' : tab) }}</button>
                 <ElButton text circle class="study-close-tools" :aria-label="c('closeTools')" :title="c('closeTools')" @click="closeTool"><PanelRightClose :size="18" /></ElButton>
@@ -239,7 +239,10 @@ function toolPreferenceKey() { return `lingzhi-study-tools:${user.value?.id}:${m
 function rememberTool() {
   try { localStorage.setItem(toolPreferenceKey(), JSON.stringify({ tab: toolTab.value, open: toolsOpen.value })) } catch { /* Optional layout preference. */ }
 }
-function openTool(tab: StudyTool) { mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool() }
+function openTool(tab: StudyTool) {
+  mobileDirectoryOpen.value = false; toolTab.value = tab; toolsOpen.value = true; rememberTool()
+  if (mobileViewport.value) void nextTick(() => studyToolsPanel.value?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus())
+}
 function closeTool() { toolsOpen.value = false; rememberTool(); void nextTick(() => studyLayoutRoot.value?.querySelector<HTMLButtonElement>('[data-tool="reopen"]')?.focus()) }
 function moveToolTab(event: KeyboardEvent, tab: typeof sideTools[number]) {
   const index = sideTools.indexOf(tab)
@@ -435,8 +438,10 @@ const readingTarget = ref<HTMLElement | null>(null), noteText = ref(''), savedNo
 const navigation = useReadingNavigation(readingTarget, followChapter)
 const navigationReference = navigation.referenceId
 const materialId = computed(() => String(route.params.materialId || ''))
-const studyLayoutRoot = ref<HTMLElement | null>(null)
+const studyLayoutRoot = ref<HTMLElement | null>(null), studyToolsPanel = ref<HTMLElement | null>(null)
 const viewportWidth = ref(window.innerWidth), viewportHeight = ref(window.innerHeight)
+const keyboardOpen = ref(false)
+let normalViewportWidth = window.innerWidth, normalViewportHeight = window.innerHeight
 const mobileViewport = computed(() => viewportWidth.value <= 760 || viewportWidth.value <= 1024 && viewportHeight.value <= 520)
 const compactViewport = computed(() => viewportWidth.value <= 1280)
 const desktopDirectoryOpen = ref(true), mobileDirectoryOpen = ref(false), chapterQuery = ref('')
@@ -462,6 +467,17 @@ async function updateViewport() {
   const position = lastReadingPosition?.key === readingPositionKey() ? lastReadingPosition.value : null
   reflowing = true
   const wasMobile = mobileViewport.value
+  const nextWidth = window.innerWidth, nextHeight = window.innerHeight
+  if (nextWidth !== normalViewportWidth) {
+    normalViewportWidth = nextWidth
+    normalViewportHeight = nextHeight
+    keyboardOpen.value = false
+  } else if (nextHeight < normalViewportHeight - 140) {
+    keyboardOpen.value = true
+  } else {
+    normalViewportHeight = nextHeight
+    keyboardOpen.value = false
+  }
   viewportWidth.value = window.innerWidth
   viewportHeight.value = window.innerHeight
   if (wasMobile !== mobileViewport.value) mobileDirectoryOpen.value = false
@@ -764,6 +780,7 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
 .study-reading-settings-panel { position: absolute; right: 0; top: calc(100% + 14px); z-index: 30; width: 240px; padding: 20px; background: white; border: 1px solid #dbe2ee; border-radius: 12px; box-shadow: 0 8px 26px rgba(79, 70, 229, .08); }
 .study-reading-settings-panel label { display: grid; gap: 12px; margin-bottom: 12px; }
 .study-reading-settings-panel input { width: 100%; accent-color: var(--lz-brand); }
+.study-reading-settings-panel input[type=range] { min-height: 44px; }
 .study-eyebrow { font-size: 15px; color: #7b6ca4; font-weight: 650; letter-spacing: .09em; }
 .study-error { flex: none; padding: 10px 28px; background: #fff1f1; color: #a14253; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .study-error button { padding: 5px 12px; color: inherit; }
@@ -816,6 +833,7 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
 .study-selection-actions .study-selection-actions__close { width:36px; padding:0; margin-left:2px; border-left:1px solid #e8e7ef; border-radius:0 8px 8px 0; }
 .study-document-scroll { min-height: 0; flex: 1; overflow: auto; scroll-behavior: smooth; }
 .study-handout :deep(.code-block-wrapper) { border-radius:8px; border:0; box-shadow:none; }
+.study-handout :deep(.code-block-wrapper) { min-width:0; max-width:100%; }
 .study-handout :deep(.markdown-code-tools) { padding:6px 10px 0; }
 .study-handout :deep(.markdown-code-tools .copy-btn) { min-height:28px; border-radius:5px; padding:3px 7px; font-size:13px; }
 .study-handout :deep(pre) { padding:10px 14px 14px; border-radius:0; }
@@ -937,16 +955,20 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
   .study-home-navigation { display: none; }
   .study-home-mobile-title { display: block; }
   .study-error { padding: 8px 12px; font-size: 14px; }
-  .study-error button { min-height: 40px; }
+  .study-error { gap: 8px; }
+  .study-error button { flex: none; min-width: max-content; min-height: 44px; padding-inline: 12px; white-space: nowrap; }
+  .study-space button:not(.study-mobile-backdrop) { min-height: 44px; }
   .study-space :deep(.app-header:has(.study-course-context)) { grid-template-columns: minmax(0,1fr) auto; min-height: 52px; gap: 4px; padding: 0 4px; }
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools) { grid-column: 2; }
   .study-course-context { gap: 2px; }
   .study-course-context h1 { flex: 1; min-width: 0; max-width: none; font-size: 15px; }
   .study-course-context :deep(.workspace-header-action) { min-height: 44px; padding-inline: 6px; }
+  .study-course-context :deep(.workspace-header-action.is-icon-only) { width: 44px; min-width: 44px; }
   .study-header-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
   .study-header-actions :deep(.workspace-header-action) { min-height: 44px; }
   .study-reading-settings summary { min-height: 44px; }
   .study-reading-settings-panel { position: static; width: 100%; padding: 12px 0; border: 0; box-shadow: none; box-sizing: border-box; }
+  .study-reading-settings-panel :deep(.ui-segmented-control button) { box-sizing: border-box; min-height: 44px; }
   .study-reading-settings[open] { width: 100%; }
   .study-workspace { border-radius: 12px; }
   .study-workspace.is-reading { position: relative; overflow: hidden; }
@@ -964,6 +986,9 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
   .study-reading-body { min-height: 0; }
   .study-document-scroll { overscroll-behavior: contain; scroll-padding-block: 18px; }
   .study-handout { padding: 12px 17px 34px; font-size: var(--study-reading-size, 18px); line-height: 1.85; }
+  .study-handout :deep(pre), .study-handout :deep(table) { max-width:100%; overflow-x:auto; overscroll-behavior-inline:contain; -webkit-overflow-scrolling:touch; }
+  .study-handout :deep(table) { display:block; }
+  .study-handout :deep(img), .study-handout :deep(svg) { max-width:100%; height:auto; }
   .study-handout-section + .study-handout-section { padding-top: 24px; margin-top: 32px; }
   .study-handout-section h2 { margin: 8px 0 20px; font-size: 23px; line-height: 1.42; }
   .study-selection-actions { gap:1px; max-width:calc(100vw - 12px); padding:4px; border-radius:11px; font-size:12px; }
@@ -971,7 +996,7 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
   .study-selection-actions button svg { width:15px; height:15px; }
   .study-selection-actions .study-selection-actions__close { width:34px; }
   .study-space button.study-tools-backdrop { z-index: 91; }
-  .study-reading-tools { position: fixed; z-index: 92; inset:0; width:100%; height:100dvh; max-height:none; padding-bottom:env(safe-area-inset-bottom); border:0; border-radius:0; box-shadow:none; }
+  .study-reading-tools { position: fixed; z-index: 92; inset:0; width:100%; height:var(--app-visual-viewport-height, 100dvh); max-height:none; padding-bottom:env(safe-area-inset-bottom); border:0; border-radius:0; box-shadow:none; }
   .study-tool-heading, .study-reasoning-heading { box-sizing:border-box; min-height:calc(56px + env(safe-area-inset-top)); height:auto; padding:calc(6px + env(safe-area-inset-top)) 16px 6px 8px; gap:8px; background:#fff; }
   .study-tool-heading > .el-button { order:-1; flex:none; margin:0; }
   .study-tool-heading strong { font-size:16px; }
@@ -1003,37 +1028,42 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
   .study-create-back { min-height: 44px; gap: 5px; padding: 0 2px; font-size: 14px; }
   .study-form-section { padding:20px 0 0; margin:20px 0; border-radius:0; }
   .study-purpose-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
-  .study-purpose-options button { display:flex; min-height:50px; flex-direction:row; align-items: center; padding: 10px; gap: 8px; }
+  .study-purpose-options button { display:flex; min-height:56px; flex-direction:row; align-items: center; padding: 10px; gap: 8px; }
   .study-purpose-options button > svg:not(.purpose-check) { width: 21px; height: 21px; }
   .study-purpose-options strong { font-size: 15px; }
   .study-purpose-options button > span { display: none; }
   .study-purpose-options .purpose-check { right: 10px; top: 10px; width: 16px; height: 16px; }
-  .study-purpose-mobile-hint { display: block; margin: 8px 0 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.55; }
+  .study-purpose-mobile-hint { display: block; margin: 8px 0 0; color: var(--lz-text-secondary); font-size: 14px; line-height: 1.55; }
   .study-create :deep(.el-input__wrapper) { min-height: 44px; box-sizing: border-box; }
-  .study-create :deep(.el-input__inner) { min-height: 24px; }
-  .study-create :deep(.el-textarea__inner) { min-height: 92px; }
+  .study-create :deep(.el-input__inner) { min-height: 24px; font-size: 16px; }
+  .study-create :deep(.el-textarea__inner) { min-height: 92px; font-size: 16px; }
+  .study-space :is(input:not([type=checkbox]):not([type=file]), textarea, select) { font-size: 16px; }
+  .study-chapter-search :deep(.el-input__inner) { font-size: 16px; }
+  .study-space :is(input::placeholder, textarea::placeholder) { color: #64748b; opacity: 1; }
   .study-create select,.study-create input[type=number] { min-height: 44px; }
   .study-settings-row { gap: 10px; }
   .study-source-actions { gap: 8px; }
   .study-source-actions button { min-height: 44px; }
   .study-source-actions > span { flex-basis: 100%; line-height: 1.5; }
+  .study-main-scroll { scroll-padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); }
   .study-generate-bar { position: sticky; z-index: 5; bottom: 0; margin: 0 -12px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #e3e8f2; background: rgb(255 255 255 / 96%); backdrop-filter: blur(12px); }
   .study-generate-bar > div { min-width: 0; }
   .study-generate-bar button { min-height: 46px; }
+  .study-space.is-creating-page.is-keyboard-open .study-main-scroll { scroll-padding-bottom: 16px; }
+  .study-space.is-creating-page.is-keyboard-open .study-generate-bar { display: none; }
 }
 
 @media (max-width: 480px) {
-  .study-create .study-page-heading { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .study-create .study-page-heading { flex-direction: row; align-items: center; gap: 8px; }
   .study-create .study-create-back { border: 0; background: transparent; }
-  .study-generate-bar { flex-direction: column; align-items: stretch; gap: 8px; }
-  .study-generate-bar > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .study-generate-bar { flex-direction: row; align-items: center; gap: 8px; }
+  .study-generate-bar > div { display: flex; flex: 1; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
   .study-generate-bar > div p { margin: 0; }
-  .study-generate-bar button { justify-content: center; }
+  .study-generate-bar button { justify-content: center; max-width: 44%; padding-inline: 8px; font-size: 14px; }
 }
 
 @media (max-width: 380px) {
   .study-space { padding-inline: 4px; }
-  .is-creating-page :deep(.product-brand-copy) { display: none; }
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools) { overflow-x: auto; scrollbar-width: none; }
   .study-space :deep(.app-header:has(.study-course-context) > .app-header-tools::-webkit-scrollbar) { display: none; }
   .study-header-actions :deep(.workspace-header-action) { min-width: 44px; }
@@ -1042,6 +1072,8 @@ onBeforeUnmount(() => { followChapter(); bookmark.close(); window.removeEventLis
 
 @media (max-width: 340px) {
   .study-purpose-options { grid-template-columns: minmax(0, 1fr); }
+  .study-generate-bar { flex-direction: column; align-items: stretch; }
+  .study-generate-bar button { max-width: none; }
 }
 @media (min-width:768px) {
   .study-reading-workspace .learning-dock :deep(.learning-dock__location) { display:none; }

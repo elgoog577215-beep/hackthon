@@ -56,6 +56,9 @@ h2 {
 }
 h2 :deep(a),
 h2 :deep(button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -93,5 +96,16 @@ h2 :deep(button:hover) {
   .course-library-card__heading { grid-column: 1; }
   .course-library-card__summary { grid-column: 1; padding-left: 52px; }
   .course-library-card__actions { grid-column: 2; grid-row: 1 / 3; }
+}
+@media (max-width: 480px) {
+  .course-library-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .course-library-card__heading,
+  .course-library-card__summary,
+  .course-library-card__actions,
+  .course-library-card__details { grid-column: 1; grid-row: auto; }
+  .course-library-card__actions { flex-direction: column; align-items: stretch; gap: 8px; }
+  .course-library-card__actions :deep(.course-start),
+  .course-library-card__actions :deep(.course-update-action) { width: 100%; min-height: 46px; justify-content: center; }
+  .course-library-card__actions :deep(.el-button:not(.is-text):not(.is-link):not(.el-button--small)) { min-height: 44px; }
 }
 </style>

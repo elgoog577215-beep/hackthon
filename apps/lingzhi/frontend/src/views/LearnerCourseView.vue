@@ -120,6 +120,17 @@
         @reading="activateTool('reading')"
         @mistakes="activateTool('mistakes')"
       >
+        <template #tools>
+          <button v-if="!isMobileDock && !navigatorVisible" type="button" class="learning-dock__domain" data-domain="navigator" :aria-label="t('learningShell.openNavigator')" @click="navigatorOpen = true"><PanelLeftOpen :size="16" /><span>{{ t('learningNavigator.title') }}</span></button>
+          <button type="button" class="learning-dock__domain" data-domain="reading" :class="{ 'is-active': dockActiveDomain === 'course' }" :aria-current="dockActiveDomain === 'course' ? 'page' : undefined" @click="activateTool('reading')"><BookOpenCheck :size="16" /><span>{{ t('studentWorkspace.reading') }}</span></button>
+          <button type="button" class="learning-dock__domain" data-domain="question-book" :class="{ 'is-active': dockActiveDomain === 'question-book' }" :aria-current="dockActiveDomain === 'question-book' ? 'page' : undefined" @click="activateTool('practice')"><PencilLine :size="16" /><span>{{ t('learningDock.questionBook', '题库本') }}</span><b v-if="questionCount" class="learning-dock__count">{{ questionCount }}</b></button>
+          <button v-if="!isMobileDock" type="button" class="learning-dock__domain" data-domain="mistakes" :class="{ 'is-active': dockActiveDomain === 'mistakes' }" :aria-current="dockActiveDomain === 'mistakes' ? 'page' : undefined" @click="activateTool('mistakes')"><BookOpenCheck :size="16" /><span>{{ t('studentWorkspace.mistakes') }}</span></button>
+          <button v-if="!isMobileDock" type="button" class="learning-dock__domain" data-domain="overview" :class="{ 'is-active': dockActiveDomain === 'overview' }" :aria-current="dockActiveDomain === 'overview' ? 'page' : undefined" @click="activateTool('overview')"><ChartNoAxesCombined :size="16" /><span>{{ t('learningDock.stats', '学习画像') }}</span></button>
+          <span v-if="!isMobileDock" class="learning-dock__divider" aria-hidden="true"></span>
+          <button v-if="!isMobileDock" type="button" class="learning-dock__domain" data-domain="knowledge-library" :class="{ 'is-active': dockActiveDomain === 'knowledge-library' }" :aria-current="dockActiveDomain === 'knowledge-library' ? 'page' : undefined" @click="activateTool('knowledge')"><Library :size="16" /><span>{{ t('learningDock.knowledgeLibrary', '本课知识') }}</span></button>
+          <button type="button" class="learning-dock__domain" data-domain="notebook" :class="{ 'is-active': notebookOpen }" :aria-current="notebookOpen ? 'page' : undefined" :aria-pressed="notebookOpen" @click="openNotebook"><NotebookTabs :size="16" /><span>{{ t('learningDock.notebook', '笔记本') }}</span><b v-if="noteCount" class="learning-dock__count">{{ noteCount }}</b></button>
+          <button type="button" class="learning-dock__domain" data-domain="assistant" :class="{ 'is-active': aiVisible && !courseStore.isFocusMode }" :aria-pressed="aiVisible && !courseStore.isFocusMode" :aria-expanded="aiVisible && !courseStore.isFocusMode" @click="toggleAi"><Sparkles :size="16" /><span>{{ t('learningDock.assistant', 'AI 助手') }}</span></button>
+        </template>
         <template #mobile-more>
           <button v-if="!navigatorVisible" type="button" class="learning-dock__more-action" data-more-domain="navigator" :class="{ 'is-active': navigatorOpen }" :aria-current="navigatorOpen ? 'page' : undefined" @click="navigatorOpen = true"><PanelLeftOpen :size="18" /><span>{{ t('learningNavigator.title', '课程目录') }}</span></button>
           <button type="button" class="learning-dock__more-action" data-more-domain="mistakes" :class="{ 'is-active': mistakesOpen }" :aria-current="mistakesOpen ? 'page' : undefined" @click="activateTool('mistakes')"><BookOpenCheck :size="18" /><span>{{ t('studentWorkspace.mistakes', '错题') }}</span></button>
@@ -231,7 +242,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import ColumnResizeHandle from '../components/ColumnResizeHandle.vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
 import { useRoute, useRouter } from 'vue-router'
-import { BookMarked, BookOpenCheck, ChartNoAxesCombined, GitBranch, History, Library, LoaderCircle, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
+import { BookMarked, BookOpenCheck, ChartNoAxesCombined, GitBranch, History, Library, LoaderCircle, NotebookTabs, PanelLeftOpen, PencilLine, Sparkles } from 'lucide-vue-next'
 import type { KnowledgeProfileNode } from '../types/knowledge-profile'
 import type { KnowledgeLibraryView, KnowledgeNode } from '../types/knowledge-library'
 import CompanionFloatingWindow from '../components/CompanionFloatingWindow.vue'
@@ -296,6 +307,7 @@ const acceptedKnowledgeRelations = computed(() => acceptedKnowledgeLibrary.value
 const graphSelectedKnowledgeId = ref('')
 
 const windowWidth = ref(window.innerWidth)
+const windowHeight = ref(window.visualViewport?.height ?? window.innerHeight)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
 type RightSidebarView = 'assistant' | 'quick-reference' | 'thinking-chain'
@@ -423,6 +435,7 @@ let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
 let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
+const isMobileDock = computed(() => windowWidth.value < 768 || windowWidth.value < 1024 && windowHeight.value <= 520)
 const sidePanelVisible = computed(() => !courseStore.isFocusMode && !isGenerationPreview.value && (rightSidebarOpen.value || notesVisible.value || notebookOpen.value))
 const dockActiveDomain = computed(() => mistakesOpen.value ? 'mistakes' : taskOpen.value ? 'question-book'
   : statsOpen.value ? 'overview'
@@ -690,6 +703,7 @@ async function refreshCurrentPracticeAvailability() {
 onMounted(() => {
   if (!isTeacherPreview.value) generationStore.restoreGenerationState()
   window.addEventListener('resize', handleResize)
+  window.visualViewport?.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
@@ -702,6 +716,7 @@ onUnmounted(() => {
     workspaceStore.$reset()
   }
   window.removeEventListener('resize', handleResize)
+  window.visualViewport?.removeEventListener('resize', handleResize)
   generationStore.unobserveCourse(courseStore.currentCourseId)
   if (courseGrowthLocationTimer) clearTimeout(courseGrowthLocationTimer)
   if (courseGrowthSettleTimer) clearTimeout(courseGrowthSettleTimer)
@@ -710,6 +725,7 @@ onUnmounted(() => {
 function handleResize() {
   const wasNarrow = windowWidth.value < 1024
   windowWidth.value = window.innerWidth
+  windowHeight.value = window.visualViewport?.height ?? window.innerHeight
   if (windowWidth.value >= 1024) { navigatorOpen.value = true; rightSidebarOpen.value = true }
   if (windowWidth.value < 1024 && (!wasNarrow || aiVisible.value)) navigatorOpen.value = false
 }
@@ -1213,7 +1229,7 @@ function closeMobileSurfaces() {
   .surface-backdrop { position: fixed; inset: 0; z-index: 100; display: block; background: rgba(49, 46, 129, .18); backdrop-filter: blur(2px); }
   .notebook-side-panel { display:none; }
 }
-@media (max-width: 767px) {
+@media (max-width: 767px), (min-width: 768px) and (max-width: 1023px) and (max-height: 520px) {
   .learning-view { padding-bottom:0; }
   .learning-view.has-mobile-resume { padding-bottom:0; }
   .navigator-surface { left:0; top:96px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
@@ -1227,7 +1243,7 @@ function closeMobileSurfaces() {
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }
 }
-@media (min-width:768px) { .mobile-resume-prompt { display:none; } }
+@media (min-width:768px) and (min-height:521px), (min-width:1024px) { .mobile-resume-prompt { display:none; } }
 @keyframes mobile-resume-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) {
   .learning-main { transition:none; }

@@ -3,6 +3,25 @@ import { describe, expect, it } from 'vitest'
 import LearningDock from '@/components/LearningDock.vue'
 
 describe('LearningDock mobile tools', () => {
+  it('keeps the mobile primary row compact while secondary tools stay reachable in More', async () => {
+    const wrapper = mount(LearningDock, {
+      props: { location: 'C语言 · 指针', toolbar: true, placement: 'bottom' },
+      slots: {
+        tools: '<button data-domain="reading">讲义</button><button data-domain="question-book">题库本</button><button data-domain="notebook">笔记本</button><button data-domain="assistant">AI 助手</button>',
+        'mobile-more': '<button type="button" class="learning-dock__more-action" data-more-domain="navigator">课程目录</button><button type="button" class="learning-dock__more-action" data-more-domain="mistakes">错题</button>',
+      },
+    })
+
+    expect(wrapper.findAll('.learning-dock__actions [data-domain]').map(button => button.attributes('data-domain'))).toEqual([
+      'reading', 'question-book', 'notebook', 'assistant',
+    ])
+    await wrapper.get('.learning-dock__more').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-more-domain]')).toHaveLength(2)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('课程目录')
+    wrapper.unmount()
+  })
+
   it('opens and closes the secondary tools panel from the More action', async () => {
     const wrapper = mount(LearningDock, {
       props: { location: 'C语言 · 指针', toolbar: true, placement: 'bottom' },

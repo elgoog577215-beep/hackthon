@@ -268,7 +268,7 @@ function handleMoreKeydown(event: KeyboardEvent) {
 .learning-dock__spin { animation: learning-dock-spin .8s linear infinite; }
 @keyframes learning-dock-spin { to { transform: rotate(360deg); } }
 @media(max-width: 1280px) { .learning-dock { flex-wrap: wrap; } .learning-dock__location { display: none; } }
-@media (max-width: 767px) {
+@media (max-width: 767px), (min-width: 768px) and (max-width: 1023px) and (max-height: 520px) {
   .learning-dock.is-toolbar.is-bottom {
     display: block;
     box-sizing: border-box;
@@ -307,14 +307,14 @@ function handleMoreKeydown(event: KeyboardEvent) {
     gap: 3px;
     padding: 4px 1px;
     border-radius: 10px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.2;
     white-space: normal;
   }
   .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain > svg),
   .learning-dock.is-toolbar.is-bottom .learning-dock__more > svg { flex: none; width: 19px; height: 19px; }
-  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain[data-domain="assistant"] > span:first-of-type) { font-size: 11px; }
+  .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__domain[data-domain="assistant"] > span:first-of-type) { font-size: 12px; }
   .learning-dock.is-toolbar.is-bottom .learning-dock__actions :deep(.learning-dock__count) { position: absolute; top: 2px; right: calc(50% - 24px); min-width: 15px; padding: 1px 3px; border-radius: 8px; color: #fff; background: var(--lz-brand-strong); font-size: 9px; line-height: 1.2; text-align: center; }
   .learning-dock.is-toolbar.is-bottom .learning-dock__more { display: flex; }
   .learning-dock__more-layer { position: fixed; inset: 0; z-index: 150; display: grid; align-items: end; padding: 8px 8px max(10px, env(safe-area-inset-bottom, 0px)); background: rgba(24,31,49,.28); }
@@ -335,7 +335,7 @@ function handleMoreKeydown(event: KeyboardEvent) {
   .learning-dock-more-enter-from,.learning-dock-more-leave-to { opacity: 0; }
   .learning-dock-more-enter-from .learning-dock__more-panel,.learning-dock-more-leave-to .learning-dock__more-panel { transform: translateY(12px); }
 }
-@media (min-width:768px) { .learning-dock__more { display: none !important; } .learning-dock__more-layer { display: none !important; } }
+@media (min-width:768px) and (min-height:521px), (min-width:1024px) { .learning-dock__more { display: none !important; } .learning-dock__more-layer { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { .learning-dock-more-enter-active,.learning-dock-more-leave-active,.learning-dock-more-enter-active .learning-dock__more-panel,.learning-dock-more-leave-active .learning-dock__more-panel { transition: none; } }
 @media(prefers-reduced-motion: reduce) { .learning-dock__spin { animation: none; } }
 </style>

@@ -6,6 +6,7 @@
       'is-fullscreen-concept': isFullscreenConceptRoute,
       'is-course-workspace-route': isCourseWorkspaceRoute,
       'is-study-route': isStudyRoute,
+      'is-course-learning-route': isLearningRoute && route.query.teacherPreview !== '1',
       'is-course-library-route': route.name === 'course-library',
     }"
   >
@@ -153,8 +154,15 @@ const reconcileGenerationTasksFromStorage = (event: StorageEvent) => {
 const reconcileVisibleGenerationTasks = () => {
   if (document.visibilityState === 'visible') reconcileGenerationTasks()
 }
+const syncAppViewportHeight = () => {
+  const height = window.visualViewport?.height ?? window.innerHeight
+  document.documentElement.style.setProperty('--app-visual-viewport-height', `${Math.ceil(height)}px`)
+}
 
 onMounted(() => {
+  syncAppViewportHeight()
+  window.addEventListener('resize', syncAppViewportHeight)
+  window.visualViewport?.addEventListener('resize', syncAppViewportHeight)
   if (window.location.pathname.startsWith('/workspace-concept') || (import.meta.env.DEV && window.location.pathname.includes('/student-profile-demo'))) return
   const directStudyEntry = window.location.pathname.endsWith('/study') || window.location.pathname.includes('/study/')
   const directStudentLearning = /\/course\/[^/]+\/learn(?:\/|$)/.test(window.location.pathname)
@@ -175,6 +183,9 @@ watch([canMonitorGeneration, () => route.name], ([allowed, name]) => {
   }
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncAppViewportHeight)
+  window.visualViewport?.removeEventListener('resize', syncAppViewportHeight)
+  document.documentElement.style.removeProperty('--app-visual-viewport-height')
   generationStore.stopGlobalMonitor()
   window.removeEventListener('storage', reconcileGenerationTasksFromStorage)
   window.removeEventListener('focus', reconcileGenerationTasks)
@@ -223,6 +234,7 @@ function changeLocale(locale: string) {
 .app-shell {
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: 60px minmax(0, 1fr);
   gap: 10px;
@@ -231,6 +243,8 @@ function changeLocale(locale: string) {
   color: var(--lz-text);
   background: transparent;
 }
+.app-shell.is-study-route,
+.app-shell.is-course-learning-route { height: var(--app-visual-viewport-height, 100dvh); }
 .app-shell.is-fullscreen-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:var(--lz-canvas); }
 .app-shell.is-study-route { grid-template-rows:minmax(0,1fr); gap:0; padding:0; }
 .app-shell.is-study-route .app-main { border-radius:0; }
@@ -333,6 +347,8 @@ function changeLocale(locale: string) {
   .app-shell { grid-template-rows:auto minmax(0,1fr); gap: 0; padding: 0; }
   .app-main { border-radius: 0; }
   .brand-mark { width:32px; height:32px; }
+  .app-shell.is-study-route :deep(.product-brand),
+  .app-shell.is-course-learning-route :deep(.product-brand) { min-height:44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -81,5 +81,9 @@ async function printHandout() {
 .handout-reading-guide__disclosure[open] > summary::before { content: '−'; }
 .handout-reading-guide__disclosure > summary::-webkit-details-marker { display: none; }
 .handout-reading-guide__compact-body { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 8px 0 12px; }
+@media (max-width: 760px), (max-width: 1024px) and (max-height: 520px) {
+  .handout-reading-guide__legend button,
+  .handout-reading-guide__actions button { min-height: 44px; padding-block: 8px; }
+}
 @media print{.handout-reading-guide{display:none}}
 </style>
