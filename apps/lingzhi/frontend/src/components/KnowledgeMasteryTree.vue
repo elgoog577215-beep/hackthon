@@ -6,38 +6,48 @@
         <button type="button" @click="expandAll">{{ t('knowledgeProfile.treeView.expandAll', '展开全部') }}</button>
         <button type="button" @click="collapseAll">{{ t('knowledgeProfile.treeView.collapseAll', '收起分支') }}</button>
         <span class="tree-action-divider" />
-        <button type="button" :aria-label="t('knowledgeProfile.treeView.zoomOut', '缩小')" :disabled="zoom <= .45" @click="setZoom(zoom - .1)"><Minus :size="16" /></button>
+        <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.zoomOut', '缩小')" :disabled="zoom <= .45" @click="setZoom(zoom - .1)"><Minus :size="16" /></button>
         <span class="tree-zoom">{{ Math.round(zoom * 100) }}%</span>
-        <button type="button" :aria-label="t('knowledgeProfile.treeView.zoomIn', '放大')" :disabled="zoom >= 1.5" @click="setZoom(zoom + .1)"><Plus :size="16" /></button>
-        <button type="button" :aria-label="t('knowledgeProfile.treeView.fit', '适应视图')" :title="t('knowledgeProfile.treeView.fit', '适应视图')" @click="fitView"><Scan :size="16" /></button>
+        <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.zoomIn', '放大')" :disabled="zoom >= 1.5" @click="setZoom(zoom + .1)"><Plus :size="16" /></button>
+        <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.fit', '适应视图')" :title="t('knowledgeProfile.treeView.fit', '适应视图')" @click="fitView"><Scan :size="16" /></button>
       </div>
     </header>
     <div v-if="query && !tree.children.length" class="tree-no-results" role="status">{{ t('knowledgeProfile.noResults', '没有匹配的知识点') }}</div>
-    <div v-else ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning }" tabindex="0" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')"
-      @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @lostpointercapture="endPan">
-      <div class="tree-stage-space" :style="{ width: `${Math.max(viewSize.width, layout.width * zoom)}px`, height: `${Math.max(viewSize.height, layout.height * zoom)}px` }">
-        <div class="tree-stage" :style="{ left: `${stageLeft}px`, top: `${stageTop}px`, width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
-          <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
-          <template v-for="node in layout.nodes" :key="node.id">
-            <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
-            <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded, pending: node.pending }" :style="nodeStyle(node)" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim()) || node.pending" @click="toggle(node.id)">
-              <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}<template v-if="showMastery"> · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</template></span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
-            </button>
-            <button v-else type="button" class="tree-leaf" :class="[showMastery ? node.status : '', { selected: selectedId === node.sourceId }]" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" :aria-haspopup="showMastery ? 'dialog' : undefined" :aria-current="selectedId === node.sourceId ? 'true' : undefined"
-              :aria-label="showMastery ? `${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}` : node.label" @click="select(node.sourceId, $event)">
-              <span class="mastery-orb" :style="showMastery ? { '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` } : undefined"><span class="orb-core"><template v-if="showMastery"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></template><Leaf v-else :size="27" aria-hidden="true" /></span></span>
-              <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small>
-                <span v-if="showMastery" class="tree-leaf-signals" :aria-label="t('knowledgeProfile.signalCounts', '学习信号')">
-                  <span v-if="node.learningSignals?.red_count" class="tree-leaf-signal is-red" :aria-label="`${t('knowledgeProfile.redSignal', '待巩固')} ${node.learningSignals.red_count}`"><i aria-hidden="true" />{{ node.learningSignals.red_count }}</span>
-                  <span v-if="node.learningSignals?.green_count" class="tree-leaf-signal is-green" :aria-label="`${t('knowledgeProfile.greenSignal', '已理解')} ${node.learningSignals.green_count}`"><i aria-hidden="true" />{{ node.learningSignals.green_count }}</span>
-                  <span v-if="!node.learningSignals?.red_count && !node.learningSignals?.green_count" class="tree-leaf-signal-empty">{{ t('knowledgeProfile.noSignals', '暂无红绿记录') }}</span>
+    <template v-else>
+      <div ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning }" tabindex="0" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')"
+        @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @lostpointercapture="endPan">
+        <div class="tree-stage-space" :style="{ width: `${Math.max(viewSize.width, layout.width * zoom)}px`, height: `${Math.max(viewSize.height, layout.height * zoom)}px` }">
+          <div class="tree-stage" :style="{ left: `${stageLeft}px`, top: `${stageTop}px`, width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
+            <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
+            <template v-for="node in layout.nodes" :key="node.id">
+              <div v-if="node.kind === 'course'" class="tree-course" :style="nodeStyle(node)"><span><BookOpen :size="16" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span><strong :title="node.label">{{ node.label }}</strong><small>{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small></div>
+              <button v-else-if="node.kind === 'branch'" type="button" class="tree-branch" :class="{ expanded: node.expanded, pending: node.pending }" :style="nodeStyle(node)" :data-branch-id="node.sourceId" :aria-expanded="node.expanded" :disabled="Boolean(query.trim()) || node.pending" @click="toggle(node.id)">
+                <span class="tree-branch-name">{{ node.label }}</span><span v-if="node.pending" class="tree-branch-meta">{{ t('courseKnowledgeStudy.pendingLecture') }}</span><span v-else class="tree-branch-meta">{{ node.count }} {{ t('knowledgeProfile.points', '个元知识点') }}<template v-if="showMastery"> · {{ node.progress === null ? t('knowledgeProfile.unassessed') : `${node.progress}%` }}</template></span><span v-if="!node.pending" class="tree-branch-toggle"><Minus v-if="node.expanded" :size="13" /><Plus v-else :size="13" /></span>
+              </button>
+              <button v-else type="button" class="tree-leaf" :class="[showMastery ? node.status : '', { selected: selectedId === node.sourceId }]" :style="nodeStyle(node)" :data-knowledge-id="node.sourceId" :aria-haspopup="showMastery ? 'dialog' : undefined" :aria-current="selectedId === node.sourceId ? 'true' : undefined"
+                :aria-label="showMastery ? `${node.label} · ${node.progress === null ? t('knowledgeProfile.unassessed', '未评估') : `${node.progress}%`}` : node.label" @click="select(node.sourceId, $event)">
+                <span class="mastery-orb" :style="showMastery ? { '--mastery-angle': `${(node.progress ?? 0) * 3.6}deg` } : undefined"><span class="orb-core"><template v-if="showMastery"><strong>{{ node.progress ?? '—' }}<small v-if="node.progress !== null">%</small></strong><span v-if="node.progress === null">{{ t('knowledgeProfile.unassessed', '未评估') }}</span></template><Leaf v-else :size="27" aria-hidden="true" /></span></span>
+                <span class="tree-leaf-copy"><strong>{{ node.label }}</strong><small>{{ showMastery ? t(`knowledgeProfile.${node.status}`) : t('knowledgeFirst.pointDetails') }} <ArrowUpRight :size="12" /></small>
+                  <span v-if="showMastery" class="tree-leaf-signals" :aria-label="t('knowledgeProfile.signalCounts', '学习信号')">
+                    <span v-if="node.learningSignals?.red_count" class="tree-leaf-signal is-red" :aria-label="`${t('knowledgeProfile.redSignal', '待巩固')} ${node.learningSignals.red_count}`"><i aria-hidden="true" />{{ node.learningSignals.red_count }}</span>
+                    <span v-if="node.learningSignals?.green_count" class="tree-leaf-signal is-green" :aria-label="`${t('knowledgeProfile.greenSignal', '已理解')} ${node.learningSignals.green_count}`"><i aria-hidden="true" />{{ node.learningSignals.green_count }}</span>
+                    <span v-if="!node.learningSignals?.red_count && !node.learningSignals?.green_count" class="tree-leaf-signal-empty">{{ t('knowledgeProfile.noSignals', '暂无红绿记录') }}</span>
+                  </span>
                 </span>
-              </span>
-            </button>
-          </template>
+              </button>
+            </template>
+          </div>
         </div>
       </div>
-    </div>
+      <section class="tree-mobile" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')">
+        <header class="tree-mobile-course tree-mobile-course-root">
+          <span class="tree-mobile-kicker"><BookOpen :size="15" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span>
+          <strong>{{ tree.label }}</strong>
+          <small>{{ tree.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small>
+        </header>
+        <KnowledgeMasteryTreeMobileNodes :nodes="tree.children" :show-mastery="showMastery" :selected-id="selectedId" :collapsed="collapsed" :query="query" nested @toggle="toggle" @select="(id, trigger) => emit('select', id, trigger)" />
+      </section>
+    </template>
     <footer class="tree-help"><MousePointer2 :size="14" /><span>{{ t('knowledgeProfile.treeView.help', '点击分支展开 · 点击圆球查看详情 · 拖动空白处移动视图') }}</span><span class="tree-signal-legend"><i class="is-red" />{{ t('knowledgeProfile.redSignal', '待巩固') }} <i class="is-green" />{{ t('knowledgeProfile.greenSignal', '已理解') }}</span><span v-if="query">{{ t('knowledgeProfile.treeView.searchHint', '搜索不会改变全课统计') }}</span></footer>
   </div>
 </template>
@@ -46,6 +56,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowUpRight, BookOpen, Leaf, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import KnowledgeMasteryTreeMobileNodes from './KnowledgeMasteryTreeMobileNodes.vue'
 import type { KnowledgeProfile } from '../types/knowledge-profile'
 import { createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
 
@@ -207,4 +218,32 @@ button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:
 .content-tree .orb-core{color:#8764ae;background:radial-gradient(circle at 30% 20%,#fff,#f2eafa 70%,#e7dbf4)}
 .content-tree .tree-leaf.selected .mastery-orb{box-shadow:0 0 0 4px #c4afe54d,0 8px 22px #785da629}
 .content-tree .tree-leaf.selected .tree-leaf-copy strong{color:#68468f;font-weight:600}
+</style>
+
+<style scoped>
+.mastery-tree { container-name: mastery-tree; container-type: inline-size; min-width: 0; }
+.tree-mobile { display: none; }
+
+@container mastery-tree (max-width: 680px) {
+  .tree-toolbar { align-items: stretch; gap: 8px; padding: 12px; }
+  .tree-search { flex: 1 0 100%; max-width: none; min-width: 0; min-height: 44px; padding: 0 11px; border: 1px solid #e5dfec; border-radius: 10px; background: #fcfbff; }
+  .tree-search input { font-size: 16px; }
+  .tree-actions { flex: 1 0 100%; justify-content: space-between; gap: 7px; }
+  .tree-actions button:not(.tree-scale-control) { flex: 1; min-width: 0; min-height: 44px; padding: 8px 10px; font-size: 13px; line-height: 1.25; }
+  .tree-scale-control, .tree-action-divider, .tree-zoom { display: none !important; }
+  .tree-viewport { display: none; }
+  .tree-mobile { display: block; padding: 12px; background: #fbfaff; }
+  .tree-mobile-course { display: grid; gap: 5px; margin-bottom: 0; padding: 12px 14px; border: 1px solid #e3dced; border-radius: 12px; background: #f2eef8; }
+  .tree-mobile-course-root { position: relative; z-index: 1; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
+  .tree-mobile-course-root::after { content: ''; position: absolute; left: 10px; top: 50%; bottom: -8px; border-left: 1px solid #c5b8d4; }
+  .tree-mobile-kicker { display: flex; align-items: center; gap: 6px; color: #6c5a7d; font-size: 13px; line-height: 1.35; }
+  .tree-mobile-course > strong { color: #4e3e61; font-size: 17px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+  .tree-mobile-course > small { color: #6f627c; font-size: 13px; line-height: 1.4; }
+  .tree-help { display: none; }
+  .tree-no-results { min-height: 180px; height: auto; padding: 20px; text-align: center; }
+}
+
+@container mastery-tree (max-width: 380px) {
+  .tree-mobile { padding: 10px; }
+}
 </style>
