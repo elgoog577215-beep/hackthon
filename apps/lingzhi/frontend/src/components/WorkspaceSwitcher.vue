@@ -12,6 +12,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { Capacitor } from '@capacitor/core'
 import UiSegmentedControl from './UiSegmentedControl.vue'
 import { activeLocale, t } from '../shared/i18n'
 import { productIdentity, type ProductSurface } from '../shared/product-brand'
@@ -21,9 +22,10 @@ defineProps<{ surface: ProductSurface }>()
 const router = useRouter()
 const teacherPortal = configuredTeacherPortal(import.meta.env.VITE_TEACHER_APP_URL)
 const studentPortal = configuredStudyPortal(import.meta.env.VITE_STUDY_APP_URL)
-// A student-only deployment cannot serve teacher routes without a peer URL.
-const canOpenTeacher = import.meta.env.VITE_APP_SURFACE !== 'student'
+// Native apps are student-first shells, even when they load the shared remote web bundle.
+const canOpenTeacher = !Capacitor.isNativePlatform() && (import.meta.env.VITE_APP_SURFACE !== 'student'
   || (!!teacherPortal && !teacherPortal.startsWith('/'))
+)
 const options = computed(() => (['teacher', 'student'] as const).map(surface => ({
   value: surface,
   label: productIdentity(surface, activeLocale.value).role,

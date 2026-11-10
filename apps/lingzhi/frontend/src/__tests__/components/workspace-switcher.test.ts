@@ -1,9 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Capacitor } from '@capacitor/core'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { activeLocale } from '@/shared/i18n'
 import type { ProductSurface } from '@/shared/product-brand'
+
+vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: vi.fn(() => false) } }))
 
 async function setup(surface: ProductSurface) {
   const router = createRouter({
@@ -20,6 +23,7 @@ async function setup(surface: ProductSurface) {
 
 describe('shared workspace switching', () => {
   beforeEach(() => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false)
     vi.stubEnv('VITE_APP_SURFACE', '')
     vi.stubEnv('VITE_STUDY_APP_URL', '')
     vi.stubEnv('VITE_TEACHER_APP_URL', '')
@@ -52,6 +56,13 @@ describe('shared workspace switching', () => {
   it.each(['', '/courses'])('does not expose a teacher route that the student-only router rejects (%s)', async teacherPortal => {
     vi.stubEnv('VITE_APP_SURFACE', 'student')
     vi.stubEnv('VITE_TEACHER_APP_URL', teacherPortal)
+    const { wrapper } = await setup('student')
+    expect(wrapper.find('.workspace-switcher').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the remote teacher workspace out of native student apps', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true)
     const { wrapper } = await setup('student')
     expect(wrapper.find('.workspace-switcher').exists()).toBe(false)
     wrapper.unmount()
