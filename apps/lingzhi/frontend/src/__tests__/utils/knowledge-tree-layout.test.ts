@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import demo from '@/demo/knowledge-profile.json'
 import type { KnowledgeProfile } from '@/types/knowledge-profile'
-import { createContentKnowledgeTree, createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree } from '@/utils/knowledge-tree-layout'
+import { createContentKnowledgeTree, createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, layoutMobileKnowledgeTree } from '@/utils/knowledge-tree-layout'
 
 const profile = demo.cases.at(-1)!.profile as KnowledgeProfile
 describe('horizontal knowledge tree', () => {
@@ -45,5 +45,36 @@ describe('horizontal knowledge tree', () => {
     expect(layoutKnowledgeTree(filtered, new Set()).nodes.map(node => node.label)).toEqual(['处理器', '硬件', '处理器', 'CPU作用'])
     expect(filtered.count).toBe(2)
     expect(filterKnowledgeTree(tree, '不存在').children).toEqual([])
+  })
+})
+
+describe('portrait knowledge tree', () => {
+  it('keeps the course above its branches and points in a compact, non-overlapping tree', () => {
+    const tree = createKnowledgeTree(profile, 'C')
+    const layout = layoutMobileKnowledgeTree(tree, new Set())
+    const course = layout.nodes.find(node => node.kind === 'course')!
+    const branches = layout.nodes.filter(node => node.kind === 'branch')
+    const leaves = layout.nodes.filter(node => node.kind === 'knowledge')
+
+    expect(branches.every(node => node.y > course.y)).toBe(true)
+    expect(leaves.every(node => node.y > course.y)).toBe(true)
+    expect(layout.edges.every(edge => edge.target.y >= edge.source.y + edge.source.height)).toBe(true)
+    for (let i = 0; i < layout.nodes.length; i++) for (let j = i + 1; j < layout.nodes.length; j++) {
+      const a = layout.nodes[i]!, b = layout.nodes[j]!
+      expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true)
+    }
+    expect(leaves).toHaveLength(profile.summary.total_count)
+    expect(layout.width).toBeGreaterThanOrEqual(160)
+
+    const compactViewport = layoutMobileKnowledgeTree(tree, new Set(), 412)
+    expect(compactViewport.height).toBeLessThanOrEqual(412)
+    const highDensityPhoneCssViewport = layoutMobileKnowledgeTree(tree, new Set(), 925)
+    expect(highDensityPhoneCssViewport.height).toBeGreaterThan(600)
+    expect(highDensityPhoneCssViewport.height).toBeLessThan(700)
+    expect(highDensityPhoneCssViewport.height).toBeLessThan(925)
+
+    const folded = layoutMobileKnowledgeTree(tree, new Set(['branch:condition']))
+    expect(folded.nodes.find(node => node.id === 'branch:condition')?.x).toBe(branches.find(node => node.id === 'branch:condition')?.x)
+    expect(folded.nodes.find(node => node.kind === 'course')?.x).toBe(course.x)
   })
 })

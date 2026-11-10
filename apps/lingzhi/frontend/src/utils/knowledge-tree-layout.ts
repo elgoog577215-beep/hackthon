@@ -124,3 +124,83 @@ export function layoutKnowledgeTree(root: ProfileTreeItem, collapsed: Set<string
   visit(root, 0)
   return { nodes, edges, width: Math.max(920, ...nodes.map(n => n.x + n.width + 40)), height: Math.max(380, cursor + 36) }
 }
+
+/** Portrait-oriented tree layout for the mobile pan-and-zoom canvas. */
+export function layoutMobileKnowledgeTree(root: ProfileTreeItem, collapsed: Set<string>, availableHeight = 0) {
+  const nodes: PositionedProfileNode[] = []
+  const edges: ProfileTreeEdge[] = []
+  const slotWidth = 160
+  const top = 28
+  const maxVisibleDepth = (item: ProfileTreeItem, depth: number): number => {
+    const children = collapsed.has(item.id) ? [] : item.children
+    return children.length ? Math.max(...children.map(child => maxVisibleDepth(child, depth + 1))) : depth
+  }
+  const deepestVisibleLevel = maxVisibleDepth(root, 0)
+  const fittedGap = deepestVisibleLevel > 0 && availableHeight > 0
+    ? ((availableHeight - top - 28 - 88) / deepestVisibleLevel) * .82
+    : 168
+  const levelGap = Math.max(116, Math.min(240, fittedGap))
+  let deepestLevel = 0
+  let tallestNode = 0
+
+  const countSlots = (item: ProfileTreeItem): number => item.children.length
+    ? item.children.reduce((total, child) => total + countSlots(child), 0)
+    : 1
+
+  const visit = (item: ProfileTreeItem, depth: number, firstSlot: number): { node: PositionedProfileNode; lastSlot: number } => {
+    const visibleChildren = collapsed.has(item.id) ? [] : item.children
+    const slotCount = countSlots(item)
+    const lastSlot = firstSlot + slotCount - 1
+    const width = item.kind === 'course' ? 152 : item.kind === 'branch' ? 144 : 150
+    const height = item.kind === 'course' ? 82 : item.kind === 'branch' ? 72 : 88
+    const node: PositionedProfileNode = {
+      ...item,
+      x: 0,
+      y: top + depth * levelGap,
+      width,
+      height,
+      expanded: visibleChildren.length > 0,
+    }
+    nodes.push(node)
+    deepestLevel = Math.max(deepestLevel, depth)
+    tallestNode = Math.max(tallestNode, height)
+
+    if (!visibleChildren.length) {
+      node.x = (firstSlot + slotCount / 2) * slotWidth - width / 2
+      return { node, lastSlot }
+    }
+
+    let childFirstSlot = firstSlot
+    const children = visibleChildren.map(child => {
+      const placed = visit(child, depth + 1, childFirstSlot)
+      childFirstSlot = placed.lastSlot + 1
+      return placed
+    })
+    const center = (firstSlot + slotCount / 2) * slotWidth
+    node.x = center - width / 2
+
+    for (const child of children) {
+      const sourceX = node.x + node.width / 2
+      const sourceY = node.y + node.height
+      const targetX = child.node.x + child.node.width / 2
+      const targetY = child.node.y
+      const bend = sourceY + (targetY - sourceY) / 2
+      edges.push({
+        id: `${node.id}->${child.node.id}`,
+        source: node,
+        target: child.node,
+        path: `M ${sourceX} ${sourceY} C ${sourceX} ${bend}, ${targetX} ${bend}, ${targetX} ${targetY}`,
+      })
+    }
+    return { node, lastSlot }
+  }
+
+  const slotCount = countSlots(root)
+  visit(root, 0, 0)
+  return {
+    nodes,
+    edges,
+    width: Math.max(slotWidth, slotCount * slotWidth),
+    height: top + deepestLevel * levelGap + tallestNode + 28,
+  }
+}

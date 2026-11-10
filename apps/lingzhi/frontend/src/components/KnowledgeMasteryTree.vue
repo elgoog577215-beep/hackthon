@@ -1,22 +1,23 @@
 <template>
-  <div class="mastery-tree" :class="{ 'content-tree': !showMastery }">
+  <div ref="treeRoot" class="mastery-tree" :class="{ 'content-tree': !showMastery, 'mobile-tree-mode': isMobileViewport, 'mobile-fullscreen': isMobileViewport && mobileFullscreen }">
     <header class="tree-toolbar">
       <label class="tree-search"><Search :size="16" /><input v-model="query" type="search" :aria-label="t('knowledgeProfile.search', '搜索知识点')" :placeholder="t('knowledgeProfile.search', '搜索知识点')" /></label>
       <div class="tree-actions">
-        <button type="button" @click="expandAll">{{ t('knowledgeProfile.treeView.expandAll', '展开全部') }}</button>
-        <button type="button" @click="collapseAll">{{ t('knowledgeProfile.treeView.collapseAll', '收起分支') }}</button>
+        <button type="button" @click="expandAll">{{ t(isMobileViewport ? 'knowledgeProfile.treeView.expandCompact' : 'knowledgeProfile.treeView.expandAll', isMobileViewport ? '展开' : '展开全部') }}</button>
+        <button type="button" @click="collapseAll">{{ t(isMobileViewport ? 'knowledgeProfile.treeView.collapseCompact' : 'knowledgeProfile.treeView.collapseAll', isMobileViewport ? '收起' : '收起分支') }}</button>
         <span class="tree-action-divider" />
         <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.zoomOut', '缩小')" :disabled="zoom <= .45" @click="setZoom(zoom - .1)"><Minus :size="16" /></button>
         <span class="tree-zoom">{{ Math.round(zoom * 100) }}%</span>
         <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.zoomIn', '放大')" :disabled="zoom >= 1.5" @click="setZoom(zoom + .1)"><Plus :size="16" /></button>
-        <button type="button" class="tree-scale-control" :aria-label="t('knowledgeProfile.treeView.fit', '适应视图')" :title="t('knowledgeProfile.treeView.fit', '适应视图')" @click="fitView"><Scan :size="16" /></button>
+        <button type="button" class="tree-scale-control" :aria-label="t(isMobileViewport ? 'knowledgeProfile.treeView.resetView' : 'knowledgeProfile.treeView.fit', isMobileViewport ? '回到树根' : '适应视图')" :title="t(isMobileViewport ? 'knowledgeProfile.treeView.resetView' : 'knowledgeProfile.treeView.fit', isMobileViewport ? '回到树根' : '适应视图')" @click="isMobileViewport ? resetMobileView() : fitView()"><Scan :size="16" /></button>
+        <button v-if="isMobileViewport" type="button" class="tree-scale-control tree-fullscreen-control" :aria-label="t(mobileFullscreen ? 'knowledgeProfile.treeView.exitFullscreen' : 'knowledgeProfile.treeView.openFullscreen', mobileFullscreen ? '退出全屏' : '全屏查看')" :title="t(mobileFullscreen ? 'knowledgeProfile.treeView.exitFullscreen' : 'knowledgeProfile.treeView.openFullscreen', mobileFullscreen ? '退出全屏' : '全屏查看')" @click="toggleMobileFullscreen"><Minimize2 v-if="mobileFullscreen" :size="16" /><Maximize2 v-else :size="16" /></button>
       </div>
     </header>
     <div v-if="query && !tree.children.length" class="tree-no-results" role="status">{{ t('knowledgeProfile.noResults', '没有匹配的知识点') }}</div>
     <template v-else>
-      <div ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning }" tabindex="0" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')"
+      <div ref="viewport" class="tree-viewport" :class="{ 'is-panning': panning, 'is-mobile-tree': isMobileViewport }" tabindex="0" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')"
         @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @lostpointercapture="endPan">
-        <div class="tree-stage-space" :style="{ width: `${Math.max(viewSize.width, layout.width * zoom)}px`, height: `${Math.max(viewSize.height, layout.height * zoom)}px` }">
+        <div class="tree-stage-space" :style="{ width: `${Math.max(viewSize.width, layout.width * zoom) + mobilePanBuffer * 2}px`, height: `${Math.max(viewSize.height, layout.height * zoom) + mobilePanBuffer * 2}px` }">
           <div class="tree-stage" :style="{ left: `${stageLeft}px`, top: `${stageTop}px`, width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
             <svg class="tree-edges" :width="layout.width" :height="layout.height" aria-hidden="true"><path v-for="edge in layout.edges" :key="edge.id" :d="edge.path" :class="{ 'edge-to-leaf': edge.target.kind === 'knowledge' }" /></svg>
             <template v-for="node in layout.nodes" :key="node.id">
@@ -39,43 +40,44 @@
           </div>
         </div>
       </div>
-      <section class="tree-mobile" :aria-label="showMastery ? t('knowledgeProfile.tree', '知识树与掌握状态') : t('knowledgeFirst.tree')">
-        <header class="tree-mobile-course tree-mobile-course-root">
-          <span class="tree-mobile-kicker"><BookOpen :size="15" />{{ showMastery ? t('knowledgeProfile.courseScope', '全课范围') : t('knowledgeFirst.tree') }}</span>
-          <strong>{{ tree.label }}</strong>
-          <small>{{ tree.count }} {{ t('knowledgeProfile.points', '个元知识点') }}</small>
-        </header>
-        <KnowledgeMasteryTreeMobileNodes :nodes="tree.children" :show-mastery="showMastery" :selected-id="selectedId" :collapsed="collapsed" :query="query" nested @toggle="toggle" @select="(id, trigger) => emit('select', id, trigger)" />
-      </section>
     </template>
-    <footer class="tree-help"><MousePointer2 :size="14" /><span>{{ t('knowledgeProfile.treeView.help', '点击分支展开 · 点击圆球查看详情 · 拖动空白处移动视图') }}</span><span class="tree-signal-legend"><i class="is-red" />{{ t('knowledgeProfile.redSignal', '待巩固') }} <i class="is-green" />{{ t('knowledgeProfile.greenSignal', '已理解') }}</span><span v-if="query">{{ t('knowledgeProfile.treeView.searchHint', '搜索不会改变全课统计') }}</span></footer>
+    <footer class="tree-help"><MousePointer2 :size="14" /><span>{{ t(isMobileViewport ? 'knowledgeProfile.treeView.mobileHelp' : 'knowledgeProfile.treeView.help', isMobileViewport ? '拖动画布浏览 · 点击分支展开 · 点击知识点查看详情' : '点击分支展开 · 点击圆球查看详情 · 拖动空白处移动视图') }}</span><span class="tree-signal-legend"><i class="is-red" />{{ t('knowledgeProfile.redSignal', '待巩固') }} <i class="is-green" />{{ t('knowledgeProfile.greenSignal', '已理解') }}</span><span v-if="query">{{ t('knowledgeProfile.treeView.searchHint', '搜索不会改变全课统计') }}</span></footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ArrowUpRight, BookOpen, Leaf, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
+import { ArrowUpRight, BookOpen, Leaf, Maximize2, Minimize2, Minus, MousePointer2, Plus, Scan, Search } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-import KnowledgeMasteryTreeMobileNodes from './KnowledgeMasteryTreeMobileNodes.vue'
 import type { KnowledgeProfile } from '../types/knowledge-profile'
-import { createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
+import { createKnowledgeTree, filterKnowledgeTree, layoutKnowledgeTree, layoutMobileKnowledgeTree, type PositionedProfileNode, type ProfileTreeItem } from '../utils/knowledge-tree-layout'
 
 const props = withDefaults(defineProps<{ profile?: KnowledgeProfile; contentTree?: ProfileTreeItem; treeRevision?: string; courseTitle?: string; showMastery?: boolean; selectedId?: string }>(), { showMastery: true })
 const emit = defineEmits<{ (event: 'select', id: string, trigger: HTMLElement): void }>()
 const query = ref('')
 const collapsed = ref(new Set<string>())
+const treeRoot = ref<HTMLElement | null>(null)
 const viewport = ref<HTMLElement | null>(null)
 const zoom = ref(1)
 const panning = ref(false)
+const isMobileViewport = ref(typeof window !== 'undefined' && window.innerWidth <= 680)
+const mobileFullscreen = ref(isMobileViewport.value)
 const viewSize = ref({ width: 0, height: 0 })
 let resizeObserver: ResizeObserver | undefined
 let resizeFrame: number | undefined
-let pan: { id: number; x: number; y: number; left: number; top: number; target: HTMLElement } | null = null
+let pan: { id: number; x: number; y: number; left: number; top: number; target: HTMLElement; moved: boolean; startedOnButton: boolean } | null = null
+let ignoreNextClick = false
 const sourceTree = computed(() => props.contentTree || createKnowledgeTree(props.profile!, props.courseTitle || t('knowledgeProfile.treeView.course', '当前课程')))
 const tree = computed(() => props.contentTree ? filterKnowledgeTree(props.contentTree, query.value) : createKnowledgeTree(props.profile!, props.courseTitle || t('knowledgeProfile.treeView.course', '当前课程'), query.value))
-const layout = computed(() => layoutKnowledgeTree(tree.value, query.value.trim() ? new Set() : collapsed.value))
-const stageLeft = computed(() => Math.max(0, (viewSize.value.width - layout.value.width * zoom.value) / 2))
-const stageTop = computed(() => Math.max(0, (viewSize.value.height - layout.value.height * zoom.value) / 2))
+const layout = computed(() => isMobileViewport.value
+  ? layoutMobileKnowledgeTree(tree.value, query.value.trim() ? new Set() : collapsed.value, viewSize.value.height)
+  : layoutKnowledgeTree(tree.value, query.value.trim() ? new Set() : collapsed.value))
+const mobilePanBuffer = computed(() => isMobileViewport.value ? Math.max(120, Math.round(viewSize.value.height * .35)) : 0)
+const stageLeft = computed(() => mobilePanBuffer.value + Math.max(0, (viewSize.value.width - layout.value.width * zoom.value) / 2))
+const stageTop = computed(() => {
+  if (!isMobileViewport.value) return Math.max(0, (viewSize.value.height - layout.value.height * zoom.value) / 2)
+  return mobilePanBuffer.value + Math.min(96, Math.max(0, (viewSize.value.height - layout.value.height * zoom.value) * .3))
+})
 function measureViewport() {
   const element = viewport.value
   if (element && (viewSize.value.width !== element.clientWidth || viewSize.value.height !== element.clientHeight)) {
@@ -87,23 +89,40 @@ function scheduleMeasure() {
   resizeFrame = requestAnimationFrame(() => {
     resizeFrame = undefined
     const previousWidth = viewSize.value.width
+    measureResponsiveMode()
     measureViewport()
-    if (!props.showMastery && previousWidth > 0 && previousWidth !== viewSize.value.width) {
-      void nextTick(fitView)
+    if (previousWidth > 0 && previousWidth !== viewSize.value.width) {
+      if (isMobileViewport.value) void nextTick(resetMobileView)
+      else if (!props.showMastery) void nextTick(fitView)
     }
   })
+}
+function measureResponsiveMode() {
+  const width = typeof window !== 'undefined' ? window.innerWidth : 1024
+  const next = width <= 680
+  if (next === isMobileViewport.value) return
+  isMobileViewport.value = next
+  mobileFullscreen.value = next
+  if (next) void nextTick(resetMobileView)
 }
 watch(viewport, (element, previous) => {
   if (previous) resizeObserver?.unobserve(previous)
   if (element) { resizeObserver?.observe(element); measureViewport() }
 })
 onMounted(() => {
+  measureResponsiveMode()
   measureViewport()
-  if (!props.showMastery) void nextTick(fitView)
-  if (typeof ResizeObserver !== 'undefined') { resizeObserver = new ResizeObserver(scheduleMeasure); if (viewport.value) resizeObserver.observe(viewport.value) }
+  if (isMobileViewport.value) void nextTick(resetMobileView)
+  else if (!props.showMastery) void nextTick(fitView)
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(scheduleMeasure)
+    if (treeRoot.value) resizeObserver.observe(treeRoot.value)
+    if (viewport.value) resizeObserver.observe(viewport.value)
+  }
+  window.addEventListener('resize', scheduleMeasure)
   window.addEventListener('blur', endPan)
 })
-onBeforeUnmount(() => { endPan(); resizeObserver?.disconnect(); if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame); window.removeEventListener('blur', endPan) })
+onBeforeUnmount(() => { endPan(); resizeObserver?.disconnect(); if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame); window.removeEventListener('resize', scheduleMeasure); window.removeEventListener('blur', endPan) })
 function resetBranches() {
   const root = sourceTree.value
   const closed = new Set<string>()
@@ -115,8 +134,15 @@ function resetBranches() {
   visit(root, true)
   collapsed.value = closed
 }
-watch(() => `${sourceTree.value.id}:${props.treeRevision ?? props.profile?.baseline_revision ?? ''}`, () => { query.value = ''; resetBranches(); zoom.value = 1; if (!props.showMastery) void nextTick(fitView) }, { immediate: true })
+watch(() => `${sourceTree.value.id}:${props.treeRevision ?? props.profile?.baseline_revision ?? ''}`, () => {
+  query.value = ''
+  resetBranches()
+  zoom.value = 1
+  if (isMobileViewport.value) void nextTick(resetMobileView)
+  else if (!props.showMastery) void nextTick(fitView)
+}, { immediate: true })
 function toggle(id: string) {
+  if (consumeSuppressedClick()) return
   if (query.value.trim()) return
   const next = new Set(collapsed.value)
   if (next.has(id)) next.delete(id); else next.add(id)
@@ -148,7 +174,10 @@ async function reveal(id: string) {
 }
 watch(() => props.selectedId, id => { if (id) void reveal(id) })
 function nodeStyle(node: PositionedProfileNode) { return { left: `${node.x}px`, top: `${node.y}px`, width: `${node.width}px`, height: `${node.height}px` } }
-function select(id: string, event: MouseEvent) { emit('select', id, event.currentTarget as HTMLElement) }
+function select(id: string, event: MouseEvent) {
+  if (consumeSuppressedClick()) return
+  emit('select', id, event.currentTarget as HTMLElement)
+}
 async function setZoom(value: number) {
   const element = viewport.value
   const previous = zoom.value
@@ -164,21 +193,54 @@ async function fitView() {
   await setZoom(Math.min(element.clientWidth / layout.value.width, element.clientHeight / layout.value.height, 1))
   element.scrollLeft = 0; element.scrollTop = 0
 }
+async function resetMobileView() {
+  const element = viewport.value
+  if (!element) return
+  zoom.value = 1
+  await nextTick()
+  measureViewport()
+  element.scrollTop = mobilePanBuffer.value
+  element.scrollLeft = mobilePanBuffer.value + Math.max(0, (layout.value.width * zoom.value - element.clientWidth) / 2)
+}
+function toggleMobileFullscreen() {
+  mobileFullscreen.value = !mobileFullscreen.value
+  if (mobileFullscreen.value) void nextTick(() => { measureViewport(); resetMobileView() })
+}
 function startPan(event: PointerEvent) {
-  if (event.button !== 0 || (event.target as Element).closest('button')) return
+  ignoreNextClick = false
+  if (event.button !== 0) return
+  if (!isMobileViewport.value && (event.target as Element).closest('button')) return
   const target = event.currentTarget as HTMLElement
-  pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: target.scrollLeft, top: target.scrollTop, target }
-  target.setPointerCapture?.(event.pointerId)
-  panning.value = true
+  pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: target.scrollLeft, top: target.scrollTop, target, moved: false, startedOnButton: Boolean((event.target as Element).closest('button')) }
 }
 function movePan(event: PointerEvent) {
   if (!pan || event.pointerId !== pan.id) return
-  pan.target.scrollLeft = pan.left + pan.x - event.clientX
-  pan.target.scrollTop = pan.top + pan.y - event.clientY
+  const deltaX = pan.x - event.clientX
+  const deltaY = pan.y - event.clientY
+  if (!pan.moved && Math.hypot(deltaX, deltaY) < 5) return
+  if (!pan.moved) {
+    pan.moved = true
+    panning.value = true
+    pan.target.setPointerCapture?.(event.pointerId)
+  }
+  event.preventDefault()
+  pan.target.scrollLeft = pan.left + deltaX
+  pan.target.scrollTop = pan.top + deltaY
 }
 function endPan() {
-  const previous = pan; pan = null; panning.value = false
+  const previous = pan
+  pan = null
+  panning.value = false
+  if (previous?.moved) {
+    ignoreNextClick = previous.startedOnButton
+    window.setTimeout(() => { ignoreNextClick = false }, 0)
+  }
   if (previous?.target.hasPointerCapture?.(previous.id)) previous.target.releasePointerCapture(previous.id)
+}
+function consumeSuppressedClick() {
+  if (!ignoreNextClick) return false
+  ignoreNextClick = false
+  return true
 }
 </script>
 
@@ -222,28 +284,77 @@ button:focus-visible,.tree-viewport:focus-visible,input:focus-visible { outline:
 
 <style scoped>
 .mastery-tree { container-name: mastery-tree; container-type: inline-size; min-width: 0; }
-.tree-mobile { display: none; }
 
 @container mastery-tree (max-width: 680px) {
-  .tree-toolbar { align-items: stretch; gap: 8px; padding: 12px; }
-  .tree-search { flex: 1 0 100%; max-width: none; min-width: 0; min-height: 44px; padding: 0 11px; border: 1px solid #e5dfec; border-radius: 10px; background: #fcfbff; }
+  .tree-toolbar { align-items: stretch; flex: none; flex-direction: column; gap: 7px; padding: 9px 12px; }
+  .tree-search { flex: none; width: 100%; max-width: none; min-width: 0; min-height: 44px; padding: 0 11px; border: 1px solid #e5dfec; border-radius: 10px; background: #fcfbff; }
   .tree-search input { font-size: 16px; }
-  .tree-actions { flex: 1 0 100%; justify-content: space-between; gap: 7px; }
-  .tree-actions button:not(.tree-scale-control) { flex: 1; min-width: 0; min-height: 44px; padding: 8px 10px; font-size: 13px; line-height: 1.25; }
-  .tree-scale-control, .tree-action-divider, .tree-zoom { display: none !important; }
-  .tree-viewport { display: none; }
-  .tree-mobile { display: block; padding: 12px; background: #fbfaff; }
-  .tree-mobile-course { display: grid; gap: 5px; margin-bottom: 0; padding: 12px 14px; border: 1px solid #e3dced; border-radius: 12px; background: #f2eef8; }
-  .tree-mobile-course-root { position: relative; z-index: 1; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
-  .tree-mobile-course-root::after { content: ''; position: absolute; left: 10px; top: 50%; bottom: -8px; border-left: 1px solid #c5b8d4; }
-  .tree-mobile-kicker { display: flex; align-items: center; gap: 6px; color: #6c5a7d; font-size: 13px; line-height: 1.35; }
-  .tree-mobile-course > strong { color: #4e3e61; font-size: 17px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
-  .tree-mobile-course > small { color: #6f627c; font-size: 13px; line-height: 1.4; }
-  .tree-help { display: none; }
+  .tree-actions { flex: none; flex-wrap: nowrap; justify-content: flex-start; gap: 4px; overflow-x: auto; padding: 0 1px 2px; scrollbar-width: none; }
+  .tree-actions::-webkit-scrollbar { display: none; }
+  .tree-actions button { flex: none; min-width: 44px; min-height: 44px; padding: 7px; }
+  .tree-actions button:not(.tree-scale-control) { flex: none; min-width: 44px; min-height: 44px; padding: 7px 8px; font-size: 12px; }
+  .tree-action-divider { display: none; }
+  .tree-zoom { display: block; min-width: 36px; align-self: center; font-size: 10px; }
+  .tree-viewport { height: min(60dvh, 580px); min-height: 320px; touch-action: none; }
+  .tree-help { display: flex; gap: 5px; padding: 8px 10px; font-size: 11px; line-height: 1.35; }
+  .tree-help > svg { flex: none; width: 12px; height: 12px; }
+  .tree-help .tree-signal-legend { gap: 4px; margin-left: auto; font-size: 10px; white-space: nowrap; }
+  .tree-help .tree-signal-legend i { width: 6px; height: 6px; }
   .tree-no-results { min-height: 180px; height: auto; padding: 20px; text-align: center; }
 }
 
+.mobile-fullscreen {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #fcfbff;
+}
+.mobile-fullscreen .tree-viewport { flex: 1 1 0; min-height: 0; height: auto; scrollbar-width: none; }
+.mobile-fullscreen .tree-viewport::-webkit-scrollbar { display: none; }
+.mobile-fullscreen .tree-help { flex: none; }
+.mobile-fullscreen .tree-no-results { flex: 1; min-height: 0; }
+
+.mobile-tree-mode .tree-course { gap: 4px; padding: 9px 11px; border-radius: 13px; }
+.mobile-tree-mode .tree-course > span { gap: 5px; font-size: 11px; }
+.mobile-tree-mode .tree-course > span svg { width: 14px; height: 14px; }
+.mobile-tree-mode .tree-course strong { font-size: 14px; }
+.mobile-tree-mode .tree-course small { font-size: 11px; }
+.mobile-tree-mode .tree-branch { gap: 4px; padding: 8px 28px 8px 10px; border-radius: 11px; }
+.mobile-tree-mode .tree-branch-name { font-size: 14px; line-height: 1.35; }
+.mobile-tree-mode .tree-branch-meta { font-size: 11px; line-height: 1.3; }
+.mobile-tree-mode .tree-branch-toggle { top: 50%; right: 4px; width: 20px; height: 20px; transform: translateY(-50%); }
+.mobile-tree-mode .tree-branch-toggle svg { width: 12px; height: 12px; }
+.mobile-tree-mode .tree-leaf { gap: 8px; padding: 2px 5px; border-radius: 12px; }
+.mobile-tree-mode .mastery-orb { width: 40px; height: 40px; padding: 2px; }
+.mobile-tree-mode .orb-core { border-width: 2px; }
+.mobile-tree-mode .orb-core strong { font-size: 13px; letter-spacing: -.3px; }
+.mobile-tree-mode .orb-core strong small { font-size: 9px; }
+.mobile-tree-mode .orb-core > span { font-size: 8px; }
+.mobile-tree-mode .tree-leaf-copy { gap: 3px; }
+.mobile-tree-mode .tree-leaf-copy strong { font-size: 14px; line-height: 1.35; -webkit-line-clamp: 3; }
+.mobile-tree-mode .tree-leaf-copy > small { gap: 2px; font-size: 11px; line-height: 1.25; }
+.mobile-tree-mode .tree-leaf-copy > small svg { width: 10px; height: 10px; }
+.mobile-tree-mode .tree-leaf-signals { gap: 6px; font-size: 10px; }
+.mobile-tree-mode .tree-leaf-signal { gap: 3px; }
+.mobile-tree-mode .tree-leaf-signal i { width: 6px; height: 6px; }
+.mobile-tree-mode .tree-leaf-signal-empty { font-size: 10px; }
+.mobile-tree-mode .tree-leaf .orb-core > svg { width: 19px; height: 19px; }
+
 @container mastery-tree (max-width: 380px) {
-  .tree-mobile { padding: 10px; }
+  .tree-toolbar { padding-right: 9px; padding-left: 9px; }
+  .tree-zoom { display: none; }
+  .tree-help { flex-wrap: wrap; }
+  .tree-help .tree-signal-legend { margin-left: 17px; }
 }
 </style>
